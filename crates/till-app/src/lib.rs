@@ -355,6 +355,13 @@ pub enum Action {
     SetTor {
         on: bool,
     },
+    /// Whether Orbot's SOCKS proxy answered, as the platform's probe found
+    /// it (decision 10): Android probes as the app comes forward and as
+    /// step 3 and Settings open. A till connects over Tor only once a probe
+    /// said Orbot runs, and Settings says when it doesn't.
+    TorProbed {
+        running: bool,
+    },
     Disconnect,
     /// The store disconnected this device: forget it.
     Forget,

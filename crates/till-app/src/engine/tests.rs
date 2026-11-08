@@ -496,3 +496,66 @@ fn work_done_for_an_earlier_generation_is_dropped() {
     ));
     assert_eq!(problem(&rx), "current");
 }
+
+/// Connects to a stand-in whose handshake gives an onion address, after
+/// `probe` (if any) told the engine about Orbot; returns what was kept.
+async fn connect_with_onion(probe: Option<bool>) -> String {
+    let monokulo = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/apps/connect"))
+        .respond_with(json(
+            r#"{"app_key":"ak_x","api":"/api/v1","onion_api":"http://abc.onion/api/v1"}"#,
+        ))
+        .mount(&monokulo)
+        .await;
+    let platform = Arc::new(FakePlatform::default());
+    let (engine, rx, _) = start(config(None), platform.clone());
+    if let Some(running) = probe {
+        engine.send(Action::TorProbed { running });
+    }
+    engine.send(Action::ConnectLink {
+        url: format!("{}/apps/connect#token={TOKEN}", monokulo.uri()),
+    });
+    screen(&rx, Screen::Confirm);
+    engine.send(Action::Connect);
+    screen(&rx, Screen::Connected);
+    platform.get("connection").unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_till_connects_over_tor_only_once_a_probe_found_orbot_running() {
+    let on = connect_with_onion(Some(true)).await;
+    assert!(on.contains(r#""tor":true"#), "{on}");
+    assert!(
+        on.contains(r#""onion_api":"http://abc.onion/api/v1""#),
+        "{on}"
+    );
+    let off = connect_with_onion(Some(false)).await;
+    assert!(!off.contains(r#""tor""#), "{off}");
+    let unprobed = connect_with_onion(None).await;
+    assert!(!unprobed.contains(r#""tor""#), "{unprobed}");
+}
+
+#[test]
+fn settings_says_when_orbot_isnt_running_for_a_till_on_tor() {
+    let platform = FakePlatform::with(&[("setup.done", "true")]);
+    platform.set(
+        "connection",
+        r#"{"app_key":"ak_1","api":"https://pay.example/api/v1","onion_api":"http://abc.onion/api/v1","tor":true}"#,
+    );
+    let android = EngineConfig {
+        device: Device::Android,
+        ..config(None)
+    };
+    let (engine, rx, _) = start(android, platform);
+    engine.send(Action::TorProbed { running: false });
+    let footnote = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view
+            .tor
+            .as_ref()
+            .map(|tor| tor.footnote.clone())
+            .filter(|f| f.starts_with("Orbot isn't running")),
+        _ => None,
+    });
+    assert!(footnote.ends_with("or turn this off."), "{footnote}");
+}

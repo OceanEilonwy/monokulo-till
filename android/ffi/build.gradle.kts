@@ -18,6 +18,28 @@ abstract class CargoTask : Exec() {
     abstract val outDir: DirectoryProperty
 }
 
+/**
+ * `rustls-platform-verifier-android`'s version in Cargo.lock: its Maven
+ * component must be exactly that version (docs/decisions/core.md 36), so
+ * Gradle takes it from the lock file rather than a second place to update.
+ */
+abstract class RustlsVerifierVersion : ValueSource<String, RustlsVerifierVersion.Params> {
+    interface Params : ValueSourceParameters {
+        val lockFile: RegularFileProperty
+    }
+
+    override fun obtain(): String {
+        val lines = parameters.lockFile.get().asFile.readLines()
+        val at = lines.indexOfFirst { it.trim() == "name = \"rustls-platform-verifier-android\"" }
+        check(at >= 0) { "rustls-platform-verifier-android isn't in Cargo.lock" }
+        return lines.drop(at + 1).first { it.trimStart().startsWith("version = ") }.substringAfter('"').substringBefore('"')
+    }
+}
+
+val rustlsVerifierVersion = providers.of(RustlsVerifierVersion::class.java) {
+    parameters.lockFile.set(File(repo, "Cargo.lock"))
+}
+
 android {
     namespace = "com.monokulo.till.ffi"
     compileSdk = 37
@@ -87,6 +109,8 @@ androidComponents {
 }
 
 dependencies {
+    // The Kotlin half of rustls-platform-verifier, which `Tls.init` hands the app's context to.
+    implementation("org.rustls:rustls-platform-verifier:${rustlsVerifierVersion.get()}")
     // JNA as an AAR for the app (it carries JNA's own native library); the
     // plain jar for unit tests on the JVM, in each module that runs them.
     api("${libs.jna.get()}@aar")

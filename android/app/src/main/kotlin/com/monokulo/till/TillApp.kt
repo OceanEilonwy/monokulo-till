@@ -6,6 +6,7 @@ import com.monokulo.till.core.AppIdentity
 import com.monokulo.till.core.PointOfSale
 import com.monokulo.till.core.MonokuloApi
 import com.monokulo.till.core.Tor
+import com.monokulo.till.ffi.Tls
 import com.monokulo.till.push.BellAddress
 import com.monokulo.till.push.BellApi
 import com.monokulo.till.push.BellWakeUps
@@ -34,6 +35,12 @@ import java.util.concurrent.TimeUnit
 
 class TillApp : Application(), WakePushService.Host {
     val graph by lazy { Graph(this) }
+
+    override fun onCreate() {
+        super.onCreate()
+        // Before the Rust core's first request (docs/decisions/core.md 36).
+        Tls.init(this)
+    }
 
     // The connector's service hands the Bell's dings to the graph (decision 93).
     override val pushSubscriptions get() = graph.push

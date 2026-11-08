@@ -198,6 +198,8 @@ pub(crate) struct State {
     visible: bool,
     alerts_allowed: bool,
     bubble_allowed: bool,
+    /// Orbot's proxy, as the platform's last probe found it.
+    tor_running: Option<bool>,
     utc_offset: i32,
     hours_24: bool,
     phases: Phases,
@@ -244,6 +246,7 @@ impl State {
             visible: true,
             alerts_allowed: false,
             bubble_allowed: false,
+            tor_running: None,
             phases: Phases::default(),
             published: Published::default(),
         }
@@ -532,6 +535,7 @@ impl State {
                 self.alerts_allowed = alerts;
                 self.bubble_allowed = bubble;
             }
+            Action::TorProbed { running } => self.tor_running = Some(running),
             action if self.parts.is_none() => {
                 self.log(format!(
                     "till-core: nothing kept could be read, so {action:?} waits"
@@ -753,11 +757,16 @@ impl State {
             return;
         };
         let (monokulo, wake_ups) = (p.monokulo.clone(), p.wake_ups.clone());
+        // Over Tor when the store has an onion address and the platform's
+        // probe found Orbot running (decision 55); off it until a probe says so.
+        let orbot = self.tor_running == Some(true);
         self.work(async move {
             match monokulo.connect(&code).await {
-                // Tor waits for a probe of Orbot on Android (decision 55):
-                // a till connects off Tor until then.
                 Ok(connection) => {
+                    let connection = Connection {
+                        tor: connection.onion_api.is_some() && orbot,
+                        ..connection
+                    };
                     wake_ups.unregister(true).await;
                     apply(move |s| s.connected(connection))
                 }
@@ -1426,7 +1435,7 @@ impl State {
             debug: self.config.debug,
             base_urls,
             // Orbot's probe stays on the platform (decision 10).
-            tor_running: None,
+            tor_running: self.tor_running,
             wake_ups: self.wake_ups_input(p),
             live_activity: false,
             code_in_island: false,

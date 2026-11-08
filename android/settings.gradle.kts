@@ -11,6 +11,10 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // rustls-platform-verifier's Kotlin component, published beside the crate (docs/decisions/core.md 36).
+        maven("https://raw.githubusercontent.com/rustls/rustls-platform-verifier/maven-archive/android-release-support/maven/") {
+            content { includeGroup("org.rustls") }
+        }
     }
 }
 
