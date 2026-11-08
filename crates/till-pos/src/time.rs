@@ -5,6 +5,21 @@
 use jiff::Timestamp;
 use jiff::fmt::temporal::DateTimePrinter;
 
+/// The Unix seconds of an RFC 3339 instant with any offset (a sale's
+/// [`crate::FoundSale::created_at`], a saved cursor), any fraction dropped
+/// toward zero (Java's `getEpochSecond` floored, which differs only before
+/// 1970); `None` when it isn't one.
+pub fn unix_seconds(text: &str) -> Option<i64> {
+    parse(text).map(|at| at.as_second())
+}
+
+/// The instant `seconds` after the Unix epoch, written as Java's
+/// `Instant.toString()` wrote it (`2026-10-22T16:07:00Z`), clamped to what
+/// an RFC 3339 instant can say.
+pub fn instant(seconds: i64) -> String {
+    format(from_seconds(seconds))
+}
+
 /// An RFC 3339 instant, with any offset; `None` when it isn't one.
 pub(crate) fn parse(text: &str) -> Option<Timestamp> {
     text.parse().ok()
@@ -64,5 +79,18 @@ mod tests {
         assert_eq!(at("2026-10-22T09:07:00-07:00"), "2026-10-22T16:07:00Z");
         assert_eq!(format(from_seconds(1_761_600_000)), "2025-10-27T21:20:00Z");
         assert!(parse("yesterday").is_none());
+    }
+
+    #[test]
+    fn instants_read_and_write_as_unix_seconds() {
+        assert_eq!(unix_seconds("2025-10-27T21:20:00Z"), Some(1_761_600_000));
+        assert_eq!(
+            unix_seconds("2025-10-27T14:20:00.999-07:00"),
+            Some(1_761_600_000)
+        );
+        assert_eq!(unix_seconds("1969-12-31T23:59:59.5Z"), Some(0));
+        assert_eq!(unix_seconds("yesterday"), None);
+        assert_eq!(instant(1_761_600_000), "2025-10-27T21:20:00Z");
+        assert_eq!(instant(i64::MAX), "9999-12-30T22:00:00Z");
     }
 }

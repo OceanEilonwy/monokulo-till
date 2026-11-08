@@ -11,8 +11,6 @@ publish = false
 # PosSwitchSide is a trait object with async methods, as till-pos's are.
 async-trait = "0.1.89"
 futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
-# A point of sale's RFC 3339 times, read as Unix seconds.
-jiff = "0.2.16"
 monokulo-client.workspace = true
 orf-codec.workspace = true
 serde.workspace = true

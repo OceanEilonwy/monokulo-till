@@ -32,8 +32,7 @@ mod receipts;
 mod source;
 #[cfg(feature = "square")]
 pub mod square;
-#[cfg(any(feature = "square", feature = "clover"))]
-mod time;
+pub mod time;
 mod tokens;
 
 pub use error::PosError;

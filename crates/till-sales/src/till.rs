@@ -658,11 +658,8 @@ impl Till {
         // events may have moved it on (paid, even): keep what they said, and
         // when, else the order's own. Read and replaced in the one change, so
         // a close or a refund stamped meanwhile on another thread isn't lost.
-        let created_at = found
-            .created_at
-            .parse::<jiff::Timestamp>()
-            .map(|at| at.as_second())
-            .unwrap_or_else(|_| self.clock.now());
+        let created_at =
+            till_pos::time::unix_seconds(&found.created_at).unwrap_or_else(|| self.clock.now());
         let (receipt, customer_name) = match read {
             Some(read) => (read.receipt, read.customer_name),
             None => (None, None),

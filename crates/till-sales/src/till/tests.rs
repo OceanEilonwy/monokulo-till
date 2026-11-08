@@ -1165,10 +1165,7 @@ async fn closing_a_sale_for_now_takes_its_code_down_and_keeps_it_in_the_shift_wh
     let shown = only(&till);
     assert_eq!(
         shown.created_at,
-        "2026-10-22T16:07:00Z"
-            .parse::<jiff::Timestamp>()
-            .unwrap()
-            .as_second(),
+        till_pos::time::unix_seconds("2026-10-22T16:07:00Z").unwrap(),
         "rung up at the POS's time"
     );
     assert_eq!(
