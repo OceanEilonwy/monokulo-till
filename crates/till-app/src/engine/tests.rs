@@ -40,12 +40,14 @@ fn config(square: Option<&MockServer>) -> EngineConfig {
             sandbox: false,
             redirect_uri: "https://till.monokulo.com/square".into(),
             base_url: square.map(MockServer::uri),
+            return_uri: None,
         },
         clover: CloverSetup {
             application_id: "clv-till".into(),
             environment: "sandbox".into(),
             redirect_uri: "https://till.monokulo.com/clover".into(),
             base_url: None,
+            return_uri: None,
         },
         bell_url: "https://bell.monokulo.com".into(),
     }
@@ -357,6 +359,68 @@ async fn a_sign_in_opens_its_page_and_keeps_the_attempt_as_stores_kt_did() {
         Screen::PointOfSale,
         "setup goes on to the test sale"
     );
+}
+
+/// Decision 57: a debug build's sign-in comes back on its own scheme, and
+/// the token exchange still names the redirect Square knows.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sign_in_back_on_the_builds_return_link_is_taken_and_exchanged_for_the_redirect() {
+    let monokulo = monokulo().await;
+    let square = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/oauth2/token"))
+        .respond_with(json(
+            r#"{"access_token":"EAAA9","expires_at":"2030-01-01T00:00:00Z","refresh_token":"r9","merchant_id":"M1"}"#,
+        ))
+        .mount(&square)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v2/locations"))
+        .respond_with(json(
+            r#"{"locations":[{"id":"L1","name":"Front counter","country":"US","currency":"USD","status":"ACTIVE"}]}"#,
+        ))
+        .mount(&square)
+        .await;
+    let platform = FakePlatform::with(&[
+        ("pos.kind", "square"),
+        (
+            "square.pending",
+            r#"{"verifier":"v-1","state":"s-1","pointOfSale":"square"}"#,
+        ),
+    ]);
+    platform.set(
+        "connection",
+        &format!(r#"{{"app_key":"ak_1","api":"{}/api/v1"}}"#, monokulo.uri()),
+    );
+    let mut config = config(Some(&square));
+    config.square.return_uri = Some("monokulo-till-debug://square".into());
+    config.clover.return_uri = Some("monokulo-till-debug://clover".into());
+    let (engine, rx, _) = start(config, platform.clone());
+    screen(&rx, Screen::PointOfSale);
+
+    engine.send(Action::SignInReturned {
+        url: "monokulo-till-debug://clover?code=c&state=s-1&merchant_id=MID1".into(),
+    });
+    assert_eq!(
+        problem(&rx),
+        "That Clover sign-in wasn't started here. Try again.",
+        "Clover's return link is Clover's"
+    );
+    engine.send(Action::SignInReturned {
+        url: "monokulo-till-debug://square?code=c1&state=s-1".into(),
+    });
+    wait_for(&rx, |_| platform.get("square.location"));
+    assert!(platform.get("square.tokens").unwrap().contains("EAAA9"));
+    let exchange = square
+        .received_requests()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|r| r.url.path() == "/oauth2/token")
+        .expect("the code exchanged");
+    let body: serde_json::Value = serde_json::from_slice(&exchange.body).unwrap();
+    assert_eq!(body["redirect_uri"], "https://till.monokulo.com/square");
+    assert_eq!(body["code"], "c1");
 }
 
 #[tokio::test(flavor = "multi_thread")]

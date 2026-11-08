@@ -155,10 +155,17 @@ pub trait EngineListener: Send + Sync {
 pub struct SquareSetup {
     pub application_id: String,
     pub sandbox: bool,
-    /// Where Square sends the sign-in back: an App Link into the app.
+    /// Where Square sends the sign-in back: an App Link into the app. The
+    /// token exchange names it, as Square requires.
     pub redirect_uri: String,
     /// A stand-in Square, for development; `None` for Square's own.
     pub base_url: Option<String>,
+    /// Where the sign-in comes back into the app when that isn't
+    /// `redirect_uri` itself: a debug build's `monokulo-till-debug://` link,
+    /// which the page at `redirect_uri` forwards to. A redirect to either
+    /// is taken (decision 57); `None` takes only `redirect_uri`.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub return_uri: Option<String>,
 }
 
 /// Which Clover, as the build names it.
@@ -170,6 +177,9 @@ pub struct CloverSetup {
     pub environment: String,
     pub redirect_uri: String,
     pub base_url: Option<String>,
+    /// As [`SquareSetup::return_uri`].
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub return_uri: Option<String>,
 }
 
 /// The app around the engine: where it keeps things, what it is, and what

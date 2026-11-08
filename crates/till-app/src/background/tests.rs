@@ -28,12 +28,14 @@ fn config(square: &MockServer) -> EngineConfig {
             sandbox: false,
             redirect_uri: "https://till.monokulo.com/square".into(),
             base_url: Some(square.uri()),
+            return_uri: None,
         },
         clover: CloverSetup {
             application_id: "clv-till".into(),
             environment: "sandbox".into(),
             redirect_uri: "https://till.monokulo.com/clover".into(),
             base_url: None,
+            return_uri: None,
         },
         bell_url: "https://bell.monokulo.com".into(),
     }

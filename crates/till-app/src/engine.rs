@@ -934,9 +934,18 @@ impl State {
             return;
         };
         let without_query = url.split(['?', '#']).next().unwrap_or(url);
-        let pos = if without_query == redirect_base(&self.config.square.redirect_uri) {
+        // Back on the redirect itself, or on the build's return link to the
+        // app (decision 57): either way the exchange names the redirect.
+        let returns_to = |redirect: &str, back: &Option<String>| {
+            without_query == redirect_base(redirect)
+                || back
+                    .as_deref()
+                    .is_some_and(|back| without_query == redirect_base(back))
+        };
+        let (square, clover) = (&self.config.square, &self.config.clover);
+        let pos = if returns_to(&square.redirect_uri, &square.return_uri) {
             PointOfSale::Square
-        } else if without_query == redirect_base(&self.config.clover.redirect_uri) {
+        } else if returns_to(&clover.redirect_uri, &clover.return_uri) {
             PointOfSale::Clover
         } else {
             self.log(format!(
