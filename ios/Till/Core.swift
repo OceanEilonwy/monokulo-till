@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import TillCore
 import UIKit
+import UserNotifications
 
 /// The Rust engine and what it last published, for SwiftUI to draw. The
 /// engine owns all behaviour (docs/ios-plan.md §2); this class only keeps
@@ -20,16 +21,34 @@ final class Core {
     /// A network call is under way, and what went wrong last (`Update.work`).
     private(set) var busy = false
     private(set) var problem: String?
+    /// The till's screens (`Update.shift`, `.sale`, `.closeSheet`,
+    /// `.refundSheet`, `.settings`, `.wakeUps`): nil until the engine says.
+    private(set) var shift: ShiftView?
+    private(set) var sale: SaleScreens?
+    private(set) var closeSheet: CloseSheet?
+    private(set) var refundSheet: RefundSheetView?
+    private(set) var settings: SettingsView?
+    private(set) var wakeUps: WakeUpsView?
+    /// How the next screen came: by itself (the sales moved the till), or
+    /// the cashier (`Update.nav`).
+    private(set) var byItself = false
     /// What the build chose: the points of sale's redirects among it.
     let config: EngineConfig
     private var engine: Engine?
     private let signIn: SignInSession
+    /// Taps on a new sale's alert, which open the sale.
+    private var taps: NotificationTaps?
 
     init(secrets: Platform = DevicePlatform(), push: PushPlatform = ApnsPush()) {
         config = Core.config()
         signIn = SignInSession()
         let listener = Listener(core: self)
         engine = Engine(config: config, platform: secrets, push: push, listener: listener)
+        let taps = NotificationTaps { [weak self] orderId in
+            self?.send(.openSale(orderId: orderId))
+        }
+        self.taps = taps
+        UNUserNotificationCenter.current().delegate = taps
     }
 
     /// Which screen draws the app now.
@@ -58,6 +77,15 @@ final class Core {
         send(.backgrounded)
     }
 
+    /// Once the move to `screen` has settled (its animation, then a little),
+    /// the engine hears the till rests there. Cancelled by the next move.
+    func land(_ screen: Screen?) async {
+        guard let screen, Route.of(screen).lands else { return }
+        try? await Task.sleep(for: .milliseconds(300))
+        guard !Task.isCancelled, screen == self.screen else { return }
+        send(.landed(screen: screen))
+    }
+
     /// Tells the engine whether alerts are allowed.
     func readPermissions() async {
         let status = await AlertsPermission.status()
@@ -72,6 +100,24 @@ final class Core {
         case .work(let busy, let problem):
             self.busy = busy
             self.problem = problem
+        case .nav(let byItself, _): self.byItself = byItself
+        case .shift(let view): shift = view
+        case .sale(let orderId, let view, let page, let code, let order):
+            sale = SaleScreens(orderId: orderId, view: view, page: page, code: code, order: order)
+        case .closeSheet(let orderId, let view):
+            if let orderId, let view {
+                closeSheet = CloseSheet(orderId: orderId, view: view)
+            } else {
+                closeSheet = nil
+            }
+        case .refundSheet(let view): refundSheet = view
+        case .settings(let view): settings = view
+        case .wakeUps(let view): wakeUps = view
+        case .notification(let view):
+            // Set in one update only, as the sale arrives with Till in the back.
+            if let alert = view.alert {
+                Task { await SaleAlerts.post(alert) }
+            }
         default: break
         }
         updates.append(String(describing: update))
@@ -90,6 +136,10 @@ final class Core {
             }
         case .copyText(let text):
             UIPasteboard.general.string = text
+        case .clearNotification(let id):
+            SaleAlerts.clear(id)
+        case .haptic:
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
         default:
             break
         }
@@ -136,6 +186,22 @@ final class Core {
             bellUrl: "https://bell.monokulo.com"
         )
     }
+}
+
+/// The sale on screen, as each of its screens draws it (`Update.sale`).
+struct SaleScreens {
+    let orderId: String
+    let view: SaleView
+    let page: SalePageView
+    let code: CodeView
+    /// Every line of its order, for the order screen.
+    let order: OrderCard?
+}
+
+/// The close sheet over a sale, while one is asked (`Update.closeSheet`).
+struct CloseSheet {
+    let orderId: String
+    let view: CloseView
 }
 
 /// Hands the engine's updates and effects, which arrive on its own thread,

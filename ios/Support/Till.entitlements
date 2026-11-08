@@ -13,5 +13,11 @@
 		<string>applinks:till.monokulo.com</string>
 		<string>webcredentials:till.monokulo.com</string>
 	</array>
+	<!--
+	A new sale's alert while Till is tucked off the edge (PadTucked) is
+	time-sensitive, so it shows through Focus.
+	-->
+	<key>com.apple.developer.usernotifications.time-sensitive</key>
+	<true/>
 </dict>
 </plist>
