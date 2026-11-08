@@ -26,16 +26,18 @@ mod engine;
 mod phases;
 mod preview;
 mod push;
+mod relay;
 mod side;
 pub mod store;
 #[cfg(test)]
 mod testing;
+mod web_push;
 
 use std::sync::{Arc, OnceLock};
 
 use tokio::sync::mpsc::UnboundedSender;
 
-pub use background::{BackgroundCheck, background_check};
+pub use background::{BackgroundCheck, background_check, is_relayed_ding};
 use monokulo_client::PointOfSale;
 pub use preview::{TillPreview, preview_close, preview_panel, preview_sale, preview_shift};
 pub use till_screens::Device;
@@ -210,6 +212,14 @@ pub struct EngineConfig {
     pub clover: CloverSetup,
     /// The project's Bell, what "Monokulo Bell" registers with.
     pub bell_url: String,
+    /// iOS: the push relay that turns the device's APNs token into a Web
+    /// Push endpoint for the Bell (design.md §5, "The relay API"). With it
+    /// the engine carries the push side itself: it registers the token
+    /// [`Action::PushToken`] hands over, opens what the relay carries, and
+    /// never calls the [`PushPlatform`] it was given. `None` on Android,
+    /// whose [`PushPlatform`] is UnifiedPush.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub relay_url: Option<String>,
 }
 
 /// A point of sale, as the platform names one to the engine.
@@ -499,6 +509,16 @@ pub enum Action {
     },
     /// An app came or went, which may have been a distributor.
     DistributorsChanged,
+    /// iOS's APNs device token, the bytes in hex, each time iOS gives one
+    /// (every launch, from `registerForRemoteNotifications`); `None` when
+    /// iOS couldn't register for remote notifications. With a
+    /// [`EngineConfig::relay_url`] the engine registers it with the relay
+    /// while the Bell is chosen; without, it is ignored. A push the relay
+    /// carried comes as [`Action::PushReceived`] with its `aes128gcm`
+    /// ciphertext and `decrypted` false: the engine opens it.
+    PushToken {
+        token: Option<String>,
+    },
 }
 
 /// A slice of what the screens show, sent only when it changed. Each
