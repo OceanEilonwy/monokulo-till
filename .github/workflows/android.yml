@@ -3,9 +3,9 @@ name: Android
 on:
   push:
     branches: [main]
-    paths: ["android/**", "crates/**", "Cargo.*", "tools/monokulo-openapi/**", ".github/workflows/android.yml"]
+    paths: ["android/**", "crates/**", "Cargo.*", ".github/workflows/android.yml"]
   pull_request:
-    paths: ["android/**", "crates/**", "Cargo.*", "tools/monokulo-openapi/**", ".github/workflows/android.yml"]
+    paths: ["android/**", "crates/**", "Cargo.*", ".github/workflows/android.yml"]
 
 permissions:
   contents: read
@@ -42,17 +42,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: android
-      # Core's contract test generates Monokulo's OpenAPI document at the
-      # pinned commit (docs/decisions/android.md 53). It needs only Rust:
-      # rustup installs the toolchain Monokulo's rust-toolchain.toml names.
-      - name: Pinned Monokulo commit
-        id: monokulo
-        run: echo "sha=$(sed -n 's/^monokulo.sha=//p' gradle.properties)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v6
-        with:
-          path: android/build/monokulo-src
-          key: monokulo-src-${{ runner.os }}-${{ steps.monokulo.outputs.sha }}
-          restore-keys: monokulo-src-${{ runner.os }}-
       - name: cargo-ndk
         run: command -v cargo-ndk || cargo install cargo-ndk --version 4.1.2 --locked
       # Pull requests build the Rust core for one ABI with the plain release
