@@ -265,6 +265,11 @@ pub enum OngoingFace {
         /// A heads-up: the sale is new.
         alert: bool,
         buttons: Vec<NoticeButton>,
+        /// What the code says (the payment URI, with the receipt when it has
+        /// one): the notification's large icon draws it.
+        code: String,
+        /// The wallet address the sale pays, for its "Copy address".
+        address: String,
     },
     Paid {
         order_id: String,
@@ -364,6 +369,8 @@ pub fn notification(
                 sub_text: sale_text::title(sale),
                 alert: input.alert_for.as_deref() == Some(sale.order_id.as_str()),
                 buttons: vec![NoticeAction::ShowCode.into(), second.into()],
+                code: sale.code.uri.clone(),
+                address: sale.address.clone(),
                 face,
             }
         }
@@ -670,6 +677,8 @@ mod tests {
             buttons,
             sub_text,
             face,
+            code,
+            address,
             ..
         }) = new.ongoing
         else {
@@ -677,6 +686,11 @@ mod tests {
         };
         assert!(alert);
         assert_eq!(sub_text, "Sale #bP9m");
+        assert_eq!(
+            code, "monero:4abc?tx_amount=0.05552",
+            "the large icon's code"
+        );
+        assert_eq!(address, "4abc", "what Copy address copies");
         assert_eq!(face.title, "New Monero sale · Front Counter");
         assert_eq!(
             buttons.iter().map(|b| b.label.as_str()).collect::<Vec<_>>(),

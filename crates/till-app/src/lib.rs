@@ -623,9 +623,24 @@ pub enum Effect {
     Haptic {
         haptic: Haptic,
     },
+    /// Put `text` on the clipboard; `kind` says what it is, for the
+    /// platform's confirmation ("Address copied") and for marking an
+    /// address sensitive, without reading the text.
     CopyText {
         text: String,
+        kind: CopyKind,
     },
+}
+
+/// What [`Effect::CopyText`] copies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum CopyKind {
+    /// A sale's wallet address ("Copy address").
+    Address,
+    /// A sale's XMR amount, as its figures ("0.05552"; the amount tapped).
+    Amount,
+    Other,
 }
 
 /// The summary of Android's ended group, once it holds `ended`

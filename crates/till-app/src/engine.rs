@@ -37,8 +37,8 @@ use crate::push::PlatformPush;
 use crate::side::Side;
 use crate::store::{Kept, Log, PendingSignIn, Store, WakeUpsKept};
 use crate::{
-    Action, CORE_VERSION, CloseChoice, Effect, EngineConfig, EngineListener, Haptic, Platform,
-    PushPlatform, Screen, Update, WakeUps,
+    Action, CORE_VERSION, CloseChoice, CopyKind, Effect, EngineConfig, EngineListener, Haptic,
+    Platform, PushPlatform, Screen, Update, WakeUps,
 };
 
 pub(crate) enum Msg {
@@ -656,12 +656,18 @@ impl State {
             }
             Action::CopyAddress { order_id } => {
                 if let Some(sale) = self.sale(&order_id) {
-                    self.effect(Effect::CopyText { text: sale.address });
+                    self.effect(Effect::CopyText {
+                        text: sale.address,
+                        kind: CopyKind::Address,
+                    });
                 }
             }
             Action::CopyAmount { order_id } => {
                 if let Some(sale) = self.sale(&order_id) {
-                    self.effect(Effect::CopyText { text: sale.xmr });
+                    self.effect(Effect::CopyText {
+                        text: sale.xmr,
+                        kind: CopyKind::Amount,
+                    });
                 }
             }
             Action::OpenSettings => self.open_settings(),

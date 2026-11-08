@@ -14,8 +14,8 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use crate::testing::{FakePlatform, FakePush, Heard, Recorder, wait_for};
 use crate::{
-    Action, CloseChoice, CloverSetup, Device, Effect, Engine, EngineConfig, Screen, SquareSetup,
-    Update, WakeUps,
+    Action, CloseChoice, CloverSetup, CopyKind, Device, Effect, Engine, EngineConfig, Screen,
+    SquareSetup, Update, WakeUps,
 };
 
 use super::Options;
@@ -480,14 +480,22 @@ async fn an_upgraded_till_runs_its_shift_makes_orders_and_tells_the_platform() {
             after = Some(view.clone());
             None
         }
-        Heard::Effect(Effect::CopyText { text }) => Some(text.clone()),
+        Heard::Effect(Effect::CopyText { text, kind }) => Some((text.clone(), *kind)),
         _ => None,
     });
-    assert_eq!(copied, "8Bx");
+    assert_eq!(copied, ("8Bx".into(), CopyKind::Address));
     // The next change goes without the alert: it was posted once.
     if let Some(after) = after {
         assert_eq!(after.alert, None, "alerted once");
     }
+    engine.send(Action::CopyAmount {
+        order_id: "ord_1".into(),
+    });
+    let copied = wait_for(&rx, |heard| match heard {
+        Heard::Effect(Effect::CopyText { text, kind }) => Some((text.clone(), *kind)),
+        _ => None,
+    });
+    assert_eq!(copied, ("0.08".into(), CopyKind::Amount));
 
     // The close sheet's "No": the till refunds it in Square and closes it.
     engine.send(Action::Close {
