@@ -1,9 +1,5 @@
 <p align="center">
-  <img src="ios/Support/AppIcon.svg" width="128" height="128" alt="Till">
-</p>
-
-<p align="center">
-  <img src="docs/screenshots/android/tablet-split-sale.png" width="720" alt="A Monero sale beside the point of sale on a tablet">
+  <img src="docs/readme/icon-dark.svg" width="180" height="180" alt="Till">
 </p>
 
 <h1 align="center">Monokulo Till</h1>
