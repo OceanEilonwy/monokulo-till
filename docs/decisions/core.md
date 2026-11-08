@@ -260,3 +260,34 @@ on from 1; the Android app's own choices are in [android.md](android.md).
     payment code.", from PadTucked) and iPhone ("Tap here to show the
     payment code."); design.md §3's "Monero sale · $24.50 · Tap to show
     code" is the alternative. The iOS words await the owner's review.
+
+## Phase 5b: the engine's foundation (2026-11-08)
+
+42. **The saved state is a model in memory, written through key by key**,
+    in `Stores.kt`'s keys, each value the UTF-8 of the string the Kotlin
+    wrote, so an upgraded Android till keeps everything. A fixture holds
+    every key and reads back byte for byte. Sign-ins, cursors, tender ids
+    and the shift are read through each time, because the iOS extension
+    changes them; a refused write leaves the model as it was, and a shift
+    that can't be read is never saved over.
+43. **`TokenLock` is an `flock` on `<data_dir>/sign-in.lock`**, Rust's own on
+    both platforms, so there is no platform trait for it; on Android it
+    never waits.
+44. **The push side is a foreign `PushPlatform`, called one way and
+    answered with `Push…` actions** that feed `till-bell`'s `PushFeed`; a
+    ding also wakes the runner. iOS's implementation always finds one
+    distributor, APNs.
+45. **`background_check` is a free function, not an `Engine` method**: it
+    builds a current-thread runtime, never runs with no shift on (android.md
+    93), takes its deadline in milliseconds from now, keeps the orders made
+    before the deadline (the idempotency key gives the next look the same
+    order), and returns an alert face per new live sale.
+46. **The engine adds `Update::Screen`, `Work` and `Service`**, publishes
+    Onboarding only while setup is on screen, and alerts only sales that
+    weren't already kept, so a restart doesn't alert again.
+47. **Still to do in the stores**: `TokenStore::load`, `ShiftStore`,
+    `CursorStore` and `TenderStore` can't report a failure (17), so the
+    engine logs and never saves over; Settings' `live_activity` and
+    `code_in_island` need new keys; the alert words are stand-ins until the
+    engine calls `till-screens`' `notification`; Tor's Orbot probe isn't
+    wired (connecting sets `tor = false`).

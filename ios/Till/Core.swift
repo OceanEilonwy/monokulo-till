@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import TillCore
+import UIKit
 
 /// The Rust engine and what it last published, for SwiftUI to draw. The
 /// engine owns all behaviour (docs/ios-plan.md §2); this class only keeps
@@ -12,9 +13,9 @@ final class Core {
     private(set) var updates: [String] = []
     private var engine: Engine?
 
-    init(secrets: Platform = DevicePlatform()) {
+    init(secrets: Platform = DevicePlatform(), push: PushPlatform = ApnsPush()) {
         let listener = Listener(core: self)
-        engine = Engine(config: Core.config(), platform: secrets, listener: listener)
+        engine = Engine(config: Core.config(), platform: secrets, push: push, listener: listener)
     }
 
     func send(_ action: Action) {
@@ -28,13 +29,44 @@ final class Core {
         updates.append(String(describing: update))
     }
 
-    /// Where the engine keeps its files: the app's own Application Support
-    /// for now; the App Group's container once the extension shares it (I5).
+    /// What the engine needs to know about this device and build
+    /// (`EngineConfig`, docs/ios-plan.md §2). Where it keeps its files: the
+    /// app's own Application Support for now; the App Group's container once
+    /// the extension shares it (I5).
     private static func config() -> EngineConfig {
         let directory = (try? FileManager.default.url(
             for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
         )) ?? FileManager.default.temporaryDirectory
-        return EngineConfig(dataDir: directory.path)
+        let device = UIDevice.current
+        #if DEBUG
+        let debug = true
+        #else
+        let debug = false
+        #endif
+        let format = DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: .current) ?? ""
+        return EngineConfig(
+            dataDir: directory.path,
+            device: device.userInterfaceIdiom == .pad ? .ipad : .iphone,
+            deviceName: device.name,
+            appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0",
+            platform: "ios",
+            debug: debug,
+            utcOffset: Int32(TimeZone.current.secondsFromGMT()),
+            hours24: !format.contains("a"),
+            square: SquareSetup(
+                applicationId: Build.squareApplicationId,
+                sandbox: false,
+                redirectUri: "https://till.monokulo.com/square",
+                baseUrl: nil
+            ),
+            clover: CloverSetup(
+                applicationId: Build.cloverApplicationId,
+                environment: "north_america",
+                redirectUri: "https://till.monokulo.com/clover",
+                baseUrl: nil
+            ),
+            bellUrl: "https://bell.monokulo.com"
+        )
     }
 }
 

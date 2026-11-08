@@ -7,7 +7,7 @@ import Testing
 @MainActor
 struct TillTests {
     @Test func theCoreStartsAndPublishesItsVersion() async throws {
-        let core = Core(secrets: MemoryPlatform())
+        let core = Core(secrets: MemoryPlatform(), push: ApnsPush())
         for _ in 0..<100 where core.version == nil {
             try await Task.sleep(for: .milliseconds(50))
         }
