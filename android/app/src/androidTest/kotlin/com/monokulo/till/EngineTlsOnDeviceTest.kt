@@ -66,6 +66,7 @@ class EngineTlsOnDeviceTest {
             engine.send(Action.Connect)
             val problem = heard.problems.poll(60, TimeUnit.SECONDS)
             assertNotNull(problem, "no answer within a minute: the request never finished")
+            android.util.Log.i("EngineTlsOnDeviceTest", "the host answered: $problem")
             assertFalse(problem.contains("error sending request"), "the request didn't reach the host: $problem")
         } finally {
             engine.close()
