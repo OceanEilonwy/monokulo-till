@@ -404,23 +404,24 @@ macOS minutes cost about ten times Linux minutes, so this job runs only on
 The bindings are generated in CI, never committed, the same as on Android
 (decision 8).
 
-### `release-ios.yml` (the `xcode-27` runner, new; on `v*` tags and manual runs)
+### `release-ios.yml` (the `xcode-27` runner; on `v*` tags and manual runs; written)
 
 - Builds the full XCFramework (device and simulator slices).
-- Imports the distribution certificate (`IOS_DIST_P12_BASE64`,
-  `IOS_DIST_P12_PASSWORD`) into a temporary keychain.
-- Signs with automatic provisioning through an App Store Connect API key
-  (`ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8_BASE64`).
-- Runs `xcodebuild archive`, then `xcodebuild -exportArchive` with
-  `destination: upload` and `-authenticationKeyPath`. This uploads to
-  TestFlight without fastlane.
-- Uses the GitHub environment `testflight`, with required reviewers.
+- Signs automatically with Xcode's cloud-managed distribution certificate
+  through an App Store Connect API key (`ASC_KEY_ID`, `ASC_ISSUER_ID`,
+  `ASC_KEY_P8`, and the `APPLE_TEAM_ID` variable), so no p12 is kept.
+- Runs `xcodebuild archive`, exports once to check the signed entitlements,
+  then `xcodebuild -exportArchive` with `destination: upload`. This uploads
+  to TestFlight without fastlane.
+- Uses the GitHub environment `testflight`, with required reviewers. The
+  owner's one-time steps are in [release.md](release.md).
 
 ### `pages.yml`, small addition
 
 - Serve `site/.well-known/apple-app-site-association` (the app's paths for
-  connect links and the Square redirect) with a `.nojekyll` file, so GitHub
-  Pages publishes the dot directory.
+  connect links and the Square redirect), with `include-hidden-files` so
+  the dot directory is published, and its team filled in from the
+  `APPLE_TEAM_ID` variable as it deploys (written).
 - Android's `assetlinks.json` can live beside it.
 
 ---
