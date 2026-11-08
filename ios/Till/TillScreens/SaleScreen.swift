@@ -7,11 +7,13 @@ import UIKit
 /// code with its enlarge badge, how the payment stands, what was bought,
 /// and Copy address. The bar's tinted X asks whether the customer is
 /// paying. iOS can't open Square (docs/ios-plan.md §4), so there's no
-/// "Back to Square".
+/// "Back to Square". On iPhone (PhoneSale) Copy address stays at the foot,
+/// under the scrolling body.
 struct SaleScreen: View {
     let orderId: String
     let view: SaleView
     let send: Send
+    var phone = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -50,29 +52,41 @@ struct SaleScreen: View {
                         .accessibilityHint("Copies the amount")
                     }
                     .padding(.top, 8)
-                    CodeCard(code: view.code, said: view.codeSaid, spent: view.spent) {
+                    CodeCard(code: view.code, said: view.codeSaid, spent: view.spent, size: phone ? 220 : 240) {
                         send(.enlarge(orderId: orderId))
                     }
                     SaleStatus(status: view.status, hint: view.hint, step: Int(view.step))
                     if let order = view.order {
                         OrderCardSection(card: order) { send(.showOrder(orderId: orderId)) }
                     }
-                    Button {
-                        send(.copyAddress(orderId: orderId))
-                    } label: {
-                        Label(view.copyAddress.label, systemImage: "doc.on.doc")
-                            .frame(maxWidth: .infinity)
+                    if !phone {
+                        copyAddress
+                            .padding(.horizontal, 16)
                     }
-                    .glassButton()
-                    .disabled(!view.copyAddress.enabled)
-                    .padding(.horizontal, 16)
                 }
                 .padding(.bottom, 24)
             }
             .scrollBounceBehavior(.basedOnSize)
+            if phone {
+                copyAddress
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+                    .padding(.bottom, 8)
+            }
         }
         .foregroundStyle(Palette.ink)
         .background(Palette.ground)
+    }
+
+    private var copyAddress: some View {
+        Button {
+            send(.copyAddress(orderId: orderId))
+        } label: {
+            Label(view.copyAddress.label, systemImage: "doc.on.doc")
+                .frame(maxWidth: .infinity)
+        }
+        .glassButton()
+        .disabled(!view.copyAddress.enabled)
     }
 }
 
@@ -82,13 +96,14 @@ struct CodeCard: View {
     let code: String
     let said: String
     let spent: Bool
+    var size: CGFloat = 240
     let enlarge: @MainActor () -> Void
 
     var body: some View {
         Button {
             enlarge()
         } label: {
-            QRCodeView(text: code, label: said, size: 240, padding: 16, cornerRadius: 24)
+            QRCodeView(text: code, label: said, size: size, padding: 16, cornerRadius: 24)
                 .opacity(spent ? 0.25 : 1)
                 .overlay(alignment: .bottomTrailing) {
                     Image(systemName: "arrow.up.left.and.arrow.down.right")
@@ -143,14 +158,87 @@ struct SaleStatus: View {
 /// CodeB), drawn from the engine's `CodeView`: white whatever the theme,
 /// the screen at full brightness while it shows, the amount, the line
 /// under it, the code as large as the screen allows and the four steps.
-/// A tap anywhere shrinks it.
+/// A tap anywhere shrinks it. On iPhone (PhoneCode) the amount and the
+/// shrink button head the screen, and the code takes its width.
 struct CodeScreen: View {
     let view: CodeView
     let send: Send
+    var phone = false
 
     @State private var brightness: CGFloat?
 
     var body: some View {
+        Group {
+            if phone {
+                phoneLayout
+            } else {
+                panelLayout
+            }
+        }
+        .foregroundStyle(Palette.codeInk)
+        .background(Palette.codeGround)
+        .contentShape(Rectangle())
+        .onTapGesture { send(.back) }
+        .accessibilityAction(named: "Shrink") { send(.back) }
+        .onAppear { raiseBrightness() }
+        .onDisappear { restoreBrightness() }
+        .environment(\.colorScheme, .light)
+    }
+
+    /// PhoneCode: the amount and its line beside the shrink button, the
+    /// code edge to edge, and what to do with it.
+    private var phoneLayout: some View {
+        GeometryReader { box in
+            let side = max(120, min(box.size.width - 12, box.size.height - 190))
+            VStack(spacing: 0) {
+                HStack(alignment: .center, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(view.amount)
+                            .display(30, tracking: -0.5)
+                            .minimumScaleFactor(0.5)
+                            .lineLimit(1)
+                        Text(view.under)
+                            .font(.subheadline.monospacedDigit())
+                            .foregroundStyle(Color(hex: 0x5A564C))
+                            .lineLimit(1)
+                    }
+                    .accessibilityElement(children: .combine)
+                    Spacer(minLength: 8)
+                    Button {
+                        send(.back)
+                    } label: {
+                        Image(systemName: "arrow.down.right.and.arrow.up.left")
+                            .font(.body.weight(.semibold))
+                            .frame(width: 48, height: 48)
+                            .background(Circle().fill(Color(hex: 0xEFEAE0)))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Shrink the code")
+                }
+                .padding(.leading, 14)
+                .padding(.trailing, 10)
+                .padding(.top, 6)
+                Spacer(minLength: 8)
+                QRCodeView(text: view.code, label: "Payment code for \(view.amount)", size: side, padding: 12, cornerRadius: 0)
+                Spacer(minLength: 8)
+                HStack(spacing: 10) {
+                    LoadingMark(size: 26, label: "Waiting for payment")
+                    Text("Scan with any Monero wallet")
+                        .font(.headline)
+                }
+                Text("Tap anywhere to shrink")
+                    .font(.footnote)
+                    .foregroundStyle(Color(hex: 0x5A564C))
+                    .padding(.top, 6)
+                    .padding(.bottom, 8)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, 6)
+        }
+    }
+
+    /// PadCode and PadFront: the amount over the code, and the four steps.
+    private var panelLayout: some View {
         GeometryReader { box in
             let side = max(120, min(box.size.width - 32, box.size.height - 260, 560))
             VStack(spacing: 14) {
@@ -176,14 +264,6 @@ struct CodeScreen: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.horizontal, 16)
         }
-        .foregroundStyle(Palette.codeInk)
-        .background(Palette.codeGround)
-        .contentShape(Rectangle())
-        .onTapGesture { send(.back) }
-        .accessibilityAction(named: "Shrink") { send(.back) }
-        .onAppear { raiseBrightness() }
-        .onDisappear { restoreBrightness() }
-        .environment(\.colorScheme, .light)
     }
 
     /// The screen this window is on.

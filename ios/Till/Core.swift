@@ -38,6 +38,9 @@ final class Core {
     private let signIn: SignInSession
     /// Taps on a new sale's alert, which open the sale.
     private var taps: NotificationTaps?
+    /// The iPhone's Live Activity (`Update.liveActivity`). Its push token
+    /// reaches `liveActivity.onPushToken`, for phase I5.
+    let liveActivity = LiveActivityController()
 
     init(secrets: Platform = DevicePlatform(), push: PushPlatform = ApnsPush()) {
         config = Core.config()
@@ -58,8 +61,16 @@ final class Core {
         engine?.send(action: action)
     }
 
-    /// A link that opened the app: a connect link, or a sign-in coming back.
+    /// A link that opened the app: the Live Activity's tap, a connect
+    /// link, or a sign-in coming back.
     func open(_ url: URL) {
+        if TillActivityLink.isSale(url) {
+            // Without an order (the state came by push) it only brings Till forward.
+            if let orderId = TillActivityLink.orderId(url) {
+                send(.openSale(orderId: orderId))
+            }
+            return
+        }
         switch IncomingLink.of(url, square: config.square.redirectUri, clover: config.clover.redirectUri) {
         case .connect(let link): send(.connectLink(url: link))
         case .signInReturned(let link): send(.signInReturned(url: link))
@@ -70,6 +81,7 @@ final class Core {
     /// and hears what the system allows now.
     func opened() {
         send(.opened)
+        liveActivity.resume()
         Task { await readPermissions() }
     }
 
@@ -113,6 +125,11 @@ final class Core {
         case .refundSheet(let view): refundSheet = view
         case .settings(let view): settings = view
         case .wakeUps(let view): wakeUps = view
+        case .liveActivity(let state):
+            liveActivity.show(
+                state.map { TillActivityAttributes.ContentState($0) },
+                attributes: TillActivityAttributes(store: settings?.store?.name, place: shift?.top.place)
+            )
         case .notification(let view):
             // Set in one update only, as the sale arrives with Till in the back.
             if let alert = view.alert {

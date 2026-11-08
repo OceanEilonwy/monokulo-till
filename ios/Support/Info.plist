@@ -19,5 +19,12 @@
 			</array>
 		</dict>
 	</array>
+	<!--
+	The Live Activity is updated often while a sale waits (docs/design.md §6);
+	said here as well as by INFOPLIST_KEY_, in case Xcode doesn't take that
+	key from a build setting.
+	-->
+	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
+	<true/>
 </dict>
 </plist>
