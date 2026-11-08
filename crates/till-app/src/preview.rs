@@ -8,7 +8,7 @@ use std::sync::Arc;
 use till_sales::{TillSale, shift_json};
 use till_screens::close::{self, CloseInput};
 use till_screens::code::{self, CodeInput};
-use till_screens::order_text::order_card;
+use till_screens::order_text::order_page;
 use till_screens::pos_text;
 use till_screens::sale::{self, SaleInput};
 use till_screens::sale_page::{self, SalePageInput};
@@ -158,10 +158,7 @@ pub fn preview_sale(
         clock,
         &money,
     );
-    let order = sale
-        .receipt
-        .as_ref()
-        .map(|receipt| order_card(receipt, pos_text::of(&sale, till), false));
+    let order = order_page(&sale, pos_text::of(&sale, till), clock);
     Some(Update::Sale {
         order_id,
         view,

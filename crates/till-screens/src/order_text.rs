@@ -149,6 +149,88 @@ pub fn order_card(receipt: &Receipt, pos: Option<PointOfSale>, live: bool) -> Or
     }
 }
 
+/// One line of the whole order: "2 ×", what it is, and its total.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct OrderPageLine {
+    pub quantity: String,
+    pub description: String,
+    pub price: String,
+}
+
+/// A row under the lines: "Subtotal", "Tip", "Discount", "Tax 8.875%".
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct OrderSum {
+    pub name: String,
+    pub value: String,
+}
+
+/// The whole order (the design's PanelE), every line from this till's
+/// receipt, ready to draw.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct OrderPageView {
+    /// "Sale #k4Rt · Square receipt k4Rt · 4:07 PM".
+    pub subtitle: String,
+    /// "15 items".
+    pub items: String,
+    /// "8 lines".
+    pub lines: String,
+    pub rows: Vec<OrderPageLine>,
+    /// The subtotal, then the tip and discount, then each tax.
+    pub sums: Vec<OrderSum>,
+    /// "79.21 USD", after "Total".
+    pub total: String,
+}
+
+/// `sale`'s whole order, named by `pos`, while the till has its receipt.
+pub fn order_page(
+    sale: &TillSale,
+    pos: Option<PointOfSale>,
+    clock: DeviceClock,
+) -> Option<OrderPageView> {
+    let receipt = sale.receipt.as_ref()?;
+    let currency = &receipt.currency;
+    let mut sums = vec![OrderSum {
+        name: "Subtotal".into(),
+        value: sale_text::plain(subtotal(receipt), currency),
+    }];
+    sums.extend(
+        extras(receipt)
+            .into_iter()
+            .map(|(name, value)| OrderSum { name, value }),
+    );
+    for tax in receipt
+        .tax
+        .as_ref()
+        .and_then(|t| t.tax_lines.as_ref())
+        .into_iter()
+        .flatten()
+    {
+        sums.push(OrderSum {
+            name: format!("Tax {}", rate(tax.rate)),
+            value: sale_text::plain(tax.tax_amount, currency),
+        });
+    }
+    Some(OrderPageView {
+        subtitle: subtitle(sale, receipt, pos, clock),
+        items: sale_text::items(receipt),
+        lines: lines(receipt),
+        rows: receipt
+            .line_items
+            .iter()
+            .map(|item| OrderPageLine {
+                quantity: quantity(item),
+                description: item.description.clone(),
+                price: sale_text::plain(item.line_total, currency),
+            })
+            .collect(),
+        sums,
+        total: total(receipt),
+    })
+}
+
 /// Ported from Android's `OrderPageTest` (its four on the order; the fifth,
 /// on the code's line, is [`crate::code`]'s) and `ShiftListTest`
 /// (`the order card lists four lines, else three and how many more`).
@@ -252,6 +334,39 @@ mod tests {
             "JPY",
         );
         assert_eq!(total(&yen), "1200 JPY");
+    }
+
+    #[test]
+    fn the_order_page_lists_every_line_then_the_subtotal_tax_and_total() {
+        let page = order_page(&sale(Some("k4Rt")), Some(PointOfSale::Square), la(0)).unwrap();
+        assert_eq!(page.items, "15 items");
+        assert_eq!(page.lines, "8 lines");
+        assert_eq!(page.rows.len(), 8);
+        assert_eq!(
+            page.rows[0],
+            OrderPageLine {
+                quantity: "2 ×".into(),
+                description: "Flat white".into(),
+                price: "9.00".into(),
+            }
+        );
+        assert_eq!(
+            page.sums
+                .iter()
+                .map(|s| (s.name.as_str(), s.value.as_str()))
+                .collect::<Vec<_>>(),
+            [("Subtotal", "72.75"), ("Tax 8.875%", "6.46")]
+        );
+        assert_eq!(page.total, "79.21 USD");
+        let other = TillSale {
+            receipt: None,
+            ..sale(None)
+        };
+        assert_eq!(
+            order_page(&other, None, la(0)),
+            None,
+            "no receipt, no order"
+        );
     }
 
     #[test]

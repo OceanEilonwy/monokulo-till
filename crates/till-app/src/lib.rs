@@ -41,7 +41,7 @@ use monokulo_client::PointOfSale;
 pub use preview::{TillPreview, preview_close, preview_sale, preview_shift};
 pub use till_screens::Device;
 use till_screens::bubble::{BubbleLook, BubbleTap};
-use till_screens::order_text::OrderCard;
+use till_screens::order_text::OrderPageView;
 use till_screens::shift::ShiftFilter;
 use till_screens::view::Press;
 use till_screens::{
@@ -485,13 +485,14 @@ pub enum Update {
     /// The shift, as `till_screens::shift` draws it, once the till is set up.
     Shift { view: ShiftView },
     /// The sale on screen ([`Screen::Sale`], `Code` or `Order`): its live
-    /// screen, its page, its enlarged code, and every line of its order.
+    /// screen, its page, its enlarged code, and its whole order while the
+    /// till has its receipt.
     Sale {
         order_id: String,
         view: SaleView,
         page: SalePageView,
         code: CodeView,
-        order: Option<OrderCard>,
+        order: Option<OrderPageView>,
     },
     /// The close sheet over a sale, while one is asked.
     CloseSheet {
