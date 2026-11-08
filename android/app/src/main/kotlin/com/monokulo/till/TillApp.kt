@@ -45,6 +45,8 @@ class TillApp : Application() {
     val engine: Engine by lazy {
         Engine(engineConfig(this), KeystorePlatform(this), UnifiedPushPlatform(this, EngineStore::send), Listener)
             .also(EngineStore::attach)
+            // The engine's Android side (the service, notices, copies): A's onCreate should call this once too.
+            .also { TillService.follow(this) }
     }
 
     // A provides this; keep A's version on merge.

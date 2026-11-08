@@ -18,10 +18,11 @@ import com.monokulo.till.TillService
 class ShowCodeActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val graph = (application as TillApp).graph
+        val bubble = (application as TillApp).engineStore.bubble.value
         val order = intent.getStringExtra(MainActivity.EXTRA_ORDER)
-        if (graph.bubbleWanted.value && Settings.canDrawOverlays(this) && graph.runner.state.value.running) {
-            startService(Intent(this, TillService::class.java).setAction(TillService.ACTION_SHOW_CODE))
+        // The bubble is up over the app in front (the engine's word) and Android still lets it draw.
+        if (bubble?.shown == true && Settings.canDrawOverlays(this)) {
+            startService(Intent(this, TillService::class.java).setAction(TillService.ACTION_SHOW_CODE).putExtra(MainActivity.EXTRA_ORDER, order))
         } else {
             startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra(MainActivity.EXTRA_ORDER, order))
         }
