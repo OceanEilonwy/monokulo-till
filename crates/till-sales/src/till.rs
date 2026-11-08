@@ -718,12 +718,13 @@ impl Till {
 /// `e` shown, unless the sign-in has already ended and `e` only says so
 /// again: the words that said why it ended ("Clover's sign-in has ended")
 /// stay until the cashier signs in, rather than the next check's bare
-/// "Sign in to Clover." A failure that isn't the POS's answer
-/// (decision 14) is shown after "Couldn't reach the POS: ".
+/// "Sign in to Clover." A failure that isn't the POS's answer or the
+/// till's own refusal (decision 14) is shown after "Couldn't reach the
+/// POS: ".
 fn with_pos_problem(s: &TillState, e: &PosError) -> TillState {
     match e {
         PosError::Answered { .. } if s.sign_in_again && e.sign_in_again() => s.clone(),
-        PosError::Answered { .. } => TillState {
+        PosError::Answered { .. } | PosError::NotAsked(_) => TillState {
             problem: Some(e.to_string()),
             sign_in_again: e.sign_in_again(),
             ..s.clone()

@@ -6,8 +6,10 @@ use monokulo_client::PointOfSale;
 /// A point of sale's failure. The till catches this one type for every
 /// point of sale (decision 131 in docs/decisions/android.md).
 ///
-/// [`PosError::Answered`] is the Kotlin `PosException`: its message is what
-/// the till shows as it is. The other variants are what Kotlin threw as
+/// [`PosError::Answered`] is the Kotlin `PosException` a point of sale's
+/// own subclass threw (`SquareException`, `CloverException`), and
+/// [`PosError::NotAsked`] a bare `PosException`: their messages are what
+/// the till shows as they are. The other variants are what Kotlin threw as
 /// other exceptions (an `IOException`, a `SerializationException`), which
 /// the till shows after "Couldn't reach the POS: ".
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -29,6 +31,11 @@ pub enum PosError {
         /// a Clover `429`'s `Retry-After`.
         retry_after_seconds: Option<u64>,
     },
+    /// The till refused before asking any point of sale, in words the till
+    /// shows ("Sign in to Square first"): the Kotlin `PosException(0, …)`
+    /// that named no point of sale. Its status is 0.
+    #[error("{0}")]
+    NotAsked(String),
     /// The point of sale couldn't be reached: no network, a TLS failure, a
     /// timeout.
     #[error("{0}")]
@@ -87,10 +94,12 @@ impl PosError {
     }
 
     /// The HTTP status of an [`PosError::Answered`] (0 when nothing was
-    /// asked); `None` for the other variants.
+    /// asked), and 0 for [`PosError::NotAsked`]; `None` for the other
+    /// variants.
     pub fn status(&self) -> Option<u16> {
         match self {
             PosError::Answered { status, .. } => Some(*status),
+            PosError::NotAsked(_) => Some(0),
             _ => None,
         }
     }
@@ -111,5 +120,20 @@ impl PosError {
     #[cfg(feature = "clover")]
     pub(crate) fn is_refusal(&self) -> bool {
         matches!(self.status(), Some(400..=499)) && self.status() != Some(429)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_refusal_before_asking_names_no_point_of_sale() {
+        let refused = PosError::NotAsked("Sign in to Square first".into());
+        assert_eq!(refused.to_string(), "Sign in to Square first");
+        assert_eq!(refused.pos(), None);
+        assert_eq!(refused.status(), Some(0));
+        assert!(!refused.sign_in_again());
+        assert_eq!(refused.retry_after_seconds(), None);
     }
 }
