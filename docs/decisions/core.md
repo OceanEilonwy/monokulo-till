@@ -143,3 +143,34 @@ on from 1; the Android app's own choices are in [android.md](android.md).
     tasks or I/O, tested alone, and started before the engine exists. Its
     records cross to the apps through its own `uniffi` feature, which
     `till-app` forwards.
+
+## Phase 5a: the first screens (2026-11-08)
+
+24. **A screen takes an input struct, a `Device` (`Android`, `Iphone`,
+    `Ipad`) and, where times are shown, a `DeviceClock`** (now, the UTC
+    offset, 12- or 24-hour), and returns a view record of finished words.
+    Inputs are plain Rust over the leaf crates' types; only the views cross
+    UniFFI. `Device`, not `Platform`, because `till_app::Platform` exists;
+    no type is named like a SwiftUI view (`Button`, `Section`), so the
+    Swift bindings can share a module with the app's code. Times are
+    written as Android wrote US time, with no full locale: the same choice
+    as money (9).
+25. **On iOS, "no distributor" means alerts are off.** APNs is the only
+    distributor and the Bell's wake-ups arrive as alerts, so the Android
+    statuses about UnifiedPush apps become "Alerts are off" with an action
+    that opens iOS's alert settings. Settings on iOS has no bubble, shift
+    switch or Tor, shows Wake-ups as a row, and has a Dynamic Island
+    section on iPhone only. `till-bell`'s `PUSH_*` reasons still name
+    UnifiedPush and need iOS words. The iOS words are new and await the
+    owner's review.
+26. **What a screen moved from Compose, and what stayed**: the parts state
+    chooses (buttons, store facts, the point-of-sale card and steps, scan
+    errors, the Tor, alerts and bubble footnotes, check rows, step numbers)
+    are the screen's; headings, leads written once, and the wallet,
+    Disconnect and Dynamic Island footnotes stay in each app's screen.
+27. **`StoreNow`, `PosState`, `PosSetup` and `CloverTender` are defined in
+    `till-screens` for now**, and may merge with `till-sales`' `LiveStore`
+    once phase 3 lands. `PosText`'s words that read a sale (`of`,
+    `elsewhere`, `placeOf`) wait for phase 3. The engine's `Update` carries
+    `Onboarding`, `Settings` and `WakeUps` views, not yet sent: phase 5b
+    fills the inputs and publishes each only when it changed.
