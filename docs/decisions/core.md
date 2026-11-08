@@ -209,3 +209,25 @@ on from 1; the Android app's own choices are in [android.md](android.md).
     has to name a point of sale (Square) because `PosError::Answered`
     needs one. Failures' words after "Couldn't reach the store: " are
     reqwest's, not OkHttp's.
+
+## Tidying after phase 3 (2026-11-08)
+
+34. **Decision 33's workarounds live in their crates now.**
+    `MonokuloError::answered()` says whether Monokulo was answering (an
+    exhaustive match, so a new variant must be classified); `FoundSale`
+    leaves out a Square `pointOfSale`, as Kotlin did; `till_pos::time`
+    gives `unix_seconds` and `instant`, written as Java's `Instant` wrote;
+    and a refusal made before asking any point of sale is
+    `PosError::NotAsked`, which names none, has status 0 and is shown as it
+    is (`NoSource`'s "Sign in to Square first").
+35. **The leaf crates take their shared dependencies from the workspace,
+    one version each** (`async-trait`, `base64`, `futures-util`,
+    `reqwest`, `sha2`, `wiremock`); reqwest's features stay per crate.
+36. **aws-lc-rs cross-compiles for Android with NDK 27.** TLS adds about
+    3.7 MB to arm64's library (1.7 MB to 5.4 MB, with a real HTTPS request
+    linked in); `ring` stays the fallback if size matters. reqwest's
+    `rustls` feature verifies through `rustls-platform-verifier`, which on
+    Android must be initialised through JNI, with its
+    `rustls-platform-verifier-android` Maven component, before the first
+    request, or that request panics: phase 5b's Android switch does it. On
+    iOS it uses the Security framework and needs nothing.
