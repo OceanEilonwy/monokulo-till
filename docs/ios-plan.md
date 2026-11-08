@@ -122,6 +122,36 @@ trait Platform {
   with a `reason` field, never `message`.
 - **Panics** are caught at the boundary and sent to `on_log`.
 
+### Screens
+
+Every screen on the canvas has a Rust implementation in
+`monokular-app/src/screens/`, one module per screen, as Fob's page
+functions (`keys_page`, `payment`, `screens()`) and Tern's `view.rs` do. A
+screen module is a pure function from the engine's state (and the clock)
+to a view record: every word, amount, icon name, colour role and enabled
+action already decided, so Compose and SwiftUI only lay it out and send
+back the screen's `Action`s. A screen's tests are host tests against that
+function, word for word.
+
+| Module | View record | Boards (iOS) | Replaces (Android) |
+| --- | --- | --- | --- |
+| `shift` | rows with standing, tone, line, target; filters and their counts; summary | PhoneShift, PadShift | `ShiftList.kt`, parts of `SaleText.kt` |
+| `sale` | amount, XMR, code, status line, countdown, order card, buttons | PhoneSale, PadSale, PadFront | `SaleText.kt`, `ui/OrderPage.kt`'s words |
+| `close` | the question, the three answers and their lines | PhoneClose, PadClose | `SalePage.kt`'s `Closing` |
+| `sale_page` | heading, icon, note, order, timeline, actions, per standing | Det*, PadDetail | `SalePage.kt` |
+| `code` | the enlarged code and its line | PhoneCode, PadCode | `ui/Code*`'s words |
+| `onboarding` | each step's state and words: connect, confirm, point of sale, sign-in, test sale, alerts | Onb*, PadOnb*, PhonePos | `ui/Onboarding.kt`'s logic, `PosText.kt` |
+| `settings` | store, point of sale, alerts, wake-ups, island rows | PhoneSettings, PadSettings | `ui/Settings.kt`'s logic, `PosText.kt` |
+| `wake_ups` | the choice, status and explanations | PhoneWakeUps | `WakeUpsText.kt` |
+| `live_activity` | the content state (design.md §6) | Main, PhoneOrder, PhoneOrderQR | — (iOS only) |
+| `notification` | alert and ongoing notification faces | PadTucked, Android's shade | `notify/SaleNotifications.kt`'s `Face`, `Ongoing` |
+
+The engine publishes each screen's record as its own `Update` variant,
+only when it changed (push, as Tern does, rather than Fob's pull), so a
+screen draws whole on its first frame and redraws only on change. The
+platform keeps only what is its own: layout, motion, gestures, the
+keyboard while typing.
+
 ### Copy
 
 Copy chosen by logic moves to Rust (`SaleText`, `PosText`, `PosWords`,
@@ -147,7 +177,8 @@ directly, so switching one at a time would mean exporting every crate's
 types to Kotlin). `./gradlew build`, and the on-device tests in
 `app/src/androidTest`, must stay green at every step. Each phase is its own
 PR to `main`. Phases 1, 2 and 4 are independent of one another; 3 needs 1
-and 2; 5 needs them all.
+and 2; 5a's screens each need the phases their state comes from; 5b needs
+them all.
 
 | Phase | Work | Test oracle (Kotlin tests to port) |
 | --- | --- | --- |
@@ -156,7 +187,8 @@ and 2; 5 needs them all.
 | **2. Points of sale** | `pos`: Square and Clover auth, API, sources and receipts. HTTP tests use `wiremock` in place of MockWebServer | SquareTest (12), CloverSourceTest (17), CloverAuthTest (8), CloverReceiptsTest (7) |
 | **3. The till** | `till`: `Till` and `Standing`, `Shift`, `TillRunner`, `LiveStore`, `PosSwitch`. Android's `TillService` keeps the foreground service and calls the engine | TillTest (43), ShiftTest (4), LiveStoreTest (3), PosSwitchTest (5), NoSourceTest (1) |
 | **4. Wake-ups** | `bell`: `BellWakeUps`, `BellApi`, `BellAddress`, push events. UnifiedPush's receiver and `WakePushService` stay in Kotlin and forward to the engine | BellWakeUpsTest (59), BellApiTest (14), BellAddressTest (8), PushEventsTest (5) |
-| **5. The engine** | Android moves onto the engine: the Gradle tasks move from `receipt` to a `:ffi` module, and the Kotlin `core`, `sales`, `push` and `receipt` modules are deleted. `monokular-app`: the screen graph and flows from `AppViewModel`, the persisted model (`Stores.kt`, read in its current JSON so existing tills keep their connection), the copy objects, and the shift list and sale page view records. `AppViewModel` shrinks to a `StateFlow` per `Update`, as Tern's `Store` does | ShiftListTest (29), SaleTextTest (14), WakeUpsTextTest (10), PosTextTest (6), NavTest's move rules (8) |
+| **5a. Screens** | `monokular-app/src/screens/` (§2, Screens): one pure view function per screen, with the copy objects. `wake_ups` and `onboarding` can start once phases 1, 2 and 4 land; the till's screens need phase 3 | ShiftListTest (29), SaleTextTest (14), WakeUpsTextTest (10), PosTextTest (6) |
+| **5b. The engine** | Android moves onto the engine: the Gradle tasks move from `receipt` to a `:ffi` module, and the Kotlin `core`, `sales`, `push` and `receipt` modules are deleted. `monokular-app`: the screen graph and flows from `AppViewModel`, the persisted model (`Stores.kt`, read in its current JSON so existing tills keep their connection), and publishing 5a's screens as `Update`s. `AppViewModel` shrinks to a `StateFlow` per `Update`, as Tern's `Store` does | NavTest's move rules (8), and the on-device tests unchanged |
 
 **Migration of saved state.** Before phase 5 lands, a test fixture records
 every key `Stores.kt` writes, captured from the current Kotlin code. The
