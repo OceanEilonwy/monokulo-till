@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// Till for iPhone and iPad (docs/ios-plan.md §5). Phase I0: the app starts
-/// the Rust core and shows what it publishes; the screens arrive from I1 on.
+/// Till for iPhone and iPad (docs/ios-plan.md §5). The app starts the Rust
+/// core and draws what it publishes: onboarding from phase I2, phase I0's
+/// core page in place of the till until I3.
 @main
 struct TillApp: App {
     @State private var core = Core()
@@ -12,7 +13,7 @@ struct TillApp: App {
 
     var body: some Scene {
         WindowGroup {
-            CoreView(core: core)
+            RootView(core: core)
         }
     }
 }

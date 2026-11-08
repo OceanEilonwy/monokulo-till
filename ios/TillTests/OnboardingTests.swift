@@ -71,4 +71,13 @@ struct OnboardingTests {
         #expect(!AlertsPermission.allows(.denied))
         #expect(!AlertsPermission.allows(.notDetermined))
     }
+
+    @Test func boldRunsAreReadFromDoubleAsterisks() {
+        #expect(Rich.runs("Open **Settings › Checkout** now") == [
+            Rich.Run(text: "Open ", bold: false),
+            Rich.Run(text: "Settings › Checkout", bold: true),
+            Rich.Run(text: " now", bold: false),
+        ])
+        #expect(Rich.runs("Plain") == [Rich.Run(text: "Plain", bold: false)])
+    }
 }
