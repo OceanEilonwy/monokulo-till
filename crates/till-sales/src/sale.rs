@@ -81,11 +81,7 @@ pub struct TillSale {
     /// The address the customer pays: what "Copy address" copies.
     pub address: String,
     /// The POS sale this till found, when it found it: what a refund needs.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        serialize_with = "kotlin_json::found_sale"
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub found: Option<FoundSale>,
     /// What was bought, as the receipt this till built from the POS's order
     /// (docs/design.md §4). It is shown on this till's own screens and

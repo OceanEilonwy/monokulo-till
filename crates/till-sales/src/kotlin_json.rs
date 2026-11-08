@@ -10,7 +10,6 @@ use serde::ser::Error as _;
 use serde::{Serialize, Serializer};
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
-use till_pos::{FoundSale, PointOfSale};
 
 use crate::TillSale;
 
@@ -130,49 +129,6 @@ impl Serialize for JavaMap<'_> {
         }
         map.end()
     }
-}
-
-/// A [`FoundSale`] as the Kotlin `FoundSale` wrote it in a saved shift:
-/// its point of sale left out when it is Square, the property's default.
-/// (till-pos always writes it; both read either.)
-pub(crate) fn found_sale<S: Serializer>(
-    found: &Option<FoundSale>,
-    s: S,
-) -> Result<S::Ok, S::Error> {
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Out<'a> {
-        id: &'a str,
-        amount_minor: i64,
-        currency: &'a str,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        reference: Option<&'a str>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        order_id: Option<&'a str>,
-        created_at: &'a str,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        device_id: Option<&'a str>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        title: Option<&'a str>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        point_of_sale: Option<&'static str>,
-    }
-    let Some(found) = found else {
-        return s.serialize_none();
-    };
-    Out {
-        id: &found.id,
-        amount_minor: found.amount_minor,
-        currency: &found.currency,
-        reference: found.reference.as_deref(),
-        order_id: found.order_id.as_deref(),
-        created_at: &found.created_at,
-        device_id: found.device_id.as_deref(),
-        title: found.title.as_deref(),
-        point_of_sale: (found.point_of_sale != PointOfSale::Square)
-            .then(|| found.point_of_sale.display_name()),
-    }
-    .serialize(s)
 }
 
 /// An [`orf_codec::Receipt`] as the Kotlin `receipt.Receipt` wrote it in a
@@ -448,6 +404,7 @@ pub(crate) mod receipt {
 #[cfg(test)]
 mod tests {
     use monokulo_client::SalePhase;
+    use till_pos::PointOfSale;
 
     use super::*;
     use crate::Standing;
@@ -517,7 +474,7 @@ mod tests {
     }
 
     #[test]
-    fn fields_neither_side_knows_are_ignored_and_till_pos_found_sales_read_too() {
+    fn fields_neither_side_knows_are_ignored_and_square_named_outright_reads_too() {
         let saved = OURS
             .replacen(
                 r#""orderId":"ord_1","#,
