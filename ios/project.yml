@@ -30,7 +30,14 @@ targets:
         PRODUCT_NAME: Till
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: YES
+        # The URL scheme, which no INFOPLIST_KEY_ setting can say; merged with
+        # the generated keys.
+        INFOPLIST_FILE: Support/Info.plist
+        # Associated Domains for universal links. CI builds unsigned
+        # (CODE_SIGNING_ALLOWED=NO), so no team is needed until release.
+        CODE_SIGN_ENTITLEMENTS: Support/Till.entitlements
         INFOPLIST_KEY_CFBundleDisplayName: Till
+        INFOPLIST_KEY_NSCameraUsageDescription: "Till uses the camera to scan your store's connect code."
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
