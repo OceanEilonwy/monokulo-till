@@ -6,6 +6,11 @@ import com.monokulo.till.core.AppIdentity
 import com.monokulo.till.core.PointOfSale
 import com.monokulo.till.core.MonokuloApi
 import com.monokulo.till.core.Tor
+import com.monokulo.till.engine.EngineStore
+import com.monokulo.till.engine.KeystorePlatform
+import com.monokulo.till.engine.Listener
+import com.monokulo.till.engine.UnifiedPushPlatform
+import com.monokulo.till.engine.engineConfig
 import com.monokulo.till.ffi.Tls
 import com.monokulo.till.push.BellAddress
 import com.monokulo.till.push.BellApi
@@ -13,7 +18,6 @@ import com.monokulo.till.push.BellWakeUps
 import com.monokulo.till.push.PosSide
 import com.monokulo.till.push.PosSignIn
 import com.monokulo.till.push.UnifiedPushSubscriptions
-import com.monokulo.till.push.WakePushService
 import com.monokulo.till.push.WakeUps
 import com.monokulo.till.sales.CloverApi
 import com.monokulo.till.sales.CloverAuth
@@ -32,18 +36,25 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import okhttp3.OkHttpClient
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import uniffi.till_app.Engine
 
-class TillApp : Application(), WakePushService.Host {
+class TillApp : Application() {
     val graph by lazy { Graph(this) }
+
+    // A provides this; keep A's version on merge.
+    val engine: Engine by lazy {
+        Engine(engineConfig(this), KeystorePlatform(this), UnifiedPushPlatform(this, EngineStore::send), Listener)
+            .also(EngineStore::attach)
+    }
+
+    // A provides this; keep A's version on merge.
+    val engineStore: EngineStore get() = EngineStore
 
     override fun onCreate() {
         super.onCreate()
         // Before the Rust core's first request (docs/decisions/core.md 36).
         Tls.init(this)
     }
-
-    // The connector's service hands the Bell's dings to the graph (decision 93).
-    override val pushSubscriptions get() = graph.push
 }
 
 /** The app's long-lived parts. */

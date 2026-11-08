@@ -69,6 +69,17 @@
             android:name=".notify.CopyReceiver"
             android:exported="false" />
 
+        <!-- The Bell's dings, through a UnifiedPush distributor (docs/design.md §3, §5), handed to the engine.
+             The connector's own manifest brings the distributor <queries>, its receiver
+             and WAKE_LOCK; this is the one part the app declares itself. -->
+        <service
+            android:name=".engine.WakePushService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="org.unifiedpush.android.connector.PUSH_EVENT" />
+            </intent-filter>
+        </service>
+
         <!-- Watches the POS during a shift (docs/design.md §3). -->
         <service
             android:name=".TillService"
