@@ -2421,9 +2421,13 @@ dependencies = [
 name = "till-screens"
 version = "0.1.0"
 dependencies = [
+ "jiff",
  "monokulo-client",
+ "orf-codec",
+ "serde_json",
  "till-bell",
  "till-pos",
+ "till-sales",
  "uniffi",
 ]
 

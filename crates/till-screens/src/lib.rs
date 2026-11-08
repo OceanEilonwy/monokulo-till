@@ -9,11 +9,20 @@
 //! screen's actions; headings written once and never chosen by state stay in
 //! the platform's own screen.
 //!
+//! - [`shift`], the till's home: its rows, filters and summary;
+//! - [`sale`], a live sale; [`close`], its close sheet; [`code`], its code
+//!   enlarged; [`sale_page`], a sale's page once it isn't live;
+//! - [`notification`], the notifications' faces; [`live_activity`], the
+//!   iPhone's Live Activity;
 //! - [`wake_ups`], Settings › Wake-ups;
 //! - [`settings`], Settings itself;
 //! - [`onboarding`], each step of setting up a till;
-//! - [`pos_text`] and [`wake_ups_text`], the words the screens share, which
-//!   name the point of sale and say where Wake-ups stand.
+//! - [`pos_text`], [`sale_text`], [`order_text`] and [`wake_ups_text`], the
+//!   words the screens share; [`bubble`] and [`till_nav`], Android's bubble
+//!   and where the sales take the till.
+//!
+//! A screen with a countdown says `ticks`: the engine draws it again a
+//! second later while it does.
 //!
 //! With the `uniffi` feature every view record crosses to Kotlin and Swift
 //! as it is (the package `uniffi.till_screens`), with no mirror types.
@@ -21,16 +30,37 @@
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
 
+pub mod bubble;
+pub mod close;
+pub mod code;
+mod decimal;
+#[cfg(test)]
+mod fixtures;
+pub mod live_activity;
+pub mod notification;
 pub mod onboarding;
+pub mod order_text;
 pub mod pos_text;
+pub mod sale;
+pub mod sale_page;
+pub mod sale_text;
 pub mod settings;
+pub mod shift;
+pub mod till_nav;
 pub mod time;
 pub mod view;
 pub mod wake_ups;
 pub mod wake_ups_text;
 
+pub use close::{CloseInput, CloseView, close};
+pub use code::{CodeInput, CodeView, code};
+pub use live_activity::{LiveActivityInput, LiveActivityState, live_activity};
+pub use notification::{NotificationInput, NotificationView, notification};
 pub use onboarding::{OnboardingInput, OnboardingView, onboarding};
+pub use sale::{SaleInput, SaleView, sale};
+pub use sale_page::{SalePageInput, SalePageView, sale_page};
 pub use settings::{SettingsInput, SettingsView, settings};
+pub use shift::{ShiftInput, ShiftView, shift};
 pub use time::DeviceClock;
 pub use view::{Device, Fact, PosMark, Tone};
 pub use wake_ups::{WakeUpsInput, WakeUpsView, wake_ups};
