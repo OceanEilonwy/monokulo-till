@@ -18,7 +18,7 @@ returns bytes (`encode`), decimal digits (`encode_text`) or an `orf=<digits>`
 query parameter (`query::to_param`), or adds that parameter to a payment URI
 it is given (`query::append`); the app makes the code.
 
-This lets the receipt be built where the sale happens. In Monokular the
+This lets the receipt be built where the sale happens. In Till the
 payment server sends the till a plain payment URI and never sees the items;
 the till device appends the receipt, so the QR code is the only way the
 items leave it. Digits are used because they need no escaping in a URI and a QR code's

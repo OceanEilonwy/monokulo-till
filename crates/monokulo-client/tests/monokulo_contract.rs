@@ -76,8 +76,8 @@ fn new_api() -> MonokuloApi {
     MonokuloApi::new(
         reqwest::Client::new(),
         AppIdentity {
-            slug: "monokular".into(),
-            name: "Monokular".into(),
+            slug: "till".into(),
+            name: "Till".into(),
             version: "0.1.0".into(),
             platform: "android".into(),
             device_name: "Pixel 8".into(),

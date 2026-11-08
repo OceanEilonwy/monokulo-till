@@ -1,6 +1,6 @@
 //! Tor, as the app reaches it (Android: `core/Tor.kt`): through a Tor app on
 //! the device (Orbot) and its SOCKS proxy, `127.0.0.1:9050`
-//! (docs/decisions/android.md 55). Monokular has no Tor of its own, and iOS
+//! (docs/decisions/android.md 55). Till has no Tor of its own, and iOS
 //! has none at all (docs/ios-plan.md §11).
 
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
@@ -41,7 +41,7 @@ pub fn proxy(socks: SocketAddr) -> reqwest::Proxy {
 }
 
 /// The HTTP client the app reaches a store through (Android:
-/// `MonokularApp.http`): onion addresses through Tor's proxy at `socks`, the
+/// `TillApp.http`): onion addresses through Tor's proxy at `socks`, the
 /// rest straight out; 30 seconds to connect, since Tor takes longer to build
 /// a circuit; and 60 seconds of silence on a read before the connection
 /// counts as dead, as the event stream sends a comment every 25 seconds.

@@ -212,7 +212,7 @@ small {{ color: var(--muted); }}
       <label for="qr-size">Code size on screen</label>
       <input id="qr-size" type="range" min="180" max="440" step="10" value="300">
       <output id="qr-size-out" for="qr-size">300 px</output>
-      <span class="muted">About 280 px matches the Monokular full-screen code on an iPhone.</span>
+      <span class="muted">About 280 px matches the Till full-screen code on an iPhone.</span>
     </div>
   </header>
 

@@ -103,8 +103,8 @@ struct Stand {
 
 fn identity() -> AppIdentity {
     AppIdentity {
-        slug: "monokular".into(),
-        name: "Monokular".into(),
+        slug: "till".into(),
+        name: "Till".into(),
         version: "0.1.0".into(),
         platform: "android".into(),
         device_name: "Pixel 8".into(),
@@ -199,7 +199,7 @@ async fn connecting_redeems_the_code_at_the_link_for_a_key_and_the_apis_entry_at
     );
     let seen = stand.seen();
     assert_eq!(seen.len(), 1);
-    assert_eq!(header(&seen[0], "Monokulo-Client"), Some("monokular/0.1.0"));
+    assert_eq!(header(&seen[0], "Monokulo-Client"), Some("till/0.1.0"));
     let sent = String::from_utf8(seen[0].body.clone()).unwrap();
     assert!(
         sent.contains(&format!(r#""token":"{}""#, Stand::token()))

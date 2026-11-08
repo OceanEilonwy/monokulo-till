@@ -61,6 +61,6 @@ jobs:
         run: ./gradlew build
       - uses: actions/upload-artifact@v7
         with:
-          name: monokular-debug-apk
+          name: till-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14

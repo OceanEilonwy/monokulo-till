@@ -1,9 +1,9 @@
-//! The points of sale Monokular watches (Android: `core/PointOfSale.kt`).
+//! The points of sale Till watches (Android: `core/PointOfSale.kt`).
 
 use serde::{Deserialize, Serialize};
 
-/// A point of sale Monokular watches for Monero sales (docs/design.md §1,
-/// "POS sources"), named as the Monokular Bell names it: a registration's
+/// A point of sale Till watches for Monero sales (docs/design.md §1,
+/// "POS sources"), named as the Monokulo Bell names it: a registration's
 /// `point_of_sale`, `/v1/info`'s `points_of_sale` keys and a ding's
 /// `{"wake":"<pos>"}`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

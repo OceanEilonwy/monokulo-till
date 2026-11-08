@@ -220,23 +220,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bell"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "monokulo-client",
- "reqwest",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "tokio-util",
- "url",
- "wiremock",
-]
-
-[[package]]
 name = "bit-set"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1406,25 +1389,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "monokular-app"
-version = "0.1.0"
-dependencies = [
- "monokulo-client",
- "thiserror",
- "tokio",
- "uniffi",
-]
-
-[[package]]
-name = "monokular-ffi"
-version = "0.1.0"
-dependencies = [
- "monokular-app",
- "orf-codec-ffi",
- "uniffi",
-]
-
-[[package]]
 name = "monokulo-client"
 version = "0.1.0"
 dependencies = [
@@ -1643,25 +1607,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "10ab3eb7f3becc3a1cbc4f2c6f20267996cfc1a6467a873763411b136a122715"
 dependencies = [
  "portable-atomic",
-]
-
-[[package]]
-name = "pos"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "getrandom 0.3.4",
- "jiff",
- "monokulo-client",
- "orf-codec",
- "reqwest",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror",
- "tokio",
- "wiremock",
 ]
 
 [[package]]
@@ -2459,11 +2404,66 @@ dependencies = [
 ]
 
 [[package]]
-name = "till"
+name = "till-app"
 version = "0.1.0"
 dependencies = [
  "monokulo-client",
- "pos",
+ "thiserror",
+ "tokio",
+ "uniffi",
+]
+
+[[package]]
+name = "till-bell"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "monokulo-client",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "url",
+ "wiremock",
+]
+
+[[package]]
+name = "till-ffi"
+version = "0.1.0"
+dependencies = [
+ "orf-codec-ffi",
+ "till-app",
+ "uniffi",
+]
+
+[[package]]
+name = "till-pos"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "getrandom 0.3.4",
+ "jiff",
+ "monokulo-client",
+ "orf-codec",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror",
+ "tokio",
+ "wiremock",
+]
+
+[[package]]
+name = "till-sales"
+version = "0.1.0"
+dependencies = [
+ "monokulo-client",
+ "till-pos",
 ]
 
 [[package]]

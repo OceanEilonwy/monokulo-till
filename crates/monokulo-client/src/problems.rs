@@ -54,7 +54,7 @@ fn said(problem: &str, e: &MonokuloError) -> Option<String> {
         }
         "internal" => "Something went wrong on the store's Monokulo. Try again in a moment; if it keeps happening, its admin can find it in Monokulo's logs.".into(),
         "invalid-request" | "too-large" | "unsupported-media-type" => format!(
-            "Monokulo didn't take what this app sent ({e}). Update Monokular; if it keeps happening, tell its makers."
+            "Monokulo didn't take what this app sent ({e}). Update Till; if it keeps happening, tell its makers."
         ),
         // Making an order: no order was made, so the till asks again with the same key.
         "rates-unavailable" => "Monokulo has no exchange rate right now, so there's no payment code yet. Trying again shortly.".into(),
@@ -68,7 +68,7 @@ fn said(problem: &str, e: &MonokuloError) -> Option<String> {
         "idempotency-conflict" => "Monokulo already has a different order for this POS sale, so it made no payment code. Take another payment for it and refund it in the POS.".into(),
         // Reading an order, and the event stream.
         "not-found" => "The store has no such order any more.".into(),
-        "too-many-streams" => "Too many devices are following this store's sales at once. Close Monokular on one you aren't using, or disconnect it from the store's Apps card.".into(),
+        "too-many-streams" => "Too many devices are following this store's sales at once. Close Till on one you aren't using, or disconnect it from the store's Apps card.".into(),
         _ => return None,
     })
 }
@@ -108,7 +108,7 @@ mod tests {
                 Some("invalid-request"),
                 None
             )),
-            "Monokulo didn't take what this app sent (amount: too many digits). Update Monokular; if it keeps happening, tell its makers."
+            "Monokulo didn't take what this app sent (amount: too many digits). Update Till; if it keeps happening, tell its makers."
         );
     }
 

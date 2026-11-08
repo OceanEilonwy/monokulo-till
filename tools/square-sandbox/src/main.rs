@@ -1,5 +1,5 @@
 //! A local web page for ringing up "Other: Monero" sales in Square's
-//! sandbox, which has no Point of Sale app, for a Monokular till signed in
+//! sandbox, which has no Point of Sale app, for a Till till signed in
 //! to the same test seller. It makes what the till looks for
 //! (`docs/decisions/android.md` 13): an order with line items, paid by a
 //! completed `EXTERNAL` payment whose source is the tender's name.

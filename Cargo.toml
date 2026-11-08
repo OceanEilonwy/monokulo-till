@@ -8,14 +8,14 @@ license = "GPL-3.0-only"
 repository = "https://github.com/OceanEilonwy/monokular"
 
 # The Rust core's shared dependencies (docs/ios-plan.md §2). The leaf crates
-# (monokulo-client, pos, till, bell) never take uniffi: only monokular-app
+# (monokulo-client, pos, till, bell) never take uniffi: only till-app
 # does, behind its `uniffi` feature, and CI checks it.
 [workspace.dependencies]
 monokulo-client = { path = "crates/monokulo-client" }
-pos = { path = "crates/pos" }
-till = { path = "crates/till" }
-bell = { path = "crates/bell" }
-monokular-app = { path = "crates/monokular-app" }
+till-pos = { path = "crates/till-pos" }
+till-sales = { path = "crates/till-sales" }
+till-bell = { path = "crates/till-bell" }
+till-app = { path = "crates/till-app" }
 orf-codec = { path = "crates/orf-codec" }
 orf-codec-ffi = { path = "crates/orf-codec-ffi" }
 serde = { version = "1.0.229", features = ["derive"] }

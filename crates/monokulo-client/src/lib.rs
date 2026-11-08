@@ -1,4 +1,4 @@
-//! Monokular's client for a store's own Monokulo (docs/design.md §2): connect
+//! Till's client for a store's own Monokulo (docs/design.md §2): connect
 //! codes, the connected-apps HTTP API, the store's event stream, and the
 //! small types the rest of the core shares ([`PointOfSale`], [`Clock`]).
 //!

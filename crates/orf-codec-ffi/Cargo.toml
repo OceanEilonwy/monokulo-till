@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
-# A plain Rust library now: monokular-ffi links it into the one library the
+# A plain Rust library now: till-ffi links it into the one library the
 # apps load, and generates its bindings (docs/ios-plan.md §2).
 [lib]
 name = "orf_codec_ffi"

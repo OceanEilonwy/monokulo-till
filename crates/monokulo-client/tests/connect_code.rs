@@ -49,7 +49,7 @@ fn anything_else_is_not_a_code() {
     for text in [
         "https://pay.example/apps/connect".to_owned(),
         "https://pay.example/apps/connect#token=ct_short".to_owned(),
-        format!("https://pay.example/connect/monokular#token={token}"),
+        format!("https://pay.example/connect/till#token={token}"),
         format!("https://pay.example/myapps/connect#token={token}"),
         format!("https://pay.example/apps/connect/x#token={token}"),
         format!("https://pay.example/apps/connect?x=1#token={token}"),

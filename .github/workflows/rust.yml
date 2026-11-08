@@ -54,14 +54,14 @@ jobs:
         run: MONOKULO_OPENAPI="$PWD/target/monokulo/openapi.json" cargo test --locked -p monokulo-client --test monokulo_contract
       # The engine builds and tests without its bridge too.
       - name: Test the engine without UniFFI
-        run: cargo test --locked -p monokular-app
+        run: cargo test --locked -p till-app
       - name: Clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
-      # Only monokular-app (behind its `uniffi` feature) and the two FFI
+      # Only till-app (behind its `uniffi` feature) and the two FFI
       # crates may depend on UniFFI; the leaf crates never do (docs/ios-plan.md §2).
       - name: The leaf crates don't depend on UniFFI
         run: |
-          for crate in monokulo-client pos till bell monokular-app; do
+          for crate in monokulo-client till-pos till-sales till-bell till-app; do
             if cargo tree --locked -p "$crate" -e normal --prefix none | grep -q '^uniffi '; then
               echo "::error::$crate depends on uniffi"; exit 1
             fi
@@ -69,12 +69,12 @@ jobs:
       # The bindings both apps generate: the library must carry both crates'.
       - name: Bindings
         run: |
-          cargo build --locked --release -p monokular-ffi
+          cargo build --locked --release -p till-ffi
           for language in kotlin swift; do
-            cargo run --locked --release -q -p monokular-ffi --features bindgen --bin uniffi-bindgen -- \
-              generate --library target/release/libmonokular_ffi.so --language "$language" --no-format --out-dir "bindings/$language"
+            cargo run --locked --release -q -p till-ffi --features bindgen --bin uniffi-bindgen -- \
+              generate --library target/release/libtill_ffi.so --language "$language" --no-format --out-dir "bindings/$language"
           done
-          test -f bindings/kotlin/uniffi/monokular_app/monokular_app.kt
+          test -f bindings/kotlin/uniffi/till_app/till_app.kt
           test -f bindings/kotlin/uniffi/orf_codec_ffi/orf_codec_ffi.kt
-          test -f bindings/swift/monokular_app.swift
+          test -f bindings/swift/till_app.swift
           test -f bindings/swift/orf_codec_ffi.swift
