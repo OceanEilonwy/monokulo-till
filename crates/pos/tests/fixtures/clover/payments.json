@@ -1,0 +1,40 @@
+{
+  "elements": [
+    {
+      "id": "PAY_MONERO_1", "order": { "id": "ORDER_CL_1", "title": "Table 4" }, "device": { "id": "DEV_FRONT" },
+      "tender": { "id": "T_MONERO", "label": " MONERO ", "labelKey": "com.clover.tender.external_payment" },
+      "amount": 2205, "tipAmount": 0, "taxAmount": 180, "result": "SUCCESS", "offline": false,
+      "createdTime": 1793177760000, "clientCreatedTime": 1793177759000, "modifiedTime": 1793177760000,
+      "employee": { "id": "EMP1" }, "refunds": { "elements": [] }
+    },
+    {
+      "id": "PAY_CASH", "order": { "id": "ORDER_CL_2" }, "device": { "id": "DEV_FRONT" },
+      "tender": { "id": "T_CASH", "label": "Cash", "labelKey": "com.clover.tender.cash" },
+      "amount": 500, "result": "SUCCESS", "createdTime": 1793177770000
+    },
+    {
+      "id": "PAY_FAILED", "order": { "id": "ORDER_CL_3" },
+      "tender": { "id": "T_MONERO" }, "amount": 700, "result": "FAIL", "createdTime": 1793177780000
+    },
+    {
+      "id": "PAY_VOIDED", "order": { "id": "ORDER_CL_4" },
+      "tender": { "id": "T_MONERO" }, "amount": 800, "result": "SUCCESS", "voided": true, "voidReason": "USER_CANCEL",
+      "createdTime": 1793177790000
+    },
+    {
+      "id": "PAY_REFUNDED", "order": { "id": "ORDER_CL_5" },
+      "tender": { "id": "T_MONERO" }, "amount": 900, "result": "SUCCESS", "createdTime": 1793177800000,
+      "refunds": { "elements": [ { "id": "REF_1", "amount": 900, "createdTime": 1793177810000, "voided": false } ] }
+    },
+    {
+      "id": "PAY_MONERO_2", "order": { "id": "ORDER_CL_6" }, "device": { "id": "DEV_BACK" },
+      "tender": { "id": "T_MONERO" }, "amount": 450, "result": "SUCCESS", "createdTime": 1793177820000,
+      "refunds": { "elements": [ { "id": "REF_2", "amount": 450, "createdTime": 1793177830000, "voided": true } ] }
+    },
+    {
+      "id": "PAY_MONERO_0", "order": { "id": "ORDER_CL_0" },
+      "tender": { "id": "T_MONERO" }, "amount": 375, "result": "SUCCESS", "createdTime": 1793177730000
+    }
+  ],
+  "href": "https://api.clover.com/v3/merchants/MCLOVER00001/payments"
+}

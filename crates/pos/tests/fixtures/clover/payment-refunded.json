@@ -1,0 +1,12 @@
+{
+  "id": "PAY_MONERO_1", "order": { "id": "ORDER_CL_1" },
+  "tender": { "id": "T_MONERO", "label": " MONERO ", "labelKey": "com.clover.tender.external_payment" },
+  "amount": 2205, "result": "SUCCESS", "createdTime": 1793177760000,
+  "refunds": {
+    "elements": [
+      { "id": "REF_A", "amount": 1000, "createdTime": 1793178000000, "voided": false },
+      { "id": "REF_B", "amount": 2205, "createdTime": 1793178010000, "voided": true },
+      { "id": "REF_C", "amount": 1205, "createdTime": 1793178020000, "voided": false }
+    ]
+  }
+}

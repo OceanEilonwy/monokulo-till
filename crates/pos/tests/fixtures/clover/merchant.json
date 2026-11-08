@@ -1,0 +1,15 @@
+{
+  "href": "https://api.clover.com/v3/merchants/MCLOVER00001",
+  "id": "MCLOVER00001",
+  "name": "The Bean Room",
+  "address": {
+    "href": "https://api.clover.com/v3/merchants/MCLOVER00001/address",
+    "address1": "1 Market St",
+    "city": "San Francisco",
+    "state": "CA",
+    "zip": "94105",
+    "country": "US"
+  },
+  "owner": { "id": "EOWNER0001", "name": "Ada Owner", "email": "owner@example.com" },
+  "isBillable": true
+}
