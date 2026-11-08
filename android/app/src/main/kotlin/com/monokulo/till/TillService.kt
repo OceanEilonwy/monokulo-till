@@ -17,9 +17,7 @@ import com.monokulo.till.overlay.Overlay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import uniffi.till_app.Action
@@ -50,27 +48,23 @@ class TillService : LifecycleService() {
         )
         overlay = Overlay(this, lifecycleScope, onOpenShift = ::openShift, onOpenApp = ::openApp, onFullScreen = ::openSale)
         overlay.start()
-        // The sale the ongoing notification has alerted for, once: a heads-up when it first appears, not again
-        // when an older one comes back to the top (the engine's alert face says which sale is new).
-        val alerted = mutableSetOf<String>()
         lifecycleScope.launch {
-            combine(app.engineStore.notification, app.engineStore.bubble, alerts) { notification, bubble, alerts ->
+            combine(app.engineStore.notification, app.engineStore.bubble) { notification, bubble ->
                 val face = notification?.ongoing
                 val orderId = (face as? OngoingFace.Sale)?.orderId
                 // The code and address are the panel's, when it is about the same sale (it is: the newest live one).
                 val panel = bubble?.panel?.takeIf { orderId != null && bubble.orderId == orderId }
-                Posted(face, panel?.code, panel?.address, orderId != null && orderId in alerts)
+                Posted(face, panel?.code, panel?.address)
             }.distinctUntilChanged().collect { posted ->
+                // A sale's heads-up is its face's alert, set in the one update as it arrives while Till is away.
                 val face = posted.face ?: return@collect
-                val orderId = (face as? OngoingFace.Sale)?.orderId
-                val alert = posted.alert && orderId != null && alerted.add(orderId)
-                notes.ongoing(notes.ongoing(face, posted.code, posted.address, alert))
+                notes.ongoing(notes.ongoing(face, posted.code, posted.address))
             }
         }
     }
 
     /** What the ongoing notification was last posted from. */
-    private data class Posted(val face: OngoingFace?, val code: String?, val address: String?, val alert: Boolean)
+    private data class Posted(val face: OngoingFace?, val code: String?, val address: String?)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
@@ -129,9 +123,6 @@ class TillService : LifecycleService() {
         const val ACTION_SHOW_CODE = "com.monokulo.till.SHOW_CODE"
         private const val TAG = "TillService"
 
-        /** The sales the engine alerted for ([Effect.Notify] with `alert`): each one's ongoing notification is a heads-up, once. */
-        private val alerts = MutableStateFlow<Set<String>>(emptySet())
-
         fun start(context: Context) =
             ContextCompat.startForegroundService(context, Intent(context, TillService::class.java))
 
@@ -170,12 +161,8 @@ class TillService : LifecycleService() {
             scope.launch {
                 app.engineStore.effects.collect { effect ->
                     when (effect) {
-                        // The new sale's alert is the ongoing notification's heads-up on Android (decision 41).
-                        is Effect.Notify -> if (effect.face.alert) alerts.update { it + effect.face.id } else notes.notice(effect.face)
-                        is Effect.ClearNotification -> {
-                            notes.clear(effect.id)
-                            alerts.update { it - effect.id }
-                        }
+                        is Effect.Notify -> notes.notice(effect.orderId, effect.notice, effect.paid, effect.quiet)
+                        is Effect.ClearNotification -> notes.clear(effect.id)
                         is Effect.CopyText -> if (EngineStore.bubble.value?.buzzes == true) SaleNotifications.copyText(app, effect.text)
                         else -> Unit
                     }

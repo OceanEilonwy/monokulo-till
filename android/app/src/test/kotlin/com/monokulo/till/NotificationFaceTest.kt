@@ -7,8 +7,6 @@ import com.monokulo.till.ui.Fixed
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertTrue
-import uniffi.till_app.NotificationFace
 import uniffi.till_screens.Face
 import uniffi.till_screens.FaceIcon
 import uniffi.till_screens.FaceTint
@@ -64,12 +62,5 @@ class NotificationFaceTest {
         assertEquals(SaleNotifications.CHANNEL_SALES, Shade.channel(face(), alert = false))
         assertEquals(SaleNotifications.CHANNEL_SHIFT, Shade.channel(face(icon = FaceIcon.RING_HALF, fullScreen = false), alert = false))
         assertEquals(SaleNotifications.CHANNEL_SALES, Shade.channel(face(fullScreen = false), alert = true))
-    }
-
-    @Test
-    fun `a paid notice has the tick, an unpaid one not`() {
-        fun notice(title: String) = NotificationFace("o1", title, "$13.88 · 0.05552 XMR received", "$13.88", alert = false, quiet = false)
-        assertTrue(Shade.paid(notice("Paid · Sale #bP9m")))
-        assertFalse(Shade.paid(notice("No payment yet · Sale #bP9m")))
     }
 }

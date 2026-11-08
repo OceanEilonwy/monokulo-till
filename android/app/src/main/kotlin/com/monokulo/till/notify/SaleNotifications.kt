@@ -33,10 +33,11 @@ import com.monokulo.till.ui.qrBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import uniffi.till_app.Action
-import uniffi.till_app.NotificationFace
+import uniffi.till_app.endedSummary
 import uniffi.till_screens.Face
 import uniffi.till_screens.FaceIcon
 import uniffi.till_screens.FaceTint
+import uniffi.till_screens.Notice
 import uniffi.till_screens.NoticeAction
 import uniffi.till_screens.OngoingFace
 
@@ -72,9 +73,6 @@ object Shade {
      */
     fun channel(face: Face, alert: Boolean): String =
         if (alert || face.fullScreen) SaleNotifications.CHANNEL_SALES else SaleNotifications.CHANNEL_SHIFT
-
-    /** A sale's ended notice that says it was paid: the green tick, gone after a while. */
-    fun paid(face: NotificationFace): Boolean = face.title.startsWith("Paid")
 }
 
 /**
@@ -124,12 +122,13 @@ class SaleNotifications(private val context: Context) {
     /**
      * The shift's notification as [face] says. [code] is the sale's payment
      * code, drawn as the large icon, and [address] what "Copy address"
-     * copies, when the bubble's panel knows them; [alert] makes it a
-     * heads-up (a new sale). The code is encoded off the main thread: with
+     * copies, when the bubble's panel knows them. A sale's `alert`, set in
+     * the one update as it arrives while Till is away, makes it a heads-up;
+     * a post without it only alerts once. The code is encoded off the main thread: with
      * a receipt in it that's a version-25 code at four pixels a module,
      * about 880 kB of pixels.
      */
-    suspend fun ongoing(face: OngoingFace, code: String?, address: String?, alert: Boolean): Notification = when (face) {
+    suspend fun ongoing(face: OngoingFace, code: String?, address: String?): Notification = when (face) {
         is OngoingFace.Watching -> watching(face.title, face.text)
         is OngoingFace.Paid -> live(face.face, face.subText, CHANNEL_SHIFT)
             .setOnlyAlertOnce(true)
@@ -138,7 +137,7 @@ class SaleNotifications(private val context: Context) {
             .setContentIntent(openApp(face.orderId))
             .build()
         is OngoingFace.Sale -> {
-            val heads = alert || face.alert
+            val heads = face.alert
             val showCode = showCode(face.orderId)
             val icon = code?.let { withContext(Dispatchers.Default) { runCatching { qrBitmap(it, scale = 4, margin = 2) }.getOrNull() } }
             val builder = live(face.face, face.subText, Shade.channel(face.face, heads))
@@ -199,37 +198,27 @@ class SaleNotifications(private val context: Context) {
     fun ongoing(notification: Notification) = notify(ONGOING_ID, notification)
 
     /**
-     * Posts a sale's own notice ([uniffi.till_app.Effect.Notify]) in the ended
-     * group: a paid one with the green tick, gone after a while; [NotificationFace.quiet]
-     * (no banner) while Till is on screen saying so. Once there are two, the
+     * Posts [orderId]'s own [notice] ([uniffi.till_app.Effect.Notify]) in the
+     * ended group: a [paid] one with the green tick, gone after a while;
+     * [quiet] (no banner) while Till is on screen saying so. Once there are two, the
      * group's summary goes up too: left to itself Android bundles them under
      * the launcher icon, a solid square in the status bar. The summary goes
      * when the Paid ones would, so it never outlives them for long; an unpaid
      * one left after that stands alone.
      */
-    fun notice(face: NotificationFace) {
-        val paid = Shade.paid(face)
+    fun notice(orderId: String, notice: Notice, paid: Boolean, quiet: Boolean) {
         val builder = NotificationCompat.Builder(context, CHANNEL_SALES)
             .setSmallIcon(R.drawable.ic_mark)
             .setColor(if (paid) paidGreen else accent)
-            .setContentTitle(face.title)
-            .setContentText(face.text)
+            .setContentTitle(notice.title)
+            .setContentText(notice.text)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setGroup(GROUP_ENDED)
             .setAutoCancel(true)
-            .setSilent(face.quiet)
-            .setContentIntent(openApp(face.id))
-        if (face.publicText != face.text) {
-            builder.setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setPublicVersion(
-                NotificationCompat.Builder(context, CHANNEL_SALES)
-                    .setSmallIcon(R.drawable.ic_mark)
-                    .setContentTitle(face.title)
-                    .setContentText(face.publicText)
-                    .build(),
-            )
-        }
+            .setSilent(quiet)
+            .setContentIntent(openApp(orderId))
         if (paid) builder.setLargeIcon(tick()).setTimeoutAfter(ENDED_MS)
-        val id = idOf(face.id)
+        val id = idOf(orderId)
         notify(id, builder.build())
         // The system posts in its own time, so the one just sent may not be listed yet: count the others and add it.
         val others = runCatching {
@@ -248,7 +237,7 @@ class SaleNotifications(private val context: Context) {
     private fun summary(ended: Int): Notification = NotificationCompat.Builder(context, CHANNEL_SALES)
         .setSmallIcon(R.drawable.ic_mark)
         .setColor(accent)
-        .setContentTitle("$ended sales ended")
+        .setContentTitle(endedSummary(ended.toUInt()).title)
         .setGroup(GROUP_ENDED)
         .setGroupSummary(true)
         .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
