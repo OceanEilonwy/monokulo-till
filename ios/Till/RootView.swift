@@ -1,7 +1,9 @@
 import SwiftUI
 
 /// The app's one window: the screen the engine says, links that open the
-/// app handed to it, and the app's coming and going.
+/// app handed to it, and the app's coming and going. When a move between
+/// the till's screens settles, the engine hears where (`Action.landed`,
+/// decision 55): a new sale rises out of the shift only while it rests.
 struct RootView: View {
     let core: Core
 
@@ -20,6 +22,9 @@ struct RootView: View {
                 }
             }
             .task { await core.readPermissions() }
+            .task(id: core.screen) { [screen = core.screen] in
+                await core.land(screen)
+            }
     }
 
     @ViewBuilder
@@ -33,8 +38,8 @@ struct RootView: View {
             } else {
                 StartingView()
             }
-        case .till:
-            CoreView(core: core)
+        default:
+            TillScreen(core: core, route: core.route)
         }
     }
 }

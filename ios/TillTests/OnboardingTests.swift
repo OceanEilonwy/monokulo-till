@@ -22,7 +22,8 @@ struct OnboardingTests {
         }
         let till: [Screen] = [.till, .settings, .sale(orderId: "o1"), .code(orderId: "o1"), .order(orderId: "o1")]
         for screen in till {
-            #expect(Route.of(screen) == .till)
+            #expect(Route.of(screen) != .onboarding)
+            #expect(Route.of(screen) != .starting)
         }
     }
 
