@@ -391,3 +391,25 @@ on from 1; the Android app's own choices are in [android.md](android.md).
 66. **The island switches are kept under `island.activity` (absent means
     on; read only on iPhone) and `island.code` (off unless set)**, and
     survive `forget_all`.
+
+## iOS phase I3: the till on iPad (2026-11-08)
+
+67. **iOS reports `Landed` 0.3 s after each move between the till's
+    screens settles** (a later move cancels it); the length is a choice. A
+    sale shows its live screen while its code isn't done and its page
+    otherwise, as on Android, and the enlarged code gives way to the page
+    once it is.
+68. **Wake-ups is a page pushed inside Settings in Swift**, since `Screen`
+    has no case for it; Back from it is the system's. The engine never sets
+    the own-Bell field's `own_picked` or `typed`, so that field is Swift's
+    state until "Use this Bell"; the engine wants actions for picking and
+    typing it.
+69. **iOS can't switch its own alerts on**, so Settings' alerts switch
+    opens Till's notification settings and springs back. A new-sale alert
+    is a time-sensitive `UNNotificationRequest` with the order id as its
+    identifier (`ClearNotification` removes it; tapping it sends
+    `OpenSale`); the time-sensitive entitlement needs the capability on
+    the App ID before release.
+70. **New iOS words await the owner's review**: "This shift", the swipe's
+    "Close", "Disconnect this device?", "Open alert settings", "Scan with
+    any Monero wallet", "Tap anywhere to shrink" and the section titles.
