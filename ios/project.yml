@@ -21,9 +21,12 @@ targets:
   Till:
     type: application
     platform: iOS
-    sources: [Till]
+    # Shared: the Live Activity's attributes, compiled into the widget too.
+    sources: [Till, Shared]
     dependencies:
       - package: TillCore
+      # Embedded in the app's PlugIns.
+      - target: TillWidgets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.monokulo.till
@@ -43,6 +46,28 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.business
+        # The Live Activity (docs/design.md §6), updated often while a sale waits.
+        INFOPLIST_KEY_NSSupportsLiveActivities: YES
+        INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates: YES
+  # The Live Activity (docs/ios-plan.md §5). It doesn't link TillCore: its
+  # content state is the small Codable in Shared/.
+  TillWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: TillWidgets
+        excludes: [Info.plist]
+      - Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.monokulo.till.widgets
+        PRODUCT_NAME: TillWidgets
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: YES
+        # NSExtension's point, merged with the generated keys.
+        INFOPLIST_FILE: TillWidgets/Info.plist
+        INFOPLIST_KEY_CFBundleDisplayName: Till
+        SKIP_INSTALL: YES
   TillTests:
     type: bundle.unit-test
     platform: iOS
