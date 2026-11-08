@@ -9,7 +9,7 @@ use serde_json::json;
 use super::{CloverConfig, clover_error, retry_after};
 use crate::http;
 use crate::tokens::{hold, no_lock};
-use crate::{Pkce, PosError, PosTokens, TokenLock, TokenStore};
+use crate::{Pkce, PosError, PosTokens, StoreError, TokenLock, TokenStore};
 
 /// Clover's token answer: the expirations are Unix seconds, where the rest
 /// of Clover is milliseconds.
@@ -92,9 +92,9 @@ impl CloverAuth {
         )
     }
 
-    /// Whether a sign-in is kept.
-    pub fn signed_in(&self) -> bool {
-        self.store.load().is_some()
+    /// Whether a sign-in is kept; a store that can't tell says so.
+    pub fn signed_in(&self) -> Result<bool, StoreError> {
+        Ok(self.store.load()?.is_some())
     }
 
     /// Clover's redirect, back in the app: the code for this attempt's
@@ -194,7 +194,7 @@ impl CloverAuth {
 
     fn signed_in_tokens(&self) -> Result<PosTokens, PosError> {
         self.store
-            .load()
+            .load()?
             .ok_or_else(|| PosError::sign_in(PointOfSale::Clover, 401, "Sign in to Clover."))
     }
 

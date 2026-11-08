@@ -8,7 +8,7 @@ use serde_json::json;
 use super::{SquareConfig, answered};
 use crate::http;
 use crate::tokens::{hold, no_lock};
-use crate::{Pkce, PosError, PosTokens, TokenLock, TokenStore};
+use crate::{Pkce, PosError, PosTokens, StoreError, TokenLock, TokenStore};
 
 /// An access token with less than this left is refreshed first: a day
 /// (decision 19).
@@ -75,9 +75,9 @@ impl SquareAuth {
         http::url(self.config.connect_base(), &["oauth2", "authorize"], &query)
     }
 
-    /// Whether a sign-in is kept.
-    pub fn signed_in(&self) -> bool {
-        self.store.load().is_some()
+    /// Whether a sign-in is kept; a store that can't tell says so.
+    pub fn signed_in(&self) -> Result<bool, StoreError> {
+        Ok(self.store.load()?.is_some())
     }
 
     /// Square's redirect, back in the app: the code for this attempt's
@@ -171,7 +171,7 @@ impl SquareAuth {
 
     fn signed_in_tokens(&self) -> Result<PosTokens, PosError> {
         self.store
-            .load()
+            .load()?
             .ok_or_else(|| PosError::sign_in(PointOfSale::Square, 401, "Sign in to Square."))
     }
 

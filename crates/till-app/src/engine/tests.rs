@@ -40,12 +40,14 @@ fn config(square: Option<&MockServer>) -> EngineConfig {
             sandbox: false,
             redirect_uri: "https://till.monokulo.com/square".into(),
             base_url: square.map(MockServer::uri),
+            return_uri: None,
         },
         clover: CloverSetup {
             application_id: "clv-till".into(),
             environment: "sandbox".into(),
             redirect_uri: "https://till.monokulo.com/clover".into(),
             base_url: None,
+            return_uri: None,
         },
         bell_url: "https://bell.monokulo.com".into(),
     }
@@ -359,6 +361,68 @@ async fn a_sign_in_opens_its_page_and_keeps_the_attempt_as_stores_kt_did() {
     );
 }
 
+/// Decision 57: a debug build's sign-in comes back on its own scheme, and
+/// the token exchange still names the redirect Square knows.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sign_in_back_on_the_builds_return_link_is_taken_and_exchanged_for_the_redirect() {
+    let monokulo = monokulo().await;
+    let square = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/oauth2/token"))
+        .respond_with(json(
+            r#"{"access_token":"EAAA9","expires_at":"2030-01-01T00:00:00Z","refresh_token":"r9","merchant_id":"M1"}"#,
+        ))
+        .mount(&square)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v2/locations"))
+        .respond_with(json(
+            r#"{"locations":[{"id":"L1","name":"Front counter","country":"US","currency":"USD","status":"ACTIVE"}]}"#,
+        ))
+        .mount(&square)
+        .await;
+    let platform = FakePlatform::with(&[
+        ("pos.kind", "square"),
+        (
+            "square.pending",
+            r#"{"verifier":"v-1","state":"s-1","pointOfSale":"square"}"#,
+        ),
+    ]);
+    platform.set(
+        "connection",
+        &format!(r#"{{"app_key":"ak_1","api":"{}/api/v1"}}"#, monokulo.uri()),
+    );
+    let mut config = config(Some(&square));
+    config.square.return_uri = Some("monokulo-till-debug://square".into());
+    config.clover.return_uri = Some("monokulo-till-debug://clover".into());
+    let (engine, rx, _) = start(config, platform.clone());
+    screen(&rx, Screen::PointOfSale);
+
+    engine.send(Action::SignInReturned {
+        url: "monokulo-till-debug://clover?code=c&state=s-1&merchant_id=MID1".into(),
+    });
+    assert_eq!(
+        problem(&rx),
+        "That Clover sign-in wasn't started here. Try again.",
+        "Clover's return link is Clover's"
+    );
+    engine.send(Action::SignInReturned {
+        url: "monokulo-till-debug://square?code=c1&state=s-1".into(),
+    });
+    wait_for(&rx, |_| platform.get("square.location"));
+    assert!(platform.get("square.tokens").unwrap().contains("EAAA9"));
+    let exchange = square
+        .received_requests()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|r| r.url.path() == "/oauth2/token")
+        .expect("the code exchanged");
+    let body: serde_json::Value = serde_json::from_slice(&exchange.body).unwrap();
+    assert_eq!(body["redirect_uri"], "https://till.monokulo.com/square");
+    assert_eq!(body["code"], "c1");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn an_upgraded_till_runs_its_shift_makes_orders_and_tells_the_platform() {
     let monokulo = monokulo().await;
@@ -370,18 +434,32 @@ async fn an_upgraded_till_runs_its_shift_makes_orders_and_tells_the_platform() {
         r#"[{"orderId":"ord_0","amount":"5.00","currency":"USD","code":{"uri":"monero:8Cy","hasReceipt":false},"phase":"Waiting","expiresAt":1893456000,"xmr":"0.03","address":"8Cy"}]"#,
     );
     let (engine, rx, _) = start(config(Some(&square)), platform.clone());
+    // In the back: the new sale is alerted.
+    engine.send(Action::Backgrounded);
     screen(&rx, Screen::Till);
     wait_for(&rx, |heard| match heard {
         Heard::Update(Update::Service { running: true }) => Some(()),
         _ => None,
     });
-    let face = wait_for(&rx, |heard| match heard {
-        Heard::Effect(Effect::Notify { face }) => Some(face.clone()),
+    // The shift lists the kept sale and the new one, at the till's place,
+    // published with the alert.
+    let mut shift = None;
+    let alert = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Shift { view }) if rows(view) == 2 => {
+            shift = Some(view.clone());
+            None
+        }
+        Heard::Update(Update::Notification { view }) => view.alert.clone(),
         _ => None,
     });
-    assert_eq!(face.id, "ord_1");
-    assert_eq!(face.title, "Monero sale");
-    assert_eq!(face.text, "$13.88 · Tap to show code");
+    let shift = shift.expect("the shift with both sales");
+    assert_eq!(shift.top.place.as_deref(), Some("Front counter"));
+    assert_eq!(alert.order_id, "ord_1");
+    assert_eq!(alert.title, "New Monero sale · $13.88");
+    assert_eq!(
+        alert.body,
+        "Front counter. Tap here to show the payment code."
+    );
     assert!(
         platform
             .get("shift.sales")
@@ -393,21 +471,23 @@ async fn an_upgraded_till_runs_its_shift_makes_orders_and_tells_the_platform() {
         Some(r#"["pay_monero"]"#)
     );
 
-    // The shift lists the kept sale and the new one, at the till's place.
-    let shift = wait_for(&rx, |heard| match heard {
-        Heard::Update(Update::Shift { view }) if rows(view) == 2 => Some(view.clone()),
-        _ => None,
-    });
-    assert_eq!(shift.top.place.as_deref(), Some("Front counter"));
-
     engine.send(Action::CopyAddress {
         order_id: "ord_1".into(),
     });
+    let mut after = None;
     let copied = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Notification { view }) => {
+            after = Some(view.clone());
+            None
+        }
         Heard::Effect(Effect::CopyText { text }) => Some(text.clone()),
         _ => None,
     });
     assert_eq!(copied, "8Bx");
+    // The next change goes without the alert: it was posted once.
+    if let Some(after) = after {
+        assert_eq!(after.alert, None, "alerted once");
+    }
 
     // The close sheet's "No": the till refunds it in Square and closes it.
     engine.send(Action::Close {
@@ -445,6 +525,83 @@ async fn an_upgraded_till_runs_its_shift_makes_orders_and_tells_the_platform() {
     assert_eq!(platform.get("shift.on").as_deref(), Some("false"));
 }
 
+/// The Live Activity's state as the engine publishes it next.
+fn live_activity(rx: &Receiver<Heard>) -> Option<till_screens::LiveActivityState> {
+    wait_for(rx, |heard| match heard {
+        Heard::Update(Update::LiveActivity { state }) => Some(state.clone()),
+        _ => None,
+    })
+}
+
+/// Decision 40: on iPhone the Live Activity follows the till's own sales,
+/// carries the code only with "Show code in island" on, and goes with the
+/// switch.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_live_activity_follows_the_tills_own_sale_and_the_islands_switches() {
+    use till_screens::live_activity::ActivityPhase;
+    let monokulo = monokulo().await;
+    let square = square().await;
+    let (engine, rx, _) = start(config(Some(&square)), signed_in_till(&monokulo));
+    let waiting = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::LiveActivity { state: Some(state) })
+            if state.phase == ActivityPhase::Waiting =>
+        {
+            Some(state.clone())
+        }
+        _ => None,
+    });
+    assert_eq!(waiting.sale.as_deref(), Some("#bP9m"));
+    assert_eq!(waiting.amount.as_deref(), Some("13.88"));
+    assert_eq!(waiting.waiting_count, 1);
+    assert_eq!(waiting.payment_uri, None, "the code stays in the app");
+
+    engine.send(Action::SetCodeInIsland { on: true });
+    let with_code = live_activity(&rx).unwrap();
+    assert_eq!(
+        with_code.payment_uri.as_deref(),
+        Some("monero:8Bx?tx_amount=0.08")
+    );
+    engine.send(Action::SetLiveActivity { on: false });
+    assert_eq!(live_activity(&rx), None, "no activity with the switch off");
+}
+
+/// Android's ongoing notification alerts a sale that arrives while the app
+/// is in the back, in one update, and has no Live Activity.
+#[tokio::test(flavor = "multi_thread")]
+async fn androids_ongoing_notification_alerts_a_new_sale_once() {
+    let monokulo = monokulo().await;
+    let square = square().await;
+    let android = EngineConfig {
+        device: Device::Android,
+        ..config(Some(&square))
+    };
+    let (engine, rx, _) = start(android, signed_in_till(&monokulo));
+    engine.send(Action::Backgrounded);
+    let (face, alert) = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::LiveActivity { .. }) => panic!("a Live Activity on Android"),
+        Heard::Update(Update::Notification { view }) => match &view.ongoing {
+            Some(till_screens::notification::OngoingFace::Sale { face, alert, .. }) => {
+                Some((face.clone(), *alert))
+            }
+            _ => None,
+        },
+        _ => None,
+    });
+    assert!(alert, "a heads-up as it arrives");
+    assert_eq!(face.title, "New Monero sale · Front counter");
+    let next = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Notification { view }) => Some(view.clone()),
+        _ => None,
+    });
+    assert!(
+        matches!(
+            next.ongoing,
+            Some(till_screens::notification::OngoingFace::Sale { alert: false, .. })
+        ),
+        "{next:?}"
+    );
+}
+
 #[test]
 fn choosing_wake_ups_keeps_the_choice_in_stores_kts_key() {
     let platform = Arc::new(FakePlatform::default());
@@ -478,6 +635,40 @@ fn choosing_wake_ups_keeps_the_choice_in_stores_kts_key() {
         None,
         "the timer alone is kept as nothing"
     );
+}
+
+/// Settings' island section, as the engine publishes it.
+fn island(rx: &Receiver<Heard>) -> Option<till_screens::settings::IslandSection> {
+    wait_for(rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => Some(view.island.clone()),
+        _ => None,
+    })
+}
+
+/// Decision 47: Settings › Dynamic Island's switches are kept in keys of
+/// their own on iPhone, and shown as kept.
+#[test]
+fn the_islands_switches_are_kept_and_shown_on_iphone_only() {
+    let platform = Arc::new(FakePlatform::default());
+    let (engine, rx, _) = start(config(None), platform.clone());
+    let shown = island(&rx).expect("an iPhone has the island section");
+    assert!(shown.live_activity && !shown.code_in_island, "the defaults");
+    engine.send(Action::SetCodeInIsland { on: true });
+    let shown = island(&rx).unwrap();
+    assert!(shown.code_in_island);
+    assert_eq!(platform.get("island.code").as_deref(), Some("true"));
+    engine.send(Action::SetLiveActivity { on: false });
+    assert!(!island(&rx).unwrap().live_activity);
+    assert_eq!(platform.get("island.activity").as_deref(), Some("false"));
+
+    let android = Arc::new(FakePlatform::default());
+    let mut config = config(None);
+    config.device = Device::Android;
+    let (engine, rx, _) = start(config, android.clone());
+    assert_eq!(island(&rx), None);
+    engine.send(Action::SetCodeInIsland { on: true });
+    engine.peek(|_| ());
+    assert_eq!(android.get("island.code"), None, "nothing kept on Android");
 }
 
 #[test]

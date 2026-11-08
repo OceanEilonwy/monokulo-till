@@ -14,9 +14,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use monokulo_client::{Clock, MonokuloApi, SystemClock, tor};
-use till_sales::Till;
+use till_sales::{Till, TillSale};
+use till_screens::notification::{self, NotificationInput, OngoingFace, SaleAlert};
+use till_screens::{Device, pos_text};
 
-use crate::faces::{self, Money, NotificationFace};
+use crate::phases::Money;
 use crate::side::Side;
 use crate::store::{Kept, Log, Store};
 use crate::{EngineConfig, Platform};
@@ -25,10 +27,13 @@ use crate::{EngineConfig, Platform};
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct BackgroundCheck {
-    /// One alert per sale this look made an order for whose code is up,
-    /// newest first: what the notification should say in place of the
-    /// ding's own words.
-    pub alerts: Vec<NotificationFace>,
+    /// iOS: one alert per sale this look made an order for whose code is
+    /// up, newest first, as `till_screens::notification` words it: what the
+    /// notification should say in place of the ding's own words.
+    pub alerts: Vec<SaleAlert>,
+    /// Android: the shift's ongoing notification after the look, alerting
+    /// about the newest such sale; `None` when the look found none.
+    pub ongoing: Option<OngoingFace>,
     /// What went wrong, in the till's words: the kept state couldn't be
     /// read, or the point of sale or Monokulo refused.
     pub problem: Option<String>,
@@ -110,6 +115,7 @@ pub(crate) async fn check(
     if !model.shift_on {
         return BackgroundCheck::nothing();
     }
+    let device = config.device;
     let side = match Side::new(Arc::new(config), kept, http.clone(), clock.clone()) {
         Ok(side) => side,
         Err(problem) => return BackgroundCheck::failed(problem),
@@ -118,11 +124,10 @@ pub(crate) async fn check(
         return BackgroundCheck::nothing();
     };
     let monokulo = MonokuloApi::new(http, side.identity(), clock.clone());
-    let shift = side.shift_kept().clone();
     let till = Till::new(source, monokulo, connection)
         .with_clock(clock)
-        .with_store(shift.clone());
-    if shift.unread() {
+        .with_store(side.shift_kept().clone());
+    if till.shift_unread() {
         // A look now would save its orders over the shift it couldn't read.
         return BackgroundCheck::failed("Couldn't read the shift this till keeps.");
     }
@@ -136,15 +141,36 @@ pub(crate) async fn check(
         .await
         .is_ok();
     let state = till.state();
+    let new: Vec<&TillSale> = state
+        .sales
+        .iter()
+        .filter(|sale| !before.contains(&sale.order_id) && sale.live())
+        .collect();
     let money = Money(platform);
+    // What the notifications say about `sale`, as it arrives.
+    let arriving = |sale: &TillSale| {
+        let input = NotificationInput {
+            sales: state.sales.clone(),
+            just_paid: None,
+            alert_for: Some(sale.order_id.clone()),
+            // Not read here: the ongoing notification names the place alone.
+            store: None,
+            location: pos_text::place_of(sale, model.point_of_sale, model.place_name().as_deref())
+                .map(str::to_owned),
+        };
+        notification::notification(&input, device, &money)
+    };
+    let (alerts, ongoing) = if device == Device::Android {
+        let ongoing = new.first().and_then(|sale| arriving(sale).ongoing);
+        (Vec::new(), ongoing)
+    } else {
+        let alerts = new.iter().filter_map(|sale| arriving(sale).alert).collect();
+        (alerts, None)
+    };
     BackgroundCheck {
-        alerts: state
-            .sales
-            .iter()
-            .filter(|sale| !before.contains(&sale.order_id) && sale.live())
-            .map(|sale| faces::new_sale(sale, &money, false))
-            .collect(),
-        problem: state.problem,
+        alerts,
+        ongoing,
+        problem: state.problem.clone(),
         finished,
     }
 }

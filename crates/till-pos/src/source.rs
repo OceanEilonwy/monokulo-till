@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use monokulo_client::PointOfSale;
 use serde::{Deserialize, Serialize};
 
-use crate::PosError;
+use crate::{PosError, StoreError};
 
 /// A point of sale the till watches for Monero sales (docs/design.md §1,
 /// "POS sources"): Square, Clover.
@@ -143,12 +143,16 @@ mod kotlin_name {
 
 /// Where a source keeps its place, so a restart neither repeats nor skips
 /// sales. The app implements it, one per point of sale.
+///
+/// A read that fails is a [`StoreError`], never "no cursor yet": a source
+/// that took it for one would start the cursor afresh over the kept one,
+/// and forget the payments already handled.
 pub trait CursorStore: Send + Sync {
     /// RFC 3339: payments from here on are looked at. `None` before the
     /// first look.
-    fn since(&self) -> Option<String>;
+    fn since(&self) -> Result<Option<String>, StoreError>;
     /// The payment ids already handled, oldest first, each once.
-    fn handled(&self) -> Vec<String>;
+    fn handled(&self) -> Result<Vec<String>, StoreError>;
     /// Keeps the cursor and the handled ids in place of what was kept.
     fn save(&self, since: &str, handled: &[String]);
 }
@@ -164,17 +168,20 @@ const REMEMBERED: usize = 500;
 
 /// Marks `sale` handled in `cursor`: its id remembered (the newest
 /// [`REMEMBERED`] kept), and the cursor moved up to the sale, never back.
-/// A cursor that can't be read is replaced by the sale's time; a sale whose
-/// time can't be read leaves the cursor where it was.
+/// A cursor whose time can't be parsed is replaced by the sale's time; a
+/// sale whose time can't be read leaves the cursor where it was. A cursor
+/// the store couldn't read is left alone: the sale is found again on the
+/// next look, and its order is the same one (its idempotency key).
 #[cfg(any(feature = "square", feature = "clover"))]
 pub(crate) fn mark_handled(cursor: &dyn CursorStore, sale: &FoundSale) {
-    let mut handled = cursor.handled();
+    let (Ok(mut handled), Ok(saved)) = (cursor.handled(), cursor.since()) else {
+        return;
+    };
     if !handled.contains(&sale.id) {
         handled.push(sale.id.clone());
     }
     let excess = handled.len().saturating_sub(REMEMBERED);
     handled.drain(..excess);
-    let saved = cursor.since();
     let since = match (
         saved.as_deref().and_then(crate::time::parse),
         crate::time::parse(&sale.created_at),

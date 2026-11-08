@@ -6,6 +6,13 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
+/// Something the app keeps for the till couldn't be read: the Keychain or
+/// the Keystore didn't answer. Never the same as "nothing kept", which a
+/// store says with `None` (decision 17 in docs/decisions/core.md).
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("{0}")]
+pub struct StoreError(pub String);
+
 /// The till's own sign-in to its point of sale: one shape for Square's and
 /// Clover's, so the app keeps either the same way. The JSON names are
 /// Square's wire names, which sign-ins stored before Clover were written
@@ -25,8 +32,10 @@ pub struct PosTokens {
 /// Where a sign-in is kept, encrypted: one per point of sale. The app
 /// implements it (the Android Keystore, the iOS Keychain).
 pub trait TokenStore: Send + Sync {
-    /// The sign-in, or `None` when there is none.
-    fn load(&self) -> Option<PosTokens>;
+    /// The sign-in, or `None` when there is none. A store that can't tell
+    /// says so with an error: taking that for "signed out" would send the
+    /// cashier to sign in again, and could forget a good sign-in.
+    fn load(&self) -> Result<Option<PosTokens>, StoreError>;
     /// Keeps `tokens` in place of what was kept; `None` forgets it.
     fn save(&self, tokens: Option<PosTokens>);
 }

@@ -21,7 +21,7 @@ uniffi::setup_scaffolding!();
 
 mod background;
 mod engine;
-mod faces;
+mod phases;
 mod push;
 mod side;
 pub mod store;
@@ -33,16 +33,16 @@ use std::sync::{Arc, OnceLock};
 use tokio::sync::mpsc::UnboundedSender;
 
 pub use background::{BackgroundCheck, background_check};
-pub use faces::NotificationFace;
 use monokulo_client::PointOfSale;
 pub use till_screens::Device;
 use till_screens::bubble::{BubbleLook, BubbleTap};
+use till_screens::notification::Notice;
 use till_screens::order_text::OrderCard;
 use till_screens::shift::ShiftFilter;
 use till_screens::view::Press;
 use till_screens::{
-    CloseView, CodeView, NotificationView, OnboardingView, SalePageView, SaleView, SettingsView,
-    ShiftView, WakeUpsView,
+    CloseView, CodeView, LiveActivityState, NotificationView, OnboardingView, SalePageView,
+    SaleView, SettingsView, ShiftView, WakeUpsView,
 };
 
 /// The version of the core, for the platform's About screen and logs.
@@ -155,10 +155,17 @@ pub trait EngineListener: Send + Sync {
 pub struct SquareSetup {
     pub application_id: String,
     pub sandbox: bool,
-    /// Where Square sends the sign-in back: an App Link into the app.
+    /// Where Square sends the sign-in back: an App Link into the app. The
+    /// token exchange names it, as Square requires.
     pub redirect_uri: String,
     /// A stand-in Square, for development; `None` for Square's own.
     pub base_url: Option<String>,
+    /// Where the sign-in comes back into the app when that isn't
+    /// `redirect_uri` itself: a debug build's `monokulo-till-debug://` link,
+    /// which the page at `redirect_uri` forwards to. A redirect to either
+    /// is taken (decision 57); `None` takes only `redirect_uri`.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub return_uri: Option<String>,
 }
 
 /// Which Clover, as the build names it.
@@ -170,6 +177,9 @@ pub struct CloverSetup {
     pub environment: String,
     pub redirect_uri: String,
     pub base_url: Option<String>,
+    /// As [`SquareSetup::return_uri`].
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub return_uri: Option<String>,
 }
 
 /// The app around the engine: where it keeps things, what it is, and what
@@ -400,6 +410,15 @@ pub enum Action {
     SetTor {
         on: bool,
     },
+    /// iPhone's Settings › Dynamic Island: the Live Activity each shift.
+    SetLiveActivity {
+        on: bool,
+    },
+    /// iPhone's "Show code in island": the plain payment URI goes through
+    /// the push relay to the island while a sale waits (design.md §6).
+    SetCodeInIsland {
+        on: bool,
+    },
     /// Whether Orbot's SOCKS proxy answered, as the platform's probe found
     /// it (decision 10): Android probes as the app comes forward and as
     /// step 3 and Settings open. A till connects over Tor only once a probe
@@ -488,8 +507,17 @@ pub enum Update {
     RefundSheet { view: Option<RefundSheetView> },
     /// Android's bubble over other apps and its panel.
     Bubble { view: BubbleView },
-    /// The notifications: Android's ongoing one.
+    /// The notifications, as `till_screens::notification` draws them:
+    /// Android's ongoing one, and iOS's alert for a new sale. `alert` (and
+    /// an ongoing sale's `alert`) is set in one update only, as the sale
+    /// arrives while the app isn't in front: post it then. A later update
+    /// without it changes nothing already posted.
     Notification { view: NotificationView },
+    /// iPhone's Live Activity, as `till_screens::live_activity` draws it
+    /// (decision 40): `None` while there should be none (the switch off in
+    /// Settings, no shift on, setup not done). Never sent on iPad or
+    /// Android.
+    LiveActivity { state: Option<LiveActivityState> },
 }
 
 /// The refund sheet (decision 130 of android.md), ready to draw.
@@ -553,10 +581,18 @@ pub enum Effect {
     OpenUrl {
         url: String,
     },
-    /// Post or replace the notification `face.id`.
+    /// Android: post a sale's own notification in the ended group (its
+    /// "Paid", or "No payment yet" with how to refund it), replacing one for
+    /// the same `order_id`. `paid` gives it the paid look and the timeout;
+    /// `quiet` posts it without sound or banner, the app being on screen.
+    /// Once two are posted, their summary is [`ended_summary`].
     Notify {
-        face: NotificationFace,
+        order_id: String,
+        notice: Notice,
+        paid: bool,
+        quiet: bool,
     },
+    /// The sale `id` left the shift: what was posted about it goes.
     ClearNotification {
         id: String,
     },
@@ -566,6 +602,13 @@ pub enum Effect {
     CopyText {
         text: String,
     },
+}
+
+/// The summary of Android's ended group, once it holds `ended`
+/// notifications (two or more): "3 sales ended".
+#[cfg_attr(feature = "uniffi", uniffi::export)]
+pub fn ended_summary(ended: u32) -> Notice {
+    till_screens::notification::ended_summary(ended)
 }
 
 /// The Tokio runtime the engine runs on.

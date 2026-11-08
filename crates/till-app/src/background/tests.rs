@@ -28,12 +28,14 @@ fn config(square: &MockServer) -> EngineConfig {
             sandbox: false,
             redirect_uri: "https://till.monokulo.com/square".into(),
             base_url: Some(square.uri()),
+            return_uri: None,
         },
         clover: CloverSetup {
             application_id: "clv-till".into(),
             environment: "sandbox".into(),
             redirect_uri: "https://till.monokulo.com/clover".into(),
             base_url: None,
+            return_uri: None,
         },
         bell_url: "https://bell.monokulo.com".into(),
     }
@@ -96,10 +98,13 @@ async fn a_look_makes_orders_for_new_sales_keeps_them_and_says_what_the_alert_sa
     assert!(check.finished);
     assert_eq!(check.alerts.len(), 1);
     let alert = &check.alerts[0];
-    assert_eq!(alert.id, "ord_1");
-    assert_eq!(alert.title, "Monero sale");
-    assert_eq!(alert.text, "$13.88 · Tap to show code");
-    assert!(alert.alert);
+    assert_eq!(alert.order_id, "ord_1");
+    assert_eq!(alert.title, "New Monero sale · $13.88");
+    assert_eq!(
+        alert.body,
+        "Front counter. Tap here to show the payment code."
+    );
+    assert_eq!(check.ongoing, None, "iOS has no ongoing notification");
     assert!(
         platform
             .get("shift.sales")
@@ -119,6 +124,33 @@ async fn a_look_makes_orders_for_new_sales_keeps_them_and_says_what_the_alert_sa
     assert!(again.finished);
 }
 
+/// Android's ding path: the shift's ongoing notification, alerting about
+/// the sale the look found, in till-screens' words.
+#[tokio::test(flavor = "multi_thread")]
+async fn on_android_a_look_answers_the_ongoing_notification_alerting_about_the_new_sale() {
+    let (monokulo, square) = (monokulo().await, square(Duration::ZERO).await);
+    let mut config = config(&square);
+    config.device = Device::Android;
+    let check = look(config.clone(), signed_in_till(&monokulo), 10_000).await;
+    assert!(
+        check.alerts.is_empty(),
+        "Android alerts with its ongoing one"
+    );
+    let Some(OngoingFace::Sale {
+        order_id,
+        face,
+        alert,
+        ..
+    }) = check.ongoing
+    else {
+        panic!("{:?}", check.ongoing);
+    };
+    assert_eq!(order_id, "ord_1");
+    assert!(alert);
+    assert_eq!(face.title, "New Monero sale · Front counter");
+    assert_eq!(face.public_text, "$13.88 · waiting for payment");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn without_a_connection_or_a_shift_on_nothing_is_asked() {
     let (monokulo, square) = (monokulo().await, square(Duration::ZERO).await);
@@ -127,6 +159,7 @@ async fn without_a_connection_or_a_shift_on_nothing_is_asked() {
         none,
         BackgroundCheck {
             alerts: Vec::new(),
+            ongoing: None,
             problem: None,
             finished: true
         }

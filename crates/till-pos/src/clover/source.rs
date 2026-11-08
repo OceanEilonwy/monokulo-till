@@ -7,13 +7,17 @@ use monokulo_client::{Clock, PointOfSale};
 
 use super::{CloverApi, CloverConfig, CloverMerchant, CloverPayment, CloverTender, receipt};
 use crate::source::{OVERLAP_SECONDS, mark_handled};
-use crate::{CursorStore, FoundSale, PosError, RefundInPos, Refunds, SaleOrder, SaleSource};
+use crate::{
+    CursorStore, FoundSale, PosError, RefundInPos, Refunds, SaleOrder, SaleSource, StoreError,
+};
 
 /// Where the Monero tender's id is remembered, per merchant: Clover gives
 /// it when it's made. The app implements it.
 pub trait TenderStore: Send + Sync {
-    /// The tender's id at `merchant_id`, if one is remembered.
-    fn tender_id(&self, merchant_id: &str) -> Option<String>;
+    /// The tender's id at `merchant_id`, if one is remembered. A store that
+    /// can't tell says so: taking that for "none" would look the tender up
+    /// again, and could make a second one in Clover.
+    fn tender_id(&self, merchant_id: &str) -> Result<Option<String>, StoreError>;
     /// Remembers `tender_id` at `merchant_id`; `None` forgets it.
     fn save(&self, merchant_id: &str, tender_id: Option<&str>);
 }
@@ -81,7 +85,7 @@ impl CloverSource {
     pub async fn ensure_tender(&self) -> Result<TenderState, PosError> {
         let merchant = &self.merchant.id;
         let all = self.api.tenders(merchant).await?;
-        if let Some(id) = self.tenders.tender_id(merchant) {
+        if let Some(id) = self.tenders.tender_id(merchant)? {
             if let Some(tender) = all.iter().find(|t| t.id == id) {
                 return Ok(TenderState::Ready(tender.clone()));
             }
@@ -128,7 +132,7 @@ impl CloverSource {
         let merchant = &self.merchant.id;
         // Not made yet (the card asks the cashier to): found by its label,
         // never made from here.
-        let tender_id = match self.tenders.tender_id(merchant) {
+        let tender_id = match self.tenders.tender_id(merchant)? {
             Some(id) => id,
             None => match self.labelled(&self.api.tenders(merchant).await?) {
                 Some(tender) => {
@@ -138,7 +142,7 @@ impl CloverSource {
                 None => return Ok(Vec::new()),
             },
         };
-        let since = match self.cursor.since() {
+        let since = match self.cursor.since()? {
             Some(since) => since,
             None => {
                 let now = crate::time::format(crate::time::from_seconds(at));
@@ -153,7 +157,7 @@ impl CloverSource {
             at.saturating_sub(FURTHEST_BACK_SECONDS)
                 .saturating_mul(1000),
         );
-        let handled = self.cursor.handled();
+        let handled = self.cursor.handled()?;
         let mut payments: Vec<CloverPayment> = self
             .api
             .payments(merchant, &tender_id, from_ms)

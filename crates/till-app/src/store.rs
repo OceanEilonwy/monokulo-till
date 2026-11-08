@@ -16,7 +16,6 @@
 //! - [`PosTokenStore`], [`PosCursor`], [`Tenders`], [`ShiftKept`] and
 //!   [`WakeUpsKept`]: the leaf crates' store traits over it.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use monokulo_client::{Connection, PointOfSale};
@@ -25,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use till_bell::{BellAddress, BellRegistration, WakeUpChoice, WakeUpStore};
 use till_pos::clover::{CloverMerchant, TenderStore};
 use till_pos::square::SquareLocation;
-use till_pos::{CursorStore, Pkce, PosTokens, TokenStore};
+use till_pos::{CursorStore, Pkce, PosTokens, StoreError, TokenStore};
 use till_sales::{ShiftStore, TillSale, shift_json};
 
 use crate::{Platform, SecretError};
@@ -83,6 +82,13 @@ pub mod keys {
     pub const CLOVER_MERCHANT: &str = "clover.merchant";
     /// The shift's sales, `till_sales::shift_json`; absent when none.
     pub const SHIFT_SALES: &str = "shift.sales";
+    /// iPhone's Settings › Dynamic Island, which `Stores.kt` never had: the
+    /// Live Activity each shift, `true` or `false`, absent is on (decision
+    /// 40); never on but on iPhone, so absent on Android is off.
+    pub const LIVE_ACTIVITY: &str = "island.activity";
+    /// "Show code in island": `true`, or absent (off by default, design.md
+    /// §6).
+    pub const CODE_IN_ISLAND: &str = "island.code";
 
     /// `PosTokens`' JSON: `square.tokens` (a name from before Clover) or
     /// `clover.tokens`.
@@ -376,6 +382,8 @@ impl Store {
             square_base_url: self.get(keys::DEBUG_SQUARE_BASE)?,
             clover_base_url: self.get(keys::DEBUG_CLOVER_BASE)?,
             clover_merchant: self.read(keys::CLOVER_MERCHANT)?,
+            live_activity: self.switch(keys::LIVE_ACTIVITY)?,
+            code_in_island: self.flag(keys::CODE_IN_ISLAND)?,
         })
     }
 
@@ -445,12 +453,18 @@ impl Store {
         if old.clover_merchant != new.clover_merchant {
             self.write(keys::CLOVER_MERCHANT, new.clover_merchant.as_ref())?;
         }
+        if old.live_activity != new.live_activity {
+            self.put_switch(keys::LIVE_ACTIVITY, new.live_activity)?;
+        }
+        if old.code_in_island != new.code_in_island {
+            self.put_flag(keys::CODE_IN_ISLAND, new.code_in_island)?;
+        }
         Ok(())
     }
 
     /// Forgets the store and everything about this till's point of sale
-    /// (`Stores.forgetAll`): the shift switch, the bubble and the debug
-    /// stand-ins stay. `model` is what was kept, for the Clover merchant
+    /// (`Stores.forgetAll`): the shift switch, the bubble, the island's
+    /// switches and the debug stand-ins stay. `model` is what was kept, for the Clover merchant
     /// whose tender id goes too.
     pub fn forget_all(&self, model: &Model) -> Result<Model, SecretError> {
         let forgotten = Model {
@@ -460,6 +474,8 @@ impl Store {
             bubble_y: model.bubble_y,
             square_base_url: model.square_base_url.clone(),
             clover_base_url: model.clover_base_url.clone(),
+            live_activity: model.live_activity,
+            code_in_island: model.code_in_island,
             ..Model::default()
         };
         self.save(model, &forgotten)?;
@@ -516,10 +532,15 @@ pub struct Model {
     pub clover_base_url: Option<String>,
     /// The Clover merchant this till is at (decision 127).
     pub clover_merchant: Option<CloverMerchant>,
+    /// iPhone's Settings › Dynamic Island: the Live Activity each shift (on
+    /// unless turned off), and the code in it (off unless turned on).
+    pub live_activity: bool,
+    pub code_in_island: bool,
 }
 
 impl Default for Model {
-    /// A till nothing was kept for: watching on, the bubble wanted.
+    /// A till nothing was kept for: watching on, the bubble and the Live
+    /// Activity wanted.
     fn default() -> Model {
         Model {
             connection: None,
@@ -541,6 +562,8 @@ impl Default for Model {
             square_base_url: None,
             clover_base_url: None,
             clover_merchant: None,
+            live_activity: true,
+            code_in_island: false,
         }
     }
 }
@@ -628,11 +651,9 @@ impl Kept {
 }
 
 /// A point of sale's sign-in (till-pos's [`TokenStore`]), read through each
-/// time so a refresh another process made is seen.
-///
-/// `TokenStore::load` returns an `Option`, so a store that can't answer
-/// reads as signed out here: logged, and never saved over. It should
-/// return a `Result` (decision 17), which is till-pos's to change.
+/// time so a refresh another process made is seen. A store that can't
+/// answer is logged and reported, never taken for "signed out" (decision
+/// 17).
 pub struct PosTokenStore {
     store: Store,
     pos: PointOfSale,
@@ -645,30 +666,35 @@ impl PosTokenStore {
     }
 }
 
+/// `result`, its error logged as couldn't `what`, and made till-pos's.
+fn logged<T>(log: &Log, what: String, result: Result<T, SecretError>) -> Result<T, StoreError> {
+    result.map_err(|e| {
+        log(format!("till-core: couldn't {what}: {e}"));
+        StoreError(e.to_string())
+    })
+}
+
 impl TokenStore for PosTokenStore {
-    fn load(&self) -> Option<PosTokens> {
-        self.store.tokens(self.pos).unwrap_or_else(|e| {
-            (self.log)(format!(
-                "till-core: couldn't read the {} sign-in: {e}",
-                self.pos.wire()
-            ));
-            None
-        })
+    fn load(&self) -> Result<Option<PosTokens>, StoreError> {
+        logged(
+            &self.log,
+            format!("read the {} sign-in", self.pos.wire()),
+            self.store.tokens(self.pos),
+        )
     }
 
     fn save(&self, tokens: Option<PosTokens>) {
-        if let Err(e) = self.store.set_tokens(self.pos, tokens.as_ref()) {
-            (self.log)(format!(
-                "till-core: couldn't keep the {} sign-in: {e}",
-                self.pos.wire()
-            ));
-        }
+        let _ = logged(
+            &self.log,
+            format!("keep the {} sign-in", self.pos.wire()),
+            self.store.set_tokens(self.pos, tokens.as_ref()),
+        );
     }
 }
 
 /// Where a point of sale's search for sales has got to (till-pos's
-/// [`CursorStore`]). A cursor that can't be read starts from now, as a
-/// first look does.
+/// [`CursorStore`]). A cursor that can't be read is reported, so the source
+/// neither starts it afresh nor saves over it.
 pub struct PosCursor {
     store: Store,
     pos: PointOfSale,
@@ -680,35 +706,31 @@ impl PosCursor {
         PosCursor { store, pos, log }
     }
 
-    fn logged<T>(&self, what: &str, result: Result<T, SecretError>) -> Option<T> {
-        result
-            .map_err(|e| {
-                (self.log)(format!(
-                    "till-core: couldn't {what} the {} cursor: {e}",
-                    self.pos.wire()
-                ))
-            })
-            .ok()
+    fn logged<T>(&self, what: &str, result: Result<T, SecretError>) -> Result<T, StoreError> {
+        logged(
+            &self.log,
+            format!("{what} the {} cursor", self.pos.wire()),
+            result,
+        )
     }
 }
 
 impl CursorStore for PosCursor {
-    fn since(&self) -> Option<String> {
-        self.logged("read", self.store.since(self.pos)).flatten()
+    fn since(&self) -> Result<Option<String>, StoreError> {
+        self.logged("read", self.store.since(self.pos))
     }
 
-    fn handled(&self) -> Vec<String> {
+    fn handled(&self) -> Result<Vec<String>, StoreError> {
         self.logged("read", self.store.handled(self.pos))
-            .unwrap_or_default()
     }
 
     fn save(&self, since: &str, handled: &[String]) {
-        self.logged("keep", self.store.save_cursor(self.pos, since, handled));
+        let _ = self.logged("keep", self.store.save_cursor(self.pos, since, handled));
     }
 }
 
 /// The Monero tender's id at each Clover merchant (decision 129). One that
-/// can't be read is looked for again in Clover.
+/// can't be read is reported, so no second tender is made in Clover.
 pub struct Tenders {
     store: Store,
     log: Log,
@@ -721,71 +743,48 @@ impl Tenders {
 }
 
 impl TenderStore for Tenders {
-    fn tender_id(&self, merchant_id: &str) -> Option<String> {
-        self.store.tender_id(merchant_id).unwrap_or_else(|e| {
-            (self.log)(format!("till-core: couldn't read the tender id: {e}"));
-            None
-        })
+    fn tender_id(&self, merchant_id: &str) -> Result<Option<String>, StoreError> {
+        logged(
+            &self.log,
+            "read the tender id".into(),
+            self.store.tender_id(merchant_id),
+        )
     }
 
     fn save(&self, merchant_id: &str, tender_id: Option<&str>) {
-        if let Err(e) = self.store.set_tender_id(merchant_id, tender_id) {
-            (self.log)(format!("till-core: couldn't keep the tender id: {e}"));
-        }
+        let _ = logged(
+            &self.log,
+            "keep the tender id".into(),
+            self.store.set_tender_id(merchant_id, tender_id),
+        );
     }
 }
 
 /// The shift's sales (till-sales' [`ShiftStore`]), encrypted like
-/// everything else (decision 64 of android.md).
-///
-/// `ShiftStore::load` can't fail, so a store that can't answer loads an
-/// empty shift; then nothing is saved over the kept one until a load
-/// succeeds, or the till's next change would replace the shift with
-/// nothing. It should return a `Result`.
+/// everything else (decision 64 of android.md). A shift that can't be read
+/// is reported, and the till then never saves over it.
 pub struct ShiftKept {
     store: Store,
     log: Log,
-    unread: AtomicBool,
 }
 
 impl ShiftKept {
     pub fn new(store: Store, log: Log) -> ShiftKept {
-        ShiftKept {
-            store,
-            log,
-            unread: AtomicBool::new(false),
-        }
-    }
-
-    /// Whether the kept shift couldn't be read, so isn't being saved over.
-    pub fn unread(&self) -> bool {
-        self.unread.load(Ordering::SeqCst)
+        ShiftKept { store, log }
     }
 }
 
 impl ShiftStore for ShiftKept {
-    fn load(&self) -> Vec<TillSale> {
-        match self.store.shift_sales() {
-            Ok(sales) => {
-                self.unread.store(false, Ordering::SeqCst);
-                sales
-            }
-            Err(e) => {
-                self.unread.store(true, Ordering::SeqCst);
-                (self.log)(format!("till-core: couldn't read the shift: {e}"));
-                Vec::new()
-            }
-        }
+    fn load(&self) -> Result<Vec<TillSale>, StoreError> {
+        logged(&self.log, "read the shift".into(), self.store.shift_sales())
     }
 
     fn save(&self, sales: &[TillSale]) {
-        if self.unread() {
-            (self.log)("till-core: the kept shift wasn't read, so isn't saved over".into());
-            return;
-        }
-        if let Err(e) = self.store.set_shift_sales(sales) {
-            (self.log)(format!("till-core: couldn't keep the shift: {e}"));
-        }
+        let _ = logged(
+            &self.log,
+            "keep the shift".into(),
+            self.store.set_shift_sales(sales),
+        );
     }
 }
 
