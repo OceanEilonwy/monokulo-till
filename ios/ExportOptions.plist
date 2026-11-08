@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	xcodebuild -exportArchive's options for TestFlight (release-ios.yml,
+	docs/release.md). The workflow adds teamID from the APPLE_TEAM_ID
+	variable, and exports once with destination "export" to check the
+	signed entitlements before the upload.
+	-->
+	<key>method</key>
+	<string>app-store-connect</string>
+	<key>destination</key>
+	<string>upload</string>
+	<!-- Cloud-managed distribution certificate and App Store profiles, made
+	     by Xcode through the App Store Connect API key. -->
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<!-- The workflow sets the build number (its run number). -->
+	<key>manageAppVersionAndBuildNumber</key>
+	<false/>
+	<key>uploadSymbols</key>
+	<true/>
+</dict>
+</plist>
