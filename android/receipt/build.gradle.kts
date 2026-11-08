@@ -4,11 +4,13 @@ plugins {
 }
 
 // The receipt codec is the Rust crate `orf-codec`, through `orf-codec-ffi`'s
-// UniFFI bindings (docs/decisions/android.md 8). Both the native libraries
-// and the Kotlin bindings are built here from the crate, so they can't drift
-// from it: building needs Rust, cargo-ndk and the NDK.
+// UniFFI bindings (docs/decisions/android.md 8), inside `monokular-ffi`: the
+// one library the app loads, which also carries the Rust core's engine
+// (docs/decisions/core.md 3). Both the native libraries and the Kotlin
+// bindings are built here from the crates, so they can't drift from them:
+// building needs Rust, cargo-ndk and the NDK.
 val repo: File = rootDir.parentFile
-val hostLibrary = File(repo, "target/release/" + System.mapLibraryName("orf_codec_ffi"))
+val hostLibrary = File(repo, "target/release/" + System.mapLibraryName("monokular_ffi"))
 val abis = listOf("arm64-v8a", "armeabi-v7a", "x86_64")
 
 /** A cargo command that writes one directory, so AGP can take it as generated sources. */
@@ -36,30 +38,30 @@ android {
 }
 
 val cargoHost = tasks.register<Exec>("cargoHost") {
-    description = "Builds orf-codec-ffi for this machine: for the bindings and the unit tests."
+    description = "Builds monokular-ffi for this machine: for the bindings and the unit tests."
     workingDir = repo
-    commandLine("cargo", "build", "--release", "--locked", "-p", "orf-codec-ffi")
+    commandLine("cargo", "build", "--release", "--locked", "-p", "monokular-ffi")
     inputs.dir(File(repo, "crates"))
     inputs.files(File(repo, "Cargo.lock"), File(repo, "Cargo.toml"))
     outputs.file(hostLibrary)
 }
 
 val uniffiBindings = tasks.register<CargoTask>("uniffiBindings") {
-    description = "Generates orf-codec-ffi's Kotlin bindings."
+    description = "Generates monokular-ffi's Kotlin bindings (uniffi.orf_codec_ffi and uniffi.monokular_app)."
     dependsOn(cargoHost)
     workingDir = repo
     outDir.set(layout.buildDirectory.dir("rust/kotlin"))
     inputs.file(hostLibrary)
     argumentProviders.add(CommandLineArgumentProvider { listOf(outDir.get().asFile.absolutePath) })
     commandLine(
-        "cargo", "run", "--release", "--locked", "-q", "-p", "orf-codec-ffi", "--features", "bindgen",
+        "cargo", "run", "--release", "--locked", "-q", "-p", "monokular-ffi", "--features", "bindgen",
         "--bin", "uniffi-bindgen", "--", "generate", "--library", hostLibrary.absolutePath,
         "--language", "kotlin", "--no-format", "--out-dir",
     )
 }
 
 val cargoNdk = tasks.register<CargoTask>("cargoNdk") {
-    description = "Builds orf-codec-ffi for each Android ABI."
+    description = "Builds monokular-ffi for each Android ABI."
     workingDir = repo
     outDir.set(layout.buildDirectory.dir("rust/jniLibs"))
     inputs.dir(File(repo, "crates"))
@@ -73,7 +75,7 @@ val cargoNdk = tasks.register<CargoTask>("cargoNdk") {
     commandLine(listOf("cargo", "ndk") + abis.flatMap { listOf("-t", it) } + listOf("--platform", "26", "-o"))
     argumentProviders.add(
         CommandLineArgumentProvider {
-            listOf(outDir.get().asFile.absolutePath, "build", "--profile", "android", "--locked", "-p", "orf-codec-ffi")
+            listOf(outDir.get().asFile.absolutePath, "build", "--profile", "android", "--locked", "-p", "monokular-ffi")
         },
     )
 }

@@ -947,8 +947,14 @@ recorded as the source, and a disconnected app's key refused.
 
 A separate public repository, `monokular`, holding both apps, the
 receipt codec and their shared contract. The apps are native (SwiftUI,
-Jetpack Compose); what they share is the contract, test vectors and
-`orf-codec`.
+Jetpack Compose) over one Rust core.
+
+> **Changed 2026-11-08.** Everything platform-neutral moves into a Rust core
+> shared by both apps, as in Tern and Fob, replacing the native cores
+> (`MonokularKit`, the Kotlin `core`) below. The crates, the iOS layout and
+> CI are in [ios-plan.md](ios-plan.md); the reasons are in
+> [decisions/core.md](decisions/core.md). The layout below is the original
+> one, kept for its Android modules and `protocol/`.
 
 GitHub description:
 
@@ -1026,9 +1032,10 @@ Choices:
   `protocol/vectors/` from the real Rust code, and both apps' tests read
   them. Changing an event shape breaks the app tests, not a till.
 - **The receipt codec is shared Rust, through UniFFI.** A bit-exact format
-  with a trained zstd dictionary shouldn't be written twice. The rest of the
-  core stays native: a shared Rust core for it isn't worth the build
-  complexity for this amount of logic.
+  with a trained zstd dictionary shouldn't be written twice. ~~The rest of
+  the core stays native: a shared Rust core for it isn't worth the build
+  complexity for this amount of logic.~~ Superseded 2026-11-08: the rest of
+  the core is shared Rust too ([decisions/core.md](decisions/core.md) 1).
 
 ---
 

@@ -1,0 +1,11 @@
+[package]
+name = "bell"
+version = "0.1.0"
+description = "Wake-ups from a Monokular Bell: its address, its API, and keeping a till registered with it"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+monokulo-client.workspace = true

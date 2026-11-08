@@ -1,0 +1,12 @@
+[package]
+name = "till"
+version = "0.1.0"
+description = "The till: the shift's sales, where each stands, and the wake-ups that make the till look for new ones"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+monokulo-client.workspace = true
+pos.workspace = true

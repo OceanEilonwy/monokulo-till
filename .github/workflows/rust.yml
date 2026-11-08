@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Toolchain
-        run: rustup toolchain install stable --profile minimal --component clippy && rustup default stable
+        run: rustup toolchain install stable --profile minimal --component clippy,rustfmt && rustup default stable
       - uses: actions/cache@v6
         with:
           path: |
@@ -29,10 +29,35 @@ jobs:
             target
           key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: cargo-${{ runner.os }}-
-      # orf-codec's and its bindings' tests (the Monokular Bell is monokulo's
-      # crate monokulo-bell now, tested there); receipt-qr needs a downloaded
-      # corpus to run, so it is only built.
+      - name: Format
+        run: cargo fmt --all --check
+      # The Rust core (docs/ios-plan.md §2) and orf-codec. receipt-qr needs a
+      # downloaded corpus to run, so it is only built (by Clippy, below).
       - name: Test
-        run: cargo test --locked -p orf-codec -p orf-codec-ffi
+        run: cargo test --locked --workspace --exclude receipt-qr
+      # The engine builds and tests without its bridge too.
+      - name: Test the engine without UniFFI
+        run: cargo test --locked -p monokular-app
       - name: Clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      # Only monokular-app (behind its `uniffi` feature) and the two FFI
+      # crates may depend on UniFFI; the leaf crates never do (docs/ios-plan.md §2).
+      - name: The leaf crates don't depend on UniFFI
+        run: |
+          for crate in monokulo-client pos till bell monokular-app; do
+            if cargo tree --locked -p "$crate" -e normal --prefix none | grep -q '^uniffi '; then
+              echo "::error::$crate depends on uniffi"; exit 1
+            fi
+          done
+      # The bindings both apps generate: the library must carry both crates'.
+      - name: Bindings
+        run: |
+          cargo build --locked --release -p monokular-ffi
+          for language in kotlin swift; do
+            cargo run --locked --release -q -p monokular-ffi --features bindgen --bin uniffi-bindgen -- \
+              generate --library target/release/libmonokular_ffi.so --language "$language" --no-format --out-dir "bindings/$language"
+          done
+          test -f bindings/kotlin/uniffi/monokular_app/monokular_app.kt
+          test -f bindings/kotlin/uniffi/orf_codec_ffi/orf_codec_ffi.kt
+          test -f bindings/swift/monokular_app.swift
+          test -f bindings/swift/orf_codec_ffi.swift

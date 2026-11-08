@@ -1,6 +1,7 @@
 # Monokular for iPhone and iPad: plan
 
-Status: proposal, 2026-11-08. Nothing here is built yet.
+Status: accepted 2026-11-08. Phase 0 (the scaffold) is built; decisions
+along the way are in [decisions/core.md](decisions/core.md).
 
 This plan covers two pieces of work, in order:
 
@@ -134,24 +135,28 @@ localisation today. If it comes, it will be a Fluent catalogue in the core.
 
 ## 3. Phases: the Rust core, with Android shipping throughout
 
-Each phase follows the same order:
+Phases 1 to 4 each port one area into its crate, in the same order:
 
 1. Port the Kotlin unit tests to Rust first, reusing the JSON fixtures.
 2. Port the code until those tests pass.
-3. Switch the Android module to the generated bindings.
-4. Delete the Kotlin code and its tests in the same PR.
 
-`./gradlew build`, and the on-device tests in `app/src/androidTest`, must
-stay green at every step. Each phase is its own PR to `main`.
+Android keeps using its Kotlin modules until phase 5, which moves it onto
+the engine and deletes the Kotlin modules and their tests
+([decisions/core.md](decisions/core.md) 2: the modules call one another
+directly, so switching one at a time would mean exporting every crate's
+types to Kotlin). `./gradlew build`, and the on-device tests in
+`app/src/androidTest`, must stay green at every step. Each phase is its own
+PR to `main`. Phases 1, 2 and 4 are independent of one another; 3 needs 1
+and 2; 5 needs them all.
 
 | Phase | Work | Test oracle (Kotlin tests to port) |
 | --- | --- | --- |
-| **0. Scaffold** | Workspace crates; the `monokular-ffi` cdylib replaces `orf-codec-ffi` (Android loads one `.so`); the Gradle `receipt` tasks move to a `:ffi` module that builds `monokular-ffi`; `Platform` and `EngineListener` with a stub engine; CI guards (§7); decision recorded and design.md §9 updated | ReceiptCodeTest |
+| **0. Scaffold** (built) | Workspace crates; the `monokular-ffi` library replaces `orf-codec-ffi`'s (Android loads one `.so`), still built by the `receipt` module; `Platform` and `EngineListener` with a stub engine; `PointOfSale` and `Clock` in `monokulo-client`; CI guards (§7); decisions recorded and design.md §9 updated | ReceiptCodeTest |
 | **1. Monokulo client** | `monokulo-client`: models, `ConnectCode`, `MonokuloApi`, SSE, `Proof`, `Problems`, Tor policy, `Amounts` (through `format_money`). The OpenAPI contract test moves to Rust, still against the pinned `monokulo.sha` | MonokuloApiTest (21), MonokuloContractTest (11), AmountsTest (9), ConnectionTest (6), SaleEventTest (5), ConnectCodeTest (4), TorTest (3), PointOfSaleTest (2) |
 | **2. Points of sale** | `pos`: Square and Clover auth, API, sources and receipts. HTTP tests use `wiremock` in place of MockWebServer | SquareTest (12), CloverSourceTest (17), CloverAuthTest (8), CloverReceiptsTest (7) |
 | **3. The till** | `till`: `Till` and `Standing`, `Shift`, `TillRunner`, `LiveStore`, `PosSwitch`. Android's `TillService` keeps the foreground service and calls the engine | TillTest (43), ShiftTest (4), LiveStoreTest (3), PosSwitchTest (5), NoSourceTest (1) |
 | **4. Wake-ups** | `bell`: `BellWakeUps`, `BellApi`, `BellAddress`, push events. UnifiedPush's receiver and `WakePushService` stay in Kotlin and forward to the engine | BellWakeUpsTest (59), BellApiTest (14), BellAddressTest (8), PushEventsTest (5) |
-| **5. The engine** | `monokular-app`: the screen graph and flows from `AppViewModel`, the persisted model (`Stores.kt`, read in its current JSON so existing tills keep their connection), the copy objects, and the shift list and sale page view records. `AppViewModel` shrinks to a `StateFlow` per `Update`, as Tern's `Store` does | ShiftListTest (29), SaleTextTest (14), WakeUpsTextTest (10), PosTextTest (6), NavTest's move rules (8) |
+| **5. The engine** | Android moves onto the engine: the Gradle tasks move from `receipt` to a `:ffi` module, and the Kotlin `core`, `sales`, `push` and `receipt` modules are deleted. `monokular-app`: the screen graph and flows from `AppViewModel`, the persisted model (`Stores.kt`, read in its current JSON so existing tills keep their connection), the copy objects, and the shift list and sale page view records. `AppViewModel` shrinks to a `StateFlow` per `Update`, as Tern's `Store` does | ShiftListTest (29), SaleTextTest (14), WakeUpsTextTest (10), PosTextTest (6), NavTest's move rules (8) |
 
 **Migration of saved state.** Before phase 5 lands, a test fixture records
 every key `Stores.kt` writes, captured from the current Kotlin code. The
@@ -417,11 +422,12 @@ core 0 ── core 1 ── core 2 ── core 3 ── core 4 ── core 5
 
 ## 10. Owner decisions needed
 
-1. Accept the Tern-style engine (one `Engine`, actions, updates, effects)
-   over Fob's object API. Recommended: Tern.
-2. Logic-driven copy in Rust (recommended), or per platform.
-3. ~~A design round for the §4 gap boards before I3.~~ Done: the canvas's
-   "Till (redesign)" page (§4). The owner still has to review and accept it.
+1. ~~Accept the Tern-style engine over Fob's object API.~~ Accepted
+   2026-11-08.
+2. ~~Logic-driven copy in Rust, or per platform.~~ In Rust, accepted
+   2026-11-08.
+3. ~~A design round for the §4 gap boards before I3.~~ Done and accepted:
+   the canvas's "Till (redesign)" page (§4).
 4. ~~iOS 26.1 as the minimum.~~ Decided: iOS and iPadOS 27 (§5).
 5. The Apple Developer team, the bundle identifier (`app.monokular`, to
    match Android), and the App Store Connect API key for CI.

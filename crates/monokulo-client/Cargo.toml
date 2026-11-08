@@ -1,0 +1,13 @@
+[package]
+name = "monokulo-client"
+version = "0.1.0"
+description = "Monokular's client for a store's own Monokulo: connect codes, the connected-apps API, its event stream, and the types the rest of the core shares"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

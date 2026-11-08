@@ -199,6 +199,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "bell"
+version = "0.1.0"
+dependencies = [
+ "monokulo-client",
+]
+
+[[package]]
 name = "bit-set"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1118,6 +1125,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "monokular-app"
+version = "0.1.0"
+dependencies = [
+ "monokulo-client",
+ "thiserror",
+ "tokio",
+ "uniffi",
+]
+
+[[package]]
+name = "monokular-ffi"
+version = "0.1.0"
+dependencies = [
+ "monokular-app",
+ "orf-codec-ffi",
+ "uniffi",
+]
+
+[[package]]
+name = "monokulo-client"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "nom"
 version = "7.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1297,6 +1332,14 @@ name = "plain"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
+
+[[package]]
+name = "pos"
+version = "0.1.0"
+dependencies = [
+ "monokulo-client",
+ "orf-codec",
+]
 
 [[package]]
 name = "potential_utf"
@@ -2065,6 +2108,14 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.9",
+]
+
+[[package]]
+name = "till"
+version = "0.1.0"
+dependencies = [
+ "monokulo-client",
+ "pos",
 ]
 
 [[package]]

@@ -1,0 +1,12 @@
+[package]
+name = "pos"
+version = "0.1.0"
+description = "Monokular's points of sale: signing in to Square and Clover, finding Monero sales in them, and turning their orders into receipts"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+monokulo-client.workspace = true
+orf-codec.workspace = true

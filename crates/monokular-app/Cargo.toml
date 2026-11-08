@@ -1,0 +1,19 @@
+[package]
+name = "monokular-app"
+version = "0.1.0"
+description = "Monokular's engine: everything the app does, with no toolkit in it, for the Android and iOS apps to draw"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+# The bridge for Kotlin and Swift is behind `uniffi`, so the engine builds
+# and tests without it (docs/ios-plan.md §2). monokular-ffi turns it on.
+[features]
+uniffi = ["dep:uniffi"]
+
+[dependencies]
+monokulo-client.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+uniffi = { workspace = true, optional = true }

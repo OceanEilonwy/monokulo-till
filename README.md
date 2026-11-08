@@ -121,10 +121,16 @@ Clover's emulator image.
 | Module | What it is |
 | --- | --- |
 | `android/core` | Pure Kotlin, no Android: connect codes, the Monokulo client, sale events. |
-| `android/receipt` | ORF receipts in the payment code, through `crates/orf-codec-ffi` (UniFFI). |
+| `android/receipt` | ORF receipts in the payment code, through `crates/orf-codec-ffi` (UniFFI), inside the one native library `crates/monokular-ffi` builds. |
 | `android/sales` | Square and Clover on the till (PKCE sign-in, Monero tenders, orders, refunds) and the till's sales. |
 | `android/push` | Wake-ups: the Bell's API, the till's registration with it, and its dings over UnifiedPush. |
 | `android/app` | The Compose app, the shift's foreground service, its notifications and the bubble over other apps. |
+
+The Android modules above are moving into a Rust core shared with the
+coming iOS app ([docs/ios-plan.md](docs/ios-plan.md)): `crates/monokulo-client`,
+`crates/pos`, `crates/till`, `crates/bell` and the engine,
+`crates/monokular-app`. Android keeps its Kotlin modules until the engine
+can drive it ([docs/decisions/core.md](docs/decisions/core.md) 2).
 
 ### Running it end to end on an emulator
 
