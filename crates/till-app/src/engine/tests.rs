@@ -602,6 +602,65 @@ async fn androids_ongoing_notification_alerts_a_new_sale_once() {
     );
 }
 
+/// Android's bubble over other apps: its panel carries the sale with its
+/// header, hero and order; its countdown ticks while the panel is up with
+/// the app in the back (decision 56); and where it rests is kept under
+/// `Stores.kt`'s keys.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_bubbles_panel_counts_down_while_it_is_up_and_its_place_is_kept() {
+    let monokulo = monokulo().await;
+    let square = square().await;
+    let android = EngineConfig {
+        device: Device::Android,
+        ..config(Some(&square))
+    };
+    let platform = signed_in_till(&monokulo);
+    platform.set("bubble.left", "true");
+    platform.set("bubble.y", "412");
+    let (engine, rx, _) = start(android, platform.clone());
+    engine.send(Action::Permissions {
+        alerts: true,
+        bubble: true,
+    });
+    engine.send(Action::Backgrounded);
+    let bubble = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Bubble { view }) if view.shown && view.panel.is_some() => {
+            Some(view.clone())
+        }
+        _ => None,
+    });
+    assert!((bubble.left, bubble.y) == (true, Some(412)), "{bubble:?}");
+    let panel = bubble.panel.unwrap();
+    assert_eq!(panel.order_id, "ord_1");
+    assert_eq!(panel.where_from, "Front counter");
+    assert_eq!(panel.hero, till_screens::bubble::PanelHero::Code);
+    assert!(panel.time_left.is_some() && panel.ticks);
+    assert!(bubble.pulses, "a code waits with the panel down");
+
+    // The panel down and the app in the back: nothing counts down on screen.
+    tokio::time::sleep(super::till::TICK + Duration::from_millis(300)).await;
+    assert!(!engine.peek(|s| s.ticking));
+    engine.send(Action::PanelShown { up: true });
+    let up = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Bubble { view }) => Some(view.clone()),
+        _ => None,
+    });
+    assert!(!up.pulses, "no pulse with the panel up");
+    assert!(engine.peek(|s| s.ticking), "the panel's countdown ticks");
+
+    engine.send(Action::MoveBubble {
+        left: false,
+        y: 900,
+    });
+    let moved = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Bubble { view }) if !view.left => Some(view.y),
+        _ => None,
+    });
+    assert_eq!(moved, Some(900));
+    assert_eq!(platform.get("bubble.left").as_deref(), Some("false"));
+    assert_eq!(platform.get("bubble.y").as_deref(), Some("900"));
+}
+
 #[test]
 fn choosing_wake_ups_keeps_the_choice_in_stores_kts_key() {
     let platform = Arc::new(FakePlatform::default());

@@ -35,7 +35,7 @@ use tokio::sync::mpsc::UnboundedSender;
 pub use background::{BackgroundCheck, background_check};
 use monokulo_client::PointOfSale;
 pub use till_screens::Device;
-use till_screens::bubble::{BubbleLook, BubbleTap};
+use till_screens::bubble::{BubbleLook, BubbleTap, PanelView};
 use till_screens::notification::Notice;
 use till_screens::order_text::OrderCard;
 use till_screens::shift::ShiftFilter;
@@ -347,6 +347,18 @@ pub enum Action {
     /// The panel's "Open the shift": every sale's full screen is left for
     /// now, and the shift comes up.
     OpenShift,
+    /// Android's bubble panel rose (`up`) or went back into the bubble. While
+    /// it is up the panel's countdown is redrawn each second though the app
+    /// is in the back (decision 56), and the free bubble doesn't pulse.
+    PanelShown {
+        up: bool,
+    },
+    /// The bubble was let go against the `left` edge (else the right) at
+    /// height `y`, in pixels: kept, and published in [`BubbleView`].
+    MoveBubble {
+        left: bool,
+        y: i32,
+    },
     /// The platform's moving stage came to rest on `screen` (Android's
     /// `FollowScreen`): a new sale rises out of the shift only while it
     /// rests there (decision 266 of android.md).
@@ -538,12 +550,25 @@ pub struct RefundSheetView {
 }
 
 /// Android's bubble and its panel, ready to draw.
+///
+/// Where the bubble rests (`left`, `y`) is kept by the engine, though only
+/// the platform reads it: an upgraded till has it under `Stores.kt`'s
+/// `bubble.left` and `bubble.y`, in the store the engine owns and caches
+/// (decision 42), which a second writer would leave stale. The platform
+/// sends [`Action::MoveBubble`] once a drag lets go, never per frame.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct BubbleView {
-    /// The cashier wants it, Android allows it, a shift is on and Till's own
-    /// screen isn't up.
+    /// The cashier wants it, Android allows it, a shift is on, the till is
+    /// running and still connected (the store's 401 takes it down; a failed
+    /// poll doesn't, android.md decision 208), and Till's own screen isn't
+    /// up.
     pub shown: bool,
+    /// The bubble rests against the screen's left edge (else its right).
+    pub left: bool,
+    /// Its height on screen, in pixels, as last let go; `None` until it has
+    /// been moved (Android puts it a third of the way down).
+    pub y: Option<i32>,
     pub look: BubbleLook,
     /// The sale the bubble and its panel are about.
     pub order_id: Option<String>,
@@ -554,13 +579,12 @@ pub struct BubbleView {
     pub tap_label: String,
     pub tap_open: BubbleTap,
     pub tap_open_label: String,
-    /// The panel: the sale, as its live screen shows it.
-    pub panel: Option<SaleView>,
-    /// The panel header's second line: the till's location, or who took it.
-    pub panel_where: Option<String>,
-    /// The sale's code came down while the panel was up: its heading and line.
-    pub ended_heading: Option<String>,
-    pub ended_line: Option<String>,
+    /// The panel: the sale as its live screen shows it, with its header,
+    /// ring, hero, whole order and ended words.
+    pub panel: Option<PanelView>,
+    /// The free bubble pulses: a code waits for its money and the panel is
+    /// down (as [`Action::PanelShown`] last said).
+    pub pulses: bool,
     /// A payment landing buzzes the bubble (the app isn't on screen).
     pub buzzes: bool,
 }

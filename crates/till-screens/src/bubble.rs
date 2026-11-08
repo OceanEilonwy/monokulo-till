@@ -4,9 +4,13 @@
 //! words).
 
 use monokulo_client::{MoneyFormat, PointOfSale, SalePhase};
-use till_sales::TillSale;
+use till_sales::{Standing, TillSale};
 
-use crate::{pos_text, sale_text};
+use crate::order_text::{OrderCard, order_card};
+use crate::sale::{SaleInput, SaleView};
+use crate::time::DeviceClock;
+use crate::view::Device;
+use crate::{code, pos_text, sale, sale_text};
 
 /// What the bubble shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -174,6 +178,154 @@ pub fn panel_ended_line(sale: &TillSale, till: Option<PointOfSale>) -> String {
     }
 }
 
+/// Whether the bubble is up at all (android.md decision 208): the cashier
+/// wants it (`wanted`: the bubble's switch on and a shift on), Android
+/// allows drawing over other apps, the till is running and still
+/// connected, and Till itself isn't on screen. A stream or poll that fails
+/// leaves `running` and `disconnected` as they were (only the store's 401
+/// disconnects the till), so a slow connection never lowers a raised panel.
+pub fn shown(
+    wanted: bool,
+    allowed: bool,
+    running: bool,
+    disconnected: bool,
+    app_visible: bool,
+) -> bool {
+    wanted && allowed && running && !disconnected && !app_visible
+}
+
+/// Whether the bubble pulses: lit for a code still waiting for its money
+/// (waiting, or part paid), and only the free bubble with the panel down;
+/// the pulse calls the cashier to raise the panel, so once it's up, or the
+/// payment is seen, there's nothing to call for.
+pub fn pulses(look: BubbleLook, phase: SalePhase, panel_up: bool) -> bool {
+    look == BubbleLook::Lit && !panel_up && matches!(phase, SalePhase::Waiting | SalePhase::Partial)
+}
+
+/// Whether the sale the panel showed, `shown`, live at the last look
+/// (`was_live`), has just been paid: the panel then shows it paid for the
+/// paid dwell before moving on to the next sale waiting.
+pub fn landed(sales: &[TillSale], shown: Option<&str>, was_live: bool) -> bool {
+    was_live
+        && sales
+            .iter()
+            .find(|sale| Some(sale.order_id.as_str()) == shown)
+            .is_some_and(|sale| sale.phase == SalePhase::Paid)
+}
+
+/// What the panel's middle shows (Android's `PanelFace` and the folded
+/// panel's hero): the code while the sale is live, else a hero whose look
+/// says how it ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum PanelHero {
+    /// The code: the sale is live.
+    Code,
+    /// The paid tick (paid late, or after a refund, too).
+    Paid,
+    /// Refunded in the point of sale, nothing paid.
+    Refunded,
+    /// The payment was spent twice: the warning.
+    Reversed,
+    /// Ended unpaid otherwise (its code ran out, the order was cancelled,
+    /// or the cashier closed it): the clock.
+    Expired,
+}
+
+/// `sale`'s hero.
+pub fn hero(sale: &TillSale) -> PanelHero {
+    match sale.standing() {
+        Standing::Live(_) => PanelHero::Code,
+        Standing::Paid { .. } => PanelHero::Paid,
+        _ if sale.refunded() => PanelHero::Refunded,
+        _ if sale.phase == SalePhase::DoubleSpend => PanelHero::Reversed,
+        _ => PanelHero::Expired,
+    }
+}
+
+/// What the bubble's panel shows about its sale.
+#[derive(Clone, Debug)]
+pub struct PanelInput {
+    pub sale: TillSale,
+    /// The till's point of sale now.
+    pub till: Option<PointOfSale>,
+    /// The till's Square location or Clover merchant.
+    pub location: Option<String>,
+}
+
+/// The bubble's panel, ready to draw: the sale as its live screen shows it,
+/// and what the panel draws beside that.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct PanelView {
+    pub order_id: String,
+    /// The sale, as its live screen shows it.
+    pub sale: SaleView,
+    /// The header's second line: the till's location, or who took it.
+    pub where_from: String,
+    /// The header's time: when the sale was made ("4:07 PM"); `None` when
+    /// that isn't known.
+    pub created: Option<String>,
+    /// "14:52 left", beside the status, while the code counts down; else
+    /// `None`. (The sale's `hint` says more, for the sale screen.)
+    pub time_left: Option<String>,
+    /// The ring's fill once the payment is seen: confirmations so far, of
+    /// how many.
+    pub confirmations: Option<u32>,
+    pub confirmations_required: Option<u32>,
+    pub hero: PanelHero,
+    /// The whole order, every line: the panel's order page.
+    pub order: Option<OrderCard>,
+    /// "15 items" or "1 item": how many the order is.
+    pub items: Option<String>,
+    /// The code came down unpaid while the panel was up (acceptance P15):
+    /// its heading, and what the cashier does about it.
+    pub ended_heading: Option<String>,
+    pub ended_line: Option<String>,
+    /// The countdown is on screen: draw it again in a second.
+    pub ticks: bool,
+}
+
+/// The panel at the clock's now, on `device`, amounts written by `money`.
+pub fn panel(
+    input: &PanelInput,
+    device: Device,
+    clock: DeviceClock,
+    money: &dyn MoneyFormat,
+) -> PanelView {
+    let s = &input.sale;
+    let view = sale::sale(
+        &SaleInput {
+            sale: s.clone(),
+            till: input.till,
+            location: input.location.clone(),
+        },
+        device,
+        clock,
+        money,
+    );
+    let ended = !s.live() && s.phase != SalePhase::Paid;
+    let seconds = sale_text::seconds_left(s.expires_at, clock.now);
+    PanelView {
+        order_id: s.order_id.clone(),
+        where_from: panel_where(s, input.location.as_deref()),
+        created: (s.created_at > 0).then(|| sale_text::time_of(s.created_at, clock)),
+        time_left: s.live().then(|| code::left(s, seconds)).flatten(),
+        confirmations: s.confirmations,
+        confirmations_required: s.confirmations_required,
+        hero: hero(s),
+        order: s
+            .receipt
+            .as_ref()
+            .map(|r| order_card(r, pos_text::of(s, input.till), false)),
+        items: s.receipt.as_ref().map(sale_text::items),
+        ended_heading: ended.then(|| panel_ended_heading(s, input.till)),
+        ended_line: ended.then(|| panel_ended_line(s, input.till)),
+        ticks: view.ticks,
+        sale: view,
+    }
+}
+
 /// Ported from Android's `SaleTextTest` (the bubble's four) and
 /// `ShiftListTest` (`aPaymentBuzzesOnceOnTheSurfaceTheCashierIsLookingAt`).
 #[cfg(test)]
@@ -330,6 +482,304 @@ mod tests {
         assert!(
             !bubble_buzzes(true),
             "the sale screen in front buzzes instead"
+        );
+    }
+}
+
+/// Ported from Android's `PanelTest`: its words, where the sale is from,
+/// the ended sale's rule, the pulse, the hero and whether the overlay is
+/// up. Its geometry and motion (the raise, the grabber, the windows'
+/// handoff, the paid moment) stay with Android's drawing.
+#[cfg(test)]
+mod panel_tests {
+    use super::*;
+    use crate::fixtures::{found, instant, la, money, receipt, till_sale};
+    use crate::shift::tests::at;
+
+    const SQUARE: Option<PointOfSale> = Some(PointOfSale::Square);
+
+    /// The Kotlin test's `sale(...)`: $79.21, this till's unless `found` is
+    /// false, then `device`'s.
+    fn sale(phase: SalePhase, found_here: bool, device: Option<&str>, id: &str) -> TillSale {
+        TillSale {
+            reference: Some("k4Rt".into()),
+            phase,
+            found: found_here.then(|| {
+                found(
+                    "p1",
+                    7921,
+                    "USD",
+                    Some("k4Rt"),
+                    "ord",
+                    "2026-10-22T23:07:00Z",
+                )
+            }),
+            device_name: if found_here {
+                None
+            } else {
+                device.map(Into::into)
+            },
+            ..till_sale(id, "79.21", "USD", "0.31684")
+        }
+    }
+
+    fn of(phase: SalePhase) -> TillSale {
+        sale(phase, true, Some("Back till"), "o1")
+    }
+
+    fn refunded(phase: SalePhase) -> TillSale {
+        TillSale {
+            refunded_at: Some(9),
+            ..of(phase)
+        }
+    }
+
+    #[test]
+    fn the_header_says_where_the_sale_is_from() {
+        assert_eq!(
+            panel_where(&of(SalePhase::Waiting), Some("Front Counter")),
+            "Front Counter"
+        );
+        assert_eq!(panel_where(&of(SalePhase::Waiting), None), "This till");
+        assert_eq!(
+            panel_where(
+                &sale(SalePhase::Waiting, false, Some("Back till"), "o1"),
+                Some("Front Counter")
+            ),
+            "From Back till"
+        );
+        assert_eq!(
+            panel_where(
+                &sale(SalePhase::Waiting, false, None, "o1"),
+                Some("Front Counter")
+            ),
+            "From another till"
+        );
+    }
+
+    #[test]
+    fn a_sale_that_ends_while_the_panel_is_up_sends_the_cashier_to_refund_it() {
+        use SalePhase::*;
+        let other = |device| sale(Expired, false, device, "o1");
+        assert_eq!(
+            panel_ended_heading(&of(Expired), SQUARE),
+            "Code expired · not paid"
+        );
+        assert_eq!(
+            panel_ended_heading(&of(Cancelled), SQUARE),
+            "Cancelled · not paid"
+        );
+        assert_eq!(
+            panel_ended_heading(&of(DoubleSpend), SQUARE),
+            "Payment reversed · don't hand it over"
+        );
+        assert_eq!(
+            panel_ended_heading(&sale(DoubleSpend, false, Some("Back till"), "o1"), SQUARE),
+            "Payment reversed · don't hand it over"
+        );
+        assert_eq!(
+            panel_ended_line(&of(Expired), SQUARE),
+            "Open the shift to refund it in Square."
+        );
+        assert_eq!(
+            panel_ended_line(&other(Some("Back till")), SQUARE),
+            "Refund it in Square on Back till."
+        );
+        assert_eq!(
+            panel_ended_line(&other(None), SQUARE),
+            "Refund it in Square on the till that took it."
+        );
+        assert_eq!(
+            panel_ended_heading(&refunded(DoubleSpend), SQUARE),
+            "Refunded in Square"
+        );
+        assert_eq!(
+            panel_ended_line(&refunded(Expired), SQUARE),
+            "Nothing more to do."
+        );
+    }
+
+    #[test]
+    fn the_sale_on_the_panel_shows_paid_before_the_next_one_waiting_comes_up() {
+        use SalePhase::*;
+        let waiting = [
+            sale(Waiting, true, None, "1044"),
+            sale(Waiting, true, None, "1043"),
+        ];
+        assert_eq!(
+            focus(&waiting, None, false).as_deref(),
+            Some("1044"),
+            "the newest is up"
+        );
+        let paid = [
+            sale(Paid, true, None, "1044"),
+            sale(Waiting, true, None, "1043"),
+        ];
+        assert!(
+            landed(&paid, Some("1044"), true),
+            "it was live a moment ago, now paid"
+        );
+        assert_eq!(
+            focus(&paid, Some("1044"), true).as_deref(),
+            Some("1044"),
+            "held, paid, for a few seconds"
+        );
+        assert_eq!(
+            focus(&paid, Some("1044"), false).as_deref(),
+            Some("1043"),
+            "then the next one waiting"
+        );
+        assert!(
+            !landed(&paid, Some("1044"), false),
+            "already paid at the last look: not news"
+        );
+        assert!(
+            !landed(&paid, Some("1043"), true),
+            "another sale, still waiting"
+        );
+    }
+
+    #[test]
+    fn the_free_bubble_pulses_only_while_a_code_waits_for_its_money_and_the_panel_is_down() {
+        use SalePhase::*;
+        assert!(pulses(BubbleLook::Lit, Waiting, false));
+        assert!(
+            pulses(BubbleLook::Lit, Partial, false),
+            "part paid, the rest still to come"
+        );
+        assert!(
+            !pulses(BubbleLook::Lit, Waiting, true),
+            "docked above the panel: nothing to call for"
+        );
+        assert!(
+            !pulses(BubbleLook::Lit, Seen, false),
+            "the payment is on its way"
+        );
+        assert!(!pulses(BubbleLook::Lit, Confirming, false));
+        assert!(!pulses(BubbleLook::Paid, Paid, false));
+        assert!(!pulses(BubbleLook::Idle, Waiting, false));
+    }
+
+    #[test]
+    fn the_panel_shows_the_code_while_live_the_tick_once_paid_and_how_it_ended_otherwise() {
+        use SalePhase::*;
+        assert_eq!(hero(&of(Waiting)), PanelHero::Code);
+        assert_eq!(hero(&of(Confirming)), PanelHero::Code);
+        assert_eq!(hero(&of(Paid)), PanelHero::Paid);
+        assert_eq!(hero(&of(Expired)), PanelHero::Expired);
+        assert_eq!(hero(&of(Cancelled)), PanelHero::Expired);
+        assert_eq!(
+            hero(&TillSale {
+                closed_at: Some(1),
+                ..of(Waiting)
+            }),
+            PanelHero::Expired,
+            "closed for now, unpaid"
+        );
+        assert_eq!(hero(&of(DoubleSpend)), PanelHero::Reversed);
+        assert_eq!(hero(&refunded(Expired)), PanelHero::Refunded);
+        assert_eq!(hero(&refunded(DoubleSpend)), PanelHero::Refunded);
+    }
+
+    #[test]
+    fn a_failed_poll_or_a_dropped_stream_leaves_the_overlay_up_but_a_disconnect_lowers_it() {
+        // wanted, allowed, running, disconnected, app visible
+        assert!(shown(true, true, true, false, false));
+        assert!(
+            !shown(true, true, true, true, false),
+            "the store's 401 lowers it"
+        );
+        assert!(
+            !shown(true, true, true, false, true),
+            "Till on screen lowers it at once"
+        );
+        assert!(!shown(true, true, false, false, false));
+        assert!(!shown(false, true, true, false, false));
+        assert!(!shown(true, false, true, false, false));
+    }
+
+    #[test]
+    fn the_panel_carries_the_ring_the_time_left_the_hero_and_the_whole_order() {
+        let order = receipt(
+            "k4Rt",
+            "2026-10-22T16:07:00-07:00",
+            &[
+                ("Flat white", 2.0, 4.5, 9.0),
+                ("Oat latte", 1.0, 5.25, 5.25),
+                ("Almond croissant", 3.0, 3.75, 11.25),
+                ("Banana bread", 1.0, 4.5, 4.5),
+                ("Cold brew", 2.0, 5.0, 10.0),
+            ],
+            &[],
+            40.0,
+            "USD",
+        );
+        let waiting = TillSale {
+            expires_at: at() + 892,
+            created_at: instant("2026-10-22T23:07:00Z"),
+            receipt: Some(order),
+            ..of(SalePhase::Waiting)
+        };
+        let input = |sale| PanelInput {
+            sale,
+            till: SQUARE,
+            location: Some("Front Counter".into()),
+        };
+        let view = panel(&input(waiting.clone()), Device::Android, la(at()), &money);
+        assert_eq!(view.order_id, "o1");
+        assert_eq!(view.where_from, "Front Counter");
+        assert_eq!(view.created.as_deref(), Some("4:07 PM"));
+        assert_eq!(view.time_left.as_deref(), Some("14:52 left"));
+        assert_eq!(view.sale.hint, "Scan with any Monero wallet · 14:52 left");
+        assert_eq!(view.hero, PanelHero::Code);
+        assert_eq!(view.items.as_deref(), Some("9 items"));
+        let order = view.order.unwrap();
+        assert_eq!(
+            order.lines.len(),
+            5,
+            "every line, not the live card's three"
+        );
+        assert_eq!(order.more, None);
+        assert!(
+            view.sale.order.unwrap().more.is_some(),
+            "the sale's own card folds"
+        );
+        assert_eq!((view.ended_heading, view.ended_line), (None, None));
+        assert!(view.ticks);
+
+        let confirming = TillSale {
+            phase: SalePhase::Confirming,
+            confirmations: Some(4),
+            confirmations_required: Some(10),
+            ..waiting.clone()
+        };
+        let view = panel(&input(confirming), Device::Android, la(at()), &money);
+        assert_eq!(
+            (view.confirmations, view.confirmations_required),
+            (Some(4), Some(10))
+        );
+        assert_eq!(
+            view.time_left, None,
+            "the payment is on its way: no countdown"
+        );
+        assert!(!view.ticks);
+
+        let expired = TillSale {
+            phase: SalePhase::Expired,
+            created_at: 0,
+            ..waiting
+        };
+        let view = panel(&input(expired), Device::Android, la(at()), &money);
+        assert_eq!(view.created, None, "no time when it isn't known");
+        assert_eq!(view.time_left, None);
+        assert_eq!(view.hero, PanelHero::Expired);
+        assert_eq!(
+            view.ended_heading.as_deref(),
+            Some("Code expired · not paid")
+        );
+        assert_eq!(
+            view.ended_line.as_deref(),
+            Some("Open the shift to refund it in Square.")
         );
     }
 }

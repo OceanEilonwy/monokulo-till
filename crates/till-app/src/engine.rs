@@ -213,6 +213,8 @@ pub(crate) struct State {
     alert_for: Option<String>,
     /// The sale the bubble showed last.
     bubble_focus: Option<String>,
+    /// Android's bubble panel is up, as the platform last said.
+    panel_up: bool,
     /// A redraw is due in a second.
     ticking: bool,
     utc_offset: i32,
@@ -275,6 +277,7 @@ impl State {
             just_ended_token: 0,
             alert_for: None,
             bubble_focus: None,
+            panel_up: false,
             ticking: false,
             phases: Phases::default(),
             published: Published::default(),
@@ -573,6 +576,7 @@ impl State {
                 self.bubble_allowed = bubble;
             }
             Action::TorProbed { running } => self.tor_running = Some(running),
+            Action::PanelShown { up } => self.panel_up = up,
             action if self.parts.is_none() => {
                 self.log(format!(
                     "till-core: nothing kept could be read, so {action:?} waits"
@@ -681,6 +685,12 @@ impl State {
             }
             Action::SetBubble { on } => {
                 self.keep(|m| m.bubble_on = on);
+            }
+            Action::MoveBubble { left, y } => {
+                self.keep(|m| {
+                    m.bubble_left = left;
+                    m.bubble_y = Some(y);
+                });
             }
             Action::SetTor { on } => self.set_tor(on),
             // The island is the iPhone's alone: elsewhere they stay off.
@@ -1716,13 +1726,17 @@ impl State {
             let state = self.live_activity_state(p);
             send!(live_activity, state, |state| Update::LiveActivity { state });
         }
+        // The panel counts down over other apps, with Till in the back.
+        let mut panel_ticks = false;
         if self.has_bubble()
             && let Some(bubble) = self.bubble_view()
         {
-            ticks |= bubble.panel.as_ref().is_some_and(|s| s.ticks);
+            panel_ticks = bubble.shown
+                && self.panel_up
+                && bubble.panel.as_ref().is_some_and(|panel| panel.ticks);
             send!(bubble, bubble, |view| Update::Bubble { view });
         }
-        self.tick_if(ticks);
+        self.tick_if((ticks && self.visible) || panel_ticks);
     }
 }
 

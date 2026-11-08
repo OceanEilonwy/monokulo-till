@@ -5,9 +5,8 @@
 
 use std::time::Duration;
 
-use monokulo_client::SalePhase;
 use till_sales::TillSale;
-use till_screens::bubble;
+use till_screens::bubble::{self, PanelInput};
 use till_screens::close::{self, CloseInput};
 use till_screens::code::{self, CodeInput};
 use till_screens::live_activity::{self, LiveActivityInput, LiveActivityState};
@@ -199,9 +198,10 @@ impl State {
         }
     }
 
-    /// Asks again in a second while a countdown is on screen (decision 37).
+    /// Asks again in a second while a countdown is on screen (decision 37):
+    /// Till's own, in front, or the bubble panel's over other apps.
     pub(super) fn tick_if(&mut self, ticks: bool) {
-        if !ticks || !self.visible || self.ticking {
+        if !ticks || self.ticking {
             return;
         }
         self.ticking = true;
@@ -352,11 +352,15 @@ impl State {
         let tap = bubble::tap(sale, false);
         let tap_open = bubble::tap(sale, true);
         let view = BubbleView {
-            shown: model.bubble_on
-                && self.bubble_allowed
-                && model.shift_on
-                && runner.running
-                && !self.visible,
+            shown: bubble::shown(
+                model.bubble_on && model.shift_on,
+                self.bubble_allowed,
+                runner.running,
+                runner.disconnected,
+                self.visible,
+            ),
+            left: model.bubble_left,
+            y: model.bubble_y,
             look,
             order_id: focus.clone(),
             label: bubble::label(look, sale, &money),
@@ -365,8 +369,8 @@ impl State {
             tap_open,
             tap_open_label: bubble::tap_label(tap_open).into(),
             panel: sale.map(|sale| {
-                sale::sale(
-                    &SaleInput {
+                bubble::panel(
+                    &PanelInput {
                         sale: sale.clone(),
                         till,
                         location: location.clone(),
@@ -376,13 +380,7 @@ impl State {
                     &money,
                 )
             }),
-            panel_where: sale.map(|sale| bubble::panel_where(sale, location.as_deref())),
-            ended_heading: sale
-                .filter(|sale| !sale.live() && sale.phase != SalePhase::Paid)
-                .map(|sale| bubble::panel_ended_heading(sale, till)),
-            ended_line: sale
-                .filter(|sale| !sale.live() && sale.phase != SalePhase::Paid)
-                .map(|sale| bubble::panel_ended_line(sale, till)),
+            pulses: sale.is_some_and(|sale| bubble::pulses(look, sale.phase, self.panel_up)),
             buzzes: bubble::bubble_buzzes(self.visible),
         };
         self.bubble_focus = focus;
