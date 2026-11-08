@@ -174,3 +174,38 @@ on from 1; the Android app's own choices are in [android.md](android.md).
     `elsewhere`, `placeOf`) wait for phase 3. The engine's `Update` carries
     `Onboarding`, `Settings` and `WakeUps` views, not yet sent: phase 5b
     fills the inputs and publishes each only when it changed.
+
+## Phase 3: the till (2026-11-08)
+
+28. **The saved shift stays the Android app's JSON, byte for byte**
+    (`shift_json`): hand-written serde with Kotlin's defaults left out,
+    fields in the Kotlin classes' order, Java's doubles written through
+    `raw_value` (JDK 19's shortest digits; Android's runtime may differ in
+    rare cases), and a receipt mirror matching Kotlin's `Receipt`. One
+    difference: a receipt's `extensions` with both a tip and a discount
+    writes the discount first, as serde_json sorts keys.
+29. **The till's state is a `watch` channel**, changed through
+    `send_if_modified` and saved afterwards under a mutex. Kotlin's
+    `collectLatest` loops become a `select!` between the work and the next
+    change that matters. The shift's conflated wake-up channel is one slot
+    and a `Notify`, with a biased `select!` so a wake-up landing as a tick
+    ends is never lost.
+30. **`TillRunner` takes a `RunnerSide` trait in place of `Graph`**: the
+    engine chooses the source (point of sale, signed in, location), hands
+    in dings with `ding()` (ignored outside a shift), and implements
+    `ShiftStore` and `PosSwitchSide`. The runner's `close` and `reopen`
+    run at once rather than as launched tasks.
+31. **`ReceiptCode` lives in `till-sales` as `PaymentCode::of`**, with its
+    tests; `OrderStatus` stands in for `onStatus`'s default arguments.
+32. **Paused-clock tests that make real HTTP requests use a client with no
+    idle pool** (`pool_max_idle_per_host(0)`), or the pool's idle timer
+    moves virtual time while a request is in flight.
+33. **Follow-ups the port worked around locally**, to move into the crates
+    they belong to: `FoundSale` should leave out `pointOfSale` for Square
+    as Kotlin does (`till-sales` has its own serializer for now);
+    "was this Monokulo answering?" belongs on `MonokuloError`
+    (`till-sales` has `monokulo_answered`); `till-pos`'s RFC 3339 parsing
+    is private, so `till-sales` uses jiff directly; `NoSource`'s refusal
+    has to name a point of sale (Square) because `PosError::Answered`
+    needs one. Failures' words after "Couldn't reach the store: " are
+    reqwest's, not OkHttp's.

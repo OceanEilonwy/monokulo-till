@@ -1,6 +1,6 @@
 # Till for iPhone and iPad: plan
 
-Status: accepted 2026-11-08. Phases 0, 1, 2 and 4 are built; decisions
+Status: accepted 2026-11-08. Phases 0 to 4 are built, and 5a has begun; decisions
 along the way are in [decisions/core.md](decisions/core.md).
 
 The app is **Till** ("Monokulo Till" in full) since 2026-11-08; it was
