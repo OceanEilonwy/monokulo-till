@@ -107,6 +107,8 @@ object EngineStore {
             is Update.RefundSheet -> mutableRefund.value = update.view
             is Update.Bubble -> mutableBubble.value = update.view
             is Update.Notification -> mutableNotification.value = update.view
+            // The Live Activity is iPhone only; Android never gets one.
+            is Update.LiveActivity -> Unit
         }
     }
 

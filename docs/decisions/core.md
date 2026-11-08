@@ -364,3 +364,30 @@ on from 1; the Android app's own choices are in [android.md](android.md).
     `applinks`. New iOS words ("Dashboard open on this iPhone?", a shorter
     alerts lead) await the owner's review; the Square and Clover tiles are
     stand-ins, not their brands' art.
+
+## Phase 5b: the engine's gaps closed (2026-11-08)
+
+62. **Stores report a failed read as a `StoreError`, and nothing is saved
+    over what couldn't be read** (`TokenStore::load`, `CursorStore`,
+    `TenderStore::tender_id` and `ShiftStore::load` return `Result`; the
+    shift's guard is `Till::shift_unread`). An unreadable sign-in counts as
+    signed in, so its error shows rather than "Sign in again". This closes
+    17's and 47's store items.
+63. **The setups take an optional `return_uri`** (UniFFI default none),
+    accepted beside `redirect_uri`, while the token exchange names the
+    redirect: Android's debug scheme can use it; iOS rewrites in Swift
+    (59). This closes 57's first item.
+64. **A new sale is alerted only while the app is in the back, in a single
+    notification update**: Android's ongoing face carries `alert` once,
+    iOS's view carries one `SaleAlert`. Android's ended-sale notices come
+    as `Effect::Notify` with `till-screens`' `Notice`, and
+    `background_check` answers with `SaleAlert`s on iOS and an
+    `OngoingFace` on Android. `NotificationFace` is gone. This closes 57's
+    second item.
+65. **The Live Activity is published on iPhone only, when it changes, and
+    only while its switch is on, setup is done and a shift is on**; an own
+    sale that ended shows as expired for 5 s, as a paid one does (the
+    length is a choice; design.md §6 doesn't give one).
+66. **The island switches are kept under `island.activity` (absent means
+    on; read only on iPhone) and `island.code` (off unless set)**, and
+    survive `forget_all`.
