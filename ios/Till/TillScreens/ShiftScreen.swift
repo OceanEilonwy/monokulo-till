@@ -198,9 +198,20 @@ struct ShiftEntryRow: View {
 
     var body: some View {
         switch entry {
-        case .trayHeader(let label, let said):
-            header(label)
-                .accessibilityLabel(said)
+        case .trayHeader(let label, let said, let count):
+            // The tray's count of live sales beside its label (the engine's `count`).
+            HStack(alignment: .firstTextBaseline) {
+                Text(label)
+                Spacer()
+                Text("\(count)")
+                    .monospacedDigit()
+            }
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(Palette.secondary)
+            .padding(.top, 12)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(said)
+            .accessibilityAddTraits(.isHeader)
         case .row(let orderId, let row, let ends, _, let closes):
             SaleRow(row: row, ends: ends) { send(.openSale(orderId: orderId)) }
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -213,7 +224,7 @@ struct ShiftEntryRow: View {
                         .tint(Palette.danger)
                     }
                 }
-        case .fold(let label, let said, let isOpen):
+        case .fold(let label, let said, let isOpen, _):
             Button {
                 send(.foldTray(folded: isOpen))
             } label: {

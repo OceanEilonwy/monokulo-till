@@ -222,21 +222,75 @@ struct StepBar: View {
     }
 }
 
-/// Every line of a sale's order (Screen.order), opened from its card's
-/// "+N more".
+/// Every line of a sale's order (Screen.order, the design's PanelE),
+/// opened from its card's "+N more": the count, each line, the subtotal,
+/// tip, discount and taxes, and the total, as the engine's `OrderPageView`
+/// writes them.
 struct OrderScreen: View {
+    /// The sale's title, under "The order" until its receipt names it.
     let title: String
-    let line: String
-    let order: OrderCard?
+    let order: OrderPageView?
     let send: Send
 
     var body: some View {
         VStack(spacing: 0) {
-            TillBar(title: title, line: line, back: { send(.back) })
+            TillBar(title: "The order", line: order?.subtitle ?? title, back: { send(.back) })
             ScrollView {
                 if let order {
-                    OrderCardSection(card: order)
-                        .padding(.vertical, 12)
+                    VStack(alignment: .leading, spacing: 16) {
+                        HStack(alignment: .lastTextBaseline) {
+                            Text(order.items)
+                                .font(.largeTitle.weight(.bold))
+                            Spacer(minLength: 8)
+                            Text(order.lines)
+                                .font(.subheadline)
+                                .foregroundStyle(Palette.secondary)
+                        }
+                        .padding(.horizontal, 16)
+                        .accessibilityElement(children: .combine)
+                        Card {
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(Array(order.rows.enumerated()), id: \.offset) { _, row in
+                                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                                        Text(row.quantity)
+                                            .monospacedDigit()
+                                            .foregroundStyle(Palette.secondary)
+                                        Text(row.description)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                        Spacer(minLength: 8)
+                                        Text(row.price)
+                                            .monospacedDigit()
+                                    }
+                                    .font(.subheadline)
+                                    .accessibilityElement(children: .combine)
+                                }
+                                Rectangle()
+                                    .fill(Palette.hairline)
+                                    .frame(height: 1)
+                                ForEach(Array(order.sums.enumerated()), id: \.offset) { _, sum in
+                                    HStack(alignment: .firstTextBaseline) {
+                                        Text(sum.name)
+                                        Spacer(minLength: 8)
+                                        Text(sum.value)
+                                            .monospacedDigit()
+                                    }
+                                    .font(.subheadline)
+                                    .foregroundStyle(Palette.secondary)
+                                    .accessibilityElement(children: .combine)
+                                }
+                                HStack(alignment: .firstTextBaseline) {
+                                    Text("Total")
+                                    Spacer(minLength: 8)
+                                    Text(order.total)
+                                        .monospacedDigit()
+                                }
+                                .font(.headline)
+                                .accessibilityElement(children: .combine)
+                            }
+                            .padding(16)
+                        }
+                    }
+                    .padding(.vertical, 12)
                 }
             }
             .scrollBounceBehavior(.basedOnSize)
