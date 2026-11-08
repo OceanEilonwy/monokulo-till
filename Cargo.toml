@@ -16,6 +16,7 @@ till-pos = { path = "crates/till-pos" }
 till-sales = { path = "crates/till-sales" }
 till-bell = { path = "crates/till-bell" }
 till-app = { path = "crates/till-app" }
+till-screens = { path = "crates/till-screens" }
 orf-codec = { path = "crates/orf-codec" }
 orf-codec-ffi = { path = "crates/orf-codec-ffi" }
 serde = { version = "1.0.229", features = ["derive"] }

@@ -1,0 +1,20 @@
+[package]
+name = "till-screens"
+version = "0.1.0"
+description = "What each of Till's screens shows, from the core's records and the clock"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+# The view records cross to Kotlin and Swift as they are, behind `uniffi`
+# (docs/ios-plan.md §2): till-app forwards its own feature here. Without it
+# the crate has no UniFFI in it, as the leaf crates don't.
+[features]
+uniffi = ["dep:uniffi"]
+
+[dependencies]
+monokulo-client.workspace = true
+till-bell.workspace = true
+till-pos.workspace = true
+uniffi = { workspace = true, optional = true }

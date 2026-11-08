@@ -2467,6 +2467,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "till-screens"
+version = "0.1.0"
+dependencies = [
+ "monokulo-client",
+ "till-bell",
+ "till-pos",
+ "uniffi",
+]
+
+[[package]]
 name = "time"
 version = "0.3.55"
 source = "registry+https://github.com/rust-lang/crates.io-index"
