@@ -14,8 +14,8 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use crate::testing::{FakePlatform, FakePush, Heard, Recorder, wait_for};
 use crate::{
-    Action, CloseChoice, CloverSetup, Device, Effect, Engine, EngineConfig, Screen, SquareSetup,
-    Update, WakeUps,
+    Action, CloseChoice, CloverSetup, CopyKind, Device, Effect, Engine, EngineConfig, Screen,
+    SquareSetup, Update, WakeUps,
 };
 
 use super::Options;
@@ -239,6 +239,64 @@ fn a_store_that_cant_answer_says_so_and_is_read_again_when_opened() {
     );
 }
 
+/// Step 2's next problem, as its page says it.
+fn scan_problem(rx: &Receiver<Heard>) -> String {
+    wait_for(rx, |heard| match heard {
+        Heard::Update(Update::Onboarding { view }) => match &view.page {
+            OnboardingPage::Scan { problem } => problem.clone(),
+            _ => None,
+        },
+        _ => None,
+    })
+}
+
+/// Decision 60's choices are the engine's: step 4's Skip is "Not now"
+/// until the till is connected to a point of sale, and its Next does
+/// nothing before one is chosen.
+#[test]
+fn step_4s_skip_before_a_sign_in_is_not_now() {
+    let platform = FakePlatform::with(&[(
+        "connection",
+        r#"{"app_key":"ak_1","api":"https://pay.example/api/v1"}"#,
+    )]);
+    let (engine, rx, _) = start(config(None), platform.clone());
+    screen(&rx, Screen::PointOfSale);
+    engine.send(Action::Next);
+    assert_eq!(
+        engine.peek(|s| s.screen.clone()),
+        Screen::PointOfSale,
+        "nothing chosen: no way on"
+    );
+    engine.send(Action::Skip);
+    screen(&rx, Screen::Alerts);
+    assert_eq!(platform.get("pos.skipped").as_deref(), Some("true"));
+    // Step 5's "Not now" goes on, to Ready on an iPhone.
+    engine.send(Action::Skip);
+    screen(&rx, Screen::Ready);
+}
+
+#[test]
+fn androids_use_notifications_only_turns_the_bubble_off() {
+    let platform = FakePlatform::with(&[
+        (
+            "connection",
+            r#"{"app_key":"ak_1","api":"https://pay.example/api/v1"}"#,
+        ),
+        ("pos.skipped", "true"),
+    ]);
+    let android = EngineConfig {
+        device: Device::Android,
+        ..config(None)
+    };
+    let (engine, rx, _) = start(android, platform.clone());
+    screen(&rx, Screen::Alerts);
+    engine.send(Action::Skip);
+    screen(&rx, Screen::Float);
+    engine.send(Action::Skip);
+    screen(&rx, Screen::Ready);
+    assert_eq!(platform.get("bubble.on").as_deref(), Some("false"));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn connecting_keeps_the_connection_in_stores_kts_key() {
     let monokulo = MockServer::start().await;
@@ -251,18 +309,29 @@ async fn connecting_keeps_the_connection_in_stores_kts_key() {
     let (engine, rx, _) = start(config(None), platform.clone());
     engine.send(Action::Next);
     screen(&rx, Screen::Scan);
-    engine.send(Action::ConnectLink {
-        url: "https://pay.example/shop".into(),
+    // Each way in has its own words for what isn't a connect code.
+    engine.send(Action::PasteConnectLink { text: None });
+    assert_eq!(
+        scan_problem(&rx),
+        "There's nothing to paste. Copy the connect link on the dashboard first."
+    );
+    engine.send(Action::PasteConnectLink {
+        text: Some("https://pay.example/shop".into()),
     });
-    wait_for(&rx, |heard| match heard {
-        Heard::Update(Update::Onboarding { view }) => match &view.page {
-            OnboardingPage::Scan { problem: Some(_) } => Some(()),
-            _ => None,
-        },
-        _ => None,
+    assert_eq!(scan_problem(&rx), "That isn't a store's connect link.");
+    engine.send(Action::ScanConnectCode {
+        text: "https://pay.example/shop".into(),
     });
-    engine.send(Action::ConnectLink {
-        url: format!("{}/apps/connect#token={TOKEN}", monokulo.uri()),
+    assert_eq!(scan_problem(&rx), "That code isn't a store's connect code.");
+    engine.send(Action::PasteConnectLink {
+        text: Some(" ".into()),
+    });
+    assert_eq!(
+        scan_problem(&rx),
+        "There's nothing to paste. Copy the connect link on the dashboard first."
+    );
+    engine.send(Action::ScanConnectCode {
+        text: format!("{}/apps/connect#token={TOKEN}", monokulo.uri()),
     });
     screen(&rx, Screen::Confirm);
     engine.send(Action::Connect);
@@ -309,9 +378,8 @@ async fn a_sign_in_opens_its_page_and_keeps_the_attempt_as_stores_kt_did() {
         pos: crate::Pos::Square,
     });
     wait_for(&rx, |_| platform.get("pos.kind").filter(|k| k == "square"));
-    engine.send(Action::SignIn {
-        application_id: None,
-    });
+    // Step 4's button is the sign-in until the till is connected.
+    engine.send(Action::Next);
     let url = wait_for(&rx, |heard| match heard {
         Heard::Effect(Effect::OpenUrl { url }) => Some(url.clone()),
         _ => None,
@@ -359,6 +427,11 @@ async fn a_sign_in_opens_its_page_and_keeps_the_attempt_as_stores_kt_did() {
         Screen::PointOfSale,
         "setup goes on to the test sale"
     );
+    // Connected: Skip is "Skip the test", on to alerts, the till not
+    // without a point of sale.
+    engine.send(Action::Skip);
+    screen(&rx, Screen::Alerts);
+    assert_eq!(platform.get("pos.skipped"), None);
 }
 
 /// Decision 57: a debug build's sign-in comes back on its own scheme, and
@@ -480,14 +553,22 @@ async fn an_upgraded_till_runs_its_shift_makes_orders_and_tells_the_platform() {
             after = Some(view.clone());
             None
         }
-        Heard::Effect(Effect::CopyText { text }) => Some(text.clone()),
+        Heard::Effect(Effect::CopyText { text, kind }) => Some((text.clone(), *kind)),
         _ => None,
     });
-    assert_eq!(copied, "8Bx");
+    assert_eq!(copied, ("8Bx".into(), CopyKind::Address));
     // The next change goes without the alert: it was posted once.
     if let Some(after) = after {
         assert_eq!(after.alert, None, "alerted once");
     }
+    engine.send(Action::CopyAmount {
+        order_id: "ord_1".into(),
+    });
+    let copied = wait_for(&rx, |heard| match heard {
+        Heard::Effect(Effect::CopyText { text, kind }) => Some((text.clone(), *kind)),
+        _ => None,
+    });
+    assert_eq!(copied, ("0.08".into(), CopyKind::Amount));
 
     // The close sheet's "No": the till refunds it in Square and closes it.
     engine.send(Action::Close {
@@ -600,6 +681,65 @@ async fn androids_ongoing_notification_alerts_a_new_sale_once() {
         ),
         "{next:?}"
     );
+}
+
+/// Android's bubble over other apps: its panel carries the sale with its
+/// header, hero and order; its countdown ticks while the panel is up with
+/// the app in the back (decision 56); and where it rests is kept under
+/// `Stores.kt`'s keys.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_bubbles_panel_counts_down_while_it_is_up_and_its_place_is_kept() {
+    let monokulo = monokulo().await;
+    let square = square().await;
+    let android = EngineConfig {
+        device: Device::Android,
+        ..config(Some(&square))
+    };
+    let platform = signed_in_till(&monokulo);
+    platform.set("bubble.left", "true");
+    platform.set("bubble.y", "412");
+    let (engine, rx, _) = start(android, platform.clone());
+    engine.send(Action::Permissions {
+        alerts: true,
+        bubble: true,
+    });
+    engine.send(Action::Backgrounded);
+    let bubble = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Bubble { view }) if view.shown && view.panel.is_some() => {
+            Some(view.clone())
+        }
+        _ => None,
+    });
+    assert!((bubble.left, bubble.y) == (true, Some(412)), "{bubble:?}");
+    let panel = bubble.panel.unwrap();
+    assert_eq!(panel.order_id, "ord_1");
+    assert_eq!(panel.where_from, "Front counter");
+    assert_eq!(panel.hero, till_screens::bubble::PanelHero::Code);
+    assert!(panel.time_left.is_some() && panel.ticks);
+    assert!(bubble.pulses, "a code waits with the panel down");
+
+    // The panel down and the app in the back: nothing counts down on screen.
+    tokio::time::sleep(super::till::TICK + Duration::from_millis(300)).await;
+    assert!(!engine.peek(|s| s.ticking));
+    engine.send(Action::PanelShown { up: true });
+    let up = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Bubble { view }) => Some(view.clone()),
+        _ => None,
+    });
+    assert!(!up.pulses, "no pulse with the panel up");
+    assert!(engine.peek(|s| s.ticking), "the panel's countdown ticks");
+
+    engine.send(Action::MoveBubble {
+        left: false,
+        y: 900,
+    });
+    let moved = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Bubble { view }) if !view.left => Some(view.y),
+        _ => None,
+    });
+    assert_eq!(moved, Some(900));
+    assert_eq!(platform.get("bubble.left").as_deref(), Some("false"));
+    assert_eq!(platform.get("bubble.y").as_deref(), Some("900"));
 }
 
 #[test]

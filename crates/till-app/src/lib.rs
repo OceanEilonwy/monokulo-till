@@ -35,7 +35,7 @@ use tokio::sync::mpsc::UnboundedSender;
 pub use background::{BackgroundCheck, background_check};
 use monokulo_client::PointOfSale;
 pub use till_screens::Device;
-use till_screens::bubble::{BubbleLook, BubbleTap};
+use till_screens::bubble::{BubbleLook, BubbleTap, PanelView};
 use till_screens::notification::Notice;
 use till_screens::order_text::OrderCard;
 use till_screens::shift::ShiftFilter;
@@ -301,12 +301,31 @@ pub enum Action {
     },
     /// One step back.
     Back,
-    /// The screen's way on: Welcome's start, step 3's "Next", step 4's
-    /// "Continue", step 5's.
+    /// The screen's main button: Welcome's start, step 3's "Continue", step
+    /// 4's button under the card (the chosen point of sale's sign-in until
+    /// the till is connected to it, then "Continue", or "Done" from
+    /// Settings), step 5's. The engine decides which from its state, so the
+    /// platform sends `Next` whatever the button says.
     Next,
-    /// A connect link, scanned, pasted or opened as an App Link.
+    /// The screen's way past, under its button: step 4's "Not now: only show
+    /// other tills' sales" until connected, then "Skip the test"; step 5's
+    /// "Not now"; Android's "Use notifications only" (the bubble off).
+    Skip,
+    /// A connect link opened as an App Link (or from anywhere else that
+    /// isn't a paste or a scan).
     ConnectLink {
         url: String,
+    },
+    /// Step 2's Paste: the clipboard's text, `None` when it held none (step
+    /// 2 then says there's nothing to paste; text that isn't a store's
+    /// link, that it isn't one).
+    PasteConnectLink {
+        text: Option<String>,
+    },
+    /// Step 2's camera read a code: one that isn't a store's connect code is
+    /// said so.
+    ScanConnectCode {
+        text: String,
     },
     /// Step 3: redeem the code.
     Connect,
@@ -347,6 +366,18 @@ pub enum Action {
     /// The panel's "Open the shift": every sale's full screen is left for
     /// now, and the shift comes up.
     OpenShift,
+    /// Android's bubble panel rose (`up`) or went back into the bubble. While
+    /// it is up the panel's countdown is redrawn each second though the app
+    /// is in the back (decision 56), and the free bubble doesn't pulse.
+    PanelShown {
+        up: bool,
+    },
+    /// The bubble was let go against the `left` edge (else the right) at
+    /// height `y`, in pixels: kept, and published in [`BubbleView`].
+    MoveBubble {
+        left: bool,
+        y: i32,
+    },
     /// The platform's moving stage came to rest on `screen` (Android's
     /// `FollowScreen`): a new sale rises out of the shift only while it
     /// rests there (decision 266 of android.md).
@@ -538,12 +569,25 @@ pub struct RefundSheetView {
 }
 
 /// Android's bubble and its panel, ready to draw.
+///
+/// Where the bubble rests (`left`, `y`) is kept by the engine, though only
+/// the platform reads it: an upgraded till has it under `Stores.kt`'s
+/// `bubble.left` and `bubble.y`, in the store the engine owns and caches
+/// (decision 42), which a second writer would leave stale. The platform
+/// sends [`Action::MoveBubble`] once a drag lets go, never per frame.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct BubbleView {
-    /// The cashier wants it, Android allows it, a shift is on and Till's own
-    /// screen isn't up.
+    /// The cashier wants it, Android allows it, a shift is on, the till is
+    /// running and still connected (the store's 401 takes it down; a failed
+    /// poll doesn't, android.md decision 208), and Till's own screen isn't
+    /// up.
     pub shown: bool,
+    /// The bubble rests against the screen's left edge (else its right).
+    pub left: bool,
+    /// Its height on screen, in pixels, as last let go; `None` until it has
+    /// been moved (Android puts it a third of the way down).
+    pub y: Option<i32>,
     pub look: BubbleLook,
     /// The sale the bubble and its panel are about.
     pub order_id: Option<String>,
@@ -554,13 +598,12 @@ pub struct BubbleView {
     pub tap_label: String,
     pub tap_open: BubbleTap,
     pub tap_open_label: String,
-    /// The panel: the sale, as its live screen shows it.
-    pub panel: Option<SaleView>,
-    /// The panel header's second line: the till's location, or who took it.
-    pub panel_where: Option<String>,
-    /// The sale's code came down while the panel was up: its heading and line.
-    pub ended_heading: Option<String>,
-    pub ended_line: Option<String>,
+    /// The panel: the sale as its live screen shows it, with its header,
+    /// ring, hero, whole order and ended words.
+    pub panel: Option<PanelView>,
+    /// The free bubble pulses: a code waits for its money and the panel is
+    /// down (as [`Action::PanelShown`] last said).
+    pub pulses: bool,
     /// A payment landing buzzes the bubble (the app isn't on screen).
     pub buzzes: bool,
 }
@@ -599,9 +642,24 @@ pub enum Effect {
     Haptic {
         haptic: Haptic,
     },
+    /// Put `text` on the clipboard; `kind` says what it is, for the
+    /// platform's confirmation ("Address copied") and for marking an
+    /// address sensitive, without reading the text.
     CopyText {
         text: String,
+        kind: CopyKind,
     },
+}
+
+/// What [`Effect::CopyText`] copies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum CopyKind {
+    /// A sale's wallet address ("Copy address").
+    Address,
+    /// A sale's XMR amount, as its figures ("0.05552"; the amount tapped).
+    Amount,
+    Other,
 }
 
 /// The summary of Android's ended group, once it holds `ended`
