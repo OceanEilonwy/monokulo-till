@@ -529,11 +529,29 @@ impl State {
     fn go(&mut self, screen: Screen) {
         self.problem = None;
         self.by_itself = false;
+        self.unfold_for(&screen);
         // Going to the screen already up changes nothing the stage would land from.
         if screen != self.screen {
             self.resting_on = None;
         }
         self.screen = screen;
+    }
+
+    /// Back on the shift from a sale whose row the folded tray hides: the
+    /// tray opens first, so the row is there for the sale to shrink into on
+    /// the change's first frame (android.md 269, 289).
+    fn unfold_for(&mut self, to: &Screen) {
+        if *to != Screen::Till || !self.folded {
+            return;
+        }
+        let Some(order_id) = till::order_id(&self.screen) else {
+            return;
+        };
+        let Some(p) = &self.parts else { return };
+        let sales = p.runner.state().till.sales;
+        if till_screens::shift::folds(&sales, self.filter, order_id) {
+            self.folded = false;
+        }
     }
 
     fn go_home(&mut self) {
