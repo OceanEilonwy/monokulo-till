@@ -6,7 +6,7 @@
              The connector's own manifest brings the distributor <queries>, its receiver
              and WAKE_LOCK; this is the one part the app declares itself. -->
         <service
-            android:name="app.monokular.push.WakePushService"
+            android:name="com.monokulo.till.push.WakePushService"
             android:exported="false">
             <intent-filter>
                 <action android:name="org.unifiedpush.android.connector.PUSH_EVENT" />

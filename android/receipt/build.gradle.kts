@@ -20,7 +20,7 @@ abstract class CargoTask : Exec() {
 }
 
 android {
-    namespace = "app.monokular.receipt"
+    namespace = "com.monokulo.till.receipt"
     compileSdk = 37
     compileSdkMinor = 2
     ndkVersion = "27.0.12077973"
