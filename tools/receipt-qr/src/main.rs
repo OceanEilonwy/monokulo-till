@@ -36,7 +36,19 @@ const VARIANTS: [(&str, &[&str]); 4] = [
     ("food only", &["off"]),
     ("open", &["nypl", "wikidata", "synthetic"]),
     ("open + food", &["nypl", "wikidata", "synthetic", "off"]),
-    ("all", &["nypl", "wikidata", "synthetic", "off", "amazon_tools", "amazon_clothing", "amazon_health", "amazon_grocery"]),
+    (
+        "all",
+        &[
+            "nypl",
+            "wikidata",
+            "synthetic",
+            "off",
+            "amazon_tools",
+            "amazon_clothing",
+            "amazon_health",
+            "amazon_grocery",
+        ],
+    ),
 ];
 const SHIPPED: &str = "shipped (open, 64k)";
 
@@ -50,11 +62,41 @@ struct Category {
 }
 
 const CATEGORIES: [Category; 5] = [
-    Category { name: "restaurant", stores: &["Harbour Kitchen", "The Olive Tree", "Saigon Street"], cents: (450, 3800), tax_bp: 888, tip_pct: 18 },
-    Category { name: "grocery", stores: &["Corner Fresh", "Valley Co-op", "Market Hall"], cents: (89, 1499), tax_bp: 0, tip_pct: 0 },
-    Category { name: "hardware", stores: &["Benson Hardware", "Tool & Timber", "Northside DIY"], cents: (199, 8999), tax_bp: 888, tip_pct: 0 },
-    Category { name: "clothing", stores: &["Thread & Co", "Second Stitch", "Harlow Outfitters"], cents: (900, 12000), tax_bp: 888, tip_pct: 0 },
-    Category { name: "pharmacy", stores: &["Riverside Pharmacy", "Green Cross Chemist"], cents: (299, 2499), tax_bp: 888, tip_pct: 0 },
+    Category {
+        name: "restaurant",
+        stores: &["Harbour Kitchen", "The Olive Tree", "Saigon Street"],
+        cents: (450, 3800),
+        tax_bp: 888,
+        tip_pct: 18,
+    },
+    Category {
+        name: "grocery",
+        stores: &["Corner Fresh", "Valley Co-op", "Market Hall"],
+        cents: (89, 1499),
+        tax_bp: 0,
+        tip_pct: 0,
+    },
+    Category {
+        name: "hardware",
+        stores: &["Benson Hardware", "Tool & Timber", "Northside DIY"],
+        cents: (199, 8999),
+        tax_bp: 888,
+        tip_pct: 0,
+    },
+    Category {
+        name: "clothing",
+        stores: &["Thread & Co", "Second Stitch", "Harlow Outfitters"],
+        cents: (900, 12000),
+        tax_bp: 888,
+        tip_pct: 0,
+    },
+    Category {
+        name: "pharmacy",
+        stores: &["Riverside Pharmacy", "Green Cross Chemist"],
+        cents: (299, 2499),
+        tax_bp: 888,
+        tip_pct: 0,
+    },
 ];
 
 enum Segment<'a> {
@@ -79,15 +121,30 @@ fn main() {
 fn decode(uri: &str) {
     let parsed = monero::parse(uri).unwrap_or_else(|e| fail(e));
     println!("address:   {}", parsed.address);
-    println!("tx_amount: {}", parsed.tx_amount.as_deref().unwrap_or("(none)"));
-    let Some(text) = orf_codec::query::find(uri) else { fail("this URI has no receipt (no orf= parameter)") };
+    println!(
+        "tx_amount: {}",
+        parsed.tx_amount.as_deref().unwrap_or("(none)")
+    );
+    let Some(text) = orf_codec::query::find(uri) else {
+        fail("this URI has no receipt (no orf= parameter)")
+    };
     let receipt = orf_codec::decode_text(text).unwrap_or_else(|e| fail(&e.to_string()));
-    println!("receipt:   {} digits, decoded:\n{}", text.len(), serde_json::to_string_pretty(&receipt).unwrap());
+    println!(
+        "receipt:   {} digits, decoded:\n{}",
+        text.len(),
+        serde_json::to_string_pretty(&receipt).unwrap()
+    );
 
     let known = known_receipts();
-    match known.iter().find(|(_, r)| orf_codec::encode_text(&r.to_orf()).ok().as_deref() == Some(text)) {
+    match known
+        .iter()
+        .find(|(_, r)| orf_codec::encode_text(&r.to_orf()).ok().as_deref() == Some(text))
+    {
         Some((id, _)) => println!("\nmatches {id} exactly: the scan read every digit correctly"),
-        None => println!("\ndecoded cleanly, but it isn't one of this tool's {} test receipts", known.len()),
+        None => println!(
+            "\ndecoded cleanly, but it isn't one of this tool's {} test receipts",
+            known.len()
+        ),
     }
 }
 
@@ -99,8 +156,10 @@ fn fail(msg: &str) -> ! {
 /// The hand-written receipts, plus the generated test receipts when the
 /// corpus is on disk.
 fn known_receipts() -> Vec<(String, Receipt)> {
-    let mut all: Vec<(String, Receipt)> =
-        receipts::samples().into_iter().map(|(slug, r)| (format!("hand/{slug}"), r)).collect();
+    let mut all: Vec<(String, Receipt)> = receipts::samples()
+        .into_iter()
+        .map(|(slug, r)| (format!("hand/{slug}"), r))
+        .collect();
     if let Ok(test) = try_load_dir("corpus/test") {
         for cat in &CATEGORIES {
             if let Some(names) = test.get(cat.name) {
@@ -133,7 +192,12 @@ fn evaluate() {
         let refs: Vec<&[u8]> = samples.iter().map(|s| s.as_bytes()).collect();
         for size in DICT_SIZES {
             let dict = zstd::dict::from_samples(&refs, size).expect("dictionary training");
-            dicts.push((format!("{variant}, {}k", size >> 10), variant.into(), size, dict));
+            dicts.push((
+                format!("{variant}, {}k", size >> 10),
+                variant.into(),
+                size,
+                dict,
+            ));
         }
     }
 
@@ -149,8 +213,14 @@ fn evaluate() {
         };
         let mut by_cat: BTreeMap<String, Vec<(usize, i16, i16)>> = BTreeMap::new();
         for ((id, r), orf) in tests.iter().zip(&orfs) {
-            let bytes = codec.encode(orf).unwrap_or_else(|e| fail(&format!("{id}: {e}")));
-            assert_eq!(&codec.decode(&bytes).expect("decodes"), orf, "{id}: round trip");
+            let bytes = codec
+                .encode(orf)
+                .unwrap_or_else(|e| fail(&format!("{id}: {e}")));
+            assert_eq!(
+                &codec.decode(&bytes).expect("decodes"),
+                orf,
+                "{id}: round trip"
+            );
             let digits = orf_codec::to_digits(&bytes);
             let prefix = uri_prefix(&address, r);
             let m = smallest_qr(&prefix, &Segment::Numeric(&digits), EcLevel::M).1;
@@ -161,7 +231,10 @@ fn evaluate() {
         let n: usize = by_cat.values().map(Vec::len).sum();
         let mean = by_cat.values().flatten().map(|x| x.1 as f64).sum::<f64>() / n as f64;
         println!("{label:<24} mean QR version {mean:.2}");
-        let cats: Map<String, Value> = by_cat.iter().map(|(c, xs)| (c.clone(), stats(xs))).collect();
+        let cats: Map<String, Value> = by_cat
+            .iter()
+            .map(|(c, xs)| (c.clone(), stats(xs)))
+            .collect();
         results.push(json!({
             "variant": variant, "dict_bytes": size, "label": label,
             "mean_version_m": mean, "categories": cats,
@@ -185,7 +258,11 @@ fn evaluate() {
         after["payload_bytes"] = json!(bytes.len());
         after["uri"] = json!(format!("{prefix}{digits}"));
         let before = if is_hand {
-            qr_row(&format!("{slug}-v1"), &prefix, Segment::Alphanumeric(&v1::encode(r, false)))
+            qr_row(
+                &format!("{slug}-v1"),
+                &prefix,
+                Segment::Alphanumeric(&v1::encode(r, false)),
+            )
         } else {
             Value::Null
         };
@@ -193,9 +270,14 @@ fn evaluate() {
     }
 
     let baseline_uri = monero::build(&address, tests[0].1.piconero());
-    let baseline = QrCode::with_error_correction_level(baseline_uri.as_bytes(), EcLevel::M).unwrap();
+    let baseline =
+        QrCode::with_error_correction_level(baseline_uri.as_bytes(), EcLevel::M).unwrap();
     write_svg("out/baseline.svg", &baseline);
-    let counts = |m: &BTreeMap<String, Vec<String>>| m.iter().map(|(k, v)| (k.clone(), json!(v.len()))).collect::<Map<_, _>>();
+    let counts = |m: &BTreeMap<String, Vec<String>>| {
+        m.iter()
+            .map(|(k, v)| (k.clone(), json!(v.len())))
+            .collect::<Map<_, _>>()
+    };
     let report = json!({
         "baseline": { "uri_chars": baseline_uri.len(), "qr_version_m": version_num(baseline.version()), "svg": "baseline.svg" },
         "chosen": SHIPPED,
@@ -205,16 +287,25 @@ fn evaluate() {
         "results": results,
         "shown": shown,
     });
-    fs::write("out/report.json", serde_json::to_string_pretty(&report).unwrap()).unwrap();
+    fs::write(
+        "out/report.json",
+        serde_json::to_string_pretty(&report).unwrap(),
+    )
+    .unwrap();
 }
 
 fn try_load_dir(dir: &str) -> Result<BTreeMap<String, Vec<String>>, String> {
-    let entries = fs::read_dir(dir).map_err(|_| format!("{dir} is missing: run ./fetch-corpus.sh first"))?;
+    let entries =
+        fs::read_dir(dir).map_err(|_| format!("{dir} is missing: run ./fetch-corpus.sh first"))?;
     Ok(entries
         .map(|e| e.unwrap().path())
         .filter(|p| p.extension().is_some_and(|x| x == "txt"))
         .map(|p| {
-            let names = fs::read_to_string(&p).unwrap().lines().map(str::to_string).collect();
+            let names = fs::read_to_string(&p)
+                .unwrap()
+                .lines()
+                .map(str::to_string)
+                .collect();
             (p.file_stem().unwrap().to_string_lossy().into_owned(), names)
         })
         .collect())
@@ -227,12 +318,19 @@ fn training_samples(sources: &[&str], train: &BTreeMap<String, Vec<String>>) -> 
     let mut rng = StdRng::seed_from_u64(42);
     let pools: Vec<&Vec<String>> = sources
         .iter()
-        .map(|s| train.get(*s).unwrap_or_else(|| fail(&format!("corpus/train/{s}.txt missing"))))
+        .map(|s| {
+            train
+                .get(*s)
+                .unwrap_or_else(|| fail(&format!("corpus/train/{s}.txt missing")))
+        })
         .collect();
     (0..TRAINING_SAMPLES)
         .map(|_| {
             let pool = pools.choose(&mut rng).unwrap();
-            let mut lines = vec![pool.choose(&mut rng).unwrap().clone(), format!("#{}", rng.gen_range(100..99_999))];
+            let mut lines = vec![
+                pool.choose(&mut rng).unwrap().clone(),
+                format!("#{}", rng.gen_range(100..99_999)),
+            ];
             let n = item_count(&mut rng);
             lines.extend((0..n).map(|_| pool.choose(&mut rng).unwrap().clone()));
             lines.join("\n")
@@ -257,8 +355,13 @@ fn test_receipts(cat: &Category, names: &[String]) -> Vec<(String, Receipt)> {
             let items: Vec<Item> = (0..n)
                 .map(|_| Item {
                     name: names.choose(&mut rng).unwrap().clone(),
-                    qty: if rng.gen_bool(0.8) { 1 } else { rng.gen_range(2..=4) },
-                    cents: rng.gen_range(cat.cents.0..=cat.cents.1) / 5 * 5 + 4 * rng.gen_range(0..2),
+                    qty: if rng.gen_bool(0.8) {
+                        1
+                    } else {
+                        rng.gen_range(2..=4)
+                    },
+                    cents: rng.gen_range(cat.cents.0..=cat.cents.1) / 5 * 5
+                        + 4 * rng.gen_range(0..2),
                 })
                 .collect();
             let sub: u64 = items.iter().map(|i| i.qty as u64 * i.cents).sum();
@@ -308,7 +411,11 @@ fn stats(xs: &[(usize, i16, i16)]) -> Value {
 /// The URI up to and including `orf=`, so the digits can go in their own
 /// QR segment.
 fn uri_prefix(address: &str, r: &Receipt) -> String {
-    format!("{}&{}=", monero::build(address, r.piconero()), orf_codec::query::PARAM)
+    format!(
+        "{}&{}=",
+        monero::build(address, r.piconero()),
+        orf_codec::query::PARAM
+    )
 }
 
 fn qr_row(name: &str, prefix: &str, value: Segment) -> Value {
