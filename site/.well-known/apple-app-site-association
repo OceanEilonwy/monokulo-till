@@ -7,7 +7,7 @@
           {
             "/": "/square/debug*",
             "exclude": true,
-            "comment": "Android debug builds' sign-in pages stay web pages. TEAMID is a placeholder: replace it, here and below, with the Apple Developer team ID (docs/ios-plan.md section 10, item 5)."
+            "comment": "Android debug builds' sign-in pages stay web pages. The app IDs' team prefix is filled in from the APPLE_TEAM_ID repository variable when Pages deploys (pages.yml, docs/release.md)."
           },
           {
             "/": "/clover/debug*",

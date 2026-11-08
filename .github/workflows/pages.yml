@@ -1,6 +1,8 @@
 name: Pages
 
-# site/ as it is: the debug build's Square and Clover sign-in pages (site/square/debug/, site/clover/debug/).
+# site/: the debug build's Square and Clover sign-in pages (site/square/debug/,
+# site/clover/debug/), and the iOS app's apple-app-site-association with its
+# team filled in.
 on:
   push:
     branches: [main]
@@ -25,8 +27,31 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
+      # The AASA file names the iOS app by its team: the APPLE_TEAM_ID
+      # repository variable that release-ios.yml signs with (docs/release.md)
+      # takes the place of the TEAMID placeholder. Without it the site still
+      # deploys, and universal links wait for the variable and another run.
+      - name: The app's team in apple-app-site-association
+        env:
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+        run: |
+          cp -R site "$RUNNER_TEMP/site"
+          aasa="$RUNNER_TEMP/site/.well-known/apple-app-site-association"
+          if [ -z "$APPLE_TEAM_ID" ]; then
+            echo "::warning::No APPLE_TEAM_ID repository variable: apple-app-site-association keeps its TEAMID placeholder, so universal links won't open Till (docs/release.md)"
+          elif ! printf '%s' "$APPLE_TEAM_ID" | grep -Eq '^[A-Z0-9]{10}$'; then
+            echo "::error::APPLE_TEAM_ID doesn't look like an Apple Developer team ID (10 letters and digits)"
+            exit 1
+          else
+            sed -i "s/\"TEAMID\./\"$APPLE_TEAM_ID./g" "$aasa"
+            grep -q "\"$APPLE_TEAM_ID.com.monokulo.till\"" "$aasa"
+          fi
+          python3 -m json.tool "$aasa"
       - uses: actions/upload-pages-artifact@v5
         with:
-          path: site/
+          path: ${{ runner.temp }}/site/
+          # .well-known (the AASA file) and .nojekyll, which v5 leaves out
+          # by default.
+          include-hidden-files: true
       - id: deployment
         uses: actions/deploy-pages@v5
