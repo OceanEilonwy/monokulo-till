@@ -108,7 +108,7 @@ final class LiveActivityController {
     }
 
     /// Whether an activity in `state` can still be updated.
-    private static func isUp(_ state: ActivityState) -> Bool {
+    nonisolated private static func isUp(_ state: ActivityState) -> Bool {
         state == .active || state == .stale
     }
 }
