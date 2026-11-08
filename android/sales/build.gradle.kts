@@ -14,13 +14,13 @@ android {
         minSdk = 26
     }
     testOptions {
-        // The receipt codec's library for this machine (see :receipt).
+        // The Rust core's library for this machine (see :ffi).
         unitTests.all { test ->
             test.systemProperty(
                 "jna.library.path",
                 File(rootDir.parentFile, "target/release").absolutePath,
             )
-            test.dependsOn(":receipt:cargoHost")
+            test.dependsOn(":ffi:cargoHost")
             // Monokulo's OpenAPI document at monokulo.sha, as :core generates
             // it, for the problems TillTest answers with.
             test.dependsOn(":core:monokuloOpenApi")
