@@ -22,8 +22,8 @@ This page lists the one-time setup, in order (docs/ios-plan.md §5, phase I7).
    | Bundle ID | Description | Capabilities |
    | --- | --- | --- |
    | `com.monokulo.till` | Monokulo Till | App Groups (`group.com.monokulo.till`), Associated Domains, Push Notifications, Time Sensitive Notifications |
-   | `com.monokulo.till.notifications` | Monokulo Till Notifications | App Groups (`group.com.monokulo.till`) |
-   | `com.monokulo.till.widgets` | Monokulo Till Widgets | App Groups (`group.com.monokulo.till`) if `ios/TillWidgets`'s entitlements list it, otherwise none |
+   | `com.monokulo.till.notifications` | Monokulo Till Notifications | App Groups (`group.com.monokulo.till`), Time Sensitive Notifications |
+   | `com.monokulo.till.widgets` | Monokulo Till Widgets | none (the widget extension has no entitlements) |
 
    To assign an App Group, tick App Groups, choose **Configure**, then pick
    `group.com.monokulo.till`. The shared Keychain group needs no
@@ -73,6 +73,10 @@ This page lists the one-time setup, in order (docs/ios-plan.md §5, phase I7).
    missing or malformed, before any macOS minutes are spent on a build.
 
 ## 4. A build on TestFlight
+
+GitHub offers **Run workflow** only for workflows on the default branch,
+so `release-ios.yml` must be on `main` first (merge the pull request that
+brings it).
 
 1. Actions › **iOS release** › Run workflow, on `main`. Approve the
    `testflight` deployment. Pushing a tag `v<MARKETING_VERSION>` (e.g.
