@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use till_sales::{TillSale, shift_json};
+use till_screens::bubble::{self, PanelInput, PanelView};
 use till_screens::close::{self, CloseInput};
 use till_screens::code::{self, CodeInput};
 use till_screens::order_text::order_page;
@@ -188,6 +189,27 @@ pub fn preview_close(
     (!view.answers.is_empty()).then_some(view)
 }
 
+/// The bubble's panel about the sale `order_id` (Android only), as the
+/// engine publishes it in `BubbleView`.
+#[cfg_attr(feature = "uniffi", uniffi::export)]
+pub fn preview_panel(
+    preview: TillPreview,
+    order_id: String,
+    platform: Arc<dyn Platform>,
+) -> Option<PanelView> {
+    let sale = preview.sale(&order_id)?;
+    Some(bubble::panel(
+        &PanelInput {
+            sale,
+            till: preview.till.map(Into::into),
+            location: preview.location.clone(),
+        },
+        preview.device.unwrap_or(Device::Android),
+        preview.clock(),
+        &Money(platform),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -237,6 +259,9 @@ mod tests {
         assert!(!code.done);
         let close = preview_close(preview(SALE), "a1".into(), platform.clone()).unwrap();
         assert_eq!(close.answers.len(), 3);
+        let panel = preview_panel(preview(SALE), "a1".into(), platform.clone()).unwrap();
+        assert_eq!(panel.where_from, "Front");
+        assert_eq!(panel.time_left.as_deref(), Some("10:00 left"));
         assert!(preview_sale(preview(SALE), "b2".into(), platform.clone()).is_none());
         assert!(preview_shift(preview("not json"), platform).is_none());
     }

@@ -37,7 +37,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 pub use background::{BackgroundCheck, background_check};
 use monokulo_client::PointOfSale;
-pub use preview::{TillPreview, preview_close, preview_sale, preview_shift};
+pub use preview::{TillPreview, preview_close, preview_panel, preview_sale, preview_shift};
 pub use till_screens::Device;
 use till_screens::bubble::{BubbleLook, BubbleTap, PanelView};
 use till_screens::notification::Notice;
