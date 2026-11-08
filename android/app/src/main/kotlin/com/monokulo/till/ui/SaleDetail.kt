@@ -32,14 +32,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.monokulo.till.Fact
-import com.monokulo.till.Ground
-import com.monokulo.till.PageAction
-import com.monokulo.till.PosText
-import com.monokulo.till.SaleHeader
-import com.monokulo.till.SalePage
-import com.monokulo.till.SaleText
-import com.monokulo.till.sales.TillSale
 import com.monokulo.till.Layers
 import com.monokulo.till.Move
 import com.monokulo.till.faceSurface
@@ -48,17 +40,19 @@ import com.monokulo.till.GroundTrack
 import com.monokulo.till.groundEnd
 import com.monokulo.till.words
 import com.monokulo.till.sharedSurface
+import uniffi.till_app.Action
+import uniffi.till_screens.Fact
+import uniffi.till_screens.Ground
+import uniffi.till_screens.PageAction
 
 /**
  * A sale's page when its code isn't up (the design's row 2b): paid, paid
- * late, closed, expired, reversed, refunded, or another till's. What it
- * says comes from [SalePage]; a refund's answer turns it into the
- * Refunded page in place, or shows [refundProblem] above its buttons. At a
- * point of sale the till can't refund through, Refund opens [refundSheet]
- * (decision 130) until the sale shows refunded.
- * [words] goes on each of its own parts (everything but the hero), so
- * each fades through a screen change by its own place under a moving
- * ground, never the page as one block (decision 233). [card] is the
+ * late, closed, expired, reversed, refunded, or another till's, as the
+ * engine wrote it ([SaleFace.page]); a refund's answer turns it into the
+ * Refunded page in place, or shows the point of sale's refusal above its
+ * buttons. [words] goes on each of its own parts (everything but the
+ * hero), so each fades through a screen change by its own place under a
+ * moving ground, never the page as one block (decision 233). [card] is the
  * enlarged code's white, which closes into the hero when the sale is paid
  * or ends while its code is enlarged, the hero coming in over it (241).
  */
@@ -66,27 +60,19 @@ import com.monokulo.till.sharedSurface
 @Suppress("ModifierParameter")
 @Composable
 fun SaleDetail(
-    sale: TillSale,
-    location: String?,
-    refunding: Boolean,
-    refundProblem: String?,
-    refundSheet: RefundSheet?,
+    sale: SaleFace,
     actions: TillActions,
     words: Modifier = Modifier,
     card: GroundTrack? = null,
 ) {
-    val header = SaleHeader.of(sale, LocalPointOfSale.current, location)
-    val pos = header.pos
-    val page = SalePage.of(sale, pos, now = System.currentTimeMillis() / 1000, elsewhere = header.elsewhere)
+    val page = sale.page
     // Folded unless the page has room for its order card open.
     val room = rememberReceiptRoom(sale.orderId, live = false)
-    // The time before the place, so a narrow bar's ellipsis takes "this till" first, not the time.
-    val subtitle = sale.createdAt.takeIf { it > 0 }?.let { SaleText.time(it) + " · " }.orEmpty() + header.place
     // Its ground is the screen's (SaleScreen), so the live sale it turns from fades over one ground.
     Surface(Modifier.fillMaxSize(), color = Color.Transparent, contentColor = mk.ink) {
         Box(Modifier.fillMaxSize().safeDrawingPadding(), contentAlignment = Alignment.TopCenter) {
             Column(Modifier.widthIn(max = 560.dp).fillMaxSize()) {
-                Box(words) { SaleBar(sale, subtitle, actions) }
+                Box(words) { SaleBar(page.title, page.titleLine, sale.orderId, actions) }
                 Column(
                     Modifier.weight(1f).fillMaxWidth().then(room.window).verticalScroll(rememberScrollState()).then(room.content)
                         .padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 12.dp),
@@ -101,7 +87,7 @@ fun SaleDetail(
                         val share = with(LocalDensity.current) { codeCornerShare(LocalWindowInfo.current.containerSize.width.toDp()) }
                         Box(overWhite.sharedSurface(badgeKey(sale.orderId), Move.RowGrow, CircleShape, layer = Layers.OVER_GROUND)) {
                             Box(whiteEnd.faceSurface(heroKey(sale.orderId), HeroSize / 2, other = share).testTag(HeroTag)) {
-                                StateBadge(sale, page.icon, page.ground, HeroSize, 38.dp)
+                                StateBadge(sale.view.ring, page.icon, page.ground, HeroSize, 38.dp)
                             }
                         }
                         Text(
@@ -109,31 +95,32 @@ fun SaleDetail(
                             color = if (page.headingWarn) mk.warn else mk.ink,
                             modifier = words.semantics { heading(); liveRegion = LiveRegionMode.Polite },
                         )
-                        Text(SaleText.amount(sale), style = display(40, -0.8), color = if (page.amountMuted) mk.muted else mk.ink, modifier = words)
+                        Text(page.amount, style = display(40, -0.8), color = if (page.amountMuted) mk.muted else mk.ink, modifier = words)
                         Text(page.line, fontSize = 15.sp, color = mk.muted, textAlign = TextAlign.Center, modifier = words.offset(y = (-8).dp))
                     }
                     page.note?.let { note ->
-                        val danger = note.ground == Ground.Danger
+                        val danger = note.ground == Ground.DANGER
                         Text(
                             note.text, fontSize = 14.sp, lineHeight = 21.sp, color = if (danger) mk.onDangerGround else mk.ink,
                             modifier = words.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(groundColor(note.ground))
                                 .padding(horizontal = 14.dp, vertical = 12.dp),
                         )
                     }
-                    if (page.order) sale.receipt?.let { Box(words) { OrderCard(it, pos, room) } }
+                    page.order?.let { Box(words) { OrderCard(it, room) } }
                     if (page.facts.isNotEmpty()) Box(words) { Facts(page.facts) }
                 }
-                if (page.actions.isNotEmpty()) {
+                if (page.buttons.isNotEmpty()) {
                     Column(words.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Notice(refundProblem)
-                        for (action in page.actions) {
-                            when (action) {
-                                PageAction.Refund -> PrimaryButton(
-                                    PosText.refundButton(pos, SaleText.amount(sale)), { actions.onRefund(sale.orderId) }, Modifier.fillMaxWidth(),
-                                    enabled = !refunding, height = 56.dp, size = 16,
+                        Notice(page.refundProblem)
+                        for (button in page.buttons) {
+                            when (button.action) {
+                                PageAction.REFUND -> PrimaryButton(
+                                    button.press.label, { actions.send(Action.Refund(sale.orderId)) }, Modifier.fillMaxWidth(),
+                                    enabled = button.press.enabled, height = 56.dp, size = 16,
                                 )
-                                PageAction.ShowCodeAgain -> OutlineButton(
-                                    "Show the code again", { actions.onReopen(sale.orderId) }, Modifier.fillMaxWidth(), height = 52.dp,
+                                PageAction.SHOW_CODE_AGAIN -> OutlineButton(
+                                    button.press.label, { actions.send(Action.Reopen(sale.orderId)) }, Modifier.fillMaxWidth(),
+                                    enabled = button.press.enabled, height = 52.dp,
                                 )
                             }
                         }
@@ -141,9 +128,6 @@ fun SaleDetail(
                 }
             }
         }
-    }
-    if (refundSheet != null && refundSheet.orderId == sale.orderId && !sale.refunded) {
-        RefundInPosSheet(sale, refundSheet, onRefunded = { actions.onRefundDone(sale.orderId) }, onNotYet = actions.onRefundSheetDismissed)
     }
 }
 

@@ -15,7 +15,6 @@ import android.view.ViewTreeObserver
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.FrameLayout
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.SideEffect
@@ -39,16 +38,8 @@ import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
-import com.monokulo.till.Bubble
-import com.monokulo.till.BubbleLook
-import com.monokulo.till.BubbleTap
 import com.monokulo.till.BuildConfig
-import com.monokulo.till.Graph
-import com.monokulo.till.PaidBuzz
-import com.monokulo.till.core.SalePhase
-import com.monokulo.till.sales.TillSale
-import com.monokulo.till.sales.live
-import com.monokulo.till.ui.LocalPointOfSale
+import com.monokulo.till.engine.EngineStore
 import com.monokulo.till.ui.LocalMotion
 import com.monokulo.till.ui.TillTheme
 import com.monokulo.till.ui.Motion
@@ -60,17 +51,29 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlin.math.hypot
 import kotlin.math.roundToInt
+import uniffi.till_app.Action
+import uniffi.till_screens.BubbleTap
+import uniffi.till_screens.BubbleLook
 
-/** What the overlay's windows show. */
+/** What the overlay's windows show: the engine's bubble ([uniffi.till_app.BubbleView]), and the panel's page. */
 data class OverlayState(
-    val look: BubbleLook = BubbleLook.Idle,
+    val look: BubbleLook = BubbleLook.IDLE,
     /** The sale the bubble and the panel are about: the one waiting, or the one that just finished. */
-    val sale: TillSale? = null,
+    val sale: PanelSale? = null,
     /** The header's "Front Counter" (or "From Back till"), before "Open the shift". */
     val where: String = "",
     val page: PanelPage = PanelPage.Code,
-    /** Whether Till is on screen, where the payment's buzz is the sale screen's. */
-    val appVisible: Boolean = false,
+    /** Whether a payment landing on the bubble buzzes it: Till isn't on screen, where the buzz is the sale screen's. */
+    val buzzes: Boolean = true,
+    /** The free bubble pulses: the engine's word (a code waits for its money and no panel is up). */
+    val pulses: Boolean = false,
+    /** What a screen reader says for the bubble. */
+    val label: String = "",
+    /** What a tap does with the panel down, and with it up, and what a screen reader says for each. */
+    val tap: BubbleTap = BubbleTap.OPEN_APP,
+    val tapLabel: String = "",
+    val tapOpen: BubbleTap = BubbleTap.OPEN_APP,
+    val tapOpenLabel: String = "",
 )
 
 /**
@@ -85,16 +88,16 @@ data class OverlayState(
  */
 class Overlay(
     private val context: Context,
-    private val graph: Graph,
     private val scope: CoroutineScope,
-    private val onCopy: (TillSale) -> Unit,
-    private val onCopyXmr: (TillSale) -> Unit,
-    private val onFullScreen: (TillSale) -> Unit,
     /** Opens Till on the shift (the panel's header row). */
     private val onOpenShift: () -> Unit,
     /** Brings Till to the front as it was (the bubble tapped with no sale to show). */
     private val onOpenApp: () -> Unit,
+    /** Opens Till full screen on a sale. */
+    private val onFullScreen: (String) -> Unit,
 ) {
+    /** Where the free bubble rests: the engine's to keep (docs/decisions/core.md 73), told by [Action.MoveBubble]. */
+    private val place = BubblePlace()
     private val wm = context.getSystemService(WindowManager::class.java)
     private val owner = WindowOwner()
     private val state = MutableStateFlow(OverlayState())
@@ -120,6 +123,8 @@ class Overlay(
     private var focusLive = false
     /** Whether the overlay was usable at the last look, to log each change. */
     private var wasUsable: Boolean? = null
+    /** What the engine was last told of the panel ([Action.PanelShown]): its one-second timer and the pulse follow it. */
+    private var panelShown = false
 
     /** Whether the person allowed Till to draw over other apps. */
     fun allowed(): Boolean = Settings.canDrawOverlays(context)
@@ -128,25 +133,35 @@ class Overlay(
         owner.start()
         job = scope.launch {
             val panel = combine(panelOpen, page) { open, page -> open to page }
-            combine(graph.runner.state, graph.appVisible, graph.bubbleWanted, panel, justPaid) { runner, visible, wanted, (open, shown), paid ->
-                val sales = runner.till.sales
+            combine(EngineStore.bubble, panel, justPaid) { view, (open, shown), paid ->
                 val previous = focus
-                // The panel's own sale just paid: it stays up, paid, before the focus moves on, whichever of
-                // this and the service's paid() sees the payment first.
-                val landed = Panel.landed(sales, previous, focusLive)
+                val sale = view?.let(PanelSale::of)
+                // The panel's own sale just paid: it stays up, paid, for the dwell before the panel moves on.
+                val landed = Panel.landed(sale, previous, focusLive)
                 if (landed) paid()
-                focus = Bubble.focus(sales, focus, paid || landed)
-                val sale = sales.firstOrNull { it.orderId == focus }
-                focusLive = sale?.live == true
+                focus = view?.orderId
+                if (view != null) place.follow(view.left, view.y)
+                focusLive = sale?.face == PanelFace.Code
                 // The whole order is about the sale whose code is up: another sale, or this one ending, brings the code back.
-                if (focus != previous || sale?.live != true || sale.receipt == null) page.value = PanelPage.Code
-                val where = sale?.let { Panel.where(it, graph.stores.placeName(it)) }.orEmpty()
-                state.value = OverlayState(Bubble.look(sales, paid || landed), sale, where, if (sale?.live == true) shown else PanelPage.Code, visible)
+                if (focus != previous || sale?.face != PanelFace.Code || sale.order == null) page.value = PanelPage.Code
+                // Green until the paid moment's collapse lands, which can outlast the engine's own few seconds.
+                val look = if (paid || landed) BubbleLook.PAID else view?.look ?: BubbleLook.IDLE
+                state.value = OverlayState(
+                    look, sale, sale?.where.orEmpty(), if (sale?.face == PanelFace.Code) shown else PanelPage.Code,
+                    buzzes = view?.buzzes ?: true,
+                    pulses = view?.pulses ?: false,
+                    label = view?.label.orEmpty(),
+                    tap = view?.tap ?: BubbleTap.OPEN_APP,
+                    tapLabel = view?.tapLabel.orEmpty(),
+                    tapOpen = view?.tapOpen ?: BubbleTap.OPEN_APP,
+                    tapOpenLabel = view?.tapOpenLabel.orEmpty(),
+                )
                 val allowed = allowed()
-                val usable = Handoff.usable(runner, visible, wanted, allowed)
+                // The engine's word (the cashier wants it, the till runs, Till isn't on screen), and Android's still.
+                val usable = view?.shown == true && allowed
                 if (BuildConfig.DEBUG && usable != wasUsable) {
                     // Each change of whether the overlay is up, with what changed it, for a lower nobody asked for.
-                    Log.d(TAG, "usable=$usable wanted=$wanted running=${runner.running} disconnected=${runner.disconnected} appVisible=$visible allowed=$allowed")
+                    Log.d(TAG, "usable=$usable shown=${view?.shown} allowed=$allowed")
                 }
                 wasUsable = usable
                 usable to (open && sale != null)
@@ -166,7 +181,16 @@ class Overlay(
         panel = null
         panelMotion = null
         windows = Windows()
+        tellPanelShown()
         owner.stop()
+    }
+
+    /** Tells the engine whether a panel is up over other apps, once each time that changes. */
+    private fun tellPanelShown() {
+        val up = panel != null
+        if (up == panelShown) return
+        panelShown = up
+        EngineStore.send(Action.PanelShown(up))
     }
 
     /**
@@ -182,7 +206,8 @@ class Overlay(
         val step = PaidMoments.next(
             moment, event,
             panelUp = windows.panel == Life.Up,
-            nextWaiting = graph.runner.state.value.till.sales.any { it.live },
+            // Another sale's code is up once the engine's paid seconds are over: the bubble is lit for it.
+            nextWaiting = EngineStore.bubble.value?.look == BubbleLook.LIT,
         )
         moment = step.moment
         if (event == PaidEvent.Paid) {
@@ -201,7 +226,7 @@ class Overlay(
 
     /** The notification's "Show code": opens the panel; false when the overlay can't be shown. */
     fun showCode(): Boolean {
-        if (!graph.bubbleWanted.value || !allowed()) return false
+        if (EngineStore.bubble.value?.shown != true || !allowed()) return false
         panelOpen.value = true
         return true
     }
@@ -247,6 +272,7 @@ class Overlay(
                 }
             }
         }
+        tellPanelShown()
     }
 
     /** Lowers the panel at the grabber's [velocity] (progress a second). */
@@ -257,15 +283,16 @@ class Overlay(
 
     /** A tap on the bubble, free or docked: the panel up or down on the sale, or Till when there is none. */
     private fun tapBubble() {
-        when (Bubble.tap(state.value.sale, panelOpen.value)) {
-            BubbleTap.OpenApp -> {
+        val s = state.value
+        when (if (panelOpen.value) s.tapOpen else s.tap) {
+            BubbleTap.OPEN_APP -> {
                 // Never left wanting a panel that can't show: the next tap after a sale arrives opens it.
                 panelOpen.value = false
-                // Once on screen, Till's own visibility takes the overlay down (Handoff.usable).
+                // Once on screen, Till's own visibility takes the overlay down (the engine's BubbleView.shown).
                 onOpenApp()
             }
-            BubbleTap.OpenPanel -> panelOpen.value = true
-            BubbleTap.LowerPanel -> lower()
+            BubbleTap.OPEN_PANEL -> panelOpen.value = true
+            BubbleTap.LOWER_PANEL -> lower()
         }
     }
 
@@ -281,7 +308,7 @@ class Overlay(
         setViewTreeLifecycleOwner(owner)
         setViewTreeSavedStateRegistryOwner(owner)
         setContent {
-            TillTheme { CompositionLocalProvider(LocalPointOfSale provides graph.stores.pointOfSale) { content() } }
+            TillTheme { content() }
         }
     }
 
@@ -298,7 +325,7 @@ class Overlay(
     /** Adds the free bubble's window: growing in, or [atRest] where the docked bubble just landed. */
     private fun addBubble(atRest: Boolean) {
         if (bubble != null) return
-        val prefs = graph.stores
+        val prefs = place
         val params = overlayParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, touchThrough = true).apply {
             gravity = Gravity.TOP or if (prefs.bubbleOnLeft) Gravity.START else Gravity.END
             x = 0
@@ -309,8 +336,7 @@ class Overlay(
         lateinit var frame: BubbleFrame
         frame = BubbleFrame(context, wm, params, scope, onTap = ::tapBubble) { left, y ->
             val moved = prefs.bubbleOnLeft != left
-            prefs.bubbleOnLeft = left
-            prefs.bubbleY = y
+            prefs.moved(left, y)
             // Dragged to the other edge with a tablet's panel up: the panel steps aside for it, or back.
             if (moved && windows.wide) panel?.let(::placeFloating)
             frame.doOnPreDraw { locate(frame) }
@@ -325,8 +351,8 @@ class Overlay(
                 val open by panelOpen.collectAsStateWithLifecycle()
                 val m = LocalMotion.current
                 // The bubble no longer shows the step: its label says it (§12.5).
-                val label = remember(s.look, s.sale) { Bubble.label(s.look, s.sale) }
-                val tapLabel = Bubble.tapLabel(Bubble.tap(s.sale, open))
+                val label = s.label
+                val tapLabel = if (open) s.tapOpenLabel else s.tapLabel
                 SideEffect {
                     frame.describe(label, tapLabel)
                     frame.motion = m
@@ -340,10 +366,7 @@ class Overlay(
                         scaleX = 0.6f + 0.4f * p
                         scaleY = scaleX
                     },
-                ) { BubbleFace(
-                        s.look, phase = s.sale?.phase ?: SalePhase.Waiting, panelUp = open,
-                        confirms = PaidBuzz.bubble(s.appVisible), presence = presence, label = label,
-                    ) }
+                ) { BubbleFace(s.look, pulses = s.pulses, confirms = s.buzzes, presence = presence, label = label) }
             }.apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS },
         )
         runCatching { wm.addView(frame, params) }.onSuccess {
@@ -377,7 +400,7 @@ class Overlay(
             overlayParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, touchThrough = true).apply {
                 gravity = Gravity.TOP or Gravity.END
                 // Beside the bubble when it's on this edge, so the panel grows from the corner next to it, never over it.
-                x = (Panel.floatingInsetDp(bubbleOnEnd = !graph.stores.bubbleOnLeft) * density).toInt()
+                x = (Panel.floatingInsetDp(bubbleOnEnd = !place.bubbleOnLeft) * density).toInt()
                 y = (8 * density).toInt()
             }
         } else {
@@ -399,9 +422,9 @@ class Overlay(
             onOpenShift = { lower(); onOpenShift() },
             onOrder = { page.value = PanelPage.Order },
             onBackToCode = { page.value = PanelPage.Code },
-            onCopy = onCopy,
-            onCopyXmr = onCopyXmr,
-            onFullScreen = { lower(); onFullScreen(it) },
+            onCopy = { EngineStore.send(Action.CopyAddress(it.orderId)) },
+            onCopyXmr = { EngineStore.send(Action.CopyAmount(it.orderId)) },
+            onFullScreen = { lower(); onFullScreen(it.orderId) },
             onBubble = ::tapBubble,
         )
         val motion = PanelMotion(if (open) 1f else 0f, bubbleAt)
@@ -409,11 +432,12 @@ class Overlay(
             motion.raise.Attach()
             val s by state.collectAsStateWithLifecycle()
             val sale = s.sale ?: return@compose
-            if (wide) FloatingPanel(sale, s.where, s.page, actions, motion) else PhonePanel(sale, s.where, s.look, s.page, actions, motion, PaidBuzz.bubble(s.appVisible))
+            if (wide) FloatingPanel(sale, s.where, s.page, actions, motion) else PhonePanel(sale, s.where, s.look, s.page, actions, motion, s.buzzes)
         }
         runCatching { wm.addView(view, params) }.onSuccess {
             panel = view
             panelMotion = motion
+            tellPanelShown()
             // The free bubble goes once a frame shows the docked one where it is, never before (amendment 6).
             view.afterPlaced({ wide || motion.placed }) { if (panel === view) on(WindowEvent.PanelDrawn) }
         }
@@ -422,7 +446,7 @@ class Overlay(
     /** Puts a floating panel window beside the bubble's edge, or off it. */
     private fun placeFloating(view: View) {
         val params = view.layoutParams as? WindowManager.LayoutParams ?: return
-        params.x = (Panel.floatingInsetDp(bubbleOnEnd = !graph.stores.bubbleOnLeft) * context.resources.displayMetrics.density).toInt()
+        params.x = (Panel.floatingInsetDp(bubbleOnEnd = !place.bubbleOnLeft) * context.resources.displayMetrics.density).toInt()
         runCatching { wm.updateViewLayout(view, params) }
     }
 
@@ -455,6 +479,32 @@ private fun View.afterPlaced(placed: () -> Boolean, then: () -> Unit) {
         }
     }
     viewTreeObserver.addOnPreDrawListener(listener)
+}
+
+/**
+ * Where the free bubble rests, its edge and height, as the engine last
+ * published it (`BubbleView.left` and `y`): the engine keeps it, under the
+ * Kotlin stores' `bubble.left` and `bubble.y`, and is told of a move once
+ * the drag lets go ([Action.MoveBubble]); meanwhile the place just let go
+ * of stands, so the next frame doesn't jump back.
+ */
+private class BubblePlace {
+    var bubbleOnLeft: Boolean = false
+        private set
+    var bubbleY: Int? = null
+        private set
+
+    /** The engine's place, as it publishes it. */
+    fun follow(left: Boolean, y: Int?) {
+        bubbleOnLeft = left
+        bubbleY = y
+    }
+
+    /** A drag let go against the [left] edge (else the right) at height [y]: the engine keeps it. */
+    fun moved(left: Boolean, y: Int) {
+        follow(left, y)
+        EngineStore.send(Action.MoveBubble(left, y))
+    }
 }
 
 /** The lifecycle and saved state Compose needs to run in a window that has no activity. */

@@ -22,25 +22,30 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.monokulo.till.PosText
-import com.monokulo.till.core.PointOfSale
+import com.monokulo.till.R
+import uniffi.till_screens.PosMark
 
 /**
- * The point of sale's mark ([PosText.mark]), [size] square: Square's in
- * the theme's ink, Clover's in its own green. Decoration: the name beside
- * it is what TalkBack reads.
+ * The point of sale's mark, [size] square: Square's in the theme's ink (it
+ * is one colour, black or white), Clover's in its own green. Decoration:
+ * the name beside it is what TalkBack reads.
  */
 @Composable
-fun PosMark(pos: PointOfSale, size: Dp, modifier: Modifier = Modifier) = Icon(
-    painterResource(PosText.mark(pos)),
+fun PosMark(pos: PosMark, size: Dp, modifier: Modifier = Modifier) = Icon(
+    painterResource(
+        when (pos) {
+            PosMark.SQUARE -> R.drawable.ic_pos_square
+            PosMark.CLOVER -> R.drawable.ic_pos_clover
+        },
+    ),
     contentDescription = null,
     modifier = modifier.size(size),
-    tint = if (PosText.markInInk(pos)) mk.ink else Color.Unspecified,
+    tint = if (pos == PosMark.SQUARE) mk.ink else Color.Unspecified,
 )
 
 /** The mark on its 40 dp inset tile, leading a point of sale's row (the design's Logos board, A). */
 @Composable
-fun PosTile(pos: PointOfSale) = Box(
+fun PosTile(pos: PosMark) = Box(
     Modifier.size(40.dp).clip(TileShape).background(mk.inset),
     contentAlignment = Alignment.Center,
 ) { PosMark(pos, 26.dp) }
@@ -51,7 +56,7 @@ fun PosTile(pos: PointOfSale) = Box(
  * that said "watching" was.
  */
 @Composable
-fun PosBadge(pos: PointOfSale?) {
+fun PosBadge(pos: PosMark?) {
     if (pos != null) PosMark(pos, 18.dp) else Box(Modifier.size(18.dp).clip(CircleShape).background(mk.chip))
 }
 
@@ -61,7 +66,7 @@ fun PosBadge(pos: PointOfSale?) {
  * linking. Decoration: the heading under it says the same.
  */
 @Composable
-fun LinkedMarks(pos: PointOfSale, modifier: Modifier = Modifier) = Row(
+fun LinkedMarks(pos: PosMark, modifier: Modifier = Modifier) = Row(
     modifier.padding(vertical = 8.dp),
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(10.dp),

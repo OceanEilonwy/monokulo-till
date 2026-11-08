@@ -80,7 +80,7 @@ struct TillScreen: View {
             }
         case .order(let orderId):
             if let sale = core.sale, sale.orderId == orderId {
-                OrderScreen(title: sale.view.title, line: sale.view.titleLine, order: sale.order, send: send)
+                OrderScreen(title: sale.view.title, order: sale.order, send: send)
             } else {
                 TillLoading()
             }

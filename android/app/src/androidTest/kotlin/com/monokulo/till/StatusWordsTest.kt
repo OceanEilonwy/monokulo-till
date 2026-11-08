@@ -11,7 +11,6 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import com.monokulo.till.core.SalePhase
 import com.monokulo.till.ui.Countdown
 import com.monokulo.till.ui.Motion
 import com.monokulo.till.ui.StatusPill
@@ -27,8 +26,7 @@ class StatusWordsTest {
     @Test
     fun newStatusWordsFadeThroughTheOldAndThenStandAlone() {
         var sale by mutableStateOf(testSale("a"))
-        val now = mutableLongStateOf(0)
-        compose.setContent { Till { StatusPill(sale, now) } }
+        compose.setContent { Till { StatusPill(saleFace(sale).view) } }
         compose.waitForIdle()
         compose.mainClock.autoAdvance = false
 
@@ -46,8 +44,7 @@ class StatusWordsTest {
     @Test
     fun underStillTheWordsSwapWithTheQuickFade() {
         var sale by mutableStateOf(testSale("a"))
-        val now = mutableLongStateOf(0)
-        compose.setContent { Till(Motion.Still) { StatusPill(sale, now) } }
+        compose.setContent { Till(Motion.Still) { StatusPill(saleFace(sale).view) } }
         compose.waitForIdle()
         compose.mainClock.autoAdvance = false
 
@@ -63,7 +60,7 @@ class StatusWordsTest {
         // 1:11 and 1:08 left: as narrow and as wide as proportional figures get.
         val now = mutableLongStateOf(1_000)
         compose.setContent {
-            Till { Countdown(now, expiresAt = 1_071, Modifier.testTag("left")) { "Scan with any Monero wallet · ${SaleText.clock(it)} left" } }
+            Till { Countdown(now, expiresAt = 1_071, Modifier.testTag("left")) { "Scan with any Monero wallet · ${it / 60}:${(it % 60).toString().padStart(2, '0')} left" } }
         }
         compose.onNodeWithText("Scan with any Monero wallet · 1:11 left").assertExists()
         val before = compose.onNodeWithTag("left").fetchSemanticsNode().size

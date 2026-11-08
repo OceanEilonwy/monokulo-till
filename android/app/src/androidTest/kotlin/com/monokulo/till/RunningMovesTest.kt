@@ -1,5 +1,6 @@
 package com.monokulo.till
 
+import uniffi.till_app.Screen
 import android.graphics.Bitmap
 import androidx.compose.ui.geometry.Rect
 import androidx.activity.BackEventCompat
@@ -12,12 +13,9 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToKey
-import com.monokulo.till.core.PointOfSale
-import com.monokulo.till.sales.TillSale
 import com.monokulo.till.RunningMoves.Companion.flashes
 import com.monokulo.till.RunningMoves.Companion.lum
 import com.monokulo.till.RunningMoves.Companion.range
-import com.monokulo.till.core.SalePhase
 import com.monokulo.till.ui.Motion
 import com.monokulo.till.ui.codeGround
 import org.junit.Rule
@@ -109,7 +107,7 @@ class RunningMovesTest {
      * screen keeps its code card on the live layout, and on every frame the row's ground still holds the card's place
      * the code is drawn there, dimming with the screen's words (decision 313); then the row's shrink takes it.
      */
-    private fun leavesWithItsCode(name: String, dark: Boolean, change: (com.monokulo.till.sales.TillSale) -> com.monokulo.till.sales.TillSale) {
+    private fun leavesWithItsCode(name: String, dark: Boolean, change: (TillSale) -> TillSale) {
         moves.start(Screen.Sale("a1"), dark)
         val frames = moves.run(Screen.Till, groundKey = "sale/a1", change = { moves.shown = change(moves.sale) })
         val failures = mutableListOf<String>()
@@ -654,7 +652,7 @@ class RunningMovesTest {
 
     /** The row title of [sale] on the shift, where a frame's words are laid out. */
     private fun rowOf(f: RunningMoves.Frame, sale: TillSale): Rect? {
-        val title = ShiftList.row(sale, PointOfSale.Square, 0).title
+        val title = rowTitle(sale)
         return f.words[Screen.Till]?.firstOrNull { it.first == title }?.second
     }
 
@@ -693,7 +691,7 @@ class RunningMovesTest {
         check("back-with-sale-waiting", dark, frames, Move.RowGrow, glyphs = false, grows = true, bars = failures +
             listOfNotNull(("the model ends on ${moves.model.screen.value}").takeIf { moves.model.screen.value != Screen.Till }))
         // TalkBack: focus is on the row the cashier came from.
-        compose.onNodeWithText(ShiftList.row(moves.sale, PointOfSale.Square, 0).title).assertIsFocused()
+        compose.onNodeWithText(rowTitle(moves.sale)).assertIsFocused()
     }
 
     /** With no screen reader, a Back moves no focus: a sighted cashier gets no grey, focused row. */
@@ -701,7 +699,7 @@ class RunningMovesTest {
         moves.start(Screen.Sale("a1"), dark = false)
         moves.run(Screen.Till, groundKey = "sale/a1")
         repeat(2) { compose.mainClock.advanceTimeByFrame() }
-        compose.onNodeWithText(ShiftList.row(moves.sale, PointOfSale.Square, 0).title).assertIsNotFocused()
+        compose.onNodeWithText(rowTitle(moves.sale)).assertIsNotFocused()
     }
 
     /**
@@ -720,7 +718,7 @@ class RunningMovesTest {
         moves.start(Screen.Sale("a1"), dark)
         val frames = moves.run(Screen.Till, groundKey = "sale/a1")
         val failures = landsIn(frames, moves.sale).toMutableList()
-        val title = ShiftList.row(moves.sale, PointOfSale.Square, 0).title
+        val title = rowTitle(moves.sale)
         val first = frames.drop(1).firstOrNull { f -> f.words[Screen.Till].orEmpty().isNotEmpty() }
         if (first == null) failures += "the shift is never composed"
         else if (first.words[Screen.Till].orEmpty().none { it.first == title }) failures += "f${first.index}: the shift's first frame has no row for a1 (the tray still folded)"
@@ -859,7 +857,7 @@ class RunningMovesTest {
         compose.waitForIdle()
         compose.onNode(hasScrollToIndexAction()).performScrollToKey("end")
         compose.waitForIdle()
-        val title = ShiftList.row(moves.sale, PointOfSale.Square, 0).title
+        val title = rowTitle(moves.sale)
         compose.onNodeWithText(title).performClick()
         compose.waitForIdle()
         compose.mainClock.autoAdvance = false
@@ -949,7 +947,7 @@ class RunningMovesTest {
         moves.shift = listOf(moves.sales[0], moves.sales[2], c3, moves.sale)
         moves.start(Screen.Sale("a1"), dark = false, Motion.Still)
         val frames = moves.run(Screen.Till, groundKey = "sale/a1")
-        val title = ShiftList.row(moves.sale, PointOfSale.Square, 0).title
+        val title = rowTitle(moves.sale)
         val shifts = frames.drop(1).filter { f -> f.words[Screen.Till].orEmpty().isNotEmpty() }
         assertTrue(shifts.isNotEmpty(), "the shift is composed")
         for (f in shifts) {
@@ -1103,7 +1101,7 @@ class RunningMovesTest {
         moves.shift = listOf(moves.sale) + waiting + earlier
         moves.start(Screen.Till, dark = false)
         compose.mainClock.autoAdvance = true
-        compose.onNodeWithText(ShiftList.row(moves.sale, PointOfSale.Square, 0).title).performClick()
+        compose.onNodeWithText(rowTitle(moves.sale)).performClick()
         compose.waitForIdle()
         compose.mainClock.autoAdvance = false
         val open = moves.run(Screen.Sale("a1"), groundKey = "sale/a1")

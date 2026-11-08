@@ -281,9 +281,8 @@ struct WakeUpsSections: View {
     let send: Send
 
     @Environment(\.openURL) private var openURL
-    /// My own Bell tapped with none saved: the field opens here, since the
-    /// engine hears only an address it takes.
-    @State private var ownPicked = false
+    /// The field as typed here, sent to the engine as it changes
+    /// (`Action.editOwnBell`), which checks it and keeps it.
     @State private var typed = ""
 
     var body: some View {
@@ -295,11 +294,13 @@ struct WakeUpsSections: View {
             }
         }
         Section {
-            ChoiceRow(choice: view.timer) { ownPicked = false; send(.chooseWakeUps(choice: .timer)) }
-            ChoiceRow(choice: view.monokuloBell) { ownPicked = false; send(.chooseWakeUps(choice: .monokuloBell)) }
-            ChoiceRow(choice: view.ownBell) { ownPicked = true }
-            if view.ownField != nil || ownPicked {
-                ownField
+            ChoiceRow(choice: view.timer) { send(.chooseWakeUps(choice: .timer)) }
+            ChoiceRow(choice: view.monokuloBell) { send(.chooseWakeUps(choice: .monokuloBell)) }
+            // With an address saved the engine picks it at once; with none, its
+            // field opens and the saved choice stays ticked until "Use this Bell".
+            ChoiceRow(choice: view.ownBell) { send(.editOwnBell(picked: true, typed: nil)) }
+            if let field = view.ownField {
+                ownField(field)
             }
         } footer: {
             if !view.notes.isEmpty {
@@ -327,27 +328,30 @@ struct WakeUpsSections: View {
         }
     }
 
-    private var ownField: some View {
-        let field = view.ownField
+    private func ownField(_ field: OwnBellField) -> some View {
         let address = typed.trimmingCharacters(in: .whitespaces)
         return VStack(alignment: .leading, spacing: 8) {
             TextField("https://", text: $typed)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .keyboardType(.URL)
-            if let problem = field?.problem {
+                .onChange(of: typed) { _, now in
+                    guard now != field.initial || view.ownBell.selected == false else { return }
+                    send(.editOwnBell(picked: !view.ownBell.selected, typed: now))
+                }
+            if let problem = field.problem {
                 Text(problem)
                     .font(.footnote)
                     .foregroundStyle(Palette.danger)
             }
-            Button(field?.useThis.label ?? "Use this Bell") {
+            Button(field.useThis.label) {
                 send(.chooseWakeUps(choice: .ownBell(address: address)))
             }
-            .disabled(address.isEmpty)
+            .disabled(!field.useThis.enabled || address.isEmpty)
         }
         .padding(.vertical, 4)
-        .onChange(of: field?.initial ?? "", initial: true) { _, initial in
-            if typed.isEmpty { typed = initial }
+        .onAppear {
+            if typed.isEmpty { typed = field.initial }
         }
     }
 

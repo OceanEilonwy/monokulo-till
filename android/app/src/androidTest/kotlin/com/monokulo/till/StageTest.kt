@@ -1,5 +1,6 @@
 package com.monokulo.till
 
+import uniffi.till_app.Screen
 import androidx.compose.animation.core.SeekableTransitionState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
@@ -18,9 +19,6 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.unit.IntSize
-import com.monokulo.till.core.PointOfSale
-import com.monokulo.till.OneClockTest.Companion.noActions
-import com.monokulo.till.OneClockTest.Companion.status
 import com.monokulo.till.ui.CodeScreen
 import com.monokulo.till.ui.Motion
 import com.monokulo.till.ui.SaleScreen
@@ -30,7 +28,6 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.semantics.SemanticsProperties
-import com.monokulo.till.core.SalePhase
 import org.junit.After
 import org.junit.Rule
 import org.junit.Test
@@ -56,8 +53,8 @@ class StageTest {
         Till {
             TillStage(state, cameUpByItself = { byItself }) { s ->
                 when (s) {
-                    is Screen.Sale -> SaleScreen(sale, "Front", refunding = false, refundProblem = null, refundSheet = null, actions = noActions, now = now)
-                    else -> ShiftScreen(status, sales, noActions, now)
+                    is Screen.Sale -> SaleScreen(rememberFace(sale, now.longValue), noActions)
+                    else -> EngineShift(sales, now.longValue, noActions)
                 }
             }
         }
@@ -66,7 +63,7 @@ class StageTest {
     private fun code() = compose.onNodeWithContentDescription("Payment code for", substring = true, useUnmergedTree = true)
 
     private fun row(): Rect =
-        compose.onNodeWithText(ShiftList.row(sale, PointOfSale.Square, 0).title, substring = true, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        compose.onNodeWithText(rowTitle(sale), substring = true, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
 
     @Test
     fun theShiftGrowsIntoTheSaleWithBothOnScreenOnTheWayAndTheCodeLaidOutOnce() {
@@ -77,8 +74,8 @@ class StageTest {
                 LaunchedEffect(screen) { state.animateTo(screen, Motion.Full.stage) }
                 TillStage(state, cameUpByItself = { false }) { s ->
                     when (s) {
-                        is Screen.Sale -> SaleScreen(sale, "Front", refunding = false, refundProblem = null, refundSheet = null, actions = noActions, now = now)
-                        else -> ShiftScreen(status, sales, noActions, now)
+                        is Screen.Sale -> SaleScreen(rememberFace(sale, now.longValue), noActions)
+                        else -> EngineShift(sales, now.longValue, noActions)
                     }
                 }
             }
@@ -149,8 +146,8 @@ class StageTest {
                 CompositionLocalProvider(LocalGroundTracks provides { key -> GroundTrack(key).also { if (key == "code/a1") tracks += it } }) {
                 TillStage(state, cameUpByItself = { false }) { s ->
                     when (s) {
-                        is Screen.Code -> CodeScreen(sale, onBack = {})
-                        else -> SaleScreen(sale, "Front", refunding = false, refundProblem = null, refundSheet = null, actions = noActions, now = now)
+                        is Screen.Code -> CodeScreen(rememberFace(sale), onBack = {})
+                        else -> SaleScreen(rememberFace(sale, now.longValue), noActions)
                     }
                 }
                 }
@@ -200,15 +197,15 @@ class StageTest {
                 LaunchedEffect(screen) { state.animateTo(screen, Motion.Full.stage) }
                 TillStage(state, cameUpByItself = { false }) { s ->
                     when (s) {
-                        is Screen.Sale -> SaleScreen(rows.first { it.orderId == s.orderId }, "Front", refunding = false, refundProblem = null, refundSheet = null, actions = noActions, now = now)
-                        else -> ShiftScreen(status, rows, noActions, now)
+                        is Screen.Sale -> SaleScreen(rememberFace(rows.first { it.orderId == s.orderId }, now.longValue), noActions)
+                        else -> EngineShift(rows, now.longValue, noActions)
                     }
                 }
             }
         }
         compose.waitForIdle()
-        fun top(sale: com.monokulo.till.sales.TillSale) =
-            compose.onNodeWithText(ShiftList.row(sale, PointOfSale.Square, 0).title, substring = true, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.top
+        fun top(sale: TillSale) =
+            compose.onNodeWithText(rowTitle(sale), substring = true, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.top
         val rest = rows.map(::top)
 
         screen = Screen.Sale("r3")

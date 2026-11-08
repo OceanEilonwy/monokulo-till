@@ -10,7 +10,6 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.monokulo.till.core.SalePhase
 import com.monokulo.till.ui.SaleScreen
 import com.monokulo.till.ui.StatusFoot
 import org.junit.Rule
@@ -29,7 +28,7 @@ class CodeCardTest {
         compose.setContent {
             Till {
                 Box(Modifier.size(412.dp, 915.dp)) {
-                    SaleScreen(testSale("a", expiresAt = 1_065), "Front", refunding = false, refundProblem = null, refundSheet = null, actions = OneClockTest.noActions, now = now)
+                    SaleScreen(saleFace(testSale("a", expiresAt = 1_065), now = 1_000), noActions)
                 }
             }
         }
@@ -54,8 +53,8 @@ class CodeCardTest {
     fun paidTheFootSaysWhatCameIn() {
         val sale = testSale("a", SalePhase.Paid, paidAt = 990)
         val now = mutableLongStateOf(1_000)
-        compose.setContent { Till { StatusFoot(sale, now) } }
+        compose.setContent { Till { StatusFoot(saleFace(sale).view) } }
         compose.onNodeWithText("Paid", useUnmergedTree = true).assertExists()
-        compose.onNodeWithText("${SaleText.xmr(sale)} received", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("${sale.xmr} XMR received", useUnmergedTree = true).assertExists()
     }
 }

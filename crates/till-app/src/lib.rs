@@ -13,6 +13,8 @@
 //! - The engine owns the till: till-sales' `TillRunner` and `LiveStore`,
 //!   the points of sale, and till-bell's `BellWakeUps`, whose push side the
 //!   platform carries through [`PushPlatform`] and the `Push…` actions.
+//! - [`preview_shift`], [`preview_sale`] and [`preview_close`]: the till's
+//!   screens from a saved shift, with no engine, for previews and tests.
 //! - [`background_check`]: one look for new sales with no engine, for the
 //!   iOS Notification Service Extension and Android's ding path.
 
@@ -22,6 +24,7 @@ uniffi::setup_scaffolding!();
 mod background;
 mod engine;
 mod phases;
+mod preview;
 mod push;
 mod side;
 pub mod store;
@@ -34,10 +37,11 @@ use tokio::sync::mpsc::UnboundedSender;
 
 pub use background::{BackgroundCheck, background_check};
 use monokulo_client::PointOfSale;
+pub use preview::{TillPreview, preview_close, preview_panel, preview_sale, preview_shift};
 pub use till_screens::Device;
 use till_screens::bubble::{BubbleLook, BubbleTap, PanelView};
 use till_screens::notification::Notice;
-use till_screens::order_text::OrderCard;
+use till_screens::order_text::OrderPageView;
 use till_screens::shift::ShiftFilter;
 use till_screens::view::Press;
 use till_screens::{
@@ -463,6 +467,17 @@ pub enum Action {
     ChooseWakeUps {
         choice: WakeUps,
     },
+    /// Wake-ups' "My own Bell" while its address is being typed:
+    /// `picked` when the row was tapped with no address saved (its field
+    /// opens, the saved choice stays ticked), and the field as typed so far
+    /// (`None` until it's touched). The keyboard is the platform's; the
+    /// engine says whether the address is a Bell's. Choosing wake-ups ends
+    /// it. The row tapped (`picked`, nothing typed) with an address saved
+    /// chooses that Bell at once.
+    EditOwnBell {
+        picked: bool,
+        typed: Option<String>,
+    },
     ChooseDistributor {
         name: String,
     },
@@ -521,13 +536,14 @@ pub enum Update {
     /// The shift, as `till_screens::shift` draws it, once the till is set up.
     Shift { view: ShiftView },
     /// The sale on screen ([`Screen::Sale`], `Code` or `Order`): its live
-    /// screen, its page, its enlarged code, and every line of its order.
+    /// screen, its page, its enlarged code, and its whole order while the
+    /// till has its receipt.
     Sale {
         order_id: String,
         view: SaleView,
         page: SalePageView,
         code: CodeView,
-        order: Option<OrderCard>,
+        order: Option<OrderPageView>,
     },
     /// The close sheet over a sale, while one is asked.
     CloseSheet {

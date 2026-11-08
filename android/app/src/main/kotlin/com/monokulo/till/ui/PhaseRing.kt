@@ -18,9 +18,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.monokulo.till.SaleText
-import com.monokulo.till.core.SalePhase
-import com.monokulo.till.sales.TillSale
+import uniffi.till_screens.Ring
 
 /**
  * How much of the ring a phase fills, from the top, clockwise: a quarter
@@ -29,33 +27,37 @@ import com.monokulo.till.sales.TillSale
  * the rest of the ring shared out over the [required] confirmations. With
  * no count from Monokulo, a quarter a step.
  */
-fun ringFill(phase: SalePhase, confirmations: Int? = null, required: Int? = null): Float {
-    if (ringSpins(phase) && required != null && required > 0) {
+fun ringFill(step: Int, confirmations: Int? = null, required: Int? = null): Float {
+    if (ringSpins(step) && required != null && required > 0) {
         val have = (confirmations ?: 0).coerceIn(0, required)
         return SEEN_FILL + (1f - SEEN_FILL) * have / required
     }
-    return SaleText.step(phase) / 4f
+    return step / 4f
 }
 
-/** Whether the arc turns: the payment is on the network, seen or confirming, and not yet paid. */
-fun ringSpins(phase: SalePhase): Boolean = phase == SalePhase.Seen || phase == SalePhase.Confirming
+/** Whether the arc turns: the payment is on the network, seen (step 2) or confirming (3), and not yet paid. */
+fun ringSpins(step: Int): Boolean = step == 2 || step == 3
 
 /** Whether the arc is the paid green: from the moment the payment is seen. Orange means waiting for money. */
-fun ringGreen(phase: SalePhase): Boolean = ringSpins(phase) || phase == SalePhase.Paid
+fun ringGreen(step: Int): Boolean = ringSpins(step) || step == 4
 
 /** How much of the ring a seen payment with no confirmation yet fills. */
 const val SEEN_FILL = 0.12f
 
-/** [sale]'s ring: its phase, and its payment's confirmations when Monokulo said. */
+/**
+ * A ring as the engine drew it: its step, and its payment's confirmations. Inline, so the ring's own scope takes
+ * the numbers, and a view drawn again with the same ring skips it (the engine's records aren't stable to Compose).
+ */
+@Suppress("NOTHING_TO_INLINE")
 @Composable
-fun PhaseRing(
-    sale: TillSale,
+inline fun PhaseRing(
+    ring: Ring,
     size: Dp,
     modifier: Modifier = Modifier,
     track: Color = mk.chip,
     fill: Color = mk.accent,
     paid: Color = mk.paid,
-) = PhaseRing(sale.phase, size, modifier, track, fill, paid, sale.confirmations, sale.confirmationsRequired)
+) = PhaseRing(ring.step.toInt(), size, modifier, track, fill, paid, ring.confirmations?.toInt(), ring.required?.toInt())
 
 /**
  * The design's phase ring (its Chips and status rows): an open ring whose
@@ -80,7 +82,7 @@ fun PhaseRing(
  */
 @Composable
 fun PhaseRing(
-    phase: SalePhase,
+    step: Int,
     size: Dp,
     modifier: Modifier = Modifier,
     track: Color = mk.chip,
@@ -90,13 +92,13 @@ fun PhaseRing(
     required: Int? = null,
 ) {
     val m = motion
-    val fraction by animateFloatAsState(ringFill(phase, confirmations, required), m.sweep.fraction, label = "ring")
-    val green = ringGreen(phase)
+    val fraction by animateFloatAsState(ringFill(step, confirmations, required), m.sweep.fraction, label = "ring")
+    val green = ringGreen(step)
     val fillShown by animateFloatAsState(if (green) 0f else 1f, (if (green) m.fadeQuick else m.fadeThrough).fraction, label = "fill")
     val paidShown by animateFloatAsState(if (green) 1f else 0f, (if (green) m.fadeThrough else m.fadeQuick).fraction, label = "paid")
     // Only while the payment is on its way: a waiting, paid or ended ring runs no loop.
     val turn = m.spin
-    val spin = if (turn != null && ringSpins(phase)) {
+    val spin = if (turn != null && ringSpins(step)) {
         rememberInfiniteTransition(label = "ring turn").animateFloat(0f, 360f, turn, label = "turn")
     } else {
         null

@@ -49,13 +49,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.LongState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -114,27 +114,13 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.util.lerp
 import androidx.compose.ui.zIndex
-import com.monokulo.till.BubbleLook
-import com.monokulo.till.PosText
-import com.monokulo.till.PaidBuzz
-import com.monokulo.till.SaleText
-import com.monokulo.till.core.PointOfSale
-import com.monokulo.till.core.SalePhase
-import com.monokulo.till.receipt.Receipt
-import com.monokulo.till.sales.Standing
-import com.monokulo.till.sales.TillSale
-import com.monokulo.till.sales.live
-import com.monokulo.till.sales.standing
-import com.monokulo.till.ui.CodeText
+import uniffi.till_screens.PanelHero
 import com.monokulo.till.ui.confirm
 import com.monokulo.till.ui.Fixed
 import com.monokulo.till.ui.LensLook
 import com.monokulo.till.ui.LocalReceiptFolds
-import com.monokulo.till.ui.posOf
 import com.monokulo.till.ui.MkIcons
 import com.monokulo.till.ui.Motion
-import com.monokulo.till.ui.OrderCard
-import com.monokulo.till.ui.OrderContent
 import com.monokulo.till.ui.OutlineButton
 import com.monokulo.till.ui.PhaseRing
 import com.monokulo.till.ui.PrimaryButton
@@ -142,13 +128,13 @@ import com.monokulo.till.ui.QrCode
 import com.monokulo.till.ui.ReceiptFolds
 import com.monokulo.till.ui.rememberReceiptRoom
 import com.monokulo.till.ui.display
+import com.monokulo.till.ui.tabular
 import com.monokulo.till.ui.mark
 import com.monokulo.till.ui.mk
 import com.monokulo.till.ui.motion
-import com.monokulo.till.ui.Countdown
-import com.monokulo.till.ui.rememberNowSeconds
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import uniffi.till_screens.BubbleLook
 
 /** Which of the panel's two faces is up: the code, or the whole order (the design's PanelE). */
 sealed interface PanelPage {
@@ -185,21 +171,12 @@ object Panel {
 
     /**
      * Whether the sale the panel showed, [shown], live at the last look
-     * ([wasLive]), has just been paid: the panel then shows it paid for
+     * ([wasLive]), has just been paid ([now] is the panel's sale now): the panel then shows it paid for
      * [Motion.Dwell.PAID_MS] before moving on to the next sale
      * waiting, so the cashier sees the payment land where they're looking.
      */
-    fun landed(sales: List<TillSale>, shown: String?, wasLive: Boolean): Boolean =
-        wasLive && sales.firstOrNull { it.orderId == shown }?.phase == SalePhase.Paid
-
-    /**
-     * Whether the bubble pulses: lit for a code still waiting for its money
-     * (Waiting, or part paid), and only the free bubble with the panel down;
-     * the pulse calls the cashier to raise the panel, so once it's up, or
-     * the payment is seen, there's nothing to call for.
-     */
-    fun pulses(look: BubbleLook, phase: SalePhase, panelUp: Boolean): Boolean =
-        look == BubbleLook.Lit && !panelUp && (phase == SalePhase.Waiting || phase == SalePhase.Partial)
+    fun landed(now: PanelSale?, shown: String?, wasLive: Boolean): Boolean =
+        wasLive && now?.orderId == shown && now?.face == PanelFace.Paid
 
     /**
      * How fast the panel's collapse starts when the grabber lets it go: the
@@ -290,32 +267,6 @@ object Panel {
 
     /** The floating window off the end edge when the bubble isn't there. */
     private const val FLOATING_EDGE_DP = 4
-
-    /** What the panel shows for [sale]: its code while live, the tick once paid, else where the code was. */
-    fun face(sale: TillSale): PanelFace = when (sale.standing) {
-        is Standing.Live -> PanelFace.Code
-        is Standing.Paid -> PanelFace.Paid
-        else -> PanelFace.Ended
-    }
-
-    /** The header's second line before "Open the shift": the till's location for its own sale, else who took it. */
-    fun where(sale: TillSale, location: String?): String = when {
-        sale.found != null -> location ?: "This till"
-        else -> SaleText.place(sale, location)
-    }
-
-    /** The heading of a sale whose code came down while the panel was up (acceptance P15), at a till on [till]. */
-    fun endedHeading(sale: TillSale, till: PointOfSale?): String = when {
-        !sale.refunded && sale.phase == SalePhase.DoubleSpend -> "Payment reversed · don't hand it over"
-        else -> SaleText.status(sale, till)
-    }
-
-    /** What the cashier does about it: refund it from the shift, or on the till that took it. */
-    fun endedLine(sale: TillSale, till: PointOfSale?): String = when {
-        sale.refunded -> "Nothing more to do."
-        sale.found == null -> PosText.refundOnOtherTill(till, sale.deviceName ?: "the till that took it")
-        else -> "Open the shift to ${PosText.refundItIn(till)}."
-    }
 }
 
 /**
@@ -332,9 +283,9 @@ class PanelActions(
     val onOpenShift: () -> Unit,
     val onOrder: () -> Unit,
     val onBackToCode: () -> Unit,
-    val onCopy: (TillSale) -> Unit,
-    val onCopyXmr: (TillSale) -> Unit,
-    val onFullScreen: (TillSale) -> Unit,
+    val onCopy: (PanelSale) -> Unit,
+    val onCopyXmr: (PanelSale) -> Unit,
+    val onFullScreen: (PanelSale) -> Unit,
     /** The docked bubble tapped: lowers a panel that is up or rising, raises one that is collapsing (M1). */
     val onBubble: () -> Unit = onLower,
 )
@@ -348,9 +299,10 @@ class PanelActions(
  * whole ink. Its colours are the design's own ([BubbleInks]), not the
  * theme's: it sits over another app, on a white disc, or a dark one when
  * the device is in night mode. [confirms] is whether a payment landing on it buzzes:
- * only while Till is away ([PaidBuzz], decision 176). [pulse] is false for the bubble docked above the panel,
- * which has nothing left to call for; [panelUp] is the free bubble's word
- * that a panel is up beside it (a tablet's), which stops its pulse too.
+ * only while Till is away (the engine's `BubbleView.buzzes`, decision 176). [pulse] is false for the bubble docked above the panel,
+ * which has nothing left to call for; [pulses] is the engine's word for the
+ * free bubble (`BubbleView.pulses`: a code waits for its money and no panel
+ * is up, as `Action.PanelShown` said).
  * [presence] is the free bubble's window appearing and going, which the
  * circle's shadow follows (decision 191). [label] is what TalkBack says
  * for it ([com.monokulo.till.Bubble.label]); null where it is a picture or another node
@@ -360,15 +312,14 @@ class PanelActions(
 fun BubbleFace(
     look: BubbleLook,
     pulse: Boolean = true,
-    phase: SalePhase = SalePhase.Waiting,
-    panelUp: Boolean = false,
+    pulses: Boolean = true,
     confirms: Boolean = true,
     presence: Presence? = null,
     label: String? = null,
 ) = Box(
     Modifier.padding(if (pulse) BubblePadding else DockedPadding).clearAndSetSemantics { if (label != null) contentDescription = label },
     contentAlignment = Alignment.Center,
-) { Circle(look, pulse, phase, panelUp, confirms, presence) }
+) { Circle(look, pulse && pulses, confirms, presence) }
 
 /** Room round the bubble's circle in its window: the pulse's halo reaches 16 dp out and isn't clipped. */
 val BubblePadding = 16.dp
@@ -405,9 +356,9 @@ internal fun haloRadius(disc: Float, padding: Float, p: Float): Float = disc / 2
 
 /** The lens's look for each of the bubble's. */
 private fun lensOf(look: BubbleLook): LensLook = when (look) {
-    BubbleLook.Idle -> LensLook.Grey
-    BubbleLook.Lit -> LensLook.Orange
-    BubbleLook.Paid -> LensLook.Green
+    BubbleLook.IDLE -> LensLook.Grey
+    BubbleLook.LIT -> LensLook.Orange
+    BubbleLook.PAID -> LensLook.Green
 }
 
 /** The lens's four rings' animated colours, as a look the mark reads in its draw. */
@@ -432,19 +383,19 @@ private class Rings(private val core: State<Color>, private val inner: State<Col
  * mid-spread turns each ring from where it is.
  */
 @Composable
-private fun Circle(look: BubbleLook, pulse: Boolean, phase: SalePhase, panelUp: Boolean, confirms: Boolean, presence: Presence?) {
+private fun Circle(look: BubbleLook, pulses: Boolean, confirms: Boolean, presence: Presence?) {
     val m = motion
     // The theme follows the device's night mode, and the overlay's windows are themed: so does the bubble.
     val inks = BubbleInks.of(mk.dark)
     val t = updateTransition(look, label = "bubble")
-    val alpha = t.animateFloat({ m.fade.fraction }, label = "alpha") { if (it == BubbleLook.Idle) 0.55f else 1f }
-    val ground = t.animateColor({ m.fade.spec() }, label = "ground") { if (it == BubbleLook.Idle) inks.disc.copy(alpha = 0.9f) else inks.disc }
+    val alpha = t.animateFloat({ m.fade.fraction }, label = "alpha") { if (it == BubbleLook.IDLE) 0.55f else 1f }
+    val ground = t.animateColor({ m.fade.spec() }, label = "ground") { if (it == BubbleLook.IDLE) inks.disc.copy(alpha = 0.9f) else inks.disc }
     val border = t.animateColor({ m.fade.spec() }, label = "border") {
         when (it) {
-            BubbleLook.Idle -> inks.idle
+            BubbleLook.IDLE -> inks.idle
             // With no chase (Still) the waiting border is whole ink, the arc not drawn.
-            BubbleLook.Lit -> if (m.chase == null) inks.ink else inks.track
-            BubbleLook.Paid -> inks.ink
+            BubbleLook.LIT -> if (m.chase == null) inks.ink else inks.track
+            BubbleLook.PAID -> inks.ink
         }
     }
     val core = t.animateColor({ m.spread[0].spec() }, label = "core") { lensOf(it)[0] }
@@ -454,17 +405,17 @@ private fun Circle(look: BubbleLook, pulse: Boolean, phase: SalePhase, panelUp: 
     val lens = remember(core, inner, middle, rim) { Rings(core, inner, middle, rim) }
     // The arc's ink follows a night-mode switch over the fade, as the track under it does.
     val arcInk = animateColorAsState(inks.ink, m.fade.spec(), label = "arc ink")
-    val arcAlpha = t.animateFloat({ m.fade.fraction }, label = "arc") { if (it == BubbleLook.Lit && m.chase != null) 1f else 0f }
+    val arcAlpha = t.animateFloat({ m.fade.fraction }, label = "arc") { if (it == BubbleLook.LIT && m.chase != null) 1f else 0f }
     // The tick is drawn in along its path and leaves by fading whole: its trim only grows, rewound once it is invisible.
-    val tick = t.animateFloat({ (if (targetState == BubbleLook.Paid) m.tick else m.untick).fraction }, label = "tick") {
-        if (it == BubbleLook.Paid) 1f else 0f
+    val tick = t.animateFloat({ (if (targetState == BubbleLook.PAID) m.tick else m.untick).fraction }, label = "tick") {
+        if (it == BubbleLook.PAID) 1f else 0f
     }
-    val tickAlpha = t.animateFloat({ m.fadeQuick.fraction }, label = "tick alpha") { if (it == BubbleLook.Paid) 1f else 0f }
+    val tickAlpha = t.animateFloat({ m.fadeQuick.fraction }, label = "tick alpha") { if (it == BubbleLook.PAID) 1f else 0f }
     // One infinite transition for the bubble's two loops (§10 rule 7), and only while one runs: none idle or paid.
     val pulseTurn = m.pulse
     val chaseTurn = m.chase
-    val pulsing = pulseTurn != null && Panel.pulses(look, phase, panelUp = !pulse || panelUp)
-    val chasing = chaseTurn != null && look == BubbleLook.Lit
+    val pulsing = pulseTurn != null && pulses && look == BubbleLook.LIT
+    val chasing = chaseTurn != null && look == BubbleLook.LIT
     val loops = if (pulsing || chasing) rememberInfiniteTransition(label = "bubble loops") else null
     val halo = if (pulsing && loops != null) loops.animateFloat(0f, 1f, pulseTurn!!, label = "halo") else null
     val chase = if (chasing && loops != null) loops.animateFloat(0f, 360f, chaseTurn!!, label = "chase") else null
@@ -510,7 +461,7 @@ private fun Confirm(look: BubbleLook) {
     val view = LocalView.current
     val last = remember { arrayOf(look) }
     LaunchedEffect(look) {
-        if (look == BubbleLook.Paid && last[0] != BubbleLook.Paid) view.confirm()
+        if (look == BubbleLook.PAID && last[0] != BubbleLook.PAID) view.confirm()
         last[0] = look
     }
 }
@@ -526,7 +477,7 @@ private fun Confirm(look: BubbleLook) {
  */
 @Composable
 fun SalePanel(
-    sale: TillSale,
+    sale: PanelSale,
     where: String,
     wide: Boolean,
     actions: PanelActions,
@@ -549,7 +500,7 @@ private val Arrived: State<Float> = object : State<Float> {
 }
 
 @Composable
-private fun PanelCard(sale: TillSale, where: String, wide: Boolean, sideBySide: Boolean, actions: PanelActions, raise: Presence, words: State<Float>) {
+private fun PanelCard(sale: PanelSale, where: String, wide: Boolean, sideBySide: Boolean, actions: PanelActions, raise: Presence, words: State<Float>) {
     // Everything but the code, which is never faded in (§10 rule 6).
     val wordsLayer = Modifier.graphicsLayer { alpha = words.value; compositingStrategy = CompositingStrategy.ModulateAlpha }
     val scope = rememberCoroutineScope()
@@ -564,11 +515,9 @@ private fun PanelCard(sale: TillSale, where: String, wide: Boolean, sideBySide: 
     LaunchedEffect(raise, drag) {
         snapshotFlow { raise.heading }.collect { if (it == 1f && drag.value != 0f) drag.animateTo(0f, springBack) }
     }
-    // The panel's one clock (amendment 10), read only by the countdown.
-    val now = rememberNowSeconds()
     // One transition for everything the face changes (M5): the fold, the words and the buttons start on one frame,
     // and each side keeps the sale it showed, so the code's words never say "Paid" on their way out.
-    val faces = updateTransition(FaceShown(Panel.face(sale), sale), label = "face")
+    val faces = updateTransition(FaceShown(sale.face, sale), label = "face")
     // Folded unless the panel has room for its order card open, as the sale screen's (its room is the panel's column).
     val room = rememberReceiptRoom(faces.targetState.sale.orderId, live = true)
     Column(
@@ -631,7 +580,7 @@ private fun PanelCard(sale: TillSale, where: String, wide: Boolean, sideBySide: 
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    Face(faces, wide, now, wordsLayer, actions.onFullScreen)
+                    Face(faces, wide, wordsLayer, actions.onFullScreen)
                 }
             }
         } else {
@@ -643,7 +592,7 @@ private fun PanelCard(sale: TillSale, where: String, wide: Boolean, sideBySide: 
             ) {
                 Details(faces, where, actions, wordsLayer, spacing = 14.dp)
                 // The code, then what was bought, as on the sale screen: the order card under the code, never above it.
-                Face(faces, wide, now, wordsLayer, actions.onFullScreen)
+                Face(faces, wide, wordsLayer, actions.onFullScreen)
                 PanelOrder(faces, actions, wordsLayer)
                 Buttons(faces, actions, wordsLayer)
             }
@@ -678,9 +627,9 @@ private fun Details(faces: Transition<FaceShown>, where: String, actions: PanelA
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(spacing)) {
             Header(sale, where, actions.onOpenShift, words)
             Column(words.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(SaleText.amount(sale), style = display(44, -0.8))
+                Text(sale.amount, style = display(44, -0.8))
                 Text(
-                    SaleText.xmr(sale), fontSize = 15.sp, color = mk.muted,
+                    sale.xmr, fontSize = 15.sp, color = mk.muted,
                     modifier = Modifier.clip(RoundedCornerShape(8.dp))
                         .clickable(onClickLabel = "Copy the XMR amount") { actions.onCopyXmr(sale) }
                         .padding(horizontal = 6.dp, vertical = 2.dp),
@@ -723,9 +672,9 @@ private fun PanelOrder(faces: Transition<FaceShown>, actions: PanelActions, word
 // [words] is not this part's modifier but its words' (the parts that fade through a change take it), so it is not named or placed as one.
 @Suppress("ModifierParameter")
 @Composable
-private fun LateOrderCard(sale: TillSale, actions: PanelActions, words: Modifier) {
+private fun LateOrderCard(sale: PanelSale, actions: PanelActions, words: Modifier) {
     val m = motion
-    val receipt = sale.receipt?.takeIf { it.lineItems.isNotEmpty() }
+    val receipt = sale.card
     // The last receipt shown, kept while its card closes.
     var last by remember { mutableStateOf(receipt) }
     if (receipt != null) last = receipt
@@ -736,13 +685,13 @@ private fun LateOrderCard(sale: TillSale, actions: PanelActions, words: Modifier
         exit = fadeOut(m.fadeQuick.fraction) + shrinkVertically(m.settle.spec(IntSize.VisibilityThreshold), Alignment.Top),
     ) {
         val shown = last ?: return@AnimatedVisibility
-        Box(words.fillMaxWidth()) { OrderCard(shown, posOf(sale), room, onOpen = actions.onOrder) }
+        Box(words.fillMaxWidth()) { PanelOrderCard(shown, room, onOpen = actions.onOrder) }
     }
 }
 
 /** A face of the panel and the sale it was shown for: the side of a change that's leaving keeps its own. */
 @Immutable
-private data class FaceShown(val face: PanelFace, val sale: TillSale)
+private data class FaceShown(val face: PanelFace, val sale: PanelSale)
 
 /**
  * The code and its status while live; the tick once paid; else where the
@@ -761,7 +710,7 @@ private data class FaceShown(val face: PanelFace, val sale: TillSale)
 // [words] is not this part's modifier but its words' (the parts that fade through a change take it), so it is not named or placed as one.
 @Suppress("ModifierParameter")
 @Composable
-private fun Face(faces: Transition<FaceShown>, wide: Boolean, now: LongState, words: Modifier, onEnlarge: (TillSale) -> Unit) {
+private fun Face(faces: Transition<FaceShown>, wide: Boolean, words: Modifier, onEnlarge: (PanelSale) -> Unit) {
     val m = motion
     val shown = faces.targetState
     val sale = shown.sale
@@ -776,7 +725,7 @@ private fun Face(faces: Transition<FaceShown>, wide: Boolean, now: LongState, wo
         { (if (targetState.face == PanelFace.Code) m.fadeQuick else m.fade).fraction }, label = "hero",
     ) { if (it.face == PanelFace.Code) 0f else 1f }
     // The last face the code folded into, kept while the next code grows out of it and let go once it has.
-    var folded by remember { mutableStateOf<TillSale?>(null) }
+    var folded by remember { mutableStateOf<PanelSale?>(null) }
     if (!live) folded = sale else if (!faces.isRunning) folded = null
     val hero = folded?.let { heroLook(it) }
     val heroGround = hero?.ground ?: Fixed.White
@@ -802,8 +751,8 @@ private fun Face(faces: Transition<FaceShown>, wide: Boolean, now: LongState, wo
             },
         )
         QrCode(
-            sale.code.uri,
-            "Payment code for ${SaleText.amount(sale)}",
+            sale.code,
+            sale.codeSaid,
             Modifier.size(codeSize)
                 .then(scaled)
                 .graphicsLayer {
@@ -857,20 +806,20 @@ private fun Face(faces: Transition<FaceShown>, wide: Boolean, now: LongState, wo
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
             val its = side.sale
             when (side.face) {
-                PanelFace.Code -> StatusRow(its, now)
+                PanelFace.Code -> StatusRow(its)
                 PanelFace.Paid -> {
                     Text(
-                        SaleText.status(its, posOf(its)), style = display(28), textAlign = TextAlign.Center,
+                        its.status, style = display(28), textAlign = TextAlign.Center,
                         modifier = Modifier.semantics { heading(); liveRegion = LiveRegionMode.Polite },
                     )
-                    Text("${SaleText.xmr(its)} received", fontSize = 15.sp, color = mk.muted)
+                    Text(its.received, fontSize = 15.sp, color = mk.muted)
                 }
                 PanelFace.Ended -> {
                     Text(
-                        Panel.endedHeading(its, posOf(its)), style = display(26), textAlign = TextAlign.Center,
+                        its.endedHeading, style = display(26), textAlign = TextAlign.Center,
                         modifier = Modifier.semantics { heading(); liveRegion = LiveRegionMode.Polite },
                     )
-                    Text(Panel.endedLine(its, posOf(its)), fontSize = 15.sp, color = mk.muted, textAlign = TextAlign.Center)
+                    Text(its.endedLine, fontSize = 15.sp, color = mk.muted, textAlign = TextAlign.Center)
                 }
             }
         }
@@ -911,11 +860,12 @@ private class HeroLook(val ground: Color, val tint: Color, val icon: ImageVector
 
 /** Paid as the detail pages show it, the tick on the paid ground; else where the code was, by how the sale ended. */
 @Composable
-private fun heroLook(sale: TillSale): HeroLook = when {
-    Panel.face(sale) == PanelFace.Paid -> HeroLook(mk.paidGround, mk.paid, MkIcons.Tick, 0.53f)
-    sale.refunded -> HeroLook(mk.chip, mk.ink, MkIcons.Refund, 0.5f)
-    sale.phase == SalePhase.DoubleSpend -> HeroLook(mk.dangerGround, mk.danger, MkIcons.Warning, 0.5f)
-    else -> HeroLook(mk.warnGround, mk.warn, MkIcons.Clock, 0.5f)
+private fun heroLook(sale: PanelSale): HeroLook = when (sale.hero) {
+    PanelHero.PAID -> HeroLook(mk.paidGround, mk.paid, MkIcons.Tick, 0.53f)
+    PanelHero.REFUNDED -> HeroLook(mk.chip, mk.ink, MkIcons.Refund, 0.5f)
+    PanelHero.REVERSED -> HeroLook(mk.dangerGround, mk.danger, MkIcons.Warning, 0.5f)
+    // A live code has no hero; the clock stands in while a code folds away.
+    PanelHero.EXPIRED, PanelHero.CODE -> HeroLook(mk.warnGround, mk.warn, MkIcons.Clock, 0.5f)
 }
 
 /** The hero's icon, which fades in inside the folding surface. */
@@ -980,7 +930,7 @@ private fun Grabber(modifier: Modifier, onDrag: (Float) -> Unit, onRelease: (Flo
 
 /** "Sale #k4Rt" and when it was rung up, over "Front Counter · Open the shift ›": one target, which opens the shift. */
 @Composable
-private fun Header(sale: TillSale, where: String, onOpenShift: () -> Unit, modifier: Modifier) = Column(
+private fun Header(sale: PanelSale, where: String, onOpenShift: () -> Unit, modifier: Modifier) = Column(
     modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(16.dp))
         .clickable(onClickLabel = "Open the shift", onClick = onOpenShift)
         .padding(vertical = 4.dp),
@@ -988,10 +938,10 @@ private fun Header(sale: TillSale, where: String, onOpenShift: () -> Unit, modif
 ) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
-            SaleText.title(sale), fontSize = 16.sp, fontWeight = FontWeight.Bold,
+            sale.title, fontSize = 16.sp, fontWeight = FontWeight.Bold,
             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
         )
-        if (sale.createdAt > 0) Text(SaleText.time(sale.createdAt), fontSize = 13.sp, color = mk.muted)
+        sale.created?.let { Text(it, fontSize = 13.sp, color = mk.muted, maxLines = 1) }
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
@@ -1010,24 +960,23 @@ private fun Header(sale: TillSale, where: String, onOpenShift: () -> Unit, modif
  * announce: the countdown ticks silently, in tabular figures.
  */
 @Composable
-private fun StatusRow(sale: TillSale, now: LongState) = Row(
+private fun StatusRow(sale: PanelSale) = Row(
     Modifier.testTag(STATUS_TAG).animateContentSize(motion.settle.spec(IntSize.VisibilityThreshold)),
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
 ) {
     val m = motion
-    PhaseRing(sale, 26.dp)
+    PhaseRing(sale.ring, 26.dp)
     AnimatedContent(
-        SaleText.status(sale, posOf(sale)),
+        sale.status,
         // Through, not across: "Payment seen" never drawn over "Waiting for payment" (decision 225).
         transitionSpec = { (fadeIn(m.fadeThrough.fraction) togetherWith fadeOut(m.fadeQuick.fraction)).using(null) },
         label = "status words",
     ) { words ->
         Text(words, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
     }
-    if (sale.phase.countsDown) {
-        Countdown(now, sale.expiresAt, fontSize = 14.sp, color = mk.muted) { "· ${CodeText.left(sale, it)}" }
-    }
+    // The engine's words at its now, redrawn by it (decision 37), in tabular figures so the digits tick in place.
+    sale.left?.let { Text(it, fontSize = 14.sp, color = mk.muted, style = LocalTextStyle.current.merge(tabular)) }
 }
 
 /**
@@ -1044,7 +993,7 @@ private fun StatusRow(sale: TillSale, now: LongState) = Row(
  */
 @Composable
 fun PhonePanel(
-    sale: TillSale,
+    sale: PanelSale,
     where: String,
     look: BubbleLook,
     page: PanelPage,
@@ -1082,8 +1031,8 @@ fun PhonePanel(
         }
         if (orderUp) {
             CompositionLocalProvider(LocalContentColor provides mk.ink) {
-                OrderContent(
-                    sale, "Back to the code", actions.onBackToCode, actions.onBackToCode,
+                PanelOrderContent(
+                    sale, actions.onBackToCode,
                     Modifier.fillMaxSize().testTag(ORDER_TAG).grows(motion, wide = false, order = true)
                         // Under Still nothing grows: the order's ground covers the code at once on the way in, and on the
                         // way back goes with its words, a crossfade off the code rather than an empty ground over it.
@@ -1160,7 +1109,7 @@ private fun Modifier.ridesTop(motion: PanelMotion, opened: State<Float>): Modifi
 
 @Composable
 private fun PhoneCode(
-    sale: TillSale,
+    sale: PanelSale,
     where: String,
     look: BubbleLook,
     actions: PanelActions,
@@ -1191,7 +1140,7 @@ private fun PhoneCode(
                 .clip(CircleShape)
                 .clickable(role = Role.Button, onClickLabel = "Lower to the bubble", onClick = actions.onBubble)
                 .semantics { contentDescription = "Lower to the bubble" },
-        ) { BubbleFace(look, pulse = false, phase = sale.phase, confirms = confirms) }
+        ) { BubbleFace(look, pulse = false, confirms = confirms) }
     }
     // Taps on the panel itself stay there.
     val panel = @Composable { sideBySide: Boolean ->
@@ -1220,7 +1169,7 @@ private fun PhoneCode(
 
 /** The floating panel's window on a tablet: the panel, or the whole order in its place. */
 @Composable
-fun FloatingPanel(sale: TillSale, where: String, page: PanelPage, actions: PanelActions, motion: PanelMotion) = Box(
+fun FloatingPanel(sale: PanelSale, where: String, page: PanelPage, actions: PanelActions, motion: PanelMotion) = Box(
     Modifier.padding(Panel.FLOATING_SHADOW_DP.dp).heldWhileMoving(motion.raise, actions.onLower).grows(motion, wide = true),
 ) {
     // The order takes the card's place (M5) and the card's height settles to the new one. The order's words fade
@@ -1241,8 +1190,8 @@ fun FloatingPanel(sale: TillSale, where: String, page: PanelPage, actions: Panel
     ) { shown ->
         if (shown == PanelPage.Order) {
             CompositionLocalProvider(LocalContentColor provides mk.ink) {
-                OrderContent(
-                    sale, "Back to the code", actions.onBackToCode, actions.onBackToCode,
+                PanelOrderContent(
+                    sale, actions.onBackToCode,
                     Modifier.width(360.dp).heightIn(max = 640.dp)
                         .card(motion.raise).background(mk.ground)
                         .semantics { paneTitle = "The order" },

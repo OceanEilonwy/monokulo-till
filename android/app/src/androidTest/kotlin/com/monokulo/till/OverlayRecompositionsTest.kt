@@ -5,7 +5,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.junit4.createComposeRule
-import com.monokulo.till.core.SalePhase
 import com.monokulo.till.overlay.BubbleFace
 import com.monokulo.till.overlay.PanelActions
 import com.monokulo.till.overlay.PanelMotion
@@ -16,6 +15,7 @@ import org.junit.Rule
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import uniffi.till_screens.BubbleLook
 
 /**
  * The overlay's moves recompose nothing per frame (`docs/motion.md` §10
@@ -37,7 +37,7 @@ class OverlayRecompositionsTest {
 
     private val named = listOf(
         "com.monokulo.till.overlay.PanelCard", "com.monokulo.till.overlay.Details", "com.monokulo.till.ui.QrCode",
-        "com.monokulo.till.ui.PhaseRing", "com.monokulo.till.overlay.BubbleFace", "com.monokulo.till.ui.OrderContent",
+        "com.monokulo.till.ui.PhaseRing", "com.monokulo.till.overlay.BubbleFace", "com.monokulo.till.overlay.PanelOrderContent",
         "com.monokulo.till.overlay.StatusRow",
     )
 
@@ -50,7 +50,7 @@ class OverlayRecompositionsTest {
         compose.setContent {
             Till {
                 motion.raise.Attach()
-                PhonePanel(sale, "Front Counter", BubbleLook.Lit, page, actions, motion)
+                PhonePanel(panelOf(sale), "Front Counter", BubbleLook.LIT, page, actions, motion)
             }
         }
         compose.mainClock.advanceTimeBy(100)
@@ -96,7 +96,7 @@ class OverlayRecompositionsTest {
         assertNothingRecomposesMidMove("late order line") { sale = sale.copy(receipt = sampleReceipt()) }
     }
 
-    private var look by mutableStateOf(BubbleLook.Lit)
+    private var look by mutableStateOf(BubbleLook.LIT)
 
     /** The free bubble alone, lit. */
     private fun bubble() {
@@ -122,15 +122,15 @@ class OverlayRecompositionsTest {
     @Test
     fun theBubblesPaidSpread() {
         bubble()
-        assertNothingRecomposesMidMove("paid spread", bubbleParts) { look = BubbleLook.Paid }
+        assertNothingRecomposesMidMove("paid spread", bubbleParts) { look = BubbleLook.PAID }
     }
 
     /** Paid back to idle, the tick fading whole and the lens spreading to grey, recomposes none of the bubble (decision 293). */
     @Test
     fun theBubblesLeavingPaid() {
         bubble()
-        look = BubbleLook.Paid
+        look = BubbleLook.PAID
         compose.mainClock.advanceTimeBy(1_000)
-        assertNothingRecomposesMidMove("paid to idle", bubbleParts) { look = BubbleLook.Idle }
+        assertNothingRecomposesMidMove("paid to idle", bubbleParts) { look = BubbleLook.IDLE }
     }
 }

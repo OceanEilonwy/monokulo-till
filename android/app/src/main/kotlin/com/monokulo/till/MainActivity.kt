@@ -1,8 +1,8 @@
 package com.monokulo.till
 
+import uniffi.till_app.Screen
 import android.Manifest
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -11,70 +11,92 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.animation.core.SeekableTransitionState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.repeatOnLifecycle
-import com.monokulo.till.ui.confirm
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.monokulo.till.core.PointOfSale
-import com.monokulo.till.notify.SaleNotifications
-import com.monokulo.till.push.WakeUpStatus
-import com.monokulo.till.sales.TenderState
-import com.monokulo.till.sales.TillSale
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import com.monokulo.till.engine.CloseSheet
+import com.monokulo.till.engine.Nav
+import com.monokulo.till.engine.TorProbe
 import com.monokulo.till.ui.AlertsScreen
+import com.monokulo.till.ui.CodeScreen
 import com.monokulo.till.ui.ConfirmScreen
 import com.monokulo.till.ui.ConnectedScreen
 import com.monokulo.till.ui.FloatScreen
+import com.monokulo.till.ui.LocalPointOfSale
+import com.monokulo.till.ui.LocalReceiptFolds
 import com.monokulo.till.ui.LocationsScreen
-import com.monokulo.till.ui.TillTheme
+import com.monokulo.till.ui.OrderPage
+import com.monokulo.till.ui.PointOfSaleScreen
+import com.monokulo.till.ui.PosSetupActions
 import com.monokulo.till.ui.ReadyScreen
-import com.monokulo.till.ui.RefundSheet
+import com.monokulo.till.ui.SaleFace
+import com.monokulo.till.ui.SaleScreen
 import com.monokulo.till.ui.ScanScreen
 import com.monokulo.till.ui.SettingsActions
 import com.monokulo.till.ui.SettingsScreen
-import com.monokulo.till.ui.SettingsState
-import com.monokulo.till.ui.LocalPointOfSale
-import com.monokulo.till.ui.LocalReceiptFolds
-import com.monokulo.till.ui.PointOfSaleScreen
-import com.monokulo.till.ui.PosSetup
-import com.monokulo.till.ui.PosSetupActions
-import com.monokulo.till.ui.PosState
-import com.monokulo.till.ui.CodeScreen
-import com.monokulo.till.ui.OrderPage
-import com.monokulo.till.ui.SaleScreen
 import com.monokulo.till.ui.ShiftPlace
 import com.monokulo.till.ui.ShiftScreen
-import com.monokulo.till.ui.rememberShiftPlace
 import com.monokulo.till.ui.TillActions
-import com.monokulo.till.ui.TillStatus
-import com.monokulo.till.ui.WakeUpsState
+import com.monokulo.till.ui.TillTheme
 import com.monokulo.till.ui.WelcomeScreen
+import com.monokulo.till.ui.confirm
+import com.monokulo.till.ui.mk
+import com.monokulo.till.ui.pos
+import com.monokulo.till.ui.rememberShiftPlace
+import kotlinx.coroutines.launch
+import com.monokulo.till.notify.SaleNotifications
+import uniffi.till_app.Action
+import uniffi.till_app.CopyKind
+import uniffi.till_app.Effect
+import uniffi.till_app.RefundSheetView
+import uniffi.till_app.Update
+import uniffi.till_screens.OnboardingPage
+import uniffi.till_screens.OnboardingView
+import uniffi.till_screens.PosSection
+import uniffi.till_screens.SettingsView
+import uniffi.till_screens.ShiftView
+import uniffi.till_screens.PosMark
 
+/**
+ * The app's one activity: it draws what the engine publishes (through
+ * [AppViewModel]'s [com.monokulo.till.engine.EngineStore]) on the stage of
+ * [Nav.kt][TillStage], follows the engine's screen, tells it when the stage
+ * comes to rest ([Action.Landed], decision 55) and sends Back and every tap
+ * as an [Action]. It does what only Android can: the browser for a sign-in,
+ * the clipboard, the buzz, the permissions, the camera.
+ */
 class MainActivity : ComponentActivity() {
     private val model: AppViewModel by viewModels()
 
-    /** Bumped on every resume: permissions granted in Android's settings show at once. */
+    /** Bumped on every resume and window-mode change: the till's actions follow split screen. */
     private val resumed = mutableIntStateOf(0)
 
     private val notifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
-        resumed.intValue++
-        model.permissionsMayHaveChanged()
-        if (model.screen.value == Screen.Alerts) model.go(Screen.Float)
+        permissionsMayHaveChanged()
+        if (model.store.screen.value == Screen.Alerts) send(Action.Next)
     }
+
+    private fun send(action: Action) = model.send(action)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -83,311 +105,228 @@ class MainActivity : ComponentActivity() {
         // intent, and replaying it would reopen a sale, the shift or onboarding over whatever the cashier was doing.
         // Reopening from Recents replays the original intent too, so that is skipped as well.
         if (savedInstanceState == null && intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY == 0) handle(intent)
+        // What only the platform can do, while the activity is on screen.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) { model.store.effects.collect(::effect) }
+        }
         setContent {
             TillTheme {
-                val screenState = model.screen.collectAsStateWithLifecycle()
-                val screen by screenState
-                // Held as states and read only by the screens that need them (behind derivedStateOf), so a runner
-                // update that changes nothing a screen shows recomposes nothing here (performance rule 10).
+                val store = model.store
+                val screenState = store.screen.collectAsStateWithLifecycle()
+                // Held as states and read only by the screens that need them, so an update that changes nothing a
+                // screen shows recomposes nothing here (performance rule 10).
                 val flows = Flows(
-                    busy = model.busy.collectAsStateWithLifecycle(),
-                    problem = model.problem.collectAsStateWithLifecycle(),
-                    runner = model.runner.collectAsStateWithLifecycle(),
-                    refunding = model.refunding.collectAsStateWithLifecycle(),
-                    bubbleWanted = model.bubbleWanted.collectAsStateWithLifecycle(),
-                    store = model.store.collectAsStateWithLifecycle(),
-                    tenderState = model.tenderState.collectAsStateWithLifecycle(),
-                    refundSheet = model.refundSheet.collectAsStateWithLifecycle(),
                     screen = screenState,
+                    nav = store.nav.collectAsStateWithLifecycle(),
+                    onboarding = store.onboarding.collectAsStateWithLifecycle(),
+                    settings = store.settings.collectAsStateWithLifecycle(),
+                    shift = store.shift.collectAsStateWithLifecycle(),
+                    sale = store.sale.collectAsStateWithLifecycle(),
+                    close = store.close.collectAsStateWithLifecycle(),
+                    refund = store.refund.collectAsStateWithLifecycle(),
                 )
-                // Read so that coming back from Android's settings recomposes the setup screens that ask it.
-                val tick = resumed.intValue
-                // Re-read on every bump of `resumed`, which onMultiWindowModeChanged makes, so the till's actions follow it.
-                val multiWindow = isInMultiWindowMode
-                val pos = model.pointOfSale
-                val runnerState = flows.runner
-                val source by remember { derivedStateOf { runnerState.value.source } }
-                val actions = remember(multiWindow, pos, source) { tillActions(multiWindow, pos, source) }
-                PaidBuzz()
-                val stage = remember { SeekableTransitionState(screen) }
-                // Android's back (decision 77: everywhere but the first step, the shift and Square's sign-in). From a
-                // sale's screens and Settings the gesture previews the way back; nothing changes before it commits.
-                val scrub = remember { BackScrub() }
-                // Step 4 has no Back in setup (as Square's had none), but goes back to Settings when opened from there.
-                val stepFour = screen == Screen.PointOfSale && !model.setupDone
-                FollowScreen(stage, scrub, screenState, onLanded = model::landed)
-                // A second Back while the shift is still arriving lands on the shift, never leaves the app (decision 260 c):
-                // Back stays the stage's until it rests there. Read as a derived state, so the root recomposes as a change
-                // starts and as it lands, never a frame.
-                val arriving by remember { derivedStateOf { stage.currentState != stage.targetState } }
-                StageBack(
-                    enabled = (screen != Screen.Welcome && screen != Screen.Till && !stepFour) || (screen == Screen.Till && arriving),
-                    state = stage, scrub = scrub, current = { model.screen.value }, target = model::backTarget, onCommit = model::back,
-                )
-                // Where the shift's list was when a row was tapped: the shift is not composed while a sale is up, so a
-                // Back finds it here (decision 296).
-                val shiftPlace = rememberShiftPlace()
-                CompositionLocalProvider(LocalPointOfSale provides pos, LocalReceiptFolds provides model.receiptFolds) {
-                    TillStage(stage, cameUpByItself = { model.cameUpByItself }, scrub) { s ->
-                        when (s) {
-                            Screen.Till, is Screen.Sale, is Screen.Code, is Screen.Order -> TillScreens(s, flows, actions, shiftPlace)
-                            else -> SetupScreens(s, flows, tick)
-                        }
-                    }
-                }
+                // The engine says where the app is as it starts; until then, the ground.
+                val first = screenState.value ?: return@TillTheme Box(Modifier.fillMaxSize().background(mk.ground))
+                Stage(first, flows)
             }
         }
     }
 
-    /** One confirming buzz when a payment lands with the app on screen (`docs/motion.md` §6); collected only while it is. */
     @Composable
-    private fun PaidBuzz() {
-        val view = LocalView.current
-        val lifecycle = LocalLifecycleOwner.current.lifecycle
-        LaunchedEffect(view, lifecycle) {
-            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { model.paidBuzz.collect { view.confirm() } }
+    private fun Stage(first: Screen, flows: Flows) {
+        val screenState = remember(flows) { derivedStateOf { flows.screen.value ?: first } }
+        val screen by screenState
+        // Re-read on every bump of `resumed`, which onMultiWindowModeChanged makes, so the till's actions follow it.
+        @Suppress("UNUSED_VARIABLE") val tick = resumed.intValue
+        val multiWindow = isInMultiWindowMode
+        val actions = remember(multiWindow) { TillActions(::send, onBackToPos = if (multiWindow) null else ::backToSquare) }
+        val stage = remember { SeekableTransitionState(first) }
+        // Android's back (decision 77: everywhere but the first step, the shift and step 4 in setup). From a sale's
+        // screens and Settings the gesture previews the way back the engine names; nothing changes before it commits.
+        val scrub = remember { BackScrub() }
+        val stepFour by remember {
+            derivedStateOf {
+                screenState.value == Screen.PointOfSale &&
+                    (flows.onboarding.value?.page as? OnboardingPage.PointOfSale)?.view?.back != true
+            }
         }
+        FollowScreen(stage, scrub, screenState, onLanded = { send(Action.Landed(it)) })
+        // A second Back while the shift is still arriving lands on the shift, never leaves the app (decision 260 c):
+        // Back stays the stage's until it rests there. Read as a derived state, so the root recomposes as a change
+        // starts and as it lands, never a frame.
+        val arriving by remember { derivedStateOf { stage.currentState != stage.targetState } }
+        StageBack(
+            enabled = (screen != Screen.Welcome && screen != Screen.Till && !stepFour) || (screen == Screen.Till && arriving),
+            state = stage, scrub = scrub, current = { screenState.value }, target = { flows.nav.value.backTarget },
+            onCommit = { send(Action.Back) },
+        )
+        // Where the shift's list was when a row was tapped: the shift is not composed while a sale is up, so a
+        // Back finds it here (decision 296).
+        val shiftPlace = rememberShiftPlace()
+        // The till's point of sale names its marks; the engine says it in Settings.
+        val pos by remember { derivedStateOf { tillPointOfSale(flows.settings.value) } }
+        CompositionLocalProvider(LocalPointOfSale provides pos, LocalReceiptFolds provides model.receiptFolds) {
+            TillStage(stage, cameUpByItself = { flows.nav.value.byItself }, scrub) { s ->
+                when (s) {
+                    Screen.Till, is Screen.Sale, is Screen.Code, is Screen.Order -> TillScreens(s, flows, actions, shiftPlace)
+                    else -> SetupScreens(s, flows)
+                }
+            }
+        }
+        TorProbes(screen)
     }
 
-    /** The view model's flows as states, collected once at the root and read below it. */
+    /** Orbot's probe as the app comes forward and as step 3 and Settings open (docs/decisions/core.md 54). */
+    @Composable
+    private fun TorProbes(screen: Screen) {
+        val probes = screen == Screen.Confirm || screen == Screen.Settings
+        LaunchedEffect(probes) { if (probes) TorProbe.probe(::send) }
+    }
+
+    /** The engine's flows as states, collected once at the root and read below it. */
     @Stable
     private class Flows(
-        val busy: State<Boolean>,
-        val problem: State<String?>,
-        val runner: State<RunnerState>,
-        val refunding: State<Set<String>>,
-        val bubbleWanted: State<Boolean>,
-        val store: State<StoreNow>,
-        val tenderState: State<TenderState?>,
-        val refundSheet: State<RefundSheet?>,
-        /** The model's screen: the one up, or being gone to. */
-        val screen: State<Screen>,
+        val screen: State<Screen?>,
+        val nav: State<Nav>,
+        val onboarding: State<OnboardingView?>,
+        val settings: State<SettingsView?>,
+        val shift: State<ShiftView?>,
+        val sale: State<Update.Sale?>,
+        val close: State<CloseSheet>,
+        val refund: State<RefundSheetView?>,
     )
 
     /**
-     * The shift and a sale's screens. Each reads only its own part of the
-     * runner, so a poll that changes nothing it shows recomposes nothing.
+     * The shift and a sale's screens. A sale's screens draw the engine's
+     * [Update.Sale] for their own sale; being left, a screen keeps the one it
+     * had when the change began, so it leaves with what it showed (decision
+     * 242). The sheets are drawn only by the screen the stage goes to.
      */
     @Composable
     private fun TillScreens(s: Screen, flows: Flows, actions: TillActions, shiftPlace: ShiftPlace) {
         val id = s.orderIdOrNull()
-        val runner = flows.runner
-        val shown by remember(id) { derivedStateOf { id?.let { id -> runner.value.till.sales.firstOrNull { it.orderId == id } } } }
-        val disconnected by remember { derivedStateOf { runner.value.disconnected } }
-        // Being left, a screen keeps the sale as it was when the change began: closed, paid or gone under it, it
-        // still leaves with what it showed (decision 242).
-        val sale = keptWhileLeaving(s, flows.screen) { shown }.value
+        val kept = remember(id) { Kept() }
+        val face = flows.sale.value?.takeIf { it.orderId == id }?.let { update -> kept.face(update) } ?: kept.last
+        val target = flows.screen.value == s
+        val close = flows.close.value.takeIf { target }
+        val shift = flows.shift.value
         when {
-            // A sale not in the list (yet: the till is still loading its shift) shows the shift until it is;
-            // a disconnected till shows why, whatever was on screen.
-            sale == null || disconnected -> Shift(flows, actions, shiftPlace)
-            s is Screen.Code -> CodeScreen(sale, onBack = { model.back(s) })
-            s is Screen.Order -> OrderPage(sale, "Back to the sale", onBack = { model.back(s) }, onShowCode = { model.back(s) })
-            else -> Sale(sale, flows, actions)
+            // A sale not drawn (yet) shows the shift until it is.
+            face == null -> if (shift != null) ShiftScreen(shift, actions, shiftPlace, close?.takeIf { s == Screen.Till })
+            s is Screen.Code -> CodeScreen(face) { send(Action.Back) }
+            s is Screen.Order -> OrderPage(face, "Back to the sale", onBack = { send(Action.Back) }, onShowCode = { send(Action.Back) })
+            else -> SaleScreen(face, actions, close?.takeIf { it.orderId == id }?.view, flows.refund.value.takeIf { target })
         }
     }
 
-    @Composable
-    private fun Shift(flows: Flows, actions: TillActions, place: ShiftPlace) {
-        val runner = flows.runner
-        val store = flows.store
-        val status by remember { derivedStateOf { tillStatus(runner.value, store.value) } }
-        val sales by remember { derivedStateOf { runner.value.till.sales } }
-        ShiftScreen(status, sales, actions, place = place)
-    }
+    /** The last face a sale's screen drew, and the update it came from, so the same update makes the same face. */
+    private class Kept {
+        var last: SaleFace? = null
+        private var from: Update.Sale? = null
 
-    @Composable
-    private fun Sale(sale: TillSale, flows: Flows, actions: TillActions) {
-        val id = sale.orderId
-        val runner = flows.runner
-        val refundingSet = flows.refunding
-        val refunding by remember(id) { derivedStateOf { id in refundingSet.value } }
-        val refundProblem by remember(id) { derivedStateOf { runner.value.till.refundProblems[id] } }
-        val refundSheet by flows.refundSheet
-        SaleScreen(sale, model.placeName, refunding, refundProblem, refundSheet, actions)
-    }
-
-    /** Onboarding and Settings: few, and never on screen while a sale is, so they read the flows whole. */
-    @Composable
-    private fun SetupScreens(s: Screen, flows: Flows, @Suppress("UNUSED_PARAMETER") resumed: Int) {
-        val busy by flows.busy
-        val problem by flows.problem
-        val runner by flows.runner
-        val bubbleWanted by flows.bubbleWanted
-        val store by flows.store
-        val tenderState by flows.tenderState
-        when (s) {
-            Screen.Welcome -> WelcomeScreen(onStart = { model.go(Screen.Scan) })
-            Screen.Scan -> ScanScreen(onCode = model::onCode, onBack = model::back)
-            is Screen.Confirm -> ConfirmScreen(s.code, model.deviceName, busy, problem, { model.connect(s.code) }, model::back)
-            is Screen.Connected -> ConnectedScreen(
-                s.connection, store,
-                onNext = { model.go(Screen.PointOfSale) }, onRetry = model::readStore, onWrong = model::disconnect,
-            )
-            Screen.PointOfSale -> PointOfSaleScreen(
-                PosSetup(
-                    chosen = model.pointOfSale,
-                    location = model.location,
-                    merchant = model.cloverMerchant?.name,
-                    signedIn = model.posSignedIn,
-                    tender = tenderState.forScreen(),
-                    busy = busy,
-                    problem = problem ?: runner.till.problem,
-                    testSale = runner.till.sales.firstOrNull { it.found != null },
-                    setup = !model.setupDone,
-                ),
-                PosSetupActions(
-                    onChoose = model::choosePointOfSale,
-                    onSignIn = ::signIn,
-                    onChangeLocation = model::changeLocation,
-                    onLookAgain = model::lookAgain,
-                    onSkip = model::withoutPos,
-                    onContinue = {
-                        if (model.setupDone) {
-                            model.back()
-                        } else {
-                            // The test sale has done its job: the till opens on its idle screen, the sale in its list.
-                            flows.runner.value.till.sales.forEach { model.leave(it.orderId) }
-                            model.go(Screen.Alerts)
-                        }
-                    },
-                ),
-            )
-            is Screen.Locations -> LocationsScreen(s.locations, model::chooseLocation, model::back)
-            Screen.Alerts -> AlertsScreen(
-                place = model.placeName,
-                currency = model.location?.currency ?: store.store?.baseCurrency ?: "USD",
-                allowed = model.notificationsAllowed(),
-                onAllow = ::allowNotifications,
-                onSkip = { model.go(Screen.Float) },
-                onBack = model::back,
-            )
-            Screen.Float -> FloatScreen(
-                pos = model.pointOfSale,
-                allowed = model.overlayAllowed(),
-                onOpenSettings = { model.setBubble(true); openOverlaySettings() },
-                onNotificationsOnly = { model.setBubble(false); model.go(Screen.Ready) },
-                onContinue = { model.setBubble(true); model.go(Screen.Ready) },
-                onBack = model::back,
-            )
-            Screen.Ready -> ReadyScreen(
-                pos = model.pointOfSale,
-                store = store.store?.name.orEmpty(),
-                location = model.placeName,
-                alerts = model.notificationsAllowed(),
-                bubble = bubbleWanted && model.overlayAllowed(),
-                onStart = model::startShift,
-            )
-            Screen.Settings -> {
-                val torRunning by produceState<Boolean?>(null, store) { value = model.torRunning() }
-                val wakeUpChoice by model.wakeUpChoice.collectAsStateWithLifecycle()
-                val wakeUpStatus by model.wakeUpStatus.collectAsStateWithLifecycle()
-                // PackageManager is asked for the UnifiedPush apps' names only when the status changes.
-                val distributorNames = remember(wakeUpStatus) { distributorNames(wakeUpStatus) }
-                SettingsScreen(
-                    SettingsState(
-                        connection = model.connection,
-                        store = store,
-                        pos = PosState(
-                            chosen = model.pointOfSale,
-                            signedIn = model.posSignedIn,
-                            location = model.location,
-                            merchant = model.cloverMerchant?.name,
-                            tenderName = model.tenderName,
-                            tender = tenderState.forScreen(),
-                        ),
-                        live = runner.live,
-                        shiftOn = model.shiftOn,
-                        alerts = model.notificationsAllowed(),
-                        bubbleWanted = bubbleWanted,
-                        bubbleAllowed = model.overlayAllowed(),
-                        debug = model.debug,
-                        baseUrls = model.baseUrls,
-                        torRunning = torRunning,
-                        wakeUps = WakeUpsState(
-                            choice = wakeUpChoice,
-                            status = wakeUpStatus,
-                            monokulo = model.monokuloBell,
-                            ownBell = model.ownBell,
-                            distributorNames = distributorNames,
-                            allowHttp = BuildConfig.DEBUG,
-                        ),
-                        problem = problem,
-                    ),
-                    SettingsActions(
-                        onShift = { model.setShift(it); model.go(Screen.Settings) },
-                        onAlerts = ::openNotificationSettings,
-                        onBubble = { on ->
-                            model.setBubble(on)
-                            if (on && !model.overlayAllowed()) openOverlaySettings()
-                        },
-                        onChoosePos = model::choosePointOfSale,
-                        onSignIn = ::signIn,
-                        onChangeLocation = model::changeLocation,
-                        onSignOut = model::signOutOfPos,
-                        onChangePos = model::openPointOfSale,
-                        onLookAgain = model::lookAgain,
-                        onDisconnect = model::disconnect,
-                        onBaseUrl = model::setBaseUrl,
-                        onCopyAddress = { SaleNotifications.copyAddress(this, it) },
-                        onTor = model::setTor,
-                        onWakeUps = model::chooseWakeUps,
-                        onOwnBell = model::useOwnBell,
-                        onDistributor = model::chooseDistributor,
-                        onGetDistributor = { openInTab(NTFY) },
-                        onBellSignIn = { pos, applicationId -> model.signInUrl(pos, applicationId)?.let(::openInTab) },
-                        onBack = model::closeSettings,
-                    ),
-                )
+        fun face(update: Update.Sale): SaleFace {
+            if (update !== from) {
+                from = update
+                last = SaleFace.of(update)
             }
-            Screen.Till, is Screen.Sale, is Screen.Code, is Screen.Order -> Unit
+            return last!!
         }
     }
 
-    private fun tillStatus(runner: RunnerState, store: StoreNow) = TillStatus(
-        store = store.store?.name,
-        location = model.placeName,
-        running = runner.running,
-        live = runner.live,
-        disconnected = runner.disconnected,
-        problem = runner.till.problem ?: runner.streamProblem,
-        signInAgain = runner.till.signInAgain,
-        startedAt = model.shiftStartedAt,
-    )
+    /**
+     * Onboarding and Settings: each step draws its own page of the engine's
+     * onboarding view, kept while the stage leaves it, as the view moves on.
+     */
+    @Composable
+    private fun SetupScreens(s: Screen, flows: Flows) {
+        if (s == Screen.Settings) {
+            val settings = flows.settings.value ?: return
+            SettingsScreen(settings, settingsActions)
+            return
+        }
+        val kept = remember(s) { arrayOfNulls<OnboardingView>(1) }
+        val current = flows.onboarding.value?.takeIf { it.page.isFor(s) }
+        if (current != null) kept[0] = current
+        val view = current ?: kept[0] ?: return
+        val step = view.stepLabel
+        when (val page = view.page) {
+            is OnboardingPage.Welcome -> WelcomeScreen(page, step) { send(Action.Next) }
+            is OnboardingPage.Scan -> ScanScreen(
+                page, step,
+                onPaste = { send(Action.PasteConnectLink(it)) },
+                onScan = { send(Action.ScanConnectCode(it)) },
+                onBack = { send(Action.Back) },
+            )
+            is OnboardingPage.Confirm -> ConfirmScreen(page, step, onConnect = { send(Action.Connect) }, onCancel = { send(Action.Back) })
+            is OnboardingPage.Connected -> ConnectedScreen(
+                page, step,
+                onNext = { send(Action.Next) }, onRetry = { send(Action.ReadStore) }, onWrong = { send(Action.Disconnect) },
+            )
+            is OnboardingPage.PointOfSale -> PointOfSaleScreen(
+                page.view, step,
+                PosSetupActions(
+                    onChoose = { send(Action.ChoosePointOfSale(it.pos())) },
+                    onNext = { send(Action.Next) },
+                    onChangeLocation = { send(Action.ChangeLocation) },
+                    onLookAgain = { send(Action.LookAgain) },
+                    onSkip = { send(Action.Skip) },
+                    onBack = { send(Action.Back) },
+                ),
+            )
+            is OnboardingPage.Locations -> LocationsScreen(page, step, onPick = { send(Action.ChooseLocation(it)) }, onBack = { send(Action.Back) })
+            is OnboardingPage.Alerts -> AlertsScreen(page, step, onAllow = ::allowNotifications, onSkip = { send(Action.Skip) }, onBack = { send(Action.Back) })
+            is OnboardingPage.Float -> FloatScreen(
+                page,
+                onOpenSettings = { send(Action.SetBubble(true)); openOverlaySettings() },
+                onNotificationsOnly = { send(Action.Skip) },
+                onContinue = { send(Action.Next) },
+                onBack = { send(Action.Back) },
+            )
+            is OnboardingPage.Ready -> ReadyScreen(
+                page, bubble = flows.settings.value?.bubble?.on == true,
+                onStart = { send(Action.StartShift) },
+            )
+        }
+    }
 
-    private fun tillActions(multiWindow: Boolean, pos: PointOfSale?, source: PointOfSale) = TillActions(
-        onSettings = model::openSettings,
-        onOpen = model::open,
-        onBack = model::leave,
-        onEnlarge = model::enlarge,
-        onShowOrder = model::showOrder,
-        onClose = model::closeSale,
-        onRefund = { model.refund(it) },
-        onReopen = model::reopen,
-        onCopy = { SaleNotifications.copyAddress(this, it.address) },
-        onCopyXmr = { SaleNotifications.copyXmr(this, it.xmr) },
-        // Square's app is on this phone; a Clover point of sale is a device of its own (decision 135).
-        onBackToPos = if (multiWindow || pos != PointOfSale.Square) null else ::backToSquare,
-        onRefundDone = model::refundDone,
-        onRefundSheetDismissed = model::refundSheetDismissed,
-        onSignIn = ::signIn,
-        onForget = model::forget,
-        onStartShift = { model.setShift(true) },
-        source = source,
-    )
+    private val settingsActions by lazy {
+        SettingsActions(
+            send = ::send,
+            onAlerts = ::openNotificationSettings,
+            onBubble = { on ->
+                send(Action.SetBubble(on))
+                if (on && !Settings.canDrawOverlays(this)) openOverlaySettings()
+            },
+            onCopyAddress = ::copy,
+            onGetDistributor = { openInTab(NTFY) },
+            distributorName = { pkg ->
+                runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg)
+            },
+        )
+    }
+
+    /** One confirming buzz, the clipboard, the browser: what only the platform does. */
+    private fun effect(effect: Effect) {
+        when (effect) {
+            is Effect.OpenUrl -> openInTab(effect.url)
+            // A payment landed with the app on screen (`docs/motion.md` §6).
+            is Effect.Haptic -> window.decorView.confirm()
+            // TillService.follow copies, and posts the notifications, whether or not Till is on screen.
+            is Effect.CopyText, is Effect.Notify, is Effect.ClearNotification -> Unit
+        }
+    }
 
     override fun onStart() {
         super.onStart()
-        model.setVisible(true)
-        if (model.connection != null && model.shiftOn) model.restartIfStopped()
-        model.wake()
-        model.retryWakeUps()
+        send(Action.Opened)
+        (application as TillApp).clockMayHaveChanged()
+        lifecycleScope.launch { TorProbe.probe(::send) }
     }
 
     override fun onResume() {
         super.onResume()
         resumed.intValue++
-        model.permissionsMayHaveChanged()
+        permissionsMayHaveChanged()
     }
 
     override fun onMultiWindowModeChanged(isInMultiWindowMode: Boolean, newConfig: android.content.res.Configuration) {
@@ -396,7 +335,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
-        model.setVisible(false)
+        send(Action.Backgrounded)
         super.onStop()
     }
 
@@ -407,50 +346,32 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handle(intent: Intent?) {
-        intent?.getStringExtra(EXTRA_ORDER)?.let(model::open)
-        if (intent?.getBooleanExtra(EXTRA_SHIFT, false) == true) model.openShift()
+        intent?.getStringExtra(EXTRA_ORDER)?.let { send(Action.OpenSale(it)) }
+        if (intent?.getBooleanExtra(EXTRA_SHIFT, false) == true) send(Action.OpenShift)
         when (intent?.action) {
-            Intent.ACTION_VIEW -> {
-                val uri = intent.data ?: return
-                posRedirect(uri)?.let { model.onPosRedirect(it, uri) }
-            }
+            // A point of sale's sign-in coming back, on its redirect or the build's return link (the setups'
+            // `returnUri`): the engine says which, and ignores anything else.
+            Intent.ACTION_VIEW -> intent.data?.let { send(Action.SignInReturned(it.toString())) }
+            // A shared connect link: the first word that is a link; the engine says whether it's a store's.
             Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)?.let { text ->
-                text.split(Regex("\\s+")).firstOrNull { model.onCode(it) }
+                text.split(Regex("\\s+")).firstOrNull { it.contains("://") }?.let { send(Action.ConnectLink(it)) }
             }
         }
     }
 
-    /** The point of sale whose sign-in [uri] returns from, by its return address; null for anything else. */
-    private fun posRedirect(uri: Uri): PointOfSale? = PointOfSale.entries.firstOrNull { pos ->
-        val expected = when (pos) {
-            PointOfSale.Square -> BuildConfig.SQUARE_RETURN_URI
-            PointOfSale.Clover -> BuildConfig.CLOVER_RETURN_URI
-        }.toUri()
-        uri.scheme == expected.scheme && uri.host == expected.host && uri.path.orEmpty() == expected.path.orEmpty()
-    }
+    private fun permissionsMayHaveChanged() = (application as TillApp).permissionsMayHaveChanged()
 
-    /** The chosen point of sale's sign-in, in a Custom Tab. */
-    private fun signIn() {
-        model.signInUrl()?.let(::openInTab)
-    }
+    private fun copy(text: String) = SaleNotifications.copyText(this, text, CopyKind.ADDRESS)
 
     private fun openInTab(url: String) {
-        CustomTabsIntent.Builder().build().launchUrl(this, url.toUri())
-    }
-
-    /** The UnifiedPush apps' names, for the rows to pick one from; a package Android can't name shows as itself. */
-    private fun distributorNames(status: WakeUpStatus): Map<String, String> {
-        if (status !is WakeUpStatus.ChooseDistributor) return emptyMap()
-        return status.packages.associateWith { pkg ->
-            runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg)
-        }
+        runCatching { CustomTabsIntent.Builder().build().launchUrl(this, url.toUri()) }
     }
 
     private fun allowNotifications() {
-        if (Build.VERSION.SDK_INT >= 33 && !model.notificationsAllowed()) {
+        if (Build.VERSION.SDK_INT >= 33 && !NotificationManagerCompat.from(this).areNotificationsEnabled()) {
             notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
-            model.go(Screen.Float)
+            send(Action.Next)
         }
     }
 
@@ -483,4 +404,24 @@ class MainActivity : ComponentActivity() {
         /** Square Point of Sale's package. */
         const val SQUARE_POS = "com.squareup"
     }
+}
+
+/** Whether [page] is the step [screen] shows. */
+private fun OnboardingPage.isFor(screen: Screen): Boolean = when (this) {
+    is OnboardingPage.Welcome -> screen == Screen.Welcome
+    is OnboardingPage.Scan -> screen == Screen.Scan
+    is OnboardingPage.Confirm -> screen == Screen.Confirm
+    is OnboardingPage.Connected -> screen == Screen.Connected
+    is OnboardingPage.PointOfSale -> screen == Screen.PointOfSale
+    is OnboardingPage.Locations -> screen == Screen.Locations
+    is OnboardingPage.Alerts -> screen == Screen.Alerts
+    is OnboardingPage.Float -> screen == Screen.Float
+    is OnboardingPage.Ready -> screen == Screen.Ready
+}
+
+/** The till's point of sale, as Settings names it: the one signed in to, else the one chosen. */
+private fun tillPointOfSale(settings: SettingsView?): PosMark? = when (val p = settings?.pointOfSale) {
+    is PosSection.SignedIn -> p.mark
+    is PosSection.Choosing -> p.choices.firstOrNull { it.choice.selected }?.mark
+    null -> null
 }

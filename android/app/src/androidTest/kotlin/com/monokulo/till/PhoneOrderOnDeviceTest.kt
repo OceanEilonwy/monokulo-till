@@ -29,6 +29,7 @@ import kotlin.math.abs
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import uniffi.till_screens.BubbleLook
 
 /**
  * The phone panel's order growing out of its code card (M5, decision 173):
@@ -55,7 +56,7 @@ class PhoneOrderOnDeviceTest {
                 backdrop = mk.danger
                 ground = mk.ground
                 Box(Modifier.fillMaxSize().background(backdrop).testTag("window")) {
-                    PhonePanel(sale, "Front Counter", BubbleLook.Lit, page, actions, raised)
+                    PhonePanel(panelOf(sale), "Front Counter", BubbleLook.LIT, page, actions, raised)
                 }
             }
         }

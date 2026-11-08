@@ -47,8 +47,8 @@ the way are in
 ## Building the Android app
 
 You need JDK 21, the Android SDK with platform 37.2 and NDK r27, and Rust
-with the Android targets and `cargo-ndk`: the receipt codec is the Rust crate
-`orf-codec`, built into the app. Android Studio includes the JDK: it's at
+with the Android targets and `cargo-ndk`: the app's core is the Rust crate
+`till-ffi`, built into the app. Android Studio includes the JDK: it's at
 `<android-studio>/jbr`.
 
 ```sh
@@ -130,18 +130,14 @@ Clover's emulator image.
 
 | Module | What it is |
 | --- | --- |
-| `android/core` | Pure Kotlin, no Android: connect codes, the Monokulo client, sale events. |
 | `android/ffi` | The Rust core: builds `crates/till-ffi`, the one native library, for each ABI, and its Kotlin bindings (UniFFI). |
-| `android/receipt` | ORF receipts in the payment code, through `crates/orf-codec-ffi`, inside `till-ffi`. |
-| `android/sales` | Square and Clover on the till (PKCE sign-in, Monero tenders, orders, refunds) and the till's sales. |
-| `android/push` | Wake-ups: the Bell's API, the till's registration with it, and its dings over UnifiedPush. |
-| `android/app` | The Compose app, the shift's foreground service, its notifications and the bubble over other apps. |
+| `android/app` | The Compose app, the shift's foreground service, its notifications and the bubble over other apps, each drawing what the engine publishes. |
 
-The Android modules above are moving into a Rust core shared with the
-coming iOS app ([docs/ios-plan.md](docs/ios-plan.md)): `crates/monokulo-client`,
-`crates/till-pos`, `crates/till-sales`, `crates/till-bell` and the engine,
-`crates/till-app`. Android keeps its Kotlin modules until the engine
-can drive it ([docs/decisions/core.md](docs/decisions/core.md) 2).
+Everything the till does lives in the Rust core it shares with the iOS app
+([docs/ios-plan.md](docs/ios-plan.md)): `crates/monokulo-client`,
+`crates/till-pos`, `crates/till-sales`, `crates/till-bell`, the screens'
+words in `crates/till-screens`, and the engine, `crates/till-app`, which
+Android's app follows ([docs/decisions/core.md](docs/decisions/core.md)).
 
 ### Running it end to end on an emulator
 

@@ -8,6 +8,7 @@ use monokulo_client::{MoneyFormat, PointOfSale};
 use till_sales::TillSale;
 
 use crate::time::DeviceClock;
+use crate::view::{Ring, ring};
 use crate::{pos_text, sale_text};
 
 /// "14:52 left" while the code counts down (waiting, or part paid); `None`
@@ -48,6 +49,7 @@ pub struct CodeView {
     /// Which of the four steps the ring beside "Scan with any Monero
     /// wallet" is at.
     pub step: u8,
+    pub ring: Ring,
     /// The sale is no longer live: the code gives way to the sale's page.
     pub done: bool,
     /// The countdown is on screen: draw it again in a second.
@@ -64,6 +66,7 @@ pub fn code(input: &CodeInput, clock: DeviceClock, money: &dyn MoneyFormat) -> C
         under: under(sale, pos_text::of(sale, input.till), seconds),
         code: sale.code.uri.clone(),
         step: sale_text::step(sale.phase),
+        ring: ring(sale),
         done: !live,
         ticks: live && sale.phase.counts_down(),
     }
@@ -137,6 +140,11 @@ mod tests {
                 under: "0.31684 XMR · 14:52 left".into(),
                 code: "monero:4abc".into(),
                 step: 1,
+                ring: Ring {
+                    step: 1,
+                    confirmations: None,
+                    required: None,
+                },
                 done: false,
                 ticks: true,
             }

@@ -15,7 +15,7 @@ use till_sales::TillSale;
 use crate::order_text::{OrderCard, order_card};
 use crate::sale_page::header;
 use crate::time::DeviceClock;
-use crate::view::{Device, Press};
+use crate::view::{Device, Press, Ring, ring};
 use crate::{close, pos_text, sale_text};
 
 /// What the sale screen shows.
@@ -55,6 +55,7 @@ pub struct SaleView {
     pub hint: String,
     /// Which of the four steps the ring is at; 4 with the tick.
     pub step: u8,
+    pub ring: Ring,
     /// What was bought, three lines at most, from this till's receipt.
     pub order: Option<OrderCard>,
     /// "Copy address", and what it copies.
@@ -102,6 +103,7 @@ pub fn sale(
         status: sale_text::status(sale, header.pos),
         hint: sale_text::hint(sale, seconds),
         step: sale_text::step(sale.phase),
+        ring: ring(sale),
         order: sale
             .receipt
             .as_ref()
@@ -244,6 +246,15 @@ mod tests {
         assert_eq!(view.status, "Confirming · 4 of 10");
         assert_eq!(view.hint, "The customer can go: it's being confirmed");
         assert_eq!(view.step, 3);
+        assert_eq!(
+            view.ring,
+            Ring {
+                step: 3,
+                confirmations: Some(4),
+                required: Some(10),
+            },
+            "the ring grows with each confirmation"
+        );
         assert!(!view.ticks);
     }
 }

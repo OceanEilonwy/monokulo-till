@@ -11,7 +11,7 @@ use till_screens::close::{self, CloseInput};
 use till_screens::code::{self, CodeInput};
 use till_screens::live_activity::{self, LiveActivityInput, LiveActivityState};
 use till_screens::notification::{self, NotificationInput, Ongoing};
-use till_screens::order_text::order_card;
+use till_screens::order_text::order_page;
 use till_screens::pos_text;
 use till_screens::sale::{self, SaleInput};
 use till_screens::sale_page::{self, SalePageInput};
@@ -273,10 +273,7 @@ impl State {
             clock,
             &money,
         );
-        let order = sale
-            .receipt
-            .as_ref()
-            .map(|receipt| order_card(receipt, pos_text::of(&sale, till), false));
+        let order = order_page(&sale, pos_text::of(&sale, till), clock);
         Some(crate::Update::Sale {
             order_id: order_id.to_owned(),
             view,

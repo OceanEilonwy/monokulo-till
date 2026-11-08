@@ -26,114 +26,62 @@ import androidx.core.content.ContextCompat
 import androidx.core.graphics.createBitmap
 import com.monokulo.till.MainActivity
 import com.monokulo.till.R
-import com.monokulo.till.PosText
-import com.monokulo.till.SaleText
-import com.monokulo.till.core.PointOfSale
-import com.monokulo.till.core.SalePhase
-import com.monokulo.till.sales.TillSale
-import com.monokulo.till.sales.live
 import com.monokulo.till.ui.Fixed
 import com.monokulo.till.ui.qrBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import uniffi.till_app.CopyKind
+import uniffi.till_app.endedSummary
+import uniffi.till_screens.Face
+import uniffi.till_screens.FaceIcon
+import uniffi.till_screens.FaceTint
+import uniffi.till_screens.Notice
+import uniffi.till_screens.NoticeAction
+import uniffi.till_screens.OngoingFace
 
 /**
- * What the shift's ongoing notification says about a sale (the design's
- * Shade and Chips boards), worked out from the sale alone. Its [icon] is
- * the status bar chip's: the ring filling a quarter a step, or the tick
- * once paid, and nothing else, no amount and no words.
+ * How Android lays out the engine's faces (`till_screens::notification`):
+ * the drawable and colour for a face's icon and tint, the channel, and the
+ * private text. Pure, so it's tested on the JVM.
  */
-data class Face(
-    @param:DrawableRes val icon: Int,
-    @param:ColorInt val color: Int,
-    val title: String,
-    /** "$13.88 · 3 items · waiting for payment". */
-    val text: String,
-    /** What was bought ("2 × Flat white, Almond croissant"): the private version only, null without a receipt. */
-    val detail: String?,
-    /** The lock screen's text: the amount and the phase, never an item. */
-    val publicText: String,
-    /** How many of the four steps are filled. */
-    val step: Int,
-    /** The customer still has to scan: "Full screen" beside "Show code", else "Copy address". */
-    val fullScreen: Boolean,
-) {
-    companion object {
-        private val accent = Fixed.Accent.toArgb()
-        private val paidGreen = Fixed.Paid.toArgb()
-
-        /** A sale whose code is up, in [location] (the till's Square location or Clover merchant). */
-        fun of(sale: TillSale, location: String?): Face {
-            val (icon, title, phrase) = when (sale.phase) {
-                SalePhase.Seen -> Triple(R.drawable.ic_mark_q2, "Seen on the network", "waiting for confirmation")
-                SalePhase.Confirming -> Triple(R.drawable.ic_mark_q3, "Confirming", "nearly there")
-                SalePhase.Partial -> Triple(R.drawable.ic_mark_q1, "Part paid · ${SaleText.place(sale, location)}", "ask the customer to pay the rest")
-                else -> Triple(R.drawable.ic_mark_q1, "New Monero sale · " + (location ?: SaleText.place(sale, location)), "waiting for payment")
-            }
-            val amount = SaleText.amount(sale)
-            val receipt = sale.receipt
-            return Face(
-                icon = icon,
-                color = accent,
-                title = title,
-                text = listOfNotNull(amount, receipt?.let(SaleText::items), phrase).joinToString(" · "),
-                // Every line: Android ellipsises what doesn't fit.
-                detail = receipt?.takeIf { it.lineItems.isNotEmpty() }?.let { SaleText.firstItems(it, show = it.lineItems.size) },
-                publicText = "$amount · $phrase",
-                step = SaleText.step(sale.phase),
-                fullScreen = sale.phase == SalePhase.Waiting || sale.phase == SalePhase.Partial,
-            )
-        }
-
-        /** The few seconds after [sale] is paid: a green tick in the chip. */
-        fun paid(sale: TillSale): Face {
-            val text = "${SaleText.amount(sale)} · ${SaleText.xmr(sale)} received"
-            return Face(
-                icon = R.drawable.ic_tick,
-                color = paidGreen,
-                title = "Paid · ${SaleText.title(sale)}",
-                text = text,
-                detail = null,
-                publicText = text,
-                step = 4,
-                fullScreen = false,
-            )
-        }
+object Shade {
+    /** The status bar chip: the ring filling a quarter a step, or the tick once paid; the mark with no sale. */
+    @DrawableRes
+    fun icon(icon: FaceIcon): Int = when (icon) {
+        FaceIcon.MARK -> R.drawable.ic_mark
+        FaceIcon.RING_QUARTER -> R.drawable.ic_mark_q1
+        FaceIcon.RING_HALF -> R.drawable.ic_mark_q2
+        FaceIcon.RING_THREE_QUARTERS -> R.drawable.ic_mark_q3
+        FaceIcon.TICK -> R.drawable.ic_tick
     }
-}
 
-/** What the shift's one ongoing notification is about. */
-sealed interface Ongoing {
-    /** No sale's code is up: what's being watched. */
-    data object Watching : Ongoing
-
-    /** The newest sale whose code is up. */
-    data class Sale(val sale: TillSale) : Ongoing
-
-    /** A sale just paid, for [com.monokulo.till.ui.Motion.Dwell.PAID_MS]. */
-    data class Paid(val sale: TillSale) : Ongoing
-
-    companion object {
-        /**
-         * The sale [justPaid] while it shows as paid, else the newest live
-         * sale, else watching. A sale closed, expired or reversed is no
-         * longer live, so the chip goes with it at once.
-         */
-        fun of(sales: List<TillSale>, justPaid: String?): Ongoing {
-            sales.firstOrNull { it.orderId == justPaid && it.phase == SalePhase.Paid }?.let { return Paid(it) }
-            return sales.firstOrNull { it.live }?.let(::Sale) ?: Watching
-        }
+    @ColorInt
+    fun color(tint: FaceTint): Int = when (tint) {
+        FaceTint.ACCENT -> Fixed.Accent.toArgb()
+        FaceTint.PAID -> Fixed.Paid.toArgb()
     }
+
+    /** The items go on a line of their own: ProgressStyle takes the style a second line would need. */
+    fun text(face: Face): String = listOfNotNull(face.text, face.detail).joinToString("\n")
+
+    /**
+     * A sale the customer still has to scan, or one alerting, is on the
+     * high-importance channel; once the payment is seen it moves to the
+     * quiet one, and only alerts once either way.
+     */
+    fun channel(face: Face, alert: Boolean): String =
+        if (alert || face.fullScreen) SaleNotifications.CHANNEL_SALES else SaleNotifications.CHANNEL_SHIFT
 }
 
 /**
  * The till's notifications (`docs/design.md` §9 "notifications"; the
- * design's Shade and Chips boards). One ongoing notification for the
- * shift, which becomes the current sale with its progress (Waiting, Seen,
- * Confirming) and is promoted to a Live Update on Android 16+, its status
- * bar chip the small icon alone; a green tick for a few seconds once the
- * sale is paid; then a short "Paid" or "No payment yet" one of its own,
- * not promoted, for each sale that ends.
+ * design's Shade and Chips boards), drawn from the engine's faces: their
+ * words and grouping are the engine's, the channels, intents and styles
+ * Android's. One ongoing notification for the shift ([OngoingFace]), which
+ * becomes the current sale with its progress and is promoted to a Live
+ * Update on Android 16+, its status bar chip the small icon alone; a green
+ * tick for a few seconds once the sale is paid; then a short notice of its
+ * own ([NotificationFace]), not promoted, for each sale that ends.
  */
 class SaleNotifications(private val context: Context) {
     private val accent = Fixed.Accent.toArgb()
@@ -156,49 +104,55 @@ class SaleNotifications(private val context: Context) {
                 ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
             ) && NotificationManagerCompat.from(context).areNotificationsEnabled()
 
-    /** The shift's notification with no sale: what's being watched. */
-    fun watching(store: String, location: String?): Notification = NotificationCompat.Builder(context, CHANNEL_SHIFT)
-        .setSmallIcon(R.drawable.ic_mark)
-        .setColor(accent)
-        .setContentTitle(context.getString(R.string.watching_title))
-        .setContentText(listOfNotNull(store.ifEmpty { null }, location).joinToString(" · "))
-        .setOngoing(true)
-        .setSilent(true)
-        .setCategory(NotificationCompat.CATEGORY_SERVICE)
-        .setContentIntent(openApp(null))
-        .build()
+    /** The shift's notification with no sale: what's being watched ([OngoingFace.Watching]'s words). */
+    fun watching(title: String = context.getString(R.string.watching_title), text: String = ""): Notification =
+        NotificationCompat.Builder(context, CHANNEL_SHIFT)
+            .setSmallIcon(R.drawable.ic_mark)
+            .setColor(accent)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setOngoing(true)
+            .setSilent(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setContentIntent(openApp(null))
+            .build()
 
     /**
-     * The shift's notification for [sale], waiting for its money. [alert]
-     * makes it a heads-up (a new sale). Its large icon is the code, encoded
-     * off the main thread: with a receipt in it that's a version-25 code at
-     * four pixels a module, about 880 kB of pixels, and the service builds
-     * this on every phase change.
+     * The shift's notification as [face] says: a sale's payment code is
+     * drawn as the large icon, and its address is what "Copy address"
+     * copies. A sale's `alert`, set in
+     * the one update as it arrives while Till is away, makes it a heads-up;
+     * a post without it only alerts once. The code is encoded off the main thread: with
+     * a receipt in it that's a version-25 code at four pixels a module,
+     * about 880 kB of pixels.
      */
-    suspend fun sale(sale: TillSale, location: String?, alert: Boolean): Notification {
-        val face = Face.of(sale, location)
-        val showCode = showCode(sale.orderId)
-        val icon = withContext(Dispatchers.Default) { runCatching { qrBitmap(sale.code.uri, scale = 4, margin = 2) }.getOrNull() }
-        val builder = live(face, sale, if (alert || sale.phase == SalePhase.Waiting) CHANNEL_SALES else CHANNEL_SHIFT)
-            .setOnlyAlertOnce(!alert)
-            .setLargeIcon(icon)
-            .setContentIntent(showCode)
-            .addAction(0, "Show code", showCode)
-        if (face.fullScreen) {
-            builder.addAction(0, "Full screen", openApp(sale.orderId))
-        } else {
-            builder.addAction(0, "Copy address", copy(sale))
+    suspend fun ongoing(face: OngoingFace): Notification = when (face) {
+        is OngoingFace.Watching -> watching(face.title, face.text)
+        is OngoingFace.Paid -> live(face.face, face.subText, CHANNEL_SHIFT)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setLargeIcon(tick())
+            .setContentIntent(openApp(face.orderId))
+            .build()
+        is OngoingFace.Sale -> {
+            val heads = face.alert
+            val showCode = showCode(face.orderId)
+            val icon = withContext(Dispatchers.Default) { runCatching { qrBitmap(face.code, scale = 4, margin = 2) }.getOrNull() }
+            val builder = live(face.face, face.subText, Shade.channel(face.face, heads))
+                .setOnlyAlertOnce(!heads)
+                .setLargeIcon(icon)
+                .setContentIntent(showCode)
+            for (button in face.buttons) {
+                val intent = when (button.action) {
+                    NoticeAction.SHOW_CODE -> showCode
+                    NoticeAction.FULL_SCREEN -> openApp(face.orderId)
+                    NoticeAction.COPY_ADDRESS -> copy(face.orderId, face.address)
+                }
+                builder.addAction(0, button.label, intent)
+            }
+            builder.build()
         }
-        return builder.build()
     }
-
-    /** The shift's notification for the few seconds after [sale] is paid: the chip's green tick. Silent: [paid] is the one that alerts. */
-    fun justPaid(sale: TillSale): Notification = live(Face.paid(sale), sale, CHANNEL_SHIFT)
-        .setOnlyAlertOnce(true)
-        .setSilent(true)
-        .setLargeIcon(tick())
-        .setContentIntent(openApp(sale.orderId))
-        .build()
 
     /**
      * A Live Update showing [face]: promoted on Android 16+, where its
@@ -209,25 +163,26 @@ class SaleNotifications(private val context: Context) {
      * private version names what was bought; the public one, on the lock
      * screen, never does.
      */
-    private fun live(face: Face, sale: TillSale, channel: String): NotificationCompat.Builder {
+    private fun live(face: Face, subText: String, channel: String): NotificationCompat.Builder {
+        val color = Shade.color(face.tint)
+        val icon = Shade.icon(face.icon)
         val style = NotificationCompat.ProgressStyle()
-            .setProgressSegments(List(4) { NotificationCompat.ProgressStyle.Segment(1).setColor(face.color) })
+            .setProgressSegments(List(4) { NotificationCompat.ProgressStyle.Segment(1).setColor(color) })
             .setStyledByProgress(true)
-            .setProgress(face.step)
+            .setProgress(face.step.toInt())
         val public = NotificationCompat.Builder(context, channel)
-            .setSmallIcon(face.icon)
-            .setColor(face.color)
+            .setSmallIcon(icon)
+            .setColor(color)
             .setContentTitle(face.title)
             .setContentText(face.publicText)
             .setShowWhen(false)
             .build()
         return NotificationCompat.Builder(context, channel)
-            .setSmallIcon(face.icon)
-            .setColor(face.color)
+            .setSmallIcon(icon)
+            .setColor(color)
             .setContentTitle(face.title)
-            // The items go on a line of their own: ProgressStyle takes the style a second line would need.
-            .setContentText(listOfNotNull(face.text, face.detail).joinToString("\n"))
-            .setSubText(SaleText.title(sale))
+            .setContentText(Shade.text(face))
+            .setSubText(subText)
             .setShowWhen(false)
             .setStyle(style)
             .setOngoing(true)
@@ -237,59 +192,32 @@ class SaleNotifications(private val context: Context) {
             .setRequestPromotedOngoing(true)
     }
 
-    /** Replaces the sale's progress once it's paid: short, and gone after a while; [quiet] (no banner) while Till is on screen saying so. */
-    fun paid(sale: TillSale, quiet: Boolean) = post(
-        sale,
-        NotificationCompat.Builder(context, CHANNEL_SALES)
-            .setSmallIcon(R.drawable.ic_mark)
-            .setColor(paidGreen)
-            .setLargeIcon(tick())
-            .setContentTitle("Paid · ${SaleText.title(sale)}")
-            .setContentText("${SaleText.amount(sale)} · ${SaleText.xmr(sale)} received")
-            .setCategory(NotificationCompat.CATEGORY_STATUS)
-            .setGroup(GROUP_ENDED)
-            .setAutoCancel(true)
-            .setTimeoutAfter(ENDED_MS)
-            .setSilent(quiet)
-            .setContentIntent(openApp(sale.orderId))
-            .build(),
-    )
-
-    /** A sale that ended without its money, at a till on [till]: open it to refund the point of sale's sale. */
-    fun unpaid(sale: TillSale, till: PointOfSale?, quiet: Boolean) = post(
-        sale,
-        NotificationCompat.Builder(context, CHANNEL_SALES)
-            .setSmallIcon(R.drawable.ic_mark)
-            .setColor(accent)
-            .setContentTitle("${SaleText.status(sale, till)} · ${SaleText.title(sale)}")
-            .setContentText(
-                "${SaleText.amount(sale)}. " + if (sale.found != null) {
-                    PosText.refundItIn(till).replaceFirstChar(Char::uppercase) + " if the customer isn't paying."
-                } else {
-                    PosText.refundOnOtherTill(till, "the till that took it")
-                },
-            )
-            .setCategory(NotificationCompat.CATEGORY_STATUS)
-            .setGroup(GROUP_ENDED)
-            .setAutoCancel(true)
-            .setSilent(quiet)
-            .setContentIntent(openApp(sale.orderId))
-            .build(),
-    )
-
     /** Posts [notification] as the shift's one ongoing notification. */
     fun ongoing(notification: Notification) = notify(ONGOING_ID, notification)
 
     /**
-     * Posts a sale's own "Paid" or "No payment yet" in the ended group,
-     * and, once there are two, the group's summary: left to itself Android
-     * bundles them under the launcher icon, a solid square in the status
-     * bar. The summary goes when the Paid ones would, so it never outlives
-     * them for long; an unpaid one left after that stands alone.
+     * Posts [orderId]'s own [notice] ([uniffi.till_app.Effect.Notify]) in the
+     * ended group: a [paid] one with the green tick, gone after a while;
+     * [quiet] (no banner) while Till is on screen saying so. Once there are two, the
+     * group's summary goes up too: left to itself Android bundles them under
+     * the launcher icon, a solid square in the status bar. The summary goes
+     * when the Paid ones would, so it never outlives them for long; an unpaid
+     * one left after that stands alone.
      */
-    private fun post(sale: TillSale, notification: Notification) {
-        val id = idOf(sale)
-        notify(id, notification)
+    fun notice(orderId: String, notice: Notice, paid: Boolean, quiet: Boolean) {
+        val builder = NotificationCompat.Builder(context, CHANNEL_SALES)
+            .setSmallIcon(R.drawable.ic_mark)
+            .setColor(if (paid) paidGreen else accent)
+            .setContentTitle(notice.title)
+            .setContentText(notice.text)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setGroup(GROUP_ENDED)
+            .setAutoCancel(true)
+            .setSilent(quiet)
+            .setContentIntent(openApp(orderId))
+        if (paid) builder.setLargeIcon(tick()).setTimeoutAfter(ENDED_MS)
+        val id = idOf(orderId)
+        notify(id, builder.build())
         // The system posts in its own time, so the one just sent may not be listed yet: count the others and add it.
         val others = runCatching {
             context.getSystemService(NotificationManager::class.java).activeNotifications
@@ -299,10 +227,15 @@ class SaleNotifications(private val context: Context) {
         if (ended >= 2) notify(SUMMARY_ID, summary(ended))
     }
 
+    /** The sale [orderId] is gone from the shift: its notice goes with it. */
+    fun clear(orderId: String) {
+        runCatching { NotificationManagerCompat.from(context).cancel(idOf(orderId)) }
+    }
+
     private fun summary(ended: Int): Notification = NotificationCompat.Builder(context, CHANNEL_SALES)
         .setSmallIcon(R.drawable.ic_mark)
         .setColor(accent)
-        .setContentTitle("$ended sales ended")
+        .setContentTitle(endedSummary(ended.toUInt()).title)
         .setGroup(GROUP_ENDED)
         .setGroupSummary(true)
         .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
@@ -350,10 +283,12 @@ class SaleNotifications(private val context: Context) {
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
 
-    private fun copy(sale: TillSale): PendingIntent = PendingIntent.getBroadcast(
+    /** "Copy address": the sale's [address], as its ongoing face carries it. */
+    private fun copy(orderId: String, address: String): PendingIntent = PendingIntent.getBroadcast(
         context,
-        sale.orderId.hashCode(),
-        Intent(context, CopyReceiver::class.java).putExtra(CopyReceiver.EXTRA_ADDRESS, sale.address),
+        orderId.hashCode(),
+        Intent(context, CopyReceiver::class.java)
+            .putExtra(CopyReceiver.EXTRA_ADDRESS, address),
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
 
@@ -392,25 +327,26 @@ class SaleNotifications(private val context: Context) {
         /** How long a "Paid" notification stays. */
         const val ENDED_MS = 5 * 60 * 1000L
 
-        private fun idOf(sale: TillSale) = 1000 + (sale.orderId.hashCode() and 0x7FFFFF)
+        private fun idOf(orderId: String) = 1000 + (orderId.hashCode() and 0x7FFFFF)
 
         /**
-         * Copies [address] (a sale's, for the customer, or the store wallet's
-         * from Settings), saying so where Android doesn't (before 13). Not
-         * marked sensitive: a receiving address is for sharing, and Android's
-         * preview lets the cashier check what was copied.
+         * The engine's [uniffi.till_app.Effect.CopyText], named by what it
+         * copies ([kind]): an address, an XMR amount (the panel's XMR line,
+         * for a wallet that wants it typed), or anything else; said so where
+         * Android doesn't (before 13). Not marked sensitive: a receiving
+         * address is for sharing, and Android's preview lets the cashier
+         * check what was copied.
          */
-        fun copyAddress(context: Context, address: String) {
+        fun copyText(context: Context, text: String, kind: CopyKind) {
+            val (label, said) = when (kind) {
+                CopyKind.ADDRESS -> "Monero address" to "Address copied"
+                CopyKind.AMOUNT -> "XMR amount" to "Amount copied"
+                CopyKind.OTHER -> "Till" to "Copied"
+            }
             val clipboard = context.getSystemService(ClipboardManager::class.java)
-            clipboard.setPrimaryClip(ClipData.newPlainText("Monero address", address))
-            if (Build.VERSION.SDK_INT < 33) Toast.makeText(context, "Address copied", Toast.LENGTH_SHORT).show()
-        }
-
-        /** Copies a sale's exact XMR amount (the panel's XMR line), for a wallet that wants it typed. */
-        fun copyXmr(context: Context, xmr: String) {
-            val clipboard = context.getSystemService(ClipboardManager::class.java)
-            clipboard.setPrimaryClip(ClipData.newPlainText("XMR amount", xmr))
-            if (Build.VERSION.SDK_INT < 33) Toast.makeText(context, "Amount copied", Toast.LENGTH_SHORT).show()
+            clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
+            // Android 13 and later show their own word for a copy.
+            if (Build.VERSION.SDK_INT < 33) Toast.makeText(context, said, Toast.LENGTH_SHORT).show()
         }
     }
 }
@@ -419,7 +355,7 @@ class SaleNotifications(private val context: Context) {
 class CopyReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val address = intent.getStringExtra(EXTRA_ADDRESS) ?: return
-        SaleNotifications.copyAddress(context, address)
+        SaleNotifications.copyText(context, address, CopyKind.ADDRESS)
     }
 
     companion object {

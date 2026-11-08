@@ -195,7 +195,7 @@ struct SaleScreens {
     let page: SalePageView
     let code: CodeView
     /// Every line of its order, for the order screen.
-    let order: OrderCard?
+    let order: OrderPageView?
 }
 
 /// The close sheet over a sale, while one is asked (`Update.closeSheet`).

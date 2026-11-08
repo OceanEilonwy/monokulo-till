@@ -6,7 +6,7 @@
 use monokulo_client::{MoneyFormat, PointOfSale, SalePhase};
 use till_sales::{Standing, TillSale};
 
-use crate::order_text::{OrderCard, order_card};
+use crate::order_text::{OrderPageView, order_page};
 use crate::sale::{SaleInput, SaleView};
 use crate::time::DeviceClock;
 use crate::view::Device;
@@ -269,15 +269,11 @@ pub struct PanelView {
     /// "14:52 left", beside the status, while the code counts down; else
     /// `None`. (The sale's `hint` says more, for the sale screen.)
     pub time_left: Option<String>,
-    /// The ring's fill once the payment is seen: confirmations so far, of
-    /// how many.
-    pub confirmations: Option<u32>,
-    pub confirmations_required: Option<u32>,
     pub hero: PanelHero,
-    /// The whole order, every line: the panel's order page.
-    pub order: Option<OrderCard>,
-    /// "15 items" or "1 item": how many the order is.
-    pub items: Option<String>,
+    /// The whole order, every line: the panel's order page, as the app's
+    /// own order page draws it. (The ring, confirmations and all, is the
+    /// sale's `ring`.)
+    pub order: Option<OrderPageView>,
     /// The code came down unpaid while the panel was up (acceptance P15):
     /// its heading, and what the cashier does about it.
     pub ended_heading: Option<String>,
@@ -311,14 +307,8 @@ pub fn panel(
         where_from: panel_where(s, input.location.as_deref()),
         created: (s.created_at > 0).then(|| sale_text::time_of(s.created_at, clock)),
         time_left: s.live().then(|| code::left(s, seconds)).flatten(),
-        confirmations: s.confirmations,
-        confirmations_required: s.confirmations_required,
         hero: hero(s),
-        order: s
-            .receipt
-            .as_ref()
-            .map(|r| order_card(r, pos_text::of(s, input.till), false)),
-        items: s.receipt.as_ref().map(sale_text::items),
+        order: order_page(s, pos_text::of(s, input.till), clock),
         ended_heading: ended.then(|| panel_ended_heading(s, input.till)),
         ended_line: ended.then(|| panel_ended_line(s, input.till)),
         ticks: view.ticks,
@@ -732,14 +722,9 @@ mod panel_tests {
         assert_eq!(view.time_left.as_deref(), Some("14:52 left"));
         assert_eq!(view.sale.hint, "Scan with any Monero wallet · 14:52 left");
         assert_eq!(view.hero, PanelHero::Code);
-        assert_eq!(view.items.as_deref(), Some("9 items"));
         let order = view.order.unwrap();
-        assert_eq!(
-            order.lines.len(),
-            5,
-            "every line, not the live card's three"
-        );
-        assert_eq!(order.more, None);
+        assert_eq!(order.items, "9 items");
+        assert_eq!(order.rows.len(), 5, "every line, not the live card's three");
         assert!(
             view.sale.order.unwrap().more.is_some(),
             "the sale's own card folds"
@@ -755,7 +740,7 @@ mod panel_tests {
         };
         let view = panel(&input(confirming), Device::Android, la(at()), &money);
         assert_eq!(
-            (view.confirmations, view.confirmations_required),
+            (view.sale.ring.confirmations, view.sale.ring.required),
             (Some(4), Some(10))
         );
         assert_eq!(

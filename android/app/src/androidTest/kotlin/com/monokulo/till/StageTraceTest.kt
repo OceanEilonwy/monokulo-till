@@ -1,5 +1,6 @@
 package com.monokulo.till
 
+import uniffi.till_app.Screen
 import androidx.compose.animation.core.SeekableTransitionState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -8,7 +9,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
-import com.monokulo.till.OneClockTest.Companion.noActions
 import com.monokulo.till.ui.CodeScreen
 import com.monokulo.till.ui.Motion
 import com.monokulo.till.ui.SaleScreen
@@ -50,7 +50,7 @@ class StageTraceTest {
             Till {
                 LaunchedEffect(screen) { state.animateTo(screen, Motion.Full.stage) }
                 TillStage(state, cameUpByItself = { false }) { s ->
-                    if (s is Screen.Code) CodeScreen(sale, onBack = {}) else SaleScreen(sale, "Front", refunding = false, refundProblem = null, refundSheet = null, actions = noActions, now = now)
+                    if (s is Screen.Code) CodeScreen(rememberFace(sale), onBack = {}) else SaleScreen(rememberFace(sale, now.longValue), noActions)
                 }
             }
         }

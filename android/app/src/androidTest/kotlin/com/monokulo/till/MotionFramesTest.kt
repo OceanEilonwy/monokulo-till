@@ -1,5 +1,6 @@
 package com.monokulo.till
 
+import uniffi.till_app.Screen
 import android.graphics.Bitmap
 import android.os.Environment
 import androidx.compose.animation.core.SeekableTransitionState
@@ -24,9 +25,6 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.test.platform.app.InstrumentationRegistry
-import com.monokulo.till.OneClockTest.Companion.noActions
-import com.monokulo.till.OneClockTest.Companion.status
-import com.monokulo.till.core.SalePhase
 import com.monokulo.till.ui.CodeScreen
 import androidx.compose.runtime.CompositionLocalProvider
 import com.monokulo.till.ui.HeroSize
@@ -77,10 +75,10 @@ class MotionFramesTest {
                 CompositionLocalProvider(LocalGroundTracks provides { key -> GroundTrack(key).also { tracks.getOrPut(key) { mutableListOf() } += it } }) {
                 TillStage(state, cameUpByItself = { byItself }) { s ->
                     when (s) {
-                        is Screen.Code -> CodeScreen(shown, onBack = {})
-                        is Screen.Order -> OrderPage(shown, "Back to the sale", onBack = {}, onShowCode = {})
-                        is Screen.Sale -> SaleScreen(shown, "Front", refunding = false, refundProblem = null, refundSheet = null, actions = noActions, now = now)
-                        else -> ShiftScreen(status, sales, noActions, now)
+                        is Screen.Code -> CodeScreen(rememberFace(shown), onBack = {})
+                        is Screen.Order -> OrderPage(rememberFace(shown), "Back to the sale", onBack = {}, onShowCode = {})
+                        is Screen.Sale -> SaleScreen(rememberFace(shown, now.longValue), noActions)
+                        else -> EngineShift(sales, now.longValue, noActions)
                     }
                 }
                 }
@@ -248,7 +246,11 @@ class MotionFramesTest {
         repeat(3) { compose.mainClock.advanceTimeByFrame() }
         val start = compose.onRoot().captureToImage().asAndroidBitmap()
         var differ = 0
-        for (y in 0 until sale.height step 4) for (x in 0 until sale.width step 4) if (sale.getPixel(x, y) != start.getPixel(x, y)) differ++
+        // A pixel differs when a channel is off by more than a few levels: drawn through the stage's layer at 0, the
+        // sale's own edges are antialiased a level or two differently (at most 6 of 255 on an API 37 emulator),
+        // which no one sees; a word or bar of the page showing through is far more.
+        fun near(a: Int, b: Int) = (0..24 step 8).all { kotlin.math.abs((a shr it and 0xFF) - (b shr it and 0xFF)) <= 8 }
+        for (y in 0 until sale.height step 4) for (x in 0 until sale.width step 4) if (!near(sale.getPixel(x, y), start.getPixel(x, y))) differ++
         val total = (sale.height / 4) * (sale.width / 4)
         assertTrue(differ * 200 < total, "at 0 the page's bar, heading and foot are unseen and the card is the sale's own: $differ of $total differ")
     }

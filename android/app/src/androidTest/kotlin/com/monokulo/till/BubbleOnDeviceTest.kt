@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
-import com.monokulo.till.core.SalePhase
 import com.monokulo.till.overlay.BubbleFace
 import com.monokulo.till.ui.LocalMotion
 import com.monokulo.till.ui.TillTheme
@@ -17,18 +16,20 @@ import org.junit.Rule
 import org.junit.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import uniffi.till_screens.BubbleLook
 
 /** The bubble's pulse on a real window (M4): only with motion, only while a code waits. */
 class BubbleOnDeviceTest {
     @get:Rule
     val compose = createComposeRule()
 
-    private fun bubble(motion: Motion, look: BubbleLook, phase: SalePhase, pulse: Boolean = true, panelUp: Boolean = false) {
+    /** The free bubble in [look], pulsing as the engine says ([pulses]: `BubbleView.pulses`). */
+    private fun bubble(motion: Motion, look: BubbleLook, pulses: Boolean) {
         compose.mainClock.autoAdvance = false
         compose.setContent {
             TillTheme {
                 CompositionLocalProvider(LocalMotion provides motion) {
-                    Box(Modifier.testTag("bubble")) { BubbleFace(look, pulse, phase, panelUp) }
+                    Box(Modifier.testTag("bubble")) { BubbleFace(look, pulses = pulses) }
                 }
             }
         }
@@ -52,26 +53,28 @@ class BubbleOnDeviceTest {
 
     @Test
     fun aWaitingCodePulses() {
-        bubble(Motion.Full, BubbleLook.Lit, SalePhase.Waiting)
+        bubble(Motion.Full, BubbleLook.LIT, pulses = true)
         assertTrue(haloWithinATurn(), "the halo shows within one turn")
     }
 
     @Test
     fun underStillMotionNothingPulses() {
-        bubble(Motion.Still, BubbleLook.Lit, SalePhase.Waiting)
+        bubble(Motion.Still, BubbleLook.LIT, pulses = true)
         assertFalse(haloWithinATurn())
     }
 
     @Test
     fun aPanelUpBesideItStopsThePulse() {
-        // A tablet's free bubble stays up beside the open panel: it has called the cashier already.
-        bubble(Motion.Full, BubbleLook.Lit, SalePhase.Waiting, panelUp = true)
+        // A tablet's free bubble stays up beside the open panel: it has called the cashier already, and the engine,
+        // told so by PanelShown, says it doesn't pulse (`till_screens::bubble::pulses`).
+        bubble(Motion.Full, BubbleLook.LIT, pulses = false)
         assertFalse(haloWithinATurn(), "the panel is up: nothing to call for")
     }
 
     @Test
     fun aSeenPaymentStopsThePulse() {
-        bubble(Motion.Full, BubbleLook.Lit, SalePhase.Seen)
+        // Seen: the engine says the bubble doesn't pulse; still lit, the face draws no halo.
+        bubble(Motion.Full, BubbleLook.LIT, pulses = false)
         assertFalse(haloWithinATurn(), "nothing left to call the cashier for")
     }
 }

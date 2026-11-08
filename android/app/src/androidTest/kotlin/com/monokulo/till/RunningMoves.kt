@@ -1,5 +1,6 @@
 package com.monokulo.till
 
+import uniffi.till_app.Screen
 import android.graphics.Bitmap
 import android.os.Environment
 import androidx.compose.runtime.SideEffect
@@ -26,9 +27,6 @@ import android.graphics.Canvas
 import android.view.ViewGroup
 import androidx.core.view.WindowCompat
 import androidx.test.platform.app.InstrumentationRegistry
-import com.monokulo.till.OneClockTest.Companion.noActions
-import com.monokulo.till.OneClockTest.Companion.status
-import com.monokulo.till.sales.TillSale
 import com.monokulo.till.ui.CodeScreen
 import com.monokulo.till.ui.HeroTag
 import com.monokulo.till.ui.Motion
@@ -94,10 +92,10 @@ class RunningMoves(private val compose: AndroidComposeTestRule<*, ComponentActiv
                     val sale = keptWhileLeaving(s, model.screen) { shown }.value
                     Box(Modifier.fillMaxSize().testTag(tag(s))) {
                     when (s) {
-                        is Screen.Code -> CodeScreen(sale, onBack = {})
-                        is Screen.Order -> OrderPage(sale, "Back to the sale", onBack = {}, onShowCode = {})
-                        is Screen.Sale -> SaleScreen(sale, "Front", refunding = false, refundProblem = null, refundSheet = null, actions = noActions, now = now)
-                        else -> ShiftScreen(status, shift, noActions, now, place)
+                        is Screen.Code -> CodeScreen(rememberFace(sale), onBack = {})
+                        is Screen.Order -> OrderPage(rememberFace(sale), "Back to the sale", onBack = {}, onShowCode = {})
+                        is Screen.Sale -> SaleScreen(rememberFace(sale, now.longValue), noActions)
+                        else -> EngineShift(shift, now.longValue, noActions, place)
                     }
                     }
                 }

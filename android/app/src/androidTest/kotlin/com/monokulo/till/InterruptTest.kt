@@ -1,5 +1,6 @@
 package com.monokulo.till
 
+import uniffi.till_app.Screen
 import androidx.activity.OnBackPressedDispatcher
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.runtime.getValue
@@ -9,10 +10,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.unit.dp
-import com.monokulo.till.OneClockTest.Companion.noActions
-import com.monokulo.till.OneClockTest.Companion.status
-import com.monokulo.till.core.SalePhase
-import com.monokulo.till.sales.live
 import com.monokulo.till.ui.CodeScreen
 import com.monokulo.till.ui.OrderPage
 import com.monokulo.till.ui.SaleScreen
@@ -62,10 +59,10 @@ class InterruptTest(private val move: Moved, private val interruption: Interrupt
                     val shown = if (s.orderIdOrNull() == "b2") other else sale
                     when (s) {
                         // As the activity does: the enlarged code goes back by itself once its sale isn't live.
-                        is Screen.Code -> CodeScreen(shown, onBack = { model.back(s) })
-                        is Screen.Order -> OrderPage(shown, "Back to the sale", onBack = { model.back(s) }, onShowCode = { model.back(s) })
-                        is Screen.Sale -> SaleScreen(shown, "Front", refunding = false, refundProblem = null, refundSheet = null, actions = noActions, now = now)
-                        else -> ShiftScreen(status, listOf(sale, other), noActions, now)
+                        is Screen.Code -> CodeScreen(rememberFace(shown), onBack = { model.back(s) })
+                        is Screen.Order -> OrderPage(rememberFace(shown), "Back to the sale", onBack = { model.back(s) }, onShowCode = { model.back(s) })
+                        is Screen.Sale -> SaleScreen(rememberFace(shown, now.longValue), noActions)
+                        else -> EngineShift(listOf(sale, other), now.longValue, noActions)
                     }
                 }
             }

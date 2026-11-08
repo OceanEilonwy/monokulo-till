@@ -57,17 +57,16 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import com.monokulo.till.core.Amounts
-import com.monokulo.till.core.ConnectCode
-import com.monokulo.till.StoreNow
-import com.monokulo.till.core.Connection
 import com.monokulo.till.overlay.BubbleFace
-import com.monokulo.till.sales.SquareLocation
-import com.monokulo.till.sales.TillSale
-import com.monokulo.till.BubbleLook
-import com.monokulo.till.SaleText
-import com.monokulo.till.PosText
-import com.monokulo.till.core.PointOfSale
+import uniffi.till_screens.Account
+import uniffi.till_screens.Fact
+import uniffi.till_screens.OnboardingPage
+import uniffi.till_screens.PosCard
+import uniffi.till_screens.PosChoice
+import uniffi.till_screens.PosMark
+import uniffi.till_screens.PosStep
+import uniffi.till_screens.SampleAlert
+import uniffi.till_screens.BubbleLook
 
 /** Text with `**bold**` runs, as the design bolds the names of things to tap. */
 fun rich(text: String): AnnotatedString = buildAnnotatedString {
@@ -76,12 +75,18 @@ fun rich(text: String): AnnotatedString = buildAnnotatedString {
     }
 }
 
+/** "Step 4 of 6", as the engine numbers the step. */
+@Composable
+private fun StepLabel(label: String?) {
+    if (label != null) Muted(label)
+}
+
 /** Step 1 (OnbWelcome). */
 @Composable
-fun WelcomeScreen(onStart: () -> Unit) = Page(
+fun WelcomeScreen(page: OnboardingPage.Welcome, stepLabel: String?, onStart: () -> Unit) = Page(
     bottom = {
         PrimaryButton("Get started", onStart, Modifier.fillMaxWidth())
-        StepLabel(1)
+        StepLabel(stepLabel)
     },
 ) {
     Column(
@@ -103,7 +108,7 @@ fun WelcomeScreen(onStart: () -> Unit) = Page(
         Modifier.padding(start = 24.dp, end = 24.dp, top = 40.dp, bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(22.dp),
     ) {
-        Feature(MkIcons.Bag, "Sees Monero sales", PosText.WELCOME_FEATURE)
+        Feature(MkIcons.Bag, "Sees Monero sales", page.feature)
         Feature(MkIcons.Code, "Shows a payment code", "Turn the screen round and the customer scans with their wallet.")
         Feature(MkIcons.CheckCircle, "Confirms the money arrived", "Till tells you when the payment lands, and flags any that don't.")
     }
@@ -139,14 +144,13 @@ private fun Steps(vararg steps: String) = Column(
 
 /** Step 2 (OnbStore): the camera looks for the store's connect code, or the link is pasted. */
 @Composable
-fun ScanScreen(onCode: (String) -> Boolean, onBack: () -> Unit) {
+fun ScanScreen(page: OnboardingPage.Scan, stepLabel: String?, onPaste: (String?) -> Unit, onScan: (String) -> Unit, onBack: () -> Unit) {
     val context = LocalContext.current
     var allowed by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
     }
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { allowed = it }
     LaunchedEffect(Unit) { if (!allowed) ask.launch(Manifest.permission.CAMERA) }
-    var wrong by remember { mutableStateOf<String?>(null) }
     Page(
         top = { BackBar(onBack) },
         bottom = {
@@ -156,14 +160,11 @@ fun ScanScreen(onCode: (String) -> Boolean, onBack: () -> Unit) {
             )
             OutlineButton("Paste the link", onClick = {
                 val clip = context.getSystemService(android.content.ClipboardManager::class.java).primaryClip
-                val text = clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty().trim()
-                wrong = when {
-                    text.isEmpty() -> "There's nothing to paste. Copy the connect link on the dashboard first."
-                    !onCode(text) -> "That isn't a store's connect link."
-                    else -> null
-                }
+                val text = clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()?.trim()
+                // Nothing to paste, and text that isn't a connect link, are the engine's to say.
+                onPaste(text?.ifEmpty { null })
             }, Modifier.fillMaxWidth(), icon = MkIcons.Copy)
-            StepLabel(2)
+            StepLabel(stepLabel)
         },
     ) {
         Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -182,7 +183,7 @@ fun ScanScreen(onCode: (String) -> Boolean, onBack: () -> Unit) {
             contentAlignment = Alignment.Center,
         ) {
             if (allowed) {
-                QrScanner(onText = { text -> if (!onCode(text)) wrong = "That code isn't a store's connect code." }, modifier = Modifier.fillMaxSize())
+                QrScanner(onText = onScan, modifier = Modifier.fillMaxSize())
                 Viewfinder(Modifier.size(200.dp).offset(y = (-26).dp))
                 Row(
                     Modifier.align(Alignment.BottomCenter).padding(12.dp).fillMaxWidth().height(40.dp)
@@ -201,7 +202,7 @@ fun ScanScreen(onCode: (String) -> Boolean, onBack: () -> Unit) {
                 }
             }
         }
-        Notice(wrong, Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp))
+        Notice(page.problem, Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp))
     }
 }
 
@@ -252,21 +253,24 @@ private fun SheetTop(title: String, host: String, secure: Boolean) = Column(
 private const val CAN_DO =
     "Till can see this store's orders and create payment codes. It can't spend from or change the wallet. Only connect a server you run or trust."
 
+/** A step's facts on a card: the server, the store, its wallet, this device. */
+@Composable
+private fun Facts(facts: List<Fact>) = Group(rows = facts.map { fact -> { FactRow(fact.label, fact.value, mono = fact.mono) } })
+
 /** Step 3, before (OnbConfirm): Monokulo names the store only once the code is spent, so this shows the server (decision 22). */
 @Composable
-fun ConfirmScreen(code: ConnectCode, deviceName: String, busy: Boolean, problem: String?, onConnect: () -> Unit, onCancel: () -> Unit) = Page(
+fun ConfirmScreen(page: OnboardingPage.Confirm, stepLabel: String?, onConnect: () -> Unit, onCancel: () -> Unit) = Page(
     bottom = {
-        PrimaryButton(if (busy) "Connecting…" else "Connect", onConnect, Modifier.fillMaxWidth(), enabled = !busy)
-        LinkButton("Cancel", onCancel, enabled = !busy)
-        StepLabel(3)
+        PrimaryButton(page.connect.label, onConnect, Modifier.fillMaxWidth(), enabled = page.connect.enabled)
+        LinkButton(page.cancel.label, onCancel, enabled = page.cancel.enabled)
+        StepLabel(stepLabel)
     },
 ) {
-    val secure = code.encrypted
-    SheetTop("Connect to this store?", code.host, secure)
+    SheetTop("Connect to this store?", page.host, page.encrypted)
     SectionLabel("This device will take payments for")
-    Group(rows = listOf({ FactRow("Server", code.host) }, { FactRow("Device name", deviceName) }))
+    Facts(page.facts)
     Footnote(CAN_DO)
-    Notice(problem, Modifier.padding(16.dp))
+    Notice(page.problem, Modifier.padding(16.dp))
 }
 
 /**
@@ -274,139 +278,77 @@ fun ConfirmScreen(code: ConnectCode, deviceName: String, busy: Boolean, problem:
  * just now (never saved: decision 50), to check before going on.
  */
 @Composable
-fun ConnectedScreen(connection: Connection, now: StoreNow, onNext: () -> Unit, onRetry: () -> Unit, onWrong: () -> Unit) = Page(
+fun ConnectedScreen(page: OnboardingPage.Connected, stepLabel: String?, onNext: () -> Unit, onRetry: () -> Unit, onWrong: () -> Unit) = Page(
     bottom = {
-        val store = now.store
-        if (store == null && !now.reading) {
-            PrimaryButton("Try again", onRetry, Modifier.fillMaxWidth())
-        } else {
-            PrimaryButton("Continue", onNext, Modifier.fillMaxWidth(), enabled = store != null)
-        }
+        PrimaryButton(page.next.label, if (page.retry) onRetry else onNext, Modifier.fillMaxWidth(), enabled = page.next.enabled)
         LinkButton("Wrong store: disconnect", onWrong)
-        StepLabel(3)
+        StepLabel(stepLabel)
     },
 ) {
-    val store = now.store
-    SheetTop(store?.let { "Connected to ${it.name}" } ?: "Connected", connection.host, connection.encrypted)
-    Notice(now.problem, Modifier.padding(16.dp))
+    SheetTop(page.title, page.host, page.encrypted)
+    Notice(page.problem, Modifier.padding(16.dp))
     SectionLabel("This device takes payments for")
-    val wallet = store?.wallet
-    val reading = if (now.reading) "Reading…" else "—"
-    Group(
-        rows = listOfNotNull(
-            { FactRow("Store", store?.name ?: reading) },
-            wallet?.let { { FactRow("Payments go to", it.name) } },
-            wallet?.let { { FactRow("Wallet address", it.addressShort, mono = true) } },
-            wallet?.let { { FactRow("Network", it.network.replaceFirstChar(Char::uppercase)) } },
-            { FactRow("Device name", now.device?.deviceName ?: reading) },
-        ),
-    )
-    Footnote("Check this is the store you meant: payments go to its wallet. $CAN_DO")
-}
-
-/** Where Clover's Monero payment type stands, as step 4's Clover card shows it (decision 129). */
-enum class CloverTender {
-    /** Not known yet: signing in, or looking. */
-    Looking,
-    /** Found or added: the cashier rings sales up with it. */
-    Ready,
-    /** Clover didn't let the till add it: the cashier adds it in Clover, then Look again. */
-    AddInClover,
-}
-
-/** Step 4's state: the point of sale chosen, and the chosen one's sign-in. */
-data class PosSetup(
-    /** Null until the cashier taps one (acceptance T1.1). */
-    val chosen: PointOfSale?,
-    /** Square: the location chosen, once signed in. */
-    val location: SquareLocation?,
-    /** Clover: the merchant's name, once signed in. */
-    val merchant: String?,
-    /** Signed in to [chosen]. */
-    val signedIn: Boolean,
-    val tender: CloverTender,
-    val busy: Boolean,
-    val problem: String?,
-    val testSale: TillSale?,
-    /** Onboarding's step 4; false when Settings' "Change the point of sale" opened it, with Back and no test sale. */
-    val setup: Boolean = true,
-) {
-    /** Signed in and watching a Square location or a Clover merchant: the test sale can come in. */
-    val connected: Boolean
-        get() = signedIn && when (chosen) {
-            PointOfSale.Square -> location != null
-            PointOfSale.Clover -> merchant != null
-            null -> false
-        }
+    Facts(page.facts)
+    Footnote(page.footnote)
 }
 
 /** What step 4 can do. */
 class PosSetupActions(
-    val onChoose: (PointOfSale) -> Unit,
-    val onSignIn: () -> Unit,
-    val onChangeLocation: (() -> Unit)?,
+    val onChoose: (PosMark) -> Unit,
+    /** The step's button: the engine signs in, or goes on (Continue, Done) once connected. */
+    val onNext: () -> Unit,
+    val onChangeLocation: () -> Unit,
     val onLookAgain: () -> Unit,
+    /** The way past: "Not now: only show other tills' sales", or "Skip the test" once connected, as the engine decides. */
     val onSkip: () -> Unit,
-    val onContinue: () -> Unit,
+    val onBack: () -> Unit,
 )
 
 /**
  * Step 4 (OnbSquare, for every point of sale: acceptance T1.1, decision
- * 136): Square or Clover as one radio group, nothing chosen until a tap,
- * then the chosen one's card: its sign-in, its location or merchant, and what
- * to do at the point of sale itself.
+ * 136), as the engine wrote it: Square or Clover as one radio group,
+ * nothing chosen until a tap, then the chosen one's card: its sign-in, its
+ * location or merchant, and what to do at the point of sale itself.
  */
 @Composable
-fun PointOfSaleScreen(s: PosSetup, a: PosSetupActions) = Page(
-    top = { BackBar(a.onContinue.takeUnless { s.setup }) },
+fun PointOfSaleScreen(step: PosStep, stepLabel: String?, a: PosSetupActions) = Page(
+    top = { BackBar(a.onBack.takeIf { step.back }) },
     bottom = {
-        val chosen = s.chosen
-        when {
-            s.connected && !s.setup -> PrimaryButton("Done", a.onContinue, Modifier.fillMaxWidth())
-            s.connected -> {
-                PrimaryButton("Continue", a.onContinue, Modifier.fillMaxWidth(), enabled = s.testSale != null)
-                if (s.testSale == null) LinkButton("Skip the test", a.onContinue, size = 15)
-            }
-            chosen != null -> {
-                PrimaryButton(if (s.busy) PosText.SIGNING_IN else PosText.signIn(chosen), a.onSignIn, Modifier.fillMaxWidth(), enabled = !s.busy)
-                LinkButton("Not now: only show other tills' sales", a.onSkip, enabled = !s.busy, size = 15)
-            }
-            else -> LinkButton("Not now: only show other tills' sales", a.onSkip, enabled = !s.busy, size = 15)
-        }
-        if (s.setup) StepLabel(4)
+        step.next?.let { next -> PrimaryButton(next.label, a.onNext, Modifier.fillMaxWidth(), enabled = next.enabled) }
+        step.skip?.let { skip -> LinkButton(skip.label, a.onSkip, enabled = skip.enabled, size = 15) }
+        StepLabel(stepLabel)
     },
 ) {
     Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Heading(PosText.CONNECT_HEADING)
+        Heading("Connect your point of sale")
     }
-    SectionLabel(PosText.POINT_OF_SALE)
-    PosChoices(s.chosen, enabled = !s.busy, onChoose = a.onChoose)
-    when (s.chosen) {
-        PointOfSale.Square -> SquareCard(s, a)
-        PointOfSale.Clover -> CloverCard(s, a)
-        null -> Unit
-    }
+    SectionLabel("Point of sale")
+    PosChoices(step.choices, onChoose = a.onChoose)
+    step.card?.let { PosCardView(it, a) }
     Spacer(Modifier.height(16.dp))
 }
 
 /** Square and Clover as one radio group (T1.1): a row each, at least 48 dp, led by its mark on a tile; the mark and tick decorative. */
 @Composable
-fun PosChoices(chosen: PointOfSale?, enabled: Boolean = true, onChoose: (PointOfSale) -> Unit) = Group(
+fun PosChoices(choices: List<PosChoice>, onChoose: (PosMark) -> Unit) = Group(
     Modifier.selectableGroup(),
-    rows = PointOfSale.entries.map { pos ->
-        { ChoiceRow(pos.displayName, chosen == pos, { if (enabled) onChoose(pos) }, PosText.choiceDetail(pos)) { PosTile(pos) } }
+    rows = choices.map { pos ->
+        {
+            val choice = pos.choice
+            ChoiceRow(choice.label, choice.selected, { if (choice.enabled) onChoose(pos.mark) }, choice.detail) { PosTile(pos.mark) }
+        }
     },
 )
 
 /** The heading and lead of a point of sale's card, under Till's mark linked to the point of sale's. */
 @Composable
-private fun CardTop(pos: PointOfSale) = Column(
+private fun CardTop(card: PosCard) = Column(
     Modifier.padding(start = 20.dp, end = 20.dp, top = 24.dp),
     verticalArrangement = Arrangement.spacedBy(10.dp),
 ) {
-    LinkedMarks(pos)
-    Heading(PosText.connect(pos), size = 24)
-    Lead(PosText.lead(pos), size = 17)
+    LinkedMarks(card.mark)
+    Heading(card.heading, size = 24)
+    Lead(card.lead, size = 17)
 }
 
 /** Signed in: a tick, "Connected" and who. */
@@ -423,130 +365,87 @@ private fun ConnectedRow(who: String) = Row(
     }
 }
 
-/**
- * The card the steps at the point of sale go on, with the test sale's row under
- * them once connected, but not while Clover still needs the Monero payment type
- * added by hand: no sale can be paid in Monero until it is there.
- */
-@Composable
-private fun AtTheTill(pos: PointOfSale, s: PosSetup, steps: @Composable () -> Unit) {
-    SectionLabel(PosText.atTheTill(pos))
-    Column(
-        Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(mk.card)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        steps()
-        if (s.connected && s.setup && s.tender != CloverTender.AddInClover) {
-            Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(mk.inset).padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                val testSale = s.testSale
-                if (testSale == null) {
-                    LoadingMark(26.dp, label = "Waiting for a test sale")
-                    Text(PosText.testSaleWaiting(pos), fontSize = 14.sp)
-                } else {
-                    PaidTick(26.dp)
-                    Text(PosText.testSaleFound(pos, SaleText.amount(testSale)), fontSize = 14.sp)
-                }
-            }
-        }
-    }
-}
-
 /** Numbered steps from [from], `**bold**` for what to tap. */
 @Composable
 private fun NumberedSteps(steps: List<String>, from: Int = 1) = Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
     steps.forEachIndexed { i, step -> Text(rich("${i + from}.  $step"), fontSize = 15.sp, lineHeight = 22.sp) }
 }
 
-/** Square's card: as it was before Clover joined, the payment type added by the cashier in Square. */
+/**
+ * The chosen point of sale's card (acceptance T2.6, T3.2, T3.3): its
+ * account, its location or merchant once signed in; a titled card of
+ * numbered steps at the point of sale, with Clover's Look again after the
+ * first when Clover didn't let the till add the payment type; the test
+ * sale; and, for Clover, how a sale never paid is refunded.
+ */
 @Composable
-private fun SquareCard(s: PosSetup, a: PosSetupActions) {
-    val pos = PointOfSale.Square
-    CardTop(pos)
-    SectionLabel(PosText.account(pos))
-    val location = s.location
-    if (s.connected && location != null) {
-        Group(
-            rows = listOf(
-                { ConnectedRow(location.businessName ?: location.name) },
-                {
-                    val change = a.onChangeLocation
-                    val row = Modifier.let { if (change != null) it.clickable(onClickLabel = "Change the location", onClick = change) else it }
-                    Box(row) { FactRow(PosText.placeRow(pos), location.name) }
+private fun PosCardView(card: PosCard, a: PosSetupActions) {
+    CardTop(card)
+    SectionLabel(card.accountTitle)
+    when (val account = card.account) {
+        is Account.Connected -> Group(
+            rows = listOfNotNull(
+                { ConnectedRow(account.who) },
+                card.place?.let { place ->
+                    {
+                        val row = if (card.changeLocation) Modifier.clickable(onClickLabel = "Change the location", onClick = a.onChangeLocation) else Modifier
+                        Box(row) { FactRow(place.label, place.value) }
+                    }
                 },
             ),
         )
-    } else {
-        Group(rows = listOf({ FactRow("Account", "Not signed in") }))
+        is Account.NotSignedIn -> Group(rows = listOf({ FactRow(account.row.label, account.row.value) }))
     }
-    Footnote(PosText.permissions(pos))
-    Notice(s.problem, Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp))
-    AtTheTill(pos, s) {
-        Text("Add \"Monero\" as a payment type", fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-        NumberedSteps(
-            listOf(
-                "Open **Settings › Checkout › Payment types**",
-                "Under Other, add a type called **Monero**",
-                "Ring up a sale and tap Monero to pay",
-            ),
-        )
-    }
-}
-
-/**
- * Clover's card (acceptance T2.6, T3.2, T3.3), laid out as Square's: the
- * merchant once signed in; a titled card of numbered steps whose first is the
- * Monero payment type the till added, or adding it in Clover with Look again
- * when Clover didn't let it; the test sale; how a sale never paid is refunded.
- */
-@Composable
-private fun CloverCard(s: PosSetup, a: PosSetupActions) {
-    val pos = PointOfSale.Clover
-    CardTop(pos)
-    SectionLabel(PosText.account(pos))
-    val merchant = s.merchant
-    if (s.connected && merchant != null) {
-        Group(rows = listOf({ ConnectedRow(merchant) }))
-    } else {
-        Group(rows = listOf({ FactRow("Account", "Not signed in") }))
-    }
-    Footnote(PosText.permissions(pos))
-    Notice(s.problem, Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp))
-    AtTheTill(pos, s) {
-        Text(PosText.CLOVER_STEPS_TITLE, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-        if (s.connected && s.tender == CloverTender.AddInClover) {
-            NumberedSteps(listOf(PosText.CLOVER_ADD_TENDER))
-            OutlineButton(PosText.LOOK_AGAIN, a.onLookAgain, Modifier.fillMaxWidth(), enabled = !s.busy)
-            NumberedSteps(PosText.CLOVER_STEPS, from = 2)
+    Footnote(card.permissions)
+    Notice(card.problem, Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp))
+    SectionLabel(card.atTheTill)
+    Column(
+        Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(mk.card)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(card.stepsTitle, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+        val lookAgain = card.lookAgain
+        if (lookAgain != null) {
+            NumberedSteps(card.steps.take(1))
+            OutlineButton(lookAgain.label, a.onLookAgain, Modifier.fillMaxWidth(), enabled = lookAgain.enabled)
+            NumberedSteps(card.steps.drop(1), from = 2)
         } else {
-            NumberedSteps(listOf(PosText.cloverTenderStep(added = s.connected && s.tender == CloverTender.Ready)) + PosText.CLOVER_STEPS)
+            NumberedSteps(card.steps)
+        }
+        card.testSale?.let { test ->
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(mk.inset).padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (test.found) PaidTick(26.dp) else LoadingMark(26.dp, label = "Waiting for a test sale")
+                Text(test.text, fontSize = 14.sp)
+            }
         }
     }
-    Footnote(PosText.CLOVER_REFUND_NOTE)
+    card.footnote?.let { Footnote(it) }
 }
 
 /** Step 4, when Square has more than one location. */
 @Composable
-fun LocationsScreen(locations: List<SquareLocation>, onPick: (SquareLocation) -> Unit, onBack: () -> Unit) = Page(
+fun LocationsScreen(page: OnboardingPage.Locations, stepLabel: String?, onPick: (String) -> Unit, onBack: () -> Unit) = Page(
     top = { BackBar(onBack) },
-    bottom = { StepLabel(4) },
+    bottom = { StepLabel(stepLabel) },
 ) {
     Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Heading("Which location is this till at?")
-        Lead(PosText.LOCATIONS_LEAD)
+        Lead(page.lead)
     }
     SectionLabel("Locations")
-    if (locations.isEmpty()) {
-        Group(rows = listOf({ FactRow("None", PosText.NO_LOCATIONS) }))
+    val none = page.none
+    if (none != null) {
+        Group(rows = listOf({ FactRow(none.label, none.value) }))
     } else {
         Group(
-            rows = locations.map { location ->
+            rows = page.locations.map { location ->
                 {
-                    Box(Modifier.clickable(onClickLabel = "Choose ${location.name}") { onPick(location) }) {
+                    Box(Modifier.clickable(onClickLabel = location.choose) { onPick(location.id) }) {
                         FactRow(location.name, location.currency)
                     }
                 }
@@ -556,6 +455,9 @@ fun LocationsScreen(locations: List<SquareLocation>, onPick: (SquareLocation) ->
 }
 
 /** A notification as it will look, in the illustrations. */
+@Composable
+private fun NotificationMock(alert: SampleAlert, faint: Boolean) = NotificationMock(alert.title, alert.text, alert.time, faint)
+
 @Composable
 private fun NotificationMock(title: String, text: String?, time: String, faint: Boolean) = Row(
     Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(mk.card.copy(alpha = if (faint) 0.6f else 0.92f))
@@ -579,12 +481,12 @@ private fun NotificationMock(title: String, text: String?, time: String, faint: 
 
 /** Step 5 (OnbAlerts): notifications. */
 @Composable
-fun AlertsScreen(place: String?, currency: String, allowed: Boolean, onAllow: () -> Unit, onSkip: () -> Unit, onBack: () -> Unit) = Page(
+fun AlertsScreen(page: OnboardingPage.Alerts, stepLabel: String?, onAllow: () -> Unit, onSkip: () -> Unit, onBack: () -> Unit) = Page(
     top = { BackBar(onBack) },
     bottom = {
-        PrimaryButton(if (allowed) "Continue" else "Turn on alerts", onAllow, Modifier.fillMaxWidth())
-        if (!allowed) LinkButton("Not now", onSkip)
-        StepLabel(5)
+        PrimaryButton(page.next.label, onAllow, Modifier.fillMaxWidth(), enabled = page.next.enabled)
+        page.notNow?.let { LinkButton(it.label, onSkip, enabled = it.enabled) }
+        StepLabel(stepLabel)
     },
 ) {
     Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -600,32 +502,24 @@ fun AlertsScreen(place: String?, currency: String, allowed: Boolean, onAllow: ()
             .padding(horizontal = 14.dp, vertical = 26.dp).clearAndSetSemantics {},
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        NotificationMock(
-            "New Monero sale · ${Amounts.fiat("24.50", currency)}",
-            listOfNotNull(place, "Tap Show code for the customer.").joinToString(". "),
-            "now",
-            faint = false,
-        )
-        NotificationMock("Paid · ${Amounts.fiat("8.00", currency)}", null, "4m ago", faint = true)
+        NotificationMock(page.sale, faint = false)
+        NotificationMock(page.paid, faint = true)
     }
 }
 
 /** Step 5, on Android (AndPermission): the bubble over other apps. */
 @Composable
-fun FloatScreen(pos: PointOfSale?, allowed: Boolean, onOpenSettings: () -> Unit, onNotificationsOnly: () -> Unit, onContinue: () -> Unit, onBack: () -> Unit) = Page(
+fun FloatScreen(page: OnboardingPage.Float, onOpenSettings: () -> Unit, onNotificationsOnly: () -> Unit, onContinue: () -> Unit, onBack: () -> Unit) = Page(
     top = { BackBar(onBack) },
     bottom = {
-        if (allowed) {
-            PrimaryButton("Continue", onContinue, Modifier.fillMaxWidth(), height = 56.dp, size = 16)
-        } else {
-            PrimaryButton("Open settings", onOpenSettings, Modifier.fillMaxWidth(), height = 56.dp, size = 16)
-            LinkButton("Use notifications only", onNotificationsOnly, size = 16)
-        }
+        PrimaryButton(page.next.label, if (page.allowed) onContinue else onOpenSettings, Modifier.fillMaxWidth(), height = 56.dp, size = 16, enabled = page.next.enabled)
+        page.notificationsOnly?.let { LinkButton(it.label, onNotificationsOnly, size = 16, enabled = it.enabled) }
     },
 ) {
+    val allowed = page.allowed
     Column(Modifier.padding(start = 24.dp, end = 24.dp, top = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Heading(PosText.floatHeading(pos))
-        Lead(PosText.floatLead(pos))
+        Heading(page.heading)
+        Lead(page.lead)
     }
     Row(
         Modifier.padding(start = 20.dp, end = 20.dp, top = 28.dp).fillMaxWidth().clip(RoundedCornerShape(28.dp))
@@ -633,11 +527,11 @@ fun FloatScreen(pos: PointOfSale?, allowed: Boolean, onOpenSettings: () -> Unit,
         horizontalArrangement = Arrangement.SpaceAround,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            BubbleFace(BubbleLook.Idle, pulse = false)
+            BubbleFace(BubbleLook.IDLE, pulse = false)
             Text("No sale", fontSize = 13.sp, color = Fixed.Muted)
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            BubbleFace(BubbleLook.Lit, pulse = true)
+            BubbleFace(BubbleLook.LIT, pulse = true)
             Text("New sale", fontSize = 13.sp, color = Fixed.Muted)
         }
     }
@@ -671,14 +565,7 @@ fun FloatScreen(pos: PointOfSale?, allowed: Boolean, onOpenSettings: () -> Unit,
 
 /** Step 6 (OnbReady): what's set up, and start the shift. */
 @Composable
-fun ReadyScreen(
-    pos: PointOfSale?,
-    store: String,
-    location: String?,
-    alerts: Boolean,
-    bubble: Boolean,
-    onStart: () -> Unit,
-) = Page(
+fun ReadyScreen(page: OnboardingPage.Ready, bubble: Boolean, onStart: () -> Unit) = Page(
     bottom = {
         PrimaryButton("Start Till", onStart, Modifier.fillMaxWidth())
         Muted(
@@ -693,26 +580,18 @@ fun ReadyScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Heading("You're ready", align = TextAlign.Center)
-        Lead(
-            PosText.readyLead(pos, bubble),
-            Modifier.widthIn(max = 330.dp),
-            align = TextAlign.Center,
-            size = 17,
-        )
+        Heading(page.heading, align = TextAlign.Center)
+        Lead(page.lead, Modifier.widthIn(max = 330.dp), align = TextAlign.Center, size = 17)
     }
     PhoneTop(bubble, Modifier.padding(top = 40.dp).align(Alignment.CenterHorizontally))
     Column(
         Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).border(1.dp, mk.edge, RoundedCornerShape(12.dp))
             .background(mk.card),
     ) {
-        Check("Store", store, true)
-        Box(Modifier.fillMaxWidth().height(1.dp).background(mk.divider))
-        Check(PosText.checkName(pos), location ?: "Not connected", location != null)
-        Box(Modifier.fillMaxWidth().height(1.dp).background(mk.divider))
-        Check("Alerts", if (alerts) "On" else "Off", alerts)
-        Box(Modifier.fillMaxWidth().height(1.dp).background(mk.divider))
-        Check("Bubble", if (bubble) "On" else "Notifications only", bubble)
+        page.checks.forEachIndexed { i, check ->
+            if (i > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(mk.divider))
+            Check(check.name, check.value, check.done)
+        }
     }
     Spacer(Modifier.height(16.dp))
 }
@@ -745,5 +624,5 @@ private fun PhoneTop(bubble: Boolean, modifier: Modifier) = Box(
             }
         }
     }
-    if (bubble) Box(Modifier.align(Alignment.TopEnd).padding(top = 64.dp)) { BubbleFace(BubbleLook.Idle, pulse = false) }
+    if (bubble) Box(Modifier.align(Alignment.TopEnd).padding(top = 64.dp)) { BubbleFace(BubbleLook.IDLE, pulse = false) }
 }

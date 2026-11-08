@@ -73,20 +73,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import androidx.compose.ui.unit.sp
-import com.monokulo.till.CloseChoice
-import com.monokulo.till.Closing
-import com.monokulo.till.Ground
-import com.monokulo.till.PosText
-import com.monokulo.till.SaleHeader
 import com.monokulo.till.Move
-import com.monokulo.till.SaleText
-import com.monokulo.till.core.PointOfSale
-import com.monokulo.till.core.SalePhase
-import com.monokulo.till.StateIcon
-import com.monokulo.till.Tone
-import com.monokulo.till.receipt.Receipt
-import com.monokulo.till.sales.TillSale
-import com.monokulo.till.sales.live
 import com.monokulo.till.LocalFace
 import com.monokulo.till.faceSurface
 import com.monokulo.till.wholeOn
@@ -113,17 +100,27 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.takeWhile
+import uniffi.till_app.Action
+import uniffi.till_app.RefundSheetView
+import uniffi.till_app.Update
+import uniffi.till_screens.CloseView
+import uniffi.till_screens.CodeView
+import uniffi.till_screens.Ground
+import uniffi.till_screens.OrderPageView
+import uniffi.till_screens.Ring
+import uniffi.till_screens.SalePageView
+import uniffi.till_screens.SaleView
+import uniffi.till_screens.StateIcon
+import uniffi.till_screens.Tone
+import uniffi.till_screens.OrderCard as OrderCardView
+import uniffi.till_screens.PosMark
 
 /**
- * The till's point of sale, for every word on its screens that names it
- * ([PosText]): provided where the app's and the bubble's screens are set, null
- * for a till that runs without one.
+ * The till's point of sale, whose mark the shift's header shows: provided
+ * where the app's screens are set, null for a till that runs without one.
+ * (Every word that names it is the engine's.)
  */
-val LocalPointOfSale = compositionLocalOf<PointOfSale?> { null }
-
-/** The point of sale that names [sale]'s words: the one that took it, else the till's ([PosText.of]). */
-@Composable
-fun posOf(sale: TillSale): PointOfSale? = PosText.of(sale, LocalPointOfSale.current)
+val LocalPointOfSale = compositionLocalOf<PosMark?> { null }
 
 /** Seconds from [now] until [expiresAt], Unix seconds both; 0 once it's passed. */
 fun secondsLeft(expiresAt: Long, now: Long): Long = (expiresAt - now).coerceAtLeast(0)
@@ -169,70 +166,56 @@ fun Countdown(
     overflow = overflow, maxLines = maxLines, style = LocalTextStyle.current.merge(tabular),
 )
 
-/** What the till's screens need to know about the shift. */
-data class TillStatus(
-    /** The store's name as last read; null until the first read answers. */
-    val store: String?,
-    val location: String?,
-    val running: Boolean,
-    val live: Boolean,
-    val disconnected: Boolean,
-    val problem: String?,
-    val signInAgain: Boolean,
-    /** When this shift began, Unix seconds, if it's known. */
-    val startedAt: Long?,
-)
+/**
+ * A sale's screens as the engine drew them ([Update.Sale]): its live
+ * screen, its page, its enlarged code and its whole order. Immutable, so a
+ * screen handed the same one skips.
+ */
+@Immutable
+class SaleFace(
+    val orderId: String,
+    val view: SaleView,
+    val page: SalePageView,
+    val code: CodeView,
+    val order: OrderPageView?,
+) {
+    /** Its code is up: the live screen, else its page (decision 70). */
+    val live: Boolean get() = !code.done
+
+    companion object {
+        fun of(update: Update.Sale) = SaleFace(update.orderId, update.view, update.page, update.code, update.order)
+    }
+}
 
 /**
- * What the till's screens can do: events up to the view model. Made once
- * per window mode and never changed, so a screen handed it can skip.
+ * What the till's screens can do: every tap goes to the engine as an
+ * [Action] through [send]. Made once per window mode and never changed, so
+ * a screen handed it can skip.
  */
 @Immutable
 class TillActions(
-    val onSettings: () -> Unit,
-    /** A sale from the shift: its code, or its page. */
-    val onOpen: (String) -> Unit,
-    /** Back to the shift: the sale stays live, on the bubble and in the shift. */
-    val onBack: (String) -> Unit,
-    val onEnlarge: (String) -> Unit,
-    val onShowOrder: (String) -> Unit,
-    val onClose: (String, CloseChoice) -> Unit,
-    val onRefund: (String) -> Unit,
-    val onReopen: (String) -> Unit,
-    val onCopy: (TillSale) -> Unit,
-    val onCopyXmr: (TillSale) -> Unit,
+    val send: (Action) -> Unit,
     /**
-     * Back to the point-of-sale app on this phone: Square's only, null for Clover, whose
-     * point of sale is a device of its own (decision 135), and when Square is already beside
-     * Till (split screen).
+     * Back to the point-of-sale app on this phone: Square's only (the engine says when, decision 135), null when
+     * Square is already beside Till (split screen).
      */
     val onBackToPos: (() -> Unit)?,
-    /** The refund sheet's "I've refunded it" (decision 130): ask the point of sale now. */
-    val onRefundDone: (String) -> Unit,
-    /** The refund sheet went away: "Not yet", Back or the scrim. */
-    val onRefundSheetDismissed: () -> Unit,
-    val onSignIn: () -> Unit,
-    val onForget: () -> Unit,
-    val onStartShift: () -> Unit,
-    /** The point of sale the till's source watches ([RunnerState.source]), for the close sheet's "No" ([Closing.refundsThere]). */
-    val source: PointOfSale = PointOfSale.Square,
 )
 
 /**
  * One sale (decision 70): its code for the customer while it's live
  * (SaleA), else the page its standing calls for (row 2b), so a sale that's
- * paid or ends while on screen turns into its page in place. [now] is
- * the screen's clock, read only by its countdowns.
+ * paid or ends while on screen turns into its page in place. The close
+ * sheet ([close]) and the refund sheet ([refund]) are drawn over it when
+ * they are about it and [sheets] (the screen is the one the stage goes
+ * to, so a screen leaving never draws a second one).
  */
 @Composable
 fun SaleScreen(
-    sale: TillSale,
-    location: String?,
-    refunding: Boolean,
-    refundProblem: String?,
-    refundSheet: RefundSheet?,
+    sale: SaleFace,
     actions: TillActions,
-    now: LongState = rememberNowSeconds(),
+    close: CloseView? = null,
+    refund: RefundSheetView? = null,
 ) {
     // The sale is its row opened: tapped on the shift, the row's card grows into this ground (M7), which the row draws
     // since only it knows its own corners; the sale's words fade in over it at their own size.
@@ -262,18 +245,24 @@ fun SaleScreen(
                     },
                 ) {
                     if (live) {
-                        LiveSale(sale, location, now, actions, ground)
+                        LiveSale(sale, actions, ground)
                     } else {
                         // The enlarged code's white, when the sale was paid or ended on it: the page's words wait for it to pass.
                         val card = rememberGroundTrack(codeGround(sale.orderId))
                         SaleDetail(
-                            sale, location, refunding, refundProblem, refundSheet, actions,
+                            sale, actions,
                             Modifier.words(through = SaleThrough, lift = SaleLift, on = ground, clear = card), card,
                         )
                     }
                 }
             }
         }
+    }
+    if (close != null && sale.live) {
+        CloseSheet(close, onChoice = { actions.send(Action.Close(sale.orderId, it)) }, onDismiss = { actions.send(Action.DismissClose) })
+    }
+    if (refund != null && refund.orderId == sale.orderId) {
+        RefundInPosSheet(refund, onRefunded = { actions.send(Action.ConfirmRefund(sale.orderId)) }, onNotYet = { actions.send(Action.DismissRefund) })
     }
 }
 
@@ -292,19 +281,20 @@ private const val Circle = 0.5f
 
 /** A live sale full screen, for the customer to scan (SaleA); split in two on a wide window (decision 45). */
 @Composable
-private fun LiveSale(sale: TillSale, location: String?, now: LongState, actions: TillActions, ground: GroundTrack) {
+private fun LiveSale(sale: SaleFace, actions: TillActions, ground: GroundTrack) {
+    val view = sale.view
     // The code card's white: words it still passes over as it shrinks back into the card wait for it to pass (decision 204).
     val card = rememberGroundTrack(codeGround(sale.orderId))
     val words = Modifier.words(through = SaleThrough, lift = SaleLift, on = ground, clear = card)
     val orderWords = Modifier.words(through = OrderCardThrough, lift = OrderCardLift, on = ground, clear = card)
-    var asking by rememberSaveable(sale.orderId) { mutableStateOf(false) }
-    val header = SaleHeader.of(sale, LocalPointOfSale.current, location)
     // A receipt reaches the till about a second after its sale: its card fades in then, rather than popping (N3).
-    val late = remember(sale.orderId) { sale.receipt == null }
+    val late = remember(sale.orderId) { view.order == null }
     // Folded unless the page has room for its order card open.
     val room = rememberReceiptRoom(sale.orderId, live = true)
     // On a wide window, whether the late card has settled into the column beside the code (or there was none to wait for).
     var grown by remember(sale.orderId) { mutableStateOf(!late) }
+    val showOrder = { actions.send(Action.ShowOrder(sale.orderId)) }
+    val enlarge = { actions.send(Action.Enlarge(sale.orderId)) }
     KeepScreenOn()
     // Its ground is the screen's (SaleScreen), so the page it turns into fades over one ground, not a second.
     Surface(Modifier.fillMaxSize(), color = Color.Transparent, contentColor = mk.ink) {
@@ -313,8 +303,8 @@ private fun LiveSale(sale: TillSale, location: String?, now: LongState, actions:
             Column(Modifier.fillMaxSize()) {
                 Box(words) {
                     SaleBar(
-                        sale, header.place, actions,
-                        onClose = { asking = true }.takeIf { Closing.choices(sale).isNotEmpty() },
+                        view.title, view.titleLine, sale.orderId, actions,
+                        onClose = { actions.send(Action.AskClose(sale.orderId)) }.takeIf { view.closes },
                     )
                 }
                 if (wide) {
@@ -323,20 +313,20 @@ private fun LiveSale(sale: TillSale, location: String?, now: LongState, actions:
                         horizontalArrangement = Arrangement.spacedBy(48.dp, Alignment.CenterHorizontally),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Code(sale, min(this@BoxWithConstraints.maxHeight - 120.dp, 440.dp), card, ground) { actions.onEnlarge(sale.orderId) }
+                        Code(sale, min(this@BoxWithConstraints.maxHeight - 120.dp, 440.dp), card, ground, onEnlarge = enlarge)
                         Column(
                             // Centred beside the code (which is not in it), it settles to the late card's height rather than
                             // jumping; then it lets go, so it never chases (nor clips the buttons under) the card's own fold.
                             Modifier.widthIn(max = 420.dp)
-                                .then(if (grown) Modifier else Modifier.animateContentSize(motion.settle.spec(IntSize.VisibilityThreshold)) { _, _ -> if (sale.receipt != null) grown = true })
+                                .then(if (grown) Modifier else Modifier.animateContentSize(motion.settle.spec(IntSize.VisibilityThreshold)) { _, _ -> if (view.order != null) grown = true })
                                 .then(room.window).verticalScroll(rememberScrollState()).then(room.content),
                             verticalArrangement = Arrangement.spacedBy(20.dp),
                             horizontalAlignment = Alignment.Start,
                         ) {
-                            Box(words) { Amount(sale, actions.onCopyXmr, start = true) }
-                            Box(words) { StatusPill(sale, now) }
-                            sale.receipt?.let { Box(orderWords) { Late(late) { OrderCard(it, header.pos, room, onOpen = { actions.onShowOrder(sale.orderId) }, shared = "order/${sale.orderId}") } } }
-                            Box(words) { Buttons(sale, header, actions) }
+                            Box(words) { Amount(sale, actions, start = true) }
+                            Box(words) { StatusPill(view) }
+                            view.order?.let { Box(orderWords) { Late(late) { OrderCard(it, room, onOpen = showOrder, shared = "order/${sale.orderId}") } } }
+                            Box(words) { Buttons(sale, actions) }
                         }
                     }
                 } else {
@@ -349,25 +339,22 @@ private fun LiveSale(sale: TillSale, location: String?, now: LongState, actions:
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
-                        Box(words) { Amount(sale, actions.onCopyXmr) }
+                        Box(words) { Amount(sale, actions) }
                         // The status is the code card's foot (board 8): one white card, the code its own surface above it.
                         val side = codeSide(this@BoxWithConstraints.maxWidth)
                         Column(Modifier.width(side)) {
-                            Code(sale, side, card, ground, footed = true) { actions.onEnlarge(sale.orderId) }
-                            Box(words) { StatusFoot(sale, now) }
+                            Code(sale, side, card, ground, footed = true, onEnlarge = enlarge)
+                            Box(words) { StatusFoot(view) }
                         }
-                        sale.receipt?.let { Box(orderWords) { Late(late) { OrderCard(it, header.pos, room, onOpen = { actions.onShowOrder(sale.orderId) }, shared = "order/${sale.orderId}") } } }
+                        view.order?.let { Box(orderWords) { Late(late) { OrderCard(it, room, onOpen = showOrder, shared = "order/${sale.orderId}") } } }
                     }
                     Box(
                         Modifier.align(Alignment.CenterHorizontally).widthIn(max = PhoneMaxWidth)
                             .padding(start = 20.dp, end = 20.dp, bottom = 16.dp).then(words),
-                    ) { Buttons(sale, header, actions) }
+                    ) { Buttons(sale, actions) }
                 }
             }
         }
-    }
-    if (asking) {
-        CloseSheet(sale, actions.source, now, onChoice = { actions.onClose(sale.orderId, it) }, onDismiss = { asking = false })
     }
 }
 
@@ -424,43 +411,43 @@ internal fun codeCornerShare(width: Dp): Float = CodeCorner / (codeSide(width).t
 private val PhoneMaxWidth = 560.dp
 
 /**
- * A sale's top bar: Back to the shift, the sale ([SaleText.heading]) and [subtitle], Settings,
+ * A sale's top bar: Back to the shift, the sale ([title]) and [subtitle], Settings,
  * and on a live sale the tinted X that asks whether the customer is paying.
  */
 @Composable
-fun SaleBar(sale: TillSale, subtitle: String, actions: TillActions, onClose: (() -> Unit)? = null) = Row(
+fun SaleBar(title: String, subtitle: String, orderId: String, actions: TillActions, onClose: (() -> Unit)? = null) = Row(
     Modifier.fillMaxWidth().height(64.dp).padding(start = 4.dp, end = 12.dp),
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(4.dp),
 ) {
-    RoundIconButton(MkIcons.Back, "Back to the shift", { actions.onBack(sale.orderId) }, iconSize = 22.dp)
+    RoundIconButton(MkIcons.Back, "Back to the shift", { actions.send(Action.Back) }, iconSize = 22.dp)
     Column(Modifier.weight(1f).semantics(mergeDescendants = true) { heading() }) {
-        Text(SaleText.heading(sale), fontSize = 20.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(title, fontSize = 20.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         // The till's own words for where the sale is from replace Square's once its receipt is in: they fade through.
         val through = motion.fadeThrough.fraction
         val quick = motion.fadeQuick.fraction
-        AnimatedContent(SaleText.headingLine(sale, subtitle), transitionSpec = { (fadeIn(through) togetherWith fadeOut(quick)).using(null) }, label = "sale from") { words ->
+        AnimatedContent(subtitle, transitionSpec = { (fadeIn(through) togetherWith fadeOut(quick)).using(null) }, label = "sale from") { words ->
             Text(words, fontSize = 13.sp, color = mk.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
-    CircleButton(MkIcons.Settings, "Settings", actions.onSettings, ground = mk.chip, tint = mk.ink, iconSize = 20.dp)
+    CircleButton(MkIcons.Settings, "Settings", { actions.send(Action.OpenSettings) }, ground = mk.chip, tint = mk.ink, iconSize = 20.dp)
     if (onClose != null) {
         Spacer(Modifier.width(4.dp))
         CircleButton(MkIcons.Close, "Close sale", onClose, ground = mk.dangerGround, tint = mk.danger, iconSize = 16.dp)
     }
 }
 
-/** The amount, and the XMR to pay under it, which copies itself when tapped ([onCopyXmr]; acceptance D7). */
+/** The amount, and the XMR to pay under it, which copies itself when tapped (acceptance D7). */
 @Composable
-private fun Amount(sale: TillSale, onCopyXmr: (TillSale) -> Unit, start: Boolean = false) = Column(
+private fun Amount(sale: SaleFace, actions: TillActions, start: Boolean = false) = Column(
     horizontalAlignment = if (start) Alignment.Start else Alignment.CenterHorizontally,
 ) {
     val align = if (start) TextAlign.Start else TextAlign.Center
-    Text(SaleText.amount(sale), style = display(52, -1.0), textAlign = align)
+    Text(sale.view.amount, style = display(52, -1.0), textAlign = align)
     Text(
-        SaleText.xmr(sale), fontSize = 17.sp, color = mk.muted, textAlign = align,
+        sale.view.xmr, fontSize = 17.sp, color = mk.muted, textAlign = align,
         modifier = Modifier.clip(RoundedCornerShape(8.dp))
-            .clickable(onClickLabel = "Copy the XMR amount") { onCopyXmr(sale) }
+            .clickable(onClickLabel = "Copy the XMR amount") { actions.send(Action.CopyAmount(sale.orderId)) }
             .padding(horizontal = 6.dp, vertical = 2.dp),
     )
 }
@@ -474,8 +461,8 @@ private fun Amount(sale: TillSale, onCopyXmr: (TillSale) -> Unit, start: Boolean
  * [Motion.fade], read per draw.
  */
 @Composable
-private fun Code(sale: TillSale, side: Dp, card: GroundTrack, ground: GroundTrack, footed: Boolean = false, onEnlarge: () -> Unit) {
-    val veil by animateFloatAsState(if (sale.phase == SalePhase.Paid) 1f - SpentCode else 0f, motion.fade.fraction, label = "spent code")
+private fun Code(sale: SaleFace, side: Dp, card: GroundTrack, ground: GroundTrack, footed: Boolean = false, onEnlarge: () -> Unit) {
+    val veil by animateFloatAsState(if (sale.view.spent) 1f - SpentCode else 0f, motion.fade.fraction, label = "spent code")
     Box(
         // Opening from its row or shrinking back into it, the code and its white are drawn whole or not at all: only on
         // the frames the row's ground holds all of the card (decision 234). Paid or ended, the card closes into the page's
@@ -487,9 +474,8 @@ private fun Code(sale: TillSale, side: Dp, card: GroundTrack, ground: GroundTrac
             .clickable(onClickLabel = "Enlarge the payment code", role = Role.Button, onClick = onEnlarge),
     ) {
         QrCode(
-            sale.code.uri,
-            "Payment code for ${SaleText.amount(sale)}" + (if (sale.code.hasReceipt) ", with the receipt in it" else "") +
-                if (sale.phase == SalePhase.Paid) ", paid: no need to scan it" else "",
+            sale.view.code,
+            sale.view.codeSaid,
             Modifier.width(side),
             padding = CodeQuiet,
             radius = CodeCorner,
@@ -512,8 +498,8 @@ private fun Code(sale: TillSale, side: Dp, card: GroundTrack, ground: GroundTrac
  * two-text subtree, never anything with the code in it.
  */
 @Composable
-internal fun StatusPill(sale: TillSale, now: LongState) = StatusLine(
-    sale, now,
+internal fun StatusPill(view: SaleView) = StatusLine(
+    view,
     Modifier.clip(RoundedCornerShape(28.dp)).background(mk.card)
         .animateContentSize(motion.settle.spec(IntSize.VisibilityThreshold))
         .padding(start = 12.dp, end = 18.dp, top = 10.dp, bottom = 10.dp),
@@ -526,11 +512,11 @@ internal fun StatusPill(sale: TillSale, now: LongState) = StatusLine(
  * words' height as they change.
  */
 @Composable
-internal fun StatusFoot(sale: TillSale, now: LongState) = CompositionLocalProvider(LocalTokens provides LightTokens, LocalContentColor provides LightTokens.ink) {
+internal fun StatusFoot(view: SaleView) = CompositionLocalProvider(LocalTokens provides LightTokens, LocalContentColor provides LightTokens.ink) {
     Column(Modifier.fillMaxWidth().background(Fixed.White, FootShape)) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(mk.divider))
         StatusLine(
-            sale, now,
+            view,
             Modifier.fillMaxWidth().animateContentSize(motion.settle.spec(IntSize.VisibilityThreshold))
                 .padding(start = 14.dp, end = 18.dp, top = 12.dp, bottom = 14.dp),
         )
@@ -539,20 +525,20 @@ internal fun StatusFoot(sale: TillSale, now: LongState) = CompositionLocalProvid
 
 /** The ring, the tick in it once paid, and the status words over the hint: the pill's and the foot's. */
 @Composable
-private fun StatusLine(sale: TillSale, now: LongState, modifier: Modifier) = Row(
+private fun StatusLine(view: SaleView, modifier: Modifier) = Row(
     modifier.semantics(mergeDescendants = true) {},
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(12.dp),
 ) {
     Box(contentAlignment = Alignment.Center) {
-        PhaseRing(sale, 30.dp)
-        RingTick(sale.phase == SalePhase.Paid)
+        PhaseRing(view.ring, 30.dp)
+        RingTick(view.spent)
     }
     Column {
         val through = motion.fadeThrough.fraction
         val fadeQuick = motion.fadeQuick.fraction
         AnimatedContent(
-            targetState = SaleText.status(sale, posOf(sale)),
+            targetState = view.status,
             // The pill's own size animates; the words' box takes the wider of the two while they change. The new words
             // fade through, in once the old are out, never over them ("Paid" over "Waiting for payment": decision 225).
             transitionSpec = { (fadeIn(through) togetherWith fadeOut(fadeQuick)).using(null) },
@@ -564,7 +550,8 @@ private fun StatusLine(sale: TillSale, now: LongState, modifier: Modifier) = Row
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
             )
         }
-        Countdown(now, sale.expiresAt, fontSize = 13.sp, color = mk.muted) { SaleText.hint(sale, it) }
+        // The engine writes the time left and draws it again each second (docs/decisions/core.md 37).
+        Text(view.hint, fontSize = 13.sp, color = mk.muted, style = LocalTextStyle.current.merge(tabular))
     }
 }
 
@@ -583,29 +570,28 @@ private fun RingTick(paid: Boolean) {
 }
 
 @Composable
-private fun Buttons(sale: TillSale, header: SaleHeader, actions: TillActions) = Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-    OutlineButton("Copy address", { actions.onCopy(sale) }, Modifier.weight(1f), height = 56.dp)
-    actions.onBackToPos?.takeIf { header.backToPos }?.let { back ->
-        PrimaryButton(PosText.backTo(header.pos), back, Modifier.weight(1f), height = 56.dp, size = 16)
+private fun Buttons(sale: SaleFace, actions: TillActions) = Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    val copy = sale.view.copyAddress
+    OutlineButton(copy.label, { actions.send(Action.CopyAddress(sale.orderId)) }, Modifier.weight(1f), height = 56.dp, enabled = copy.enabled)
+    val back = sale.view.backToPos
+    val open = actions.onBackToPos
+    if (back != null && open != null) {
+        PrimaryButton(back.label, open, Modifier.weight(1f), height = 56.dp, size = 16, enabled = back.enabled)
     }
 }
 
-/**
- * What was bought, from this till's own receipt (decision 63). Folded, one
- * row says whose receipt it is, how many items and the total; unfolded, each
- * line and its price, the tax and the total follow under it. The row folds
- * and unfolds it, its chevron turning as the card's height follows on
- * [Motion.settle], read in layout. It opens by itself only when the page
- * with it open needs no scrolling ([room]); a tap is the cashier's and wins
- * while the page is up. On the sale ([onOpen] set) a long order shows three
- * lines and "+N more", and the lines open the whole order (decision 66); a
- * detail page lists every line. [pos] names the receipt ("Clover order …").
- * On the sale, [shared] is the key it grows into the order page by (M7).
- */
+/** [card] as the engine wrote it, on a sale or its page: see the receipt's [OrderCard]. */
 @Composable
-fun OrderCard(receipt: Receipt, pos: PointOfSale?, room: ReceiptRoom, onOpen: (() -> Unit)? = null, shared: String? = null) {
-    val (lines, more) = if (onOpen != null) SaleText.shownLines(receipt) else receipt.lineItems to 0
-    val open = onOpen.takeIf { more > 0 }
+fun OrderCard(card: OrderCardView, room: ReceiptRoom, onOpen: (() -> Unit)? = null, shared: String? = null) = OrderCard(
+    OrderWords(card.summary, card.lines.map { it.label to it.price }, card.more, card.foot, card.total), room, onOpen.takeIf { card.more != null }, shared,
+)
+
+/** An order card's words: its folded row, its lines and their prices, "+N more", its foot and its total. */
+@Immutable
+private class OrderWords(val summary: String, val lines: List<Pair<String, String>>, val more: String?, val foot: String, val total: String)
+
+@Composable
+private fun OrderCard(words: OrderWords, room: ReceiptRoom, open: (() -> Unit)?, shared: String?) {
     val m = motion
     val tapped = room.tapped
     val unfolded = tapped.value ?: room.fits.value
@@ -634,10 +620,10 @@ fun OrderCard(receipt: Receipt, pos: PointOfSale?, room: ReceiptRoom, onOpen: ((
         if (shared != null) {
             val ground = rememberGroundTrack(shared)
             Box(Modifier.matchParentSize().sharedGround(shared, Move.OrderGrow, GroundLook(mk.card, CardCorner), ground))
-            OrderLines(receipt, pos, lines, more, open, fold, Modifier.words(over = Move.OrderGrow, on = ground))
+            OrderLines(words, open, fold, Modifier.words(over = Move.OrderGrow, on = ground))
         } else {
             Box(Modifier.matchParentSize().clip(CardShape).background(mk.card))
-            OrderLines(receipt, pos, lines, more, open, fold, Modifier)
+            OrderLines(words, open, fold, Modifier)
         }
     }
 }
@@ -732,10 +718,7 @@ private class ReceiptFold(
 
 @Composable
 private fun OrderLines(
-    receipt: Receipt,
-    pos: PointOfSale?,
-    lines: List<Receipt.LineItem>,
-    more: Int,
+    words: OrderWords,
     open: (() -> Unit)?,
     fold: ReceiptFold,
     modifier: Modifier,
@@ -755,7 +738,7 @@ private fun OrderLines(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(SaleText.receiptSummary(receipt, pos), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text(words.summary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 Icon(MkIcons.Fold, contentDescription = null, tint = mk.ink, modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = shown.value * 180f })
             }
             Column(
@@ -764,17 +747,17 @@ private fun OrderLines(
                     .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                for (line in lines) {
+                for ((line, price) in words.lines) {
                     Row(Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(SaleText.line(line), fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                        Text(SaleText.plain(line.lineTotal, receipt.currency), fontSize = 14.sp, color = mk.muted, softWrap = false)
+                        Text(line, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        Text(price, fontSize = 14.sp, color = mk.muted, softWrap = false)
                     }
                 }
-                if (more > 0) Text("+$more more", fontSize = 14.sp, color = mk.link)
+                words.more?.let { Text(it, fontSize = 14.sp, color = mk.link) }
                 Box(Modifier.fillMaxWidth().height(1.dp).background(mk.divider))
                 Row(Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(SaleText.tax(receipt) ?: "Total", fontSize = 14.sp, color = mk.muted, modifier = Modifier.weight(1f))
-                    Text(SaleText.total(receipt), fontSize = 14.sp, fontWeight = FontWeight.Bold, softWrap = false)
+                    Text(words.foot, fontSize = 14.sp, color = mk.muted, modifier = Modifier.weight(1f))
+                    Text(words.total, fontSize = 14.sp, fontWeight = FontWeight.Bold, softWrap = false)
                 }
             }
         },
@@ -803,19 +786,19 @@ fun badgeKey(orderId: String) = "badge/$orderId"
 /** A page's hero: the state's glyph at the top of a sale's page. */
 val HeroSize = 72.dp
 
-/** A state's glyph on its ground: a shift row's 36 dp circle, a page's [HeroSize] hero. */
+/** A state's glyph on its ground: a shift row's 36 dp circle, a page's [HeroSize] hero; [ring] drawn for [StateIcon.RING]. */
 @Composable
-fun StateBadge(sale: TillSale, icon: StateIcon, ground: Ground, size: Dp, glyph: Dp, quiet: Boolean = false) {
-    if (icon == StateIcon.Ring) {
-        PhaseRing(sale, size)
+fun StateBadge(ring: Ring?, icon: StateIcon, ground: Ground, size: Dp, glyph: Dp, quiet: Boolean = false) {
+    if (icon == StateIcon.RING) {
+        PhaseRing(ring ?: Ring(1u, null, null), size)
         return
     }
     val (vector, tint) = when (icon) {
-        StateIcon.Clock -> MkIcons.Clock to mk.warn
-        StateIcon.Warning -> MkIcons.Warning to mk.danger
-        StateIcon.Tick -> MkIcons.Tick to mk.paid
-        StateIcon.Refund -> MkIcons.Refund to if (quiet) mk.muted else mk.ink
-        StateIcon.Close, StateIcon.Ring -> MkIcons.Close to if (quiet) mk.muted else mk.ink
+        StateIcon.CLOCK -> MkIcons.Clock to mk.warn
+        StateIcon.WARNING -> MkIcons.Warning to mk.danger
+        StateIcon.TICK -> MkIcons.Tick to mk.paid
+        StateIcon.REFUND -> MkIcons.Refund to if (quiet) mk.muted else mk.ink
+        StateIcon.CLOSE, StateIcon.RING -> MkIcons.Close to if (quiet) mk.muted else mk.ink
     }
     Box(Modifier.size(size).clip(CircleShape).background(groundColor(ground)), contentAlignment = Alignment.Center) {
         Icon(vector, contentDescription = null, tint = tint, modifier = Modifier.size(glyph))
@@ -825,19 +808,20 @@ fun StateBadge(sale: TillSale, icon: StateIcon, ground: Ground, size: Dp, glyph:
 /** The theme's colour for a [Ground] role. */
 @Composable
 fun groundColor(ground: Ground): Color = when (ground) {
-    Ground.Paid -> mk.paidGround
-    Ground.Warn -> mk.warnGround
-    Ground.Danger -> mk.dangerGround
-    Ground.Chip -> mk.chip
-    Ground.Card -> mk.card
+    Ground.PAID -> mk.paidGround
+    Ground.WARN -> mk.warnGround
+    Ground.DANGER -> mk.dangerGround
+    Ground.CHIP -> mk.chip
+    Ground.CARD -> mk.card
 }
 
 /** The theme's colour for a [Tone] role. */
 @Composable
 fun toneColor(tone: Tone): Color = when (tone) {
-    Tone.Link -> mk.link
-    Tone.Warn -> mk.warn
-    Tone.Danger -> mk.danger
-    Tone.Paid -> mk.paid
-    Tone.Muted -> mk.muted
+    Tone.PLAIN -> mk.ink
+    Tone.LINK -> mk.link
+    Tone.WARN -> mk.warn
+    Tone.DANGER -> mk.danger
+    Tone.PAID -> mk.paid
+    Tone.MUTED -> mk.muted
 }
