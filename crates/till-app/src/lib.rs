@@ -301,12 +301,31 @@ pub enum Action {
     },
     /// One step back.
     Back,
-    /// The screen's way on: Welcome's start, step 3's "Next", step 4's
-    /// "Continue", step 5's.
+    /// The screen's main button: Welcome's start, step 3's "Continue", step
+    /// 4's button under the card (the chosen point of sale's sign-in until
+    /// the till is connected to it, then "Continue", or "Done" from
+    /// Settings), step 5's. The engine decides which from its state, so the
+    /// platform sends `Next` whatever the button says.
     Next,
-    /// A connect link, scanned, pasted or opened as an App Link.
+    /// The screen's way past, under its button: step 4's "Not now: only show
+    /// other tills' sales" until connected, then "Skip the test"; step 5's
+    /// "Not now"; Android's "Use notifications only" (the bubble off).
+    Skip,
+    /// A connect link opened as an App Link (or from anywhere else that
+    /// isn't a paste or a scan).
     ConnectLink {
         url: String,
+    },
+    /// Step 2's Paste: the clipboard's text, `None` when it held none (step
+    /// 2 then says there's nothing to paste; text that isn't a store's
+    /// link, that it isn't one).
+    PasteConnectLink {
+        text: Option<String>,
+    },
+    /// Step 2's camera read a code: one that isn't a store's connect code is
+    /// said so.
+    ScanConnectCode {
+        text: String,
     },
     /// Step 3: redeem the code.
     Connect,

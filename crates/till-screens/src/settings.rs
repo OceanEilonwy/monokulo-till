@@ -71,7 +71,9 @@ impl PosState {
     }
 }
 
-pub(crate) fn connected(
+/// Signed in to `chosen` and at a Square location (`location`) or a Clover
+/// merchant (`merchant`): step 4 can go on, and the facts show.
+pub fn connected(
     chosen: Option<PointOfSale>,
     signed_in: bool,
     location: bool,

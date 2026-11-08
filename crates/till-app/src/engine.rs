@@ -584,7 +584,18 @@ impl State {
             }
             Action::Back => self.back(),
             Action::Next => self.next(),
-            Action::ConnectLink { url } => self.connect_link(&url),
+            Action::Skip => self.skip(),
+            Action::ConnectLink { url } => {
+                self.connect_link(Some(&url), ScanProblem::NotALink, ScanProblem::NotALink)
+            }
+            Action::PasteConnectLink { text } => self.connect_link(
+                text.as_deref(),
+                ScanProblem::NothingToPaste,
+                ScanProblem::NotALink,
+            ),
+            Action::ScanConnectCode { text } => {
+                self.connect_link(Some(&text), ScanProblem::NotACode, ScanProblem::NotACode)
+            }
             Action::Connect => self.connect(),
             Action::ChoosePointOfSale { pos } => self.choose_point_of_sale(pos.into()),
             Action::SignIn { application_id } => self.sign_in(application_id),
@@ -597,17 +608,7 @@ impl State {
             }
             Action::ChangeLocation => self.change_location(),
             Action::LookAgain => self.look_again(),
-            Action::WithoutPos => {
-                if self.keep(|m| m.without_pos = true) {
-                    self.restart();
-                    let next = if self.setup_done() {
-                        Screen::Till
-                    } else {
-                        Screen::Alerts
-                    };
-                    self.go(next);
-                }
-            }
+            Action::WithoutPos => self.without_pos(),
             Action::SignOutOfPos => self.sign_out_of_pos(),
             Action::StartShift => {
                 if self.setup_done() {
@@ -816,24 +817,35 @@ impl State {
         }
     }
 
-    /// The screen's way on.
+    /// The point of sale chosen, and whether the till is signed in to it at
+    /// a Square location or Clover merchant: step 4's card says connected.
+    fn pos_connected(&self) -> (Option<PointOfSale>, bool) {
+        let Some(p) = &self.parts else {
+            return (None, false);
+        };
+        let model = p.side.model();
+        let chosen = model.point_of_sale;
+        let connected = settings::connected(
+            chosen,
+            chosen.is_some_and(|pos| p.side.signed_in(pos)),
+            model.location.is_some(),
+            model.clover_merchant.is_some(),
+        );
+        (chosen, connected)
+    }
+
+    /// The screen's way on. On step 4 it is the button under the card: the
+    /// chosen point of sale's sign-in until the till is connected to it,
+    /// then "Continue" (or "Done", opened from Settings).
     fn next(&mut self) {
         match self.screen {
             Screen::Welcome => self.go(Screen::Scan),
             Screen::Connected => self.go(Screen::PointOfSale),
-            Screen::PointOfSale => {
-                if self.setup_done() {
-                    self.back();
-                } else {
-                    // The test sale has done its job: the till opens on its
-                    // idle screen, the sale in its list.
-                    if let Some(p) = &self.parts {
-                        let sales = p.runner.state().till.sales;
-                        self.left.extend(sales.into_iter().map(|s| s.order_id));
-                    }
-                    self.go(Screen::Alerts);
-                }
-            }
+            Screen::PointOfSale => match self.pos_connected() {
+                (None, _) => {}
+                (Some(_), false) => self.sign_in(None),
+                (Some(_), true) => self.pos_done(),
+            },
             Screen::Alerts if self.config.device == Device::Android => self.go(Screen::Float),
             Screen::Alerts => self.go(Screen::Ready),
             Screen::Float => {
@@ -844,15 +856,67 @@ impl State {
         }
     }
 
-    /// A scanned, pasted or opened connect link.
-    fn connect_link(&mut self, url: &str) {
-        match ConnectCode::parse(url, self.config.debug) {
+    /// The screen's way past, below its button: on step 4 "Not now: only
+    /// show other tills' sales" until the till is connected, then "Skip the
+    /// test"; step 5's "Not now"; Android's "Use notifications only".
+    fn skip(&mut self) {
+        match self.screen {
+            Screen::PointOfSale => match self.pos_connected() {
+                (_, false) => self.without_pos(),
+                (_, true) => self.pos_done(),
+            },
+            Screen::Alerts => self.next(),
+            Screen::Float => {
+                self.keep(|m| m.bubble_on = false);
+                self.go(Screen::Ready);
+            }
+            _ => {}
+        }
+    }
+
+    /// "Not now": only other tills' sales.
+    fn without_pos(&mut self) {
+        if self.keep(|m| m.without_pos = true) {
+            self.restart();
+            let next = if self.setup_done() {
+                Screen::Till
+            } else {
+                Screen::Alerts
+            };
+            self.go(next);
+        }
+    }
+
+    /// Step 4 connected: on to alerts, or back to Settings.
+    fn pos_done(&mut self) {
+        if self.setup_done() {
+            self.back();
+        } else {
+            // The test sale has done its job: the till opens on its idle
+            // screen, the sale in its list.
+            if let Some(p) = &self.parts {
+                let sales = p.runner.state().till.sales;
+                self.left.extend(sales.into_iter().map(|s| s.order_id));
+            }
+            self.go(Screen::Alerts);
+        }
+    }
+
+    /// A connect link pasted, scanned or opened as an App Link: step 2 says
+    /// `empty` when there was nothing, `problem` when it isn't a store's.
+    fn connect_link(&mut self, text: Option<&str>, empty: ScanProblem, problem: ScanProblem) {
+        let text = text.map(str::trim).filter(|t| !t.is_empty());
+        let Some(text) = text else {
+            self.scan_problem = Some(empty);
+            return;
+        };
+        match ConnectCode::parse(text, self.config.debug) {
             Some(code) => {
                 self.scan_problem = None;
                 self.confirm = Some(code);
                 self.go(Screen::Confirm);
             }
-            None => self.scan_problem = Some(ScanProblem::NotALink),
+            None => self.scan_problem = Some(problem),
         }
     }
 
