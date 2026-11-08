@@ -48,8 +48,8 @@ struct SalePageScreen: View {
                     if let problem = page.refundProblem {
                         ProblemNote(text: problem)
                     }
-                    ForEach(Array(page.buttons.enumerated()), id: \.offset) { index, button in
-                        PageButtonView(button: button, primary: index == 0) {
+                    ForEach(Array(page.buttons.enumerated()), id: \.offset) { _, button in
+                        PageButtonView(button: button, primary: SalePageScreen.primary(button.action)) {
                             send(action(button.action))
                         }
                     }
@@ -73,9 +73,19 @@ struct SalePageScreen: View {
         case .showCodeAgain: .reopen(orderId: orderId)
         }
     }
+
+    /// Refund is the page's primary button, as on Android; Show code again
+    /// stays glass, also on a page that drops Refund (another till's sale,
+    /// or one taken before the point of sale changed).
+    static func primary(_ action: PageAction) -> Bool {
+        switch action {
+        case .refund: true
+        default: false
+        }
+    }
 }
 
-/// A page's button: the first is the primary one, the rest glass.
+/// A page's button: Refund the primary one, the rest glass.
 struct PageButtonView: View {
     let button: PageButton
     let primary: Bool

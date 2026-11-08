@@ -1,5 +1,6 @@
 import SwiftUI
 import TillCore
+import UIKit
 
 /// The close sheet, "Is the customer paying?" (PadClose, PhoneClose; the
 /// design's CloseAsk), drawn from the engine's `CloseView`: the question,
@@ -61,9 +62,12 @@ struct CloseSheetScreen: View {
     }
 }
 
-/// The refund sheet (decision 130 of android.md), drawn from the engine's
-/// `RefundSheetView`: what to refund and where, "I've refunded it" and
-/// "Not yet".
+/// The refund sheet (decisions 130 and 138 of android.md), drawn from the
+/// engine's `RefundSheetView`: Clover can't refund by API, so it says what
+/// to refund in the point of sale's own app, and where; "I've refunded it"
+/// asks the point of sale now (or takes the cashier's word, for a sale
+/// another point of sale took), and "Not yet", like a swipe down, leaves
+/// the sale under Needs action. The engine takes it down once refunded.
 struct RefundSheetScreen: View {
     let view: RefundSheetView
     let send: Send
@@ -71,9 +75,9 @@ struct RefundSheetScreen: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Heading(text: view.title, size: 24)
-            Rich.text(view.body)
+            // Plain: the body names the order's own title, which may hold asterisks.
+            Text(view.body)
                 .font(.body)
-                .foregroundStyle(Palette.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             if let notSeen = view.notSeen {
                 NoteCard(text: notSeen, ground: .warn)
@@ -81,7 +85,19 @@ struct RefundSheetScreen: View {
             }
             Spacer(minLength: 12)
             PrimaryPress(press: view.refunded) { send(.confirmRefund(orderId: view.orderId)) }
-            LinkButton(label: view.notYet) { send(.dismissRefund) }
+            Button {
+                send(.dismissRefund)
+            } label: {
+                Text(view.notYet)
+                    .frame(maxWidth: .infinity)
+            }
+            .glassButton()
+        }
+        // "Doesn't show a refund yet" arrives after the tap: said aloud, as Android's live region.
+        .onChange(of: view.notSeen) { _, notSeen in
+            if let notSeen {
+                UIAccessibility.post(notification: .announcement, argument: notSeen)
+            }
         }
         .padding(.horizontal, 20)
         .padding(.top, 24)

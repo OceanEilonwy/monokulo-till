@@ -272,6 +272,31 @@ func pos(_ mark: PosMark) -> Pos {
     }
 }
 
+/// The point of sale the cashier chose, as the views on screen say: step 4's
+/// card (or its ticked row), else Settings' point of sale, signed in to or
+/// ticked. Nil before a choice.
+func chosenPos(step: PosStep?, settings: PosSection?) -> PosMark? {
+    if let step {
+        return step.card?.mark ?? step.choices.first { $0.choice.selected }?.mark
+    }
+    guard let settings else { return nil }
+    switch settings {
+    case .signedIn(let mark, _, _, _, _, _, _, _, _, _, _):
+        return mark
+    case .choosing(let choices, _, _):
+        return choices.first { $0.choice.selected }?.mark
+    default:
+        return nil
+    }
+}
+
+/// Where a sign-in to `mark` comes back (its setup's `redirectUri`), for a
+/// sign-in page that names none: Clover's once Clover is chosen, else
+/// Square's.
+func redirectUri(_ mark: PosMark?, square: String, clover: String) -> String {
+    mark == .clover ? clover : square
+}
+
 /// Step 4 (OnbSquare, PhonePos, PadOnb4): Square or Clover, then the chosen
 /// one's card. Also Settings' "Change the point of sale", with Back.
 struct PointOfSalePage: View {
