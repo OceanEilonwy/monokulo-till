@@ -31,7 +31,7 @@ jobs:
       # The AndroidX libraries in use compile against Android 17 (API 37.2).
       - name: Install Android SDK platform and NDK
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.2" "ndk;27.0.12077973" > /dev/null
-      # The receipt module builds orf-codec-ffi from Rust (docs/decisions/android.md 8).
+      # The ffi module builds the Rust core, till-ffi, for each ABI (docs/decisions/core.md 3).
       - name: Rust for Android
         run: |
           rustup toolchain install stable --profile minimal

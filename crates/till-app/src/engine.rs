@@ -17,9 +17,10 @@ use till_bell::{BellAddress, BellApi, BellWakeUps, WakeUpChoice, WakeUpStatus, i
 use till_pos::clover::TenderState;
 use till_pos::square::SquareLocation;
 use till_pos::{Pkce, PosError};
-use till_sales::{LiveStore, PosSwitch, RunnerState, Standing, TillRunner, TillSale};
+use till_sales::{LiveStore, PosSwitch, Standing, TillRunner, TillSale};
 use till_screens::onboarding::{CloverTender, OnboardingInput, PosSetup, ScanProblem, Step};
 use till_screens::settings::{PosState, SettingsInput, StoreNow};
+use till_screens::shift::ShiftFilter;
 use till_screens::{
     Device, DeviceClock, OnboardingView, SettingsView, WakeUpsInput, WakeUpsView, onboarding,
     settings, wake_ups,
@@ -27,6 +28,8 @@ use till_screens::{
 use tokio::runtime::Handle;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio::sync::watch;
+
+mod till;
 
 use crate::faces::{self, Change, Money, Phases};
 use crate::push::PlatformPush;
@@ -117,30 +120,6 @@ pub(crate) struct RefundSheet {
     pub not_seen: bool,
 }
 
-/// What the till's screens take (till-screens' `shift`, `sale`, `close`,
-/// `sale_page`, `code`, `live_activity`): the engine publishes them from
-/// here once those screens land.
-#[allow(dead_code)] // read by the till's screens, once they land
-#[derive(Clone, Debug)]
-pub(crate) struct TillInput {
-    pub runner: RunnerState,
-    pub screen: Screen,
-    /// The point of sale chosen, for a sale's words (`PosText.of`).
-    pub chosen: Option<PointOfSale>,
-    /// Where the till watches, by name.
-    pub place: Option<String>,
-    pub shift_on: bool,
-    pub shift_started_at: Option<i64>,
-    /// Sales whose full screen the cashier left.
-    pub left: BTreeSet<String>,
-    /// Sales whose refund the point of sale hasn't answered yet.
-    pub refunding: BTreeSet<String>,
-    pub refund_sheet: Option<RefundSheet>,
-    pub visible: bool,
-    pub clock: DeviceClock,
-    pub device: Device,
-}
-
 /// The parts made from the persisted model.
 struct Parts {
     side: Arc<Side>,
@@ -162,6 +141,13 @@ struct Published {
     onboarding: Option<OnboardingView>,
     settings: Option<SettingsView>,
     wake_ups: Option<WakeUpsView>,
+    nav: Option<(bool, Option<Screen>)>,
+    shift: Option<till_screens::ShiftView>,
+    sale: Option<Update>,
+    close: Option<(Option<String>, Option<till_screens::CloseView>)>,
+    refund: Option<Option<crate::RefundSheetView>>,
+    bubble: Option<crate::BubbleView>,
+    notification: Option<till_screens::NotificationView>,
 }
 
 pub(crate) struct State {
@@ -198,6 +184,28 @@ pub(crate) struct State {
     visible: bool,
     alerts_allowed: bool,
     bubble_allowed: bool,
+    /// Orbot's proxy, as the platform's last probe found it.
+    tor_running: Option<bool>,
+    /// The shift's chip, and whether its tray is folded.
+    filter: ShiftFilter,
+    folded: bool,
+    /// The sale whose close sheet is up.
+    close_sheet: Option<String>,
+    /// The sales that were live at the last look.
+    live_before: BTreeSet<String>,
+    /// The screen the platform's stage rests on; `None` while it moves.
+    resting_on: Option<Screen>,
+    /// The screen up was put there by the sales, not the cashier.
+    by_itself: bool,
+    /// Bumped to call off a paid sale's step back.
+    step_back: u64,
+    /// The sale just paid, for [`till::PAID_DWELL`].
+    just_paid: Option<String>,
+    just_paid_token: u64,
+    /// The sale the bubble showed last.
+    bubble_focus: Option<String>,
+    /// A redraw is due in a second.
+    ticking: bool,
     utc_offset: i32,
     hours_24: bool,
     phases: Phases,
@@ -244,6 +252,18 @@ impl State {
             visible: true,
             alerts_allowed: false,
             bubble_allowed: false,
+            tor_running: None,
+            filter: ShiftFilter::All,
+            folded: true,
+            close_sheet: None,
+            live_before: BTreeSet::new(),
+            resting_on: None,
+            by_itself: false,
+            step_back: 0,
+            just_paid: None,
+            just_paid_token: 0,
+            bubble_focus: None,
+            ticking: false,
             phases: Phases::default(),
             published: Published::default(),
         }
@@ -293,6 +313,7 @@ impl State {
     fn after(&mut self) {
         self.step(|s| {
             s.follow();
+            s.follow_sales();
             s.publish();
         });
     }
@@ -449,6 +470,8 @@ impl State {
             });
         }
         self.screen = self.home();
+        // The first screen is at rest before anything moves.
+        self.resting_on = Some(self.screen.clone());
     }
 
     /// A new runner, for a till connected afresh or forgotten: the old
@@ -499,6 +522,11 @@ impl State {
 
     fn go(&mut self, screen: Screen) {
         self.problem = None;
+        self.by_itself = false;
+        // Going to the screen already up changes nothing the stage would land from.
+        if screen != self.screen {
+            self.resting_on = None;
+        }
         self.screen = screen;
     }
 
@@ -532,6 +560,7 @@ impl State {
                 self.alerts_allowed = alerts;
                 self.bubble_allowed = bubble;
             }
+            Action::TorProbed { running } => self.tor_running = Some(running),
             action if self.parts.is_none() => {
                 self.log(format!(
                     "till-core: nothing kept could be read, so {action:?} waits"
@@ -573,10 +602,33 @@ impl State {
                 }
             }
             Action::StopShift => self.set_shift(false),
+            Action::ChooseFilter { filter } => self.filter = filter,
+            Action::FoldTray { folded } => self.folded = folded,
+            Action::OpenShift => {
+                let sales = till_sales_ids(self);
+                self.left.extend(sales);
+                if self.setup_done() {
+                    self.go(Screen::Till);
+                }
+            }
+            Action::Landed { screen } => {
+                if screen == self.screen {
+                    self.resting_on = Some(screen);
+                }
+            }
+            Action::AskClose { order_id } => {
+                if till_screens::close::applies(self.sale(&order_id).as_ref()) {
+                    self.close_sheet = Some(order_id);
+                }
+            }
+            Action::DismissClose => self.close_sheet = None,
             Action::OpenSale { order_id } => self.open(order_id),
             Action::Enlarge { order_id } => self.go(Screen::Code { order_id }),
             Action::ShowOrder { order_id } => self.go(Screen::Order { order_id }),
-            Action::Close { order_id, choice } => self.close(order_id, choice),
+            Action::Close { order_id, choice } => {
+                self.close_sheet = None;
+                self.close(order_id, choice);
+            }
             Action::Refund { order_id } => self.refund(order_id, false),
             Action::ConfirmRefund { order_id } => self.confirm_refund(order_id),
             Action::DismissRefund => self.refund_sheet = None,
@@ -591,7 +643,30 @@ impl State {
                     self.effect(Effect::CopyText { text: sale.address });
                 }
             }
+            Action::CopyAmount { order_id } => {
+                if let Some(sale) = self.sale(&order_id) {
+                    self.effect(Effect::CopyText { text: sale.xmr });
+                }
+            }
             Action::OpenSettings => self.open_settings(),
+            Action::OpenPointOfSale => {
+                self.from_settings = true;
+                self.go(Screen::PointOfSale);
+            }
+            Action::ReadStore => {
+                if let Some(p) = &self.parts {
+                    p.live.read(p.side.model().connection.as_ref());
+                }
+            }
+            Action::SetBaseUrl { pos, url } => {
+                if self.config.debug {
+                    let url = Some(url).filter(|u| !u.is_empty());
+                    self.keep(|m| match pos {
+                        crate::Pos::Square => m.square_base_url = url,
+                        crate::Pos::Clover => m.clover_base_url = url,
+                    });
+                }
+            }
             Action::SetBubble { on } => {
                 self.keep(|m| m.bubble_on = on);
             }
@@ -753,11 +828,16 @@ impl State {
             return;
         };
         let (monokulo, wake_ups) = (p.monokulo.clone(), p.wake_ups.clone());
+        // Over Tor when the store has an onion address and the platform's
+        // probe found Orbot running (decision 55); off it until a probe says so.
+        let orbot = self.tor_running == Some(true);
         self.work(async move {
             match monokulo.connect(&code).await {
-                // Tor waits for a probe of Orbot on Android (decision 55):
-                // a till connects off Tor until then.
                 Ok(connection) => {
+                    let connection = Connection {
+                        tor: connection.onion_api.is_some() && orbot,
+                        ..connection
+                    };
                     wake_ups.unregister(true).await;
                     apply(move |s| s.connected(connection))
                 }
@@ -1070,6 +1150,7 @@ impl State {
     /// Shows a sale full screen.
     fn open(&mut self, order_id: String) {
         self.left.remove(&order_id);
+        self.step_back += 1;
         if self.setup_done() {
             self.go(Screen::Sale { order_id });
         }
@@ -1077,6 +1158,8 @@ impl State {
 
     /// The cashier left a sale's full screen for the shift.
     fn leave(&mut self, order_id: String) {
+        // Left by the cashier during a paid moment, the step back has nothing left to do.
+        self.step_back += 1;
         let on_it = matches!(
             &self.screen,
             Screen::Sale { order_id: o } | Screen::Code { order_id: o } | Screen::Order { order_id: o }
@@ -1191,10 +1274,7 @@ impl State {
 
     /// Back from Settings: to the sale or the shift it was opened from.
     fn close_settings(&mut self) {
-        match self.before_settings.take() {
-            Some(before) if self.setup_done() => self.go(before),
-            _ => self.go_home(),
-        }
+        self.settings_back();
     }
 
     /// Reach the store over Tor, at its onion address, or not (decision 55).
@@ -1307,6 +1387,7 @@ impl State {
                     face: faces::new_sale(sale, &money, quiet),
                 }),
                 (Change::Paid, Some(sale)) => {
+                    self.just_paid(order_id.clone());
                     self.effect(Effect::Notify {
                         face: faces::paid(sale, &money, quiet),
                     });
@@ -1331,27 +1412,6 @@ impl State {
             utc_offset: self.utc_offset,
             hours_24: self.hours_24,
         }
-    }
-
-    /// The till's state for its screens, once till-screens has them.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) fn till_input(&self) -> Option<TillInput> {
-        let p = self.parts.as_ref()?;
-        let model = p.side.model();
-        Some(TillInput {
-            runner: p.runner.state(),
-            screen: self.screen.clone(),
-            chosen: model.point_of_sale,
-            place: model.place_name(),
-            shift_on: model.shift_on,
-            shift_started_at: model.shift_started_at,
-            left: self.left.clone(),
-            refunding: self.refunding.clone(),
-            refund_sheet: self.refund_sheet.clone(),
-            visible: self.visible,
-            clock: self.device_clock(),
-            device: self.config.device,
-        })
     }
 
     fn tender_for_screen(&self) -> CloverTender {
@@ -1426,7 +1486,7 @@ impl State {
             debug: self.config.debug,
             base_urls,
             // Orbot's probe stays on the platform (decision 10).
-            tor_running: None,
+            tor_running: self.tor_running,
             wake_ups: self.wake_ups_input(p),
             live_activity: false,
             code_in_island: false,
@@ -1532,6 +1592,11 @@ impl State {
         send!(core, CORE_VERSION.to_owned(), |version| Update::Core {
             version
         });
+        let nav = (self.by_itself, self.back_target());
+        send!(nav, nav, |(by_itself, back_target)| Update::Nav {
+            by_itself,
+            back_target
+        });
         send!(screen, self.screen.clone(), |screen| Update::Screen {
             screen
         });
@@ -1555,9 +1620,42 @@ impl State {
         }
         send!(settings, settings, |view| Update::Settings { view });
         send!(wake_ups, wake_ups, |view| Update::WakeUps { view });
-        // The till's screens publish from `till_input` once till-screens has
-        // them (shift, sale, close, sale_page, code, notification,
-        // live_activity).
+        let mut ticks = false;
+        if self.setup_done() {
+            let shift = self.shift_view(p);
+            ticks |= shift.ticks;
+            send!(shift, shift, |view| Update::Shift { view });
+        }
+        if let Some(sale) = self.sale_update(p) {
+            if let Update::Sale { view, code, .. } = &sale {
+                ticks |= view.ticks || code.ticks;
+            }
+            send!(sale, sale, |update| update);
+        }
+        let close = self.close_view(p);
+        if close.is_none() {
+            // Paid, ended or closed meanwhile: the sheet goes.
+            self.close_sheet = None;
+        }
+        ticks |= close.as_ref().is_some_and(|c| c.ticks);
+        let close = (self.close_sheet.clone(), close);
+        send!(close, close, |(order_id, view)| Update::CloseSheet {
+            order_id,
+            view
+        });
+        let refund = self.refund_sheet_view(p);
+        send!(refund, refund, |view| Update::RefundSheet { view });
+        let notification = self.notification_view(p);
+        send!(notification, notification, |view| Update::Notification {
+            view
+        });
+        if self.has_bubble()
+            && let Some(bubble) = self.bubble_view()
+        {
+            ticks |= bubble.panel.as_ref().is_some_and(|s| s.ticks);
+            send!(bubble, bubble, |view| Update::Bubble { view });
+        }
+        self.tick_if(ticks);
     }
 }
 
@@ -1674,3 +1772,19 @@ async fn finish_clover(
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+/// Every sale the till shows.
+fn till_sales_ids(s: &State) -> Vec<String> {
+    s.parts
+        .as_ref()
+        .map(|p| {
+            p.runner
+                .state()
+                .till
+                .sales
+                .into_iter()
+                .map(|sale| sale.order_id)
+                .collect()
+        })
+        .unwrap_or_default()
+}

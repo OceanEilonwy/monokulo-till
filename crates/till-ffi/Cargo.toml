@@ -29,3 +29,11 @@ bindgen = ["uniffi/cli"]
 till-app = { workspace = true, features = ["uniffi"] }
 orf-codec-ffi.workspace = true
 uniffi.workspace = true
+
+# Android's certificate checks go through the JVM: the app hands
+# rustls-platform-verifier its context once, through `Tls.init`, before the
+# engine's first request (docs/decisions/core.md 36). The same versions
+# reqwest's rustls feature already brings there.
+[target.'cfg(target_os = "android")'.dependencies]
+jni = { version = "0.22.4", default-features = false }
+rustls-platform-verifier = "0.7.1"

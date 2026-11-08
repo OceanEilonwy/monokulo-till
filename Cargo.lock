@@ -2384,7 +2384,9 @@ dependencies = [
 name = "till-ffi"
 version = "0.1.0"
 dependencies = [
+ "jni",
  "orf-codec-ffi",
+ "rustls-platform-verifier",
  "till-app",
  "uniffi",
 ]

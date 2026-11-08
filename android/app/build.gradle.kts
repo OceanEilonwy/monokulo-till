@@ -83,6 +83,9 @@ android {
 dependencies {
     implementation(project(":sales"))
     implementation(project(":push"))
+    // The Rust core and its bindings (docs/ios-plan.md §2).
+    implementation(project(":ffi"))
+    implementation(libs.unifiedpush.connector)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.browser)

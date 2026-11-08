@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use monokulo_client::FixedClock;
 use till_screens::onboarding::OnboardingPage;
+use till_screens::shift::ShiftFilter;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -392,14 +393,12 @@ async fn an_upgraded_till_runs_its_shift_makes_orders_and_tells_the_platform() {
         Some(r#"["pay_monero"]"#)
     );
 
-    let input = engine.peek(|s| s.till_input()).unwrap();
-    assert_eq!(
-        input.runner.till.sales.len(),
-        2,
-        "the kept sale and the new one"
-    );
-    assert_eq!(input.place.as_deref(), Some("Front counter"));
-    assert_eq!(input.shift_started_at, Some(1_761_148_000));
+    // The shift lists the kept sale and the new one, at the till's place.
+    let shift = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Shift { view }) if rows(view) == 2 => Some(view.clone()),
+        _ => None,
+    });
+    assert_eq!(shift.top.place.as_deref(), Some("Front counter"));
 
     engine.send(Action::CopyAddress {
         order_id: "ord_1".into(),
@@ -495,4 +494,209 @@ fn work_done_for_an_earlier_generation_is_dropped() {
         super::apply(|s| s.problem = Some("current".into())),
     ));
     assert_eq!(problem(&rx), "current");
+}
+
+/// The sale rows a shift lists.
+fn rows(view: &till_screens::ShiftView) -> usize {
+    view.entries
+        .iter()
+        .filter(|e| matches!(e, till_screens::shift::ShiftEntry::Row { .. }))
+        .count()
+}
+
+/// Connects to a stand-in whose handshake gives an onion address, after
+/// `probe` (if any) told the engine about Orbot; returns what was kept.
+async fn connect_with_onion(probe: Option<bool>) -> String {
+    let monokulo = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/apps/connect"))
+        .respond_with(json(
+            r#"{"app_key":"ak_x","api":"/api/v1","onion_api":"http://abc.onion/api/v1"}"#,
+        ))
+        .mount(&monokulo)
+        .await;
+    let platform = Arc::new(FakePlatform::default());
+    let (engine, rx, _) = start(config(None), platform.clone());
+    if let Some(running) = probe {
+        engine.send(Action::TorProbed { running });
+    }
+    engine.send(Action::ConnectLink {
+        url: format!("{}/apps/connect#token={TOKEN}", monokulo.uri()),
+    });
+    screen(&rx, Screen::Confirm);
+    engine.send(Action::Connect);
+    screen(&rx, Screen::Connected);
+    platform.get("connection").unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_till_connects_over_tor_only_once_a_probe_found_orbot_running() {
+    let on = connect_with_onion(Some(true)).await;
+    assert!(on.contains(r#""tor":true"#), "{on}");
+    assert!(
+        on.contains(r#""onion_api":"http://abc.onion/api/v1""#),
+        "{on}"
+    );
+    let off = connect_with_onion(Some(false)).await;
+    assert!(!off.contains(r#""tor""#), "{off}");
+    let unprobed = connect_with_onion(None).await;
+    assert!(!unprobed.contains(r#""tor""#), "{unprobed}");
+}
+
+#[test]
+fn settings_says_when_orbot_isnt_running_for_a_till_on_tor() {
+    let platform = FakePlatform::with(&[("setup.done", "true")]);
+    platform.set(
+        "connection",
+        r#"{"app_key":"ak_1","api":"https://pay.example/api/v1","onion_api":"http://abc.onion/api/v1","tor":true}"#,
+    );
+    let android = EngineConfig {
+        device: Device::Android,
+        ..config(None)
+    };
+    let (engine, rx, _) = start(android, platform);
+    engine.send(Action::TorProbed { running: false });
+    let footnote = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view
+            .tor
+            .as_ref()
+            .map(|tor| tor.footnote.clone())
+            .filter(|f| f.starts_with("Orbot isn't running")),
+        _ => None,
+    });
+    assert!(footnote.ends_with("or turn this off."), "{footnote}");
+}
+
+/// The screen and how it came, as the platform hears them: the `Nav` sent
+/// before each `Screen`.
+fn arrival(rx: &Receiver<Heard>, wanted: Screen) -> bool {
+    let mut by_itself = false;
+    wait_for(rx, |heard| match heard {
+        Heard::Update(Update::Nav { by_itself: b, .. }) => {
+            by_itself = *b;
+            None
+        }
+        Heard::Update(Update::Screen { screen }) if *screen == wanted => Some(()),
+        _ => None,
+    });
+    by_itself
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_sale_rises_out_of_the_resting_shift_by_itself_with_its_screens() {
+    let monokulo = monokulo().await;
+    let square = square().await;
+    let (engine, rx, _) = start(config(Some(&square)), signed_in_till(&monokulo));
+    let sale = Screen::Sale {
+        order_id: "ord_1".into(),
+    };
+    assert!(arrival(&rx, sale.clone()), "the sales put it there");
+    let (view, page, code) = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Sale {
+            order_id,
+            view,
+            page,
+            code,
+            ..
+        }) if order_id == "ord_1" => Some((view.clone(), page.clone(), code.clone())),
+        _ => None,
+    });
+    assert_eq!(view.amount, "$13.88");
+    assert_eq!(view.code, "monero:8Bx?tx_amount=0.08");
+    assert!(view.closes, "a live sale has the X");
+    assert_eq!(page.amount, "$13.88");
+    assert!(!code.done);
+    assert_eq!(
+        engine.peek(|s| s.back_target()),
+        Some(Screen::Till),
+        "Back from a sale previews the shift"
+    );
+
+    // The X asks; the sheet goes without an answer.
+    engine.send(Action::AskClose {
+        order_id: "ord_1".into(),
+    });
+    let answers = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::CloseSheet {
+            view: Some(view), ..
+        }) => Some(view.answers.len()),
+        _ => None,
+    });
+    assert_eq!(answers, 3);
+    engine.send(Action::DismissClose);
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::CloseSheet { view: None, .. }) => Some(()),
+        _ => None,
+    });
+
+    // Back: the cashier's, so not by itself; the sale stays live in the tray
+    // and doesn't come up again.
+    engine.send(Action::Back);
+    assert!(!arrival(&rx, Screen::Till));
+    engine.send(Action::Landed {
+        screen: Screen::Till,
+    });
+    engine.send(Action::ChooseFilter {
+        filter: ShiftFilter::Paid,
+    });
+    let chosen = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Shift { view }) => view
+            .chips
+            .iter()
+            .find(|chip| chip.selected)
+            .map(|chip| chip.filter)
+            .filter(|f| *f == ShiftFilter::Paid),
+        _ => None,
+    });
+    assert_eq!(chosen, ShiftFilter::Paid);
+    assert_eq!(engine.peek(|s| s.screen.clone()), Screen::Till);
+
+    // The panel's "Open the shift" leaves every sale; opening one brings it
+    // back up, the cashier's doing.
+    engine.send(Action::OpenSale {
+        order_id: "ord_1".into(),
+    });
+    assert!(!arrival(&rx, sale));
+}
+
+#[test]
+fn back_from_settings_previews_where_it_was_opened_from() {
+    let platform = FakePlatform::with(&[("setup.done", "true")]);
+    platform.set(
+        "connection",
+        r#"{"app_key":"ak_1","api":"https://pay.example/api/v1"}"#,
+    );
+    let (engine, rx, _) = start(config(None), platform);
+    screen(&rx, Screen::Till);
+    engine.send(Action::OpenSettings);
+    let target = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Nav { back_target, .. }) => back_target.clone(),
+        _ => None,
+    });
+    assert_eq!(target, Screen::Till);
+    screen(&rx, Screen::Settings);
+    engine.send(Action::OpenPointOfSale);
+    screen(&rx, Screen::PointOfSale);
+    engine.send(Action::Back);
+    screen(&rx, Screen::Settings);
+}
+
+#[test]
+fn the_till_and_the_sales_screens_map_to_places_and_back() {
+    use super::till::{place, screen as of_place};
+    for s in [
+        Screen::Till,
+        Screen::Sale {
+            order_id: "o".into(),
+        },
+        Screen::Code {
+            order_id: "o".into(),
+        },
+        Screen::Order {
+            order_id: "o".into(),
+        },
+    ] {
+        assert_eq!(of_place(place(&s)), Some(s));
+    }
+    assert_eq!(of_place(place(&Screen::Settings)), None);
 }
