@@ -1,7 +1,10 @@
-# Monokular for iPhone and iPad: plan
+# Till for iPhone and iPad: plan
 
-Status: accepted 2026-11-08. Phase 0 (the scaffold) is built; decisions
+Status: accepted 2026-11-08. Phases 0, 1, 2 and 4 are built; decisions
 along the way are in [decisions/core.md](decisions/core.md).
+
+The app is **Till** ("Monokulo Till" in full) since 2026-11-08; it was
+Monokular. The repository keeps its name until the owner renames it.
 
 This plan covers two pieces of work, in order:
 
@@ -11,7 +14,7 @@ This plan covers two pieces of work, in order:
    time.
 2. **The iOS app.** A SwiftUI app on the same core for iPhone (Live Activity
    and Dynamic Island) and iPad (Slide Over). It follows the design canvas
-   [Monokular — Live Activity & Slide Over](https://claude.ai/artifact/Kb9AtJFBF3ockyddomLc6t)
+   [Till — Live Activity & Slide Over](https://claude.ai/artifact/Kb9AtJFBF3ockyddomLc6t)
    and the product rules Android has settled since that canvas was drawn.
 
 It also sets up CI for both: Rust on Linux, Android on Linux, and iOS on a
@@ -21,7 +24,7 @@ macOS runner.
 
 ## 1. Why a Rust core now
 
-[design.md §9](design.md#9-the-monokular-repository) chose native cores
+[design.md §9](design.md#9-the-till-repository) chose native cores
 (a SwiftPM `MonokularKit` beside the Kotlin `core`), and only `orf-codec` in
 Rust: "a shared Rust core for it isn't worth the build complexity for this
 amount of logic". Two things have changed since then:
@@ -63,7 +66,7 @@ Tern and Fob solve the same problem in two different ways:
 - **Fob** has a large object API (`FobWallet` with many `async fn`s) and a
   separate ffi crate of about 3,200 lines that mirrors the core's types.
 
-**Monokular follows Tern.** `AppViewModel`'s screen graph, `back()`, and the
+**Till follows Tern.** `AppViewModel`'s screen graph, `back()`, and the
 connect, sign-in, refund and close flows are exactly what Tern's engine
 holds. The till is driven by events (timer ticks, dings, the event stream),
 which suits one task owning the state. Mirroring types the way Fob does
@@ -75,13 +78,15 @@ would cost thousands of lines here.
 | --- | --- | --- |
 | `orf-codec` | unchanged | — |
 | `monokulo-client` | Monokulo HTTP API, connect codes, redeem handshake, proof of work, SSE stream, problem messages, Tor routing policy | `android/core` |
-| `pos` | `SaleSource` trait, PKCE, Square and Clover (auth, API, source, receipts), each behind a cargo feature | `android/sales` (POS parts) |
-| `till` | `Till`, `TillSale`, `Standing`, `Shift` (wake-up loop), `TillRunner`, `LiveStore`, `PosSwitch` | `android/sales`, `android/app` |
-| `bell` | Bell address, Bell API, the `BellWakeUps` registration machine, which push payloads count as dings | `android/push` |
-| `monokular-app` | the `Engine`: state, `Action`/`Update`/`Effect`, screen graph, persisted model and migrations, logic-driven copy, view records (shift list rows, sale page, notification faces, Live Activity content) | `android/app` logic |
-| `monokular-ffi` | cdylib and staticlib, about ten lines: turns on `monokular-app`'s `uniffi` feature and re-exports its scaffolding, plus `orf-codec`'s | replaces `orf-codec-ffi` |
+| `till-pos` | `SaleSource` trait, PKCE, Square and Clover (auth, API, source, receipts), each behind a cargo feature | `android/sales` (POS parts) |
+| `till-sales` | `Till`, `TillSale`, `Standing`, `Shift` (wake-up loop), `TillRunner`, `LiveStore`, `PosSwitch` | `android/sales`, `android/app` |
+| `till-bell` | Bell address, Bell API, the `BellWakeUps` registration machine, which push payloads count as dings | `android/push` |
+| `till-screens` | what each screen shows: one pure function per screen, from the core's records and the clock to finished words and rows (Screens, below), and the logic-driven copy | `android/app` copy and screen logic |
+| `till-app` | the `Engine`: state, `Action`/`Update`/`Effect`, screen graph, persisted model and migrations; publishes `till-screens`' records | `android/app` logic |
+| `till-ffi` | cdylib and staticlib, about ten lines: turns on `till-app`'s `uniffi` feature and re-exports its scaffolding, plus `orf-codec`'s | replaces `orf-codec-ffi` |
 
-The leaf crates (`monokulo-client`, `pos`, `till`, `bell`) never depend on
+The leaf crates (`monokulo-client`, `till-pos`, `till-sales`, `till-bell`,
+`till-screens`) never depend on
 UniFFI. CI checks this (§7).
 
 ### The FFI surface
@@ -124,10 +129,12 @@ trait Platform {
 
 ### Screens
 
-Every screen on the canvas has a Rust implementation in
-`monokular-app/src/screens/`, one module per screen, as Fob's page
-functions (`keys_page`, `payment`, `screens()`) and Tern's `view.rs` do. A
-screen module is a pure function from the engine's state (and the clock)
+Every screen on the canvas has a Rust implementation in its own crate,
+`till-screens`, one module per screen, as Fob's `fob-screens` does beside
+`fob-app`. The crate is pure: no tasks, no I/O, and UniFFI only behind its
+`uniffi` feature, which `till-ffi` turns on (through `till-app`) so the
+records cross to Kotlin and Swift without a mirror layer. A screen module
+is a pure function from the engine's state (and the clock)
 to a view record: every word, amount, icon name, colour role and enabled
 action already decided, so Compose and SwiftUI only lay it out and send
 back the screen's `Action`s. A screen's tests are host tests against that
@@ -182,13 +189,13 @@ them all.
 
 | Phase | Work | Test oracle (Kotlin tests to port) |
 | --- | --- | --- |
-| **0. Scaffold** (built) | Workspace crates; the `monokular-ffi` library replaces `orf-codec-ffi`'s (Android loads one `.so`), still built by the `receipt` module; `Platform` and `EngineListener` with a stub engine; `PointOfSale` and `Clock` in `monokulo-client`; CI guards (§7); decisions recorded and design.md §9 updated | ReceiptCodeTest |
+| **0. Scaffold** (built) | Workspace crates; the `till-ffi` library replaces `orf-codec-ffi`'s (Android loads one `.so`), still built by the `receipt` module; `Platform` and `EngineListener` with a stub engine; `PointOfSale` and `Clock` in `monokulo-client`; CI guards (§7); decisions recorded and design.md §9 updated | ReceiptCodeTest |
 | **1. Monokulo client** | `monokulo-client`: models, `ConnectCode`, `MonokuloApi`, SSE, `Proof`, `Problems`, Tor policy, `Amounts` (through `format_money`). The OpenAPI contract test moves to Rust, still against the pinned `monokulo.sha` | MonokuloApiTest (21), MonokuloContractTest (11), AmountsTest (9), ConnectionTest (6), SaleEventTest (5), ConnectCodeTest (4), TorTest (3), PointOfSaleTest (2) |
-| **2. Points of sale** | `pos`: Square and Clover auth, API, sources and receipts. HTTP tests use `wiremock` in place of MockWebServer | SquareTest (12), CloverSourceTest (17), CloverAuthTest (8), CloverReceiptsTest (7) |
-| **3. The till** | `till`: `Till` and `Standing`, `Shift`, `TillRunner`, `LiveStore`, `PosSwitch`. Android's `TillService` keeps the foreground service and calls the engine | TillTest (43), ShiftTest (4), LiveStoreTest (3), PosSwitchTest (5), NoSourceTest (1) |
-| **4. Wake-ups** | `bell`: `BellWakeUps`, `BellApi`, `BellAddress`, push events. UnifiedPush's receiver and `WakePushService` stay in Kotlin and forward to the engine | BellWakeUpsTest (59), BellApiTest (14), BellAddressTest (8), PushEventsTest (5) |
-| **5a. Screens** | `monokular-app/src/screens/` (§2, Screens): one pure view function per screen, with the copy objects. `wake_ups` and `onboarding` can start once phases 1, 2 and 4 land; the till's screens need phase 3 | ShiftListTest (29), SaleTextTest (14), WakeUpsTextTest (10), PosTextTest (6) |
-| **5b. The engine** | Android moves onto the engine: the Gradle tasks move from `receipt` to a `:ffi` module, and the Kotlin `core`, `sales`, `push` and `receipt` modules are deleted. `monokular-app`: the screen graph and flows from `AppViewModel`, the persisted model (`Stores.kt`, read in its current JSON so existing tills keep their connection), and publishing 5a's screens as `Update`s. `AppViewModel` shrinks to a `StateFlow` per `Update`, as Tern's `Store` does | NavTest's move rules (8), and the on-device tests unchanged |
+| **2. Points of sale** | `till-pos`: Square and Clover auth, API, sources and receipts. HTTP tests use `wiremock` in place of MockWebServer | SquareTest (12), CloverSourceTest (17), CloverAuthTest (8), CloverReceiptsTest (7) |
+| **3. The till** | `till-sales`: `Till` and `Standing`, `Shift`, `TillRunner`, `LiveStore`, `PosSwitch`. Android's `TillService` keeps the foreground service and calls the engine | TillTest (43), ShiftTest (4), LiveStoreTest (3), PosSwitchTest (5), NoSourceTest (1) |
+| **4. Wake-ups** | `till-bell`: `BellWakeUps`, `BellApi`, `BellAddress`, push events. UnifiedPush's receiver and `WakePushService` stay in Kotlin and forward to the engine | BellWakeUpsTest (59), BellApiTest (14), BellAddressTest (8), PushEventsTest (5) |
+| **5a. Screens** | The `till-screens` crate (§2, Screens): one pure view function per screen, with the copy objects. `wake_ups` and `onboarding` can start once phases 1, 2 and 4 land; the till's screens need phase 3 | ShiftListTest (29), SaleTextTest (14), WakeUpsTextTest (10), PosTextTest (6) |
+| **5b. The engine** | Android moves onto the engine: the Gradle tasks move from `receipt` to a `:ffi` module, and the Kotlin `core`, `sales`, `push` and `receipt` modules are deleted. `till-app`: the screen graph and flows from `AppViewModel`, the persisted model (`Stores.kt`, read in its current JSON so existing tills keep their connection), and publishing 5a's screens as `Update`s. `AppViewModel` shrinks to a `StateFlow` per `Update`, as Tern's `Store` does | NavTest's move rules (8), and the on-device tests unchanged |
 
 **Migration of saved state.** Before phase 5 lands, a test fixture records
 every key `Stores.kt` writes, captured from the current Kotlin code. The
@@ -206,14 +213,14 @@ the same as Tern for Android.
 
 ## 4. The design canvases
 
-**Primary**: [Monokular — Live Activity & Slide Over](https://claude.ai/artifact/Kb9AtJFBF3ockyddomLc6t)
+**Primary**: [Till — Live Activity & Slide Over](https://claude.ai/artifact/Kb9AtJFBF3ockyddomLc6t)
 (2026-10-19). The iOS boards:
 
 | Page | Boards |
 | --- | --- |
 | Sale flow, iPhone | Main (1 · idle, logo in the island), PhoneOrder (2 · island expands on a sale), PhoneOrderQR (2 · variant: code in the island), PhoneFront (3 · full-screen code), PhonePaid (4), PhoneUnpaid (5 · never paid, refund in Square) |
 | Sale flow, iPad | PadIdle (1 · in Slide Over), PadStashed (1b · swiped off the edge), PadTucked (2a · time-sensitive notification), PadOrder (2b · code in the panel), PadFront (3 · full screen for the customer, with items and a four-step progress bar), PadPaid (4) |
-| Onboarding | iPhone: OnbWelcome, OnbStore, OnbConfirm, OnbSquare, OnbAlerts, OnbReady (6 steps). iPad: PadOnb1–6 with a PadOnbRail step rail (step 6: put Monokular in Slide Over) |
+| Onboarding | iPhone: OnbWelcome, OnbStore, OnbConfirm, OnbSquare, OnbAlerts, OnbReady (6 steps). iPad: PadOnb1–6 with a PadOnbRail step rail (step 6: put Till in Slide Over) |
 | Settings | PhoneSettings (Store, Square, Alerts, Dynamic Island, Disconnect), PadSettings (in Slide Over) |
 | Shared pieces | Logo, LoadingMark (animated), QR |
 
@@ -229,12 +236,12 @@ The look, taken from the boards:
   inset grouped lists for settings.
 
 **Later canvases**, mostly drawn for Android, that change the product the
-iOS app must match: [Monokular till tweaks](https://claude.ai/artifact/7AP51MTdKr7TXgRjDYArNN)
-(the till redesign, decisions 60 and on), [Monokular on Clover](https://claude.ai/artifact/Nd5BPGhNqqpqbeQtZe5icf),
-[Monokular waiting sales](https://claude.ai/artifact/EsWkkS3yER5ryB8tgvRGJe),
+iOS app must match: [Till till tweaks](https://claude.ai/artifact/7AP51MTdKr7TXgRjDYArNN)
+(the till redesign, decisions 60 and on), [Till on Clover](https://claude.ai/artifact/Nd5BPGhNqqpqbeQtZe5icf),
+[Till waiting sales](https://claude.ai/artifact/EsWkkS3yER5ryB8tgvRGJe),
 [Waiting Tray & Bubble Handoff](https://claude.ai/artifact/WiZwopcdX7qrCYaAuknYdb),
-[Monokular Design Choices](https://claude.ai/artifact/MnkQZHnEy3Sa6hRxZUpJXn)
-and [Monokular Motion](https://claude.ai/artifact/E9kQMmhYVnsBE4jvfhAKi6).
+[Till Design Choices](https://claude.ai/artifact/MnkQZHnEy3Sa6hRxZUpJXn)
+and [Till Motion](https://claude.ai/artifact/E9kQMmhYVnsBE4jvfhAKi6).
 
 **The till redesign on iOS** (added 2026-11-08, the canvas's "Till
 (redesign)" page). The canvas first predated the till redesign, so a design
@@ -271,12 +278,12 @@ minimum (§5).
 ios/
   project.yml                XcodeGen; no .xcodeproj in git
   Scripts/build-core.sh      cargo per Apple target, then the XCFramework, then Swift bindings
-  Packages/MonokularCore/    SwiftPM: binaryTarget (the XCFramework) + generated Swift + small Swift helpers
-  Monokular/                 the app (SwiftUI): App, Features/{Onboarding,Till,Sale,Settings}, Services, Resources
-  MonokularWidgets/          Live Activity: compact, minimal, expanded, lock screen. Doesn't link the core
-  MonokularNotifications/    Notification Service Extension: calls Engine::background_check
-  MonokularTests/            Swift tests of the Swift glue only (the logic is tested in Rust)
-  MonokularUITests/          snapshot tests of every board, for CI screenshots
+  Packages/TillCore/    SwiftPM: binaryTarget (the XCFramework) + generated Swift + small Swift helpers
+  Till/                 the app (SwiftUI): App, Features/{Onboarding,Till,Sale,Settings}, Services, Resources
+  TillWidgets/          Live Activity: compact, minimal, expanded, lock screen. Doesn't link the core
+  TillNotifications/    Notification Service Extension: calls Engine::background_check
+  TillTests/            Swift tests of the Swift glue only (the logic is tested in Rust)
+  TillUITests/          snapshot tests of every board, for CI screenshots
 ```
 
 - **Minimum version: iOS and iPadOS 27** (owner's decision, 2026-11-08: a
@@ -300,7 +307,7 @@ ios/
   in phase I5.
 - **Entitlements**: App Groups and a shared Keychain access group (app plus
   extension), Push Notifications, Time Sensitive Notifications, and
-  Associated Domains (`applinks:monokular.monokulo.com` for connect links
+  Associated Domains (`applinks:till.monokulo.com` for connect links
   and the Square redirect).
 - **Square sign-in** uses `ASWebAuthenticationSession` with PKCE. The core
   builds the URL and exchanges the code; Swift only opens the browser.
@@ -321,13 +328,13 @@ trait, with a no-op version on Android) so iOS doesn't need its own fix.
 
 | Phase | Work | Boards | Needs |
 | --- | --- | --- | --- |
-| **I0. Skeleton** | XcodeGen project, `build-core.sh`, the `MonokularCore` package, an app that starts the engine and shows a raw `Update`; CI job `ios.yml` (§7) | — | Core phase 0 |
+| **I0. Skeleton** | XcodeGen project, `build-core.sh`, the `TillCore` package, an app that starts the engine and shows a raw `Update`; CI job `ios.yml` (§7) | — | Core phase 0 |
 | **I1. Look and parts** | Colour and type tokens, Manrope bundled, Logo, the LoadingMark animation (as specified in docs/motion.md), QR view, glass buttons | Logo, LoadingMark, QR | — |
 | **I2. Onboarding** | Six steps on iPhone, full screen with the rail on iPad; connect by scanning or by universal link; Square sign-in; the test sale; alerts permission | OnbWelcome…OnbReady with PhonePos as step 4, PadOnb1–6, PadOnbRail | Core phases 1–2; the AASA file (§7) |
 | **I3. iPad till, timer only** | The shift in Slide Over as home; stashed; a sale while tucked away raises a time-sensitive local notification; the sale, close sheet, sale pages and enlarged code in the panel; full screen for the customer; paid; settings with Point of sale and Wake-ups | PadShift, PadSale, PadClose, PadDetail, PadCode, PadStashed, PadTucked, PadFront, PadPaid, PadSettings | Core phases 3 and 5 |
 | **I4. iPhone and the Live Activity** | The shift, sale, close sheet, sale pages and enlarged code on iPhone; the Live Activity started each shift (idle, waiting, seen, confirming, paid, expired, as in design.md §6); full-screen code; unpaid with "Refund the Square sale"; Settings › Dynamic Island, including "Show code in island" (off by default) | Main, PhoneOrder, PhoneOrderQR, PhoneShift, PhoneSale, PhoneClose, PhoneCode, Det*, PhonePaid, PhoneSettings, PhoneWakeUps | I3 |
 | **I5. Wake-ups over APNs** | Register the Live Activity's push token and the APNs device token with Monokulo push targets and the Bell, through the relay; the Notification Service Extension handles dings with `background_check` and rewrites the alert as "Monero sale · $24.50 · Tap to show code" | — | Core phase 4; a deployed relay and Bell with APNs keys (design.md §10 item 6) |
-| **I6. Clover on iOS** | The choice of point of sale in onboarding and Settings, and the Clover refund guide. The logic is already in the core; this phase is screens only | Monokular on Clover canvas | I3 |
+| **I6. Clover on iOS** | The choice of point of sale in onboarding and Settings, and the Clover refund guide. The logic is already in the core; this phase is screens only | Till on Clover canvas | I3 |
 | **I7. Release** | TestFlight from CI; App Store metadata; review notes for a crypto-payments companion (design.md §11) | — | Apple Developer account |
 
 iPad comes before iPhone for the same reason as on Android (design.md §10):
@@ -366,7 +373,7 @@ majors.
 - **The contract test** gets Monokulo's OpenAPI document at the pinned sha,
   with the same cache as `android.yml`. It moves here from the Android job
   in phase 1.
-- Optionally, `cargo check -p monokular-ffi --target aarch64-apple-ios` on
+- Optionally, `cargo check -p till-ffi --target aarch64-apple-ios` on
   Linux. This catches crates that won't compile for iOS before anyone needs
   a Mac runner. `cargo check` doesn't link, so it needs no Apple SDK, but
   crates with C code (ring, for example) may still need one; if they do,
@@ -391,7 +398,7 @@ macOS minutes cost about ten times Linux minutes, so this job runs only on
    PRs, plus Swift bindings from `uniffi-bindgen generate --language swift`.
 4. `brew install xcodegen` (pinned), then `xcodegen generate`.
 5. `xcodebuild test` on the iPhone and iPad simulators, running
-   `MonokularTests` and `MonokularUITests`.
+   `TillTests` and `TillUITests`.
 6. Upload the snapshot images and `.xcresult` as artifacts (14 days), and an
    unsigned simulator `.app`.
 
@@ -461,8 +468,8 @@ core 0 ── core 1 ── core 2 ── core 3 ── core 4 ── core 5
 3. ~~A design round for the §4 gap boards before I3.~~ Done and accepted:
    the canvas's "Till (redesign)" page (§4).
 4. ~~iOS 26.1 as the minimum.~~ Decided: iOS and iPadOS 27 (§5).
-5. The Apple Developer team, the bundle identifier (`app.monokular`, to
-   match Android), and the App Store Connect API key for CI.
+5. The Apple Developer team, the bundle identifier (decided: `com.monokulo.till`, as Android's
+   application ID), and the App Store Connect API key for CI.
 6. Whether iOS should ship without the Bell at first. iPad works on the
    timer alone; iPhone finds sales only when the app is open until I5.
 

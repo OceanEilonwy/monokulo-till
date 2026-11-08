@@ -1,5 +1,9 @@
 # Motion: the showcase
 
+> The app was called Monokular until 2026-11-08, when it became Till
+> ("Monokulo Till" in full). This record keeps the names it was written
+> with; see [decisions/core.md](../decisions/core.md) 22 for the new ones.
+
 What the motion work did to the Android till, for the owner. Written by
 the lead designer on 2026-10-30. Round 2 comes first and is written
 against `motion-main` at `1afc52b` (its code is `f2dd97f`, round 2's

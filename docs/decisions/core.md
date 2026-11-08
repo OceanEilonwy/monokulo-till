@@ -1,6 +1,6 @@
 # Decisions: the Rust core
 
-Choices made while moving Monokular's platform-neutral code into Rust, for
+Choices made while moving Till's platform-neutral code into Rust, for
 the Android app and the iOS app ([ios-plan.md](../ios-plan.md)). Numbered
 on from 1; the Android app's own choices are in [android.md](android.md).
 
@@ -121,3 +121,25 @@ on from 1; the Android app's own choices are in [android.md](android.md).
 21. **`BellWakeUps`' scenarios run for both Square and Clover on tokio's
     paused clock**, and check every status change through a test-only
     history: stricter than the Kotlin's conflating `StateFlow`.
+
+## The rename to Till (2026-11-08)
+
+22. **The app is Till, "Monokulo Till" in full, and the core is named for
+    it.** The crates named so far in this file are now: `monokular-app`
+    `till-app`, `monokular-ffi` `till-ffi` (`libtill_ffi`, Kotlin package
+    `uniffi.till_app`), `till` `till-sales` (so the till's state machine
+    doesn't take the bare product name; Android's module was `sales`),
+    `pos` `till-pos` and `bell` `till-bell`. `monokulo-client` keeps its
+    name: it is Monokulo's client, not part of Till. The owner chose to
+    change the outside names at the same time, though it breaks upgrades of
+    test installs: Android's application ID and the iOS bundle ID are
+    `com.monokulo.till`, the sign-in and App Link host `till.monokulo.com`,
+    the URL schemes `monokulo-till` and `monokulo-till-debug`, the slug Till
+    gives Monokulo `till`, and the wake-up service the Monokulo Bell (its
+    saved choice's tag `"monokulo"`). The decisions above keep the names
+    they were written with.
+23. **The screens are their own crate, `till-screens`, as Fob's
+    `fob-screens`**, not a module of the engine: pure functions with no
+    tasks or I/O, tested alone, and started before the engine exists. Its
+    records cross to the apps through its own `uniffi` feature, which
+    `till-app` forwards.
