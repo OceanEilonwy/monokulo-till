@@ -477,3 +477,15 @@ on from 1; the Android app's own choices are in [android.md](android.md).
     through gfxstream's OpenGL) passed all 257 tests in 14 minutes, where
     plain `-gpu host` died with "null ctx" after 78 (emulator 37.2), and
     SwiftShader is several times slower. A real phone over USB works too.
+
+## iOS phase I6: Clover on iOS (2026-11-08)
+
+83. **A sign-in page that names no `redirect_uri` ends at the chosen point
+    of sale's redirect** (step 4's choice while onboarding shows, else
+    Settings'), and Square's when nothing is chosen. Only Refund leads a
+    sale page; "Show the code again" is never the primary button. The
+    refund-in-Clover sheet's body is plain text, "Not yet" a glass button,
+    and its not-seen note is announced to VoiceOver. Still open: iOS fixes
+    Clover's environment at `north_america` (Android has a build setting,
+    android.md 137), and the debug build has no Clover stand-in redirect
+    like Android's `/clover/debug/`.
