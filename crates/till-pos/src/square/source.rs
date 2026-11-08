@@ -63,7 +63,7 @@ impl SaleSource for SquareSource {
     /// (Square can list a payment late), less those handled. The first look
     /// starts the cursor now.
     async fn new_sales(&self) -> Result<Vec<FoundSale>, PosError> {
-        let since = match self.cursor.since() {
+        let since = match self.cursor.since()? {
             Some(since) => since,
             None => {
                 let now = crate::time::format(crate::time::from_seconds(self.clock.now()));
@@ -79,7 +79,7 @@ impl SaleSource for SquareSource {
                 .checked_sub(jiff::SignedDuration::from_secs(OVERLAP_SECONDS))
                 .unwrap_or(since),
         );
-        let handled = self.cursor.handled();
+        let handled = self.cursor.handled()?;
         let payments = self.api.payments(&self.location.id, &from).await?;
         Ok(payments
             .into_iter()

@@ -10,7 +10,8 @@ use till_sales::TillSale;
 use till_screens::bubble;
 use till_screens::close::{self, CloseInput};
 use till_screens::code::{self, CodeInput};
-use till_screens::notification::{self, NotificationInput};
+use till_screens::live_activity::{self, LiveActivityInput, LiveActivityState};
+use till_screens::notification::{self, NotificationInput, Ongoing};
 use till_screens::order_text::order_card;
 use till_screens::pos_text;
 use till_screens::sale::{self, SaleInput};
@@ -22,13 +23,17 @@ use till_screens::view::Press;
 use till_screens::{CloseView, Device, NotificationView, ShiftView};
 
 use super::{Parts, State, apply};
-use crate::faces::Money;
+use crate::phases::Money;
 use crate::{BubbleView, RefundSheetView, Screen};
 
 /// How long a sale paid on screen stays before it steps back to the shift,
 /// and how long the bubble and the ongoing notification show it as paid
 /// (Android's `Motion.Dwell.PAID_MS`).
 pub(crate) const PAID_DWELL: Duration = Duration::from_millis(5_000);
+
+/// How long the Live Activity shows a sale whose code ran out (or whose
+/// payment was reversed) as expired before it idles: as long as a paid one.
+pub(crate) const ENDED_DWELL: Duration = PAID_DWELL;
 
 /// How often a countdown on screen is drawn again (decision 37).
 pub(crate) const TICK: Duration = Duration::from_secs(1);
@@ -141,6 +146,22 @@ impl State {
             apply(move |s| {
                 if s.just_paid_token == token {
                     s.just_paid = None;
+                }
+            })
+        });
+    }
+
+    /// The till's own sale `order_id` ended unpaid: the Live Activity
+    /// shows it as expired for [`ENDED_DWELL`].
+    pub(super) fn just_ended(&mut self, order_id: String) {
+        self.just_ended = Some(order_id);
+        self.just_ended_token += 1;
+        let token = self.just_ended_token;
+        self.task(async move {
+            tokio::time::sleep(ENDED_DWELL).await;
+            apply(move |s| {
+                if s.just_ended_token == token {
+                    s.just_ended = None;
                 }
             })
         });
@@ -368,18 +389,55 @@ impl State {
         Some(view)
     }
 
+    /// The notifications: Android's ongoing one, about the sale it shows
+    /// at the place that sale was rung up; iOS's alert for the sale that
+    /// just arrived, if one did.
     pub(super) fn notification_view(&self, p: &Parts) -> NotificationView {
         let model = p.side.model();
+        let sales = p.runner.state().till.sales;
+        let (till, place) = (model.point_of_sale, model.place_name());
+        let about = if self.config.device.is_ios() {
+            self.alert_for
+                .as_deref()
+                .and_then(|id| sales.iter().find(|sale| sale.order_id == id))
+        } else {
+            match notification::ongoing(&sales, self.just_paid.as_deref()) {
+                Ongoing::Sale(sale) | Ongoing::Paid(sale) => Some(sale),
+                Ongoing::Watching => None,
+            }
+        };
+        let location = match about {
+            Some(sale) => pos_text::place_of(sale, till, place.as_deref()).map(str::to_owned),
+            None => place.clone(),
+        };
         notification::notification(
             &NotificationInput {
-                sales: p.runner.state().till.sales,
                 just_paid: self.just_paid.clone(),
-                alert_for: None,
+                alert_for: self.alert_for.clone(),
                 store: p.live.now().store.map(|s| s.name),
-                location: model.place_name(),
+                location,
+                sales,
             },
             self.config.device,
             &Money(self.platform.clone()),
+        )
+    }
+
+    /// iPhone's Live Activity: while the switch is on, setup is done and a
+    /// shift is on (one activity a shift, design.md §6).
+    pub(super) fn live_activity_state(&self, p: &Parts) -> Option<LiveActivityState> {
+        let model = p.side.model();
+        if !(self.live_activity_on(&model) && model.setup_done && model.shift_on) {
+            return None;
+        }
+        live_activity::live_activity(
+            &LiveActivityInput {
+                sales: p.runner.state().till.sales,
+                just_paid: self.just_paid.clone(),
+                just_ended: self.just_ended.clone(),
+                code_in_island: self.code_in_island_on(&model),
+            },
+            self.config.device,
         )
     }
 

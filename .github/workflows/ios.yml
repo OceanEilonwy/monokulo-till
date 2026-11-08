@@ -46,14 +46,11 @@ jobs:
           rustup toolchain install stable --profile minimal
           rustup default stable
           rustup target add aarch64-apple-ios-sim aarch64-apple-ios
-      - uses: actions/cache@v6
+      # Compiled dependencies only, pruned, falling back to the last cache
+      # when Cargo.lock changes.
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ios-rust-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
-          restore-keys: ios-rust-${{ runner.os }}-
+          shared-key: ios
       - name: XcodeGen
         run: brew install xcodegen && xcodegen --version
       # The simulator's slice only; release builds make both (build-core.sh).

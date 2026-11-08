@@ -591,15 +591,16 @@ impl MemoryShift {
 
     /// What was saved, read back as a new run would.
     fn reloaded(&self) -> Vec<TillSale> {
-        MemoryShift::of(self.saved()).load()
+        MemoryShift::of(self.saved()).load().unwrap()
     }
 }
 
 impl ShiftStore for MemoryShift {
-    fn load(&self) -> Vec<TillSale> {
-        self.saved()
+    fn load(&self) -> Result<Vec<TillSale>, till_pos::StoreError> {
+        Ok(self
+            .saved()
             .map(|saved| shift_json::decode(&saved).unwrap())
-            .unwrap_or_default()
+            .unwrap_or_default())
     }
 
     fn save(&self, sales: &[TillSale]) {
@@ -691,6 +692,44 @@ async fn whom_a_sale_is_for_stays_on_the_till_and_in_its_saved_shift() {
         "the name never goes to Monokulo: {sent}"
     );
     assert!(!only(&till).code.uri.contains("Ana"), "nor into the code");
+}
+
+/// A store whose shift can't be read (the Keychain locked): its saves are
+/// counted, and there should be none.
+#[derive(Default)]
+struct UnreadableShift {
+    saves: AtomicUsize,
+}
+
+impl ShiftStore for UnreadableShift {
+    fn load(&self) -> Result<Vec<TillSale>, till_pos::StoreError> {
+        Err(till_pos::StoreError("the Keychain is locked".into()))
+    }
+
+    fn save(&self, _: &[TillSale]) {
+        self.saves.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+/// Decision 42: a shift the store couldn't read is never saved over, though
+/// the till goes on making orders.
+#[tokio::test]
+async fn a_shift_that_cant_be_read_is_never_saved_over() {
+    let f = fixture().await;
+    let shift = Arc::new(UnreadableShift::default());
+    let till = f
+        .till(FakeSource::new(vec![sale()]))
+        .with_store(shift.clone());
+    assert!(till.shift_unread());
+    assert!(till.state().sales.is_empty());
+    f.enqueue(order());
+    till.check().await;
+    assert_eq!(till.state().sales.len(), 1, "the sale is still made");
+    assert_eq!(shift.saves.load(Ordering::SeqCst), 0);
+    let readable = f
+        .till(FakeSource::new(vec![]))
+        .with_store(MemoryShift::new());
+    assert!(!readable.shift_unread());
 }
 
 #[tokio::test]
@@ -1705,7 +1744,7 @@ async fn a_saved_sale_keeps_the_point_of_sale_that_took_it_and_one_saved_before_
         .replace(r#","pointOfSale":"Clover""#, "");
     assert!(!before.contains("pointOfSale"));
     assert_eq!(
-        MemoryShift::of(Some(before)).load()[0]
+        MemoryShift::of(Some(before)).load().unwrap()[0]
             .found
             .as_ref()
             .map(|found| found.point_of_sale),

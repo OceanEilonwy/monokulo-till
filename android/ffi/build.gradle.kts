@@ -10,7 +10,15 @@ plugins {
 // the NDK. The other modules take it as an `api` dependency.
 val repo: File = rootDir.parentFile
 val hostLibrary = File(repo, "target/release/" + System.mapLibraryName("till_ffi"))
-val abis = listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+// The ABIs and cargo profile the app's libraries are built for. Every ABI
+// with the `android` profile (LTO, one codegen unit, stripped: decision 11)
+// unless the build says otherwise: CI's pull-request builds take one ABI and
+// the plain release profile, which compiles several times faster
+// (-Ptill.rust.abis=arm64-v8a -Ptill.rust.profile=release).
+val abis = providers.gradleProperty("till.rust.abis").orNull
+    ?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }
+    ?: listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+val rustProfile = providers.gradleProperty("till.rust.profile").getOrElse("android")
 
 /** A cargo command that writes one directory, so AGP can take it as generated sources. */
 abstract class CargoTask : Exec() {
@@ -84,19 +92,25 @@ val uniffiBindings = tasks.register<CargoTask>("uniffiBindings") {
 val cargoNdk = tasks.register<CargoTask>("cargoNdk") {
     description = "Builds till-ffi for each Android ABI."
     workingDir = repo
+    inputs.property("abis", abis)
+    inputs.property("profile", rustProfile)
+    // A local copy: the argument provider below can't hold the build script.
+    val profile = rustProfile
     outDir.set(layout.buildDirectory.dir("rust/jniLibs"))
     inputs.dir(File(repo, "crates"))
     inputs.files(File(repo, "Cargo.lock"), File(repo, "Cargo.toml"))
     // This module's NDK, whatever the environment says.
     val ndk = androidComponents.sdkComponents.ndkDirectory.map { it.asFile.absolutePath }
     doFirst {
+        // Only the ABIs asked for now: none left over from an earlier build.
+        outDir.get().asFile.deleteRecursively()
         environment("ANDROID_NDK_HOME", ndk.get())
         environment("NDK_HOME", ndk.get())
     }
     commandLine(listOf("cargo", "ndk") + abis.flatMap { listOf("-t", it) } + listOf("--platform", "26", "-o"))
     argumentProviders.add(
         CommandLineArgumentProvider {
-            listOf(outDir.get().asFile.absolutePath, "build", "--profile", "android", "--locked", "-p", "till-ffi")
+            listOf(outDir.get().asFile.absolutePath, "build", "--profile", profile, "--locked", "-p", "till-ffi")
         },
     )
 }

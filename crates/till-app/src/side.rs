@@ -123,9 +123,11 @@ impl Side {
         Arc::new(PosTokenStore::new(self.store().clone(), pos, self.logger()))
     }
 
-    /// Signed in to `pos`.
+    /// Signed in to `pos`. A sign-in that can't be read counts as one
+    /// (decision 17): the till goes on asking, and the read's error is what
+    /// it shows, never "sign in again".
     pub fn signed_in(&self, pos: PointOfSale) -> bool {
-        self.tokens(pos).load().is_some()
+        !matches!(self.tokens(pos).load(), Ok(None))
     }
 
     /// A stand-in kept in a debug build, else the build's own.

@@ -47,6 +47,11 @@ pub enum PosError {
     /// taken.
     #[error("couldn't lock the sign-in: {0}")]
     Lock(String),
+    /// What the app keeps for the point of sale (its sign-in, cursor or
+    /// tender id) couldn't be read: never taken for "signed out" or "none
+    /// kept", and nothing is saved over it.
+    #[error("couldn't read what this till keeps: {0}")]
+    Store(#[from] crate::StoreError),
 }
 
 impl PosError {

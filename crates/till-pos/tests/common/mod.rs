@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex};
 
-use till_pos::{CursorStore, PosTokens, TokenLock, TokenStore};
+use till_pos::{CursorStore, PosTokens, StoreError, TokenLock, TokenStore};
 use wiremock::matchers::any;
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
@@ -51,8 +51,8 @@ impl MemoryTokens {
 }
 
 impl TokenStore for MemoryTokens {
-    fn load(&self) -> Option<PosTokens> {
-        self.get()
+    fn load(&self) -> Result<Option<PosTokens>, StoreError> {
+        Ok(self.get())
     }
 
     fn save(&self, tokens: Option<PosTokens>) {
@@ -90,12 +90,12 @@ impl MemoryCursor {
 }
 
 impl CursorStore for MemoryCursor {
-    fn since(&self) -> Option<String> {
-        self.since_value()
+    fn since(&self) -> Result<Option<String>, StoreError> {
+        Ok(self.since_value())
     }
 
-    fn handled(&self) -> Vec<String> {
-        self.handled_ids()
+    fn handled(&self) -> Result<Vec<String>, StoreError> {
+        Ok(self.handled_ids())
     }
 
     fn save(&self, since: &str, handled: &[String]) {
@@ -120,8 +120,8 @@ impl MemoryTenders {
 
 #[cfg(feature = "clover")]
 impl till_pos::clover::TenderStore for MemoryTenders {
-    fn tender_id(&self, merchant_id: &str) -> Option<String> {
-        self.id(merchant_id)
+    fn tender_id(&self, merchant_id: &str) -> Result<Option<String>, StoreError> {
+        Ok(self.id(merchant_id))
     }
 
     fn save(&self, merchant_id: &str, tender_id: Option<&str>) {
@@ -130,6 +130,62 @@ impl till_pos::clover::TenderStore for MemoryTenders {
             Some(id) => ids.insert(merchant_id.into(), id.into()),
             None => ids.remove(merchant_id),
         };
+    }
+}
+
+/// A store whose reads fail (the Keychain locked, the Keystore gone), which
+/// counts what is saved over it: nothing should be.
+#[derive(Default)]
+pub struct Unreadable {
+    pub saves: Mutex<u32>,
+}
+
+impl Unreadable {
+    pub fn saves(&self) -> u32 {
+        *self.saves.lock().unwrap()
+    }
+
+    fn refused<T>(&self) -> Result<T, StoreError> {
+        Err(StoreError("the Keychain is locked".into()))
+    }
+
+    fn saved(&self) {
+        *self.saves.lock().unwrap() += 1;
+    }
+}
+
+impl TokenStore for Unreadable {
+    fn load(&self) -> Result<Option<PosTokens>, StoreError> {
+        self.refused()
+    }
+
+    fn save(&self, _: Option<PosTokens>) {
+        self.saved();
+    }
+}
+
+impl CursorStore for Unreadable {
+    fn since(&self) -> Result<Option<String>, StoreError> {
+        self.refused()
+    }
+
+    fn handled(&self) -> Result<Vec<String>, StoreError> {
+        self.refused()
+    }
+
+    fn save(&self, _: &str, _: &[String]) {
+        self.saved();
+    }
+}
+
+#[cfg(feature = "clover")]
+impl till_pos::clover::TenderStore for Unreadable {
+    fn tender_id(&self, _: &str) -> Result<Option<String>, StoreError> {
+        self.refused()
+    }
+
+    fn save(&self, _: &str, _: Option<&str>) {
+        self.saved();
     }
 }
 

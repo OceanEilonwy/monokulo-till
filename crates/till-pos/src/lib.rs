@@ -14,7 +14,9 @@
 //!   `TenderStore`): what the app keeps for a point of sale, behind traits
 //!   it implements. [`TokenLock`] is held around every refresh, so two
 //!   processes sharing one sign-in (the iOS app and its notification
-//!   extension) never both spend a single-use refresh token.
+//!   extension) never both spend a single-use refresh token. A store that
+//!   can't be read says so with a [`StoreError`], and nothing is saved over
+//!   what it couldn't read.
 //! - [`PosError`]: every failure, with what the till shows for it.
 //!
 //! Requests go through a `reqwest::Client` the caller makes, and the time
@@ -42,4 +44,4 @@ pub use pkce::Pkce;
 pub use source::{
     CursorStore, FoundSale, RefundByTill, RefundInPos, Refunds, SaleOrder, SaleSource,
 };
-pub use tokens::{NoTokenLock, PosTokens, TokenLock, TokenStore};
+pub use tokens::{NoTokenLock, PosTokens, StoreError, TokenLock, TokenStore};

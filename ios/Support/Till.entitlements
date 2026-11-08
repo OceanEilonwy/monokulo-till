@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	Universal links on till.monokulo.com ("Open in Till" connect links and the
+	points of sale's redirects), and the same domain for
+	ASWebAuthenticationSession's https callback. The site's
+	.well-known/apple-app-site-association names the app (site/).
+	-->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:till.monokulo.com</string>
+		<string>webcredentials:till.monokulo.com</string>
+	</array>
+</dict>
+</plist>

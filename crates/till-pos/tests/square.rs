@@ -430,3 +430,65 @@ async fn two_refreshes_at_once_sharing_a_lock_make_one_refresh_request() {
     assert_eq!(f.stand.request_count().await, 1, "r1 spent once");
     assert_eq!(f.tokens.get().unwrap().refresh_token.as_deref(), Some("r2"));
 }
+
+/// Decision 17: a sign-in the store couldn't read is an error, never
+/// "signed out": Square isn't asked, nothing is saved over it, and the
+/// cashier isn't sent to sign in again.
+#[tokio::test]
+async fn a_sign_in_that_cant_be_read_is_an_error_never_signed_out() {
+    let f = Fixture::start().await;
+    let store = Arc::new(Unreadable::default());
+    let auth = SquareAuth::new(
+        reqwest::Client::new(),
+        f.config.clone(),
+        store.clone(),
+        Arc::new(f.clock.clone()),
+    );
+    assert!(auth.signed_in().is_err());
+    let e = auth.access_token().await.unwrap_err();
+    assert!(matches!(e, till_pos::PosError::Store(_)), "{e:?}");
+    assert!(!e.sign_in_again());
+    assert_eq!(store.saves(), 0);
+    assert_eq!(f.stand.request_count().await, 0);
+}
+
+/// A cursor the store couldn't read isn't started afresh over the kept one,
+/// and a sale handled meanwhile leaves it alone.
+#[tokio::test]
+async fn a_cursor_that_cant_be_read_is_an_error_and_never_saved_over() {
+    let f = Fixture::start().await;
+    f.source(MemoryCursor::since(None));
+    let cursor = Arc::new(Unreadable::default());
+    let api = SquareApi::new(reqwest::Client::new(), f.config.clone(), f.auth.clone());
+    let location = SquareLocation {
+        id: "L1".into(),
+        name: "Front Counter".into(),
+        business_name: None,
+        country: "US".into(),
+        currency: "USD".into(),
+        timezone: None,
+        status: None,
+    };
+    let source = SquareSource::new(
+        api,
+        f.config.clone(),
+        location,
+        cursor.clone(),
+        Arc::new(f.clock.clone()),
+    );
+    let e = source.new_sales().await.unwrap_err();
+    assert!(matches!(e, till_pos::PosError::Store(_)), "{e:?}");
+    source.handled(&FoundSale {
+        id: "pay_1".into(),
+        amount_minor: 1388,
+        currency: "USD".into(),
+        reference: None,
+        order_id: None,
+        created_at: "2026-10-22T16:07:00Z".into(),
+        device_id: None,
+        title: None,
+        point_of_sale: PointOfSale::Square,
+    });
+    assert_eq!(cursor.saves(), 0);
+    assert_eq!(f.stand.request_count().await, 0);
+}

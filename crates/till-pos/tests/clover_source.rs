@@ -527,3 +527,40 @@ async fn a_merchant_whose_country_isnt_known_gets_the_plain_code() {
     assert_eq!(f.source().order(&no_order).await.unwrap().receipt, None);
     assert_eq!(f.stand.request_count().await, 0);
 }
+
+/// A remembered tender id the store couldn't read is an error: Clover's
+/// tenders are listed, but none is made, found again or saved over it.
+#[tokio::test]
+async fn a_tender_id_that_cant_be_read_makes_no_tender_and_saves_nothing() {
+    let f = Fixture::start().await;
+    let tenders = Arc::new(Unreadable::default());
+    let source = CloverSource::new(
+        f.api.clone(),
+        f.config.clone(),
+        f.merchant.clone(),
+        MemoryCursor::since(Some("2026-10-28T08:57:00Z")),
+        tenders.clone(),
+        Arc::new(f.clock.clone()),
+    );
+    f.stand.enqueue(json(r#"{"elements":[]}"#));
+    let e = source.ensure_tender().await.unwrap_err();
+    assert!(matches!(e, till_pos::PosError::Store(_)), "{e:?}");
+    let e = source.new_sales().await.unwrap_err();
+    assert!(matches!(e, till_pos::PosError::Store(_)), "{e:?}");
+    assert_eq!(tenders.saves(), 0);
+    assert_eq!(f.methods().await, ["GET"], "nothing made");
+}
+
+/// A cursor the store couldn't read isn't started afresh over the kept one.
+#[tokio::test]
+async fn a_cursor_that_cant_be_read_is_an_error_and_never_saved_over() {
+    let f = Fixture::start().await;
+    f.tenders.set("MCLOVER00001", "T_MONERO");
+    let cursor = Arc::new(Unreadable::default());
+    let source = f.source_with(cursor.clone(), f.merchant.clone());
+    let e = source.new_sales().await.unwrap_err();
+    assert!(matches!(e, till_pos::PosError::Store(_)), "{e:?}");
+    source.handled(&sale(None, None));
+    assert_eq!(cursor.saves(), 0);
+    assert_eq!(f.stand.request_count().await, 0);
+}

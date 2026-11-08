@@ -25,13 +25,14 @@ use till_screens::{
     Device, DeviceClock, OnboardingView, SettingsView, WakeUpsInput, WakeUpsView, onboarding,
     settings, wake_ups,
 };
+use till_screens::{notification, pos_text};
 use tokio::runtime::Handle;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio::sync::watch;
 
 mod till;
 
-use crate::faces::{self, Change, Money, Phases};
+use crate::phases::{Change, Money, Phases};
 use crate::push::PlatformPush;
 use crate::side::Side;
 use crate::store::{Kept, Log, PendingSignIn, Store, WakeUpsKept};
@@ -148,6 +149,7 @@ struct Published {
     refund: Option<Option<crate::RefundSheetView>>,
     bubble: Option<crate::BubbleView>,
     notification: Option<till_screens::NotificationView>,
+    live_activity: Option<Option<till_screens::LiveActivityState>>,
 }
 
 pub(crate) struct State {
@@ -202,6 +204,13 @@ pub(crate) struct State {
     /// The sale just paid, for [`till::PAID_DWELL`].
     just_paid: Option<String>,
     just_paid_token: u64,
+    /// The till's own sale whose code just ran out or was reversed, for
+    /// [`till::ENDED_DWELL`]: the Live Activity shows it as expired.
+    just_ended: Option<String>,
+    just_ended_token: u64,
+    /// The sale that arrived while the app wasn't in front, alerted in the
+    /// next notification update only.
+    alert_for: Option<String>,
     /// The sale the bubble showed last.
     bubble_focus: Option<String>,
     /// A redraw is due in a second.
@@ -262,6 +271,9 @@ impl State {
             step_back: 0,
             just_paid: None,
             just_paid_token: 0,
+            just_ended: None,
+            just_ended_token: 0,
+            alert_for: None,
             bubble_focus: None,
             ticking: false,
             phases: Phases::default(),
@@ -671,6 +683,14 @@ impl State {
                 self.keep(|m| m.bubble_on = on);
             }
             Action::SetTor { on } => self.set_tor(on),
+            // The island is the iPhone's alone: elsewhere they stay off.
+            Action::SetLiveActivity { on } if self.config.device == Device::Iphone => {
+                self.keep(|m| m.live_activity = on);
+            }
+            Action::SetCodeInIsland { on } if self.config.device == Device::Iphone => {
+                self.keep(|m| m.code_in_island = on);
+            }
+            Action::SetLiveActivity { .. } | Action::SetCodeInIsland { .. } => {}
             Action::Disconnect => self.disconnect(),
             Action::Forget => self.forget(),
             Action::ChooseWakeUps { choice } => self.choose_wake_ups(choice),
@@ -934,9 +954,18 @@ impl State {
             return;
         };
         let without_query = url.split(['?', '#']).next().unwrap_or(url);
-        let pos = if without_query == redirect_base(&self.config.square.redirect_uri) {
+        // Back on the redirect itself, or on the build's return link to the
+        // app (decision 57): either way the exchange names the redirect.
+        let returns_to = |redirect: &str, back: &Option<String>| {
+            without_query == redirect_base(redirect)
+                || back
+                    .as_deref()
+                    .is_some_and(|back| without_query == redirect_base(back))
+        };
+        let (square, clover) = (&self.config.square, &self.config.clover);
+        let pos = if returns_to(&square.redirect_uri, &square.return_uri) {
             PointOfSale::Square
-        } else if without_query == redirect_base(&self.config.clover.redirect_uri) {
+        } else if returns_to(&clover.redirect_uri, &clover.return_uri) {
             PointOfSale::Clover
         } else {
             self.log(format!(
@@ -1371,35 +1400,57 @@ impl State {
         }
     }
 
-    /// What changed about the sales since the last look, as notifications
-    /// and a buzz.
+    /// What changed about the sales since the last look: a new sale is
+    /// alerted while the app isn't in front, a payment buzzes while it is,
+    /// and on Android a sale that ended gets its own notification (iOS's
+    /// only notification is the new sale's alert, decision 41).
     fn follow(&mut self) {
         let Some(p) = &self.parts else { return };
         // The till's own state, not the runner's copy of it: a till starts
         // with the kept shift, which the first look learns without telling.
         let state = p.runner.till().map(|till| till.state()).unwrap_or_default();
+        let till = p.side.model().point_of_sale;
         let money = Money(self.platform.clone());
         let quiet = self.visible;
+        let android = self.config.device == Device::Android;
         for (order_id, change) in self.phases.next(&state.sales) {
             let sale = state.sale(&order_id);
             match (change, sale) {
-                (Change::New, Some(sale)) if sale.live() => self.effect(Effect::Notify {
-                    face: faces::new_sale(sale, &money, quiet),
-                }),
+                (Change::New, Some(sale)) if sale.live() => {
+                    if !self.visible {
+                        self.alert_for = Some(order_id);
+                    }
+                }
                 (Change::Paid, Some(sale)) => {
                     self.just_paid(order_id.clone());
-                    self.effect(Effect::Notify {
-                        face: faces::paid(sale, &money, quiet),
-                    });
+                    if android {
+                        self.effect(Effect::Notify {
+                            order_id,
+                            notice: notification::paid_notice(sale, &money),
+                            paid: true,
+                            quiet,
+                        });
+                    }
                     if self.visible {
                         self.effect(Effect::Haptic {
                             haptic: Haptic::Paid,
                         });
                     }
                 }
-                (Change::Unpaid, Some(sale)) => self.effect(Effect::Notify {
-                    face: faces::unpaid(sale, &money, quiet),
-                }),
+                (Change::Unpaid, Some(sale)) => {
+                    if sale.found.is_some() {
+                        self.just_ended(order_id.clone());
+                    }
+                    if android {
+                        let pos = pos_text::of(sale, till);
+                        self.effect(Effect::Notify {
+                            order_id,
+                            notice: notification::unpaid_notice(sale, pos, &money),
+                            paid: false,
+                            quiet,
+                        });
+                    }
+                }
                 (Change::Gone, _) => self.effect(Effect::ClearNotification { id: order_id }),
                 _ => {}
             }
@@ -1488,9 +1539,19 @@ impl State {
             // Orbot's probe stays on the platform (decision 10).
             tor_running: self.tor_running,
             wake_ups: self.wake_ups_input(p),
-            live_activity: false,
-            code_in_island: false,
+            live_activity: self.live_activity_on(&model),
+            code_in_island: self.code_in_island_on(&model),
         }
+    }
+
+    /// Settings › Dynamic Island's switches, as they hold on this device:
+    /// off but on iPhone, whatever is kept.
+    fn live_activity_on(&self, model: &crate::store::Model) -> bool {
+        self.config.device == Device::Iphone && model.live_activity
+    }
+
+    fn code_in_island_on(&self, model: &crate::store::Model) -> bool {
+        self.config.device == Device::Iphone && model.code_in_island
     }
 
     fn onboarding_input(&self, p: &Parts) -> Option<OnboardingInput> {
@@ -1649,6 +1710,12 @@ impl State {
         send!(notification, notification, |view| Update::Notification {
             view
         });
+        // An alert is posted once, as its sale arrives.
+        self.alert_for = None;
+        if device == Device::Iphone {
+            let state = self.live_activity_state(p);
+            send!(live_activity, state, |state| Update::LiveActivity { state });
+        }
         if self.has_bubble()
             && let Some(bubble) = self.bubble_view()
         {

@@ -148,19 +148,26 @@ fn every_key_stores_kt_writes_reads_into_the_model() {
     let log = quiet();
     let s = store(&platform);
     let square = PosTokenStore::new(s.clone(), PointOfSale::Square, log.clone());
-    assert_eq!(square.load().unwrap().refresh_token.as_deref(), Some("r1"));
+    assert_eq!(
+        square.load().unwrap().unwrap().refresh_token.as_deref(),
+        Some("r1")
+    );
     let clover = PosTokenStore::new(s.clone(), PointOfSale::Clover, log.clone());
-    assert_eq!(clover.load().unwrap().refresh_token, None);
+    assert_eq!(clover.load().unwrap().unwrap().refresh_token, None);
     let cursor = PosCursor::new(s.clone(), PointOfSale::Square, log.clone());
-    assert_eq!(cursor.since().as_deref(), Some("2026-10-22T16:07:00.512Z"));
-    assert_eq!(cursor.handled(), ["pay_1", "pay_2"]);
+    assert_eq!(
+        cursor.since().unwrap().as_deref(),
+        Some("2026-10-22T16:07:00.512Z")
+    );
+    assert_eq!(cursor.handled().unwrap(), ["pay_1", "pay_2"]);
     assert_eq!(
         Tenders::new(s.clone(), log.clone())
             .tender_id("MID1")
+            .unwrap()
             .as_deref(),
         Some("TND1")
     );
-    let shift = ShiftKept::new(s, log).load();
+    let shift = ShiftKept::new(s, log).load().unwrap();
     assert_eq!(shift.len(), 1);
     assert_eq!(shift[0].order_id, "ord_2");
 }
@@ -176,14 +183,17 @@ fn the_model_writes_every_key_back_as_stores_kt_wrote_it() {
     write.save(&Model::default(), &model).unwrap();
     let log = quiet();
     for pos in PointOfSale::ALL {
-        PosTokenStore::new(write.clone(), pos, log.clone())
-            .save(PosTokenStore::new(read.clone(), pos, log.clone()).load());
+        PosTokenStore::new(write.clone(), pos, log.clone()).save(
+            PosTokenStore::new(read.clone(), pos, log.clone())
+                .load()
+                .unwrap(),
+        );
         let from = PosCursor::new(read.clone(), pos, log.clone());
         PosCursor::new(write.clone(), pos, log.clone())
-            .save(&from.since().unwrap(), &from.handled());
+            .save(&from.since().unwrap().unwrap(), &from.handled().unwrap());
     }
     Tenders::new(write.clone(), log.clone()).save("MID1", Some("TND1"));
-    ShiftKept::new(write, log.clone()).save(&ShiftKept::new(read, log).load());
+    ShiftKept::new(write, log.clone()).save(&ShiftKept::new(read, log).load().unwrap());
 
     assert_eq!(rust.all(), kotlin.all(), "byte for byte, and no key more");
 }
@@ -288,6 +298,45 @@ fn defaults_are_kept_as_the_setters_keep_them() {
     assert_eq!(platform.get("clover.handled").as_deref(), Some("[]"));
 }
 
+/// The keys only the iOS app writes, each as it writes it and none the
+/// default: Settings › Dynamic Island's two switches.
+const IOS: &[(&str, &str)] = &[("island.activity", "false"), ("island.code", "true")];
+
+#[test]
+fn the_islands_switches_read_and_write_back_and_are_absent_on_android() {
+    let android = store(&FakePlatform::with(KOTLIN)).load().unwrap();
+    assert!(
+        android.live_activity,
+        "absent is on; the engine reads it on iPhone only"
+    );
+    assert!(!android.code_in_island, "absent is off");
+
+    let ios = FakePlatform::with(IOS);
+    let model = store(&ios).load().unwrap();
+    assert!(!model.live_activity);
+    assert!(model.code_in_island);
+    let rust = Arc::new(FakePlatform::default());
+    store(&rust).save(&Model::default(), &model).unwrap();
+    assert_eq!(rust.all(), ios.all(), "byte for byte, and no key more");
+
+    let back = Model {
+        live_activity: true,
+        code_in_island: false,
+        ..model.clone()
+    };
+    store(&rust).save(&model, &back).unwrap();
+    assert_eq!(rust.get("island.activity").as_deref(), Some("true"));
+    assert_eq!(rust.get("island.code"), None, "off is nothing");
+
+    let kept = Kept::load(store(&ios), quiet()).unwrap();
+    kept.forget_all().unwrap();
+    assert_eq!(
+        ios.all(),
+        FakePlatform::with(IOS).all(),
+        "the switches stay"
+    );
+}
+
 #[test]
 fn forgetting_everything_forgets_what_stores_kt_forgot() {
     let platform = FakePlatform::with(KOTLIN);
@@ -329,30 +378,31 @@ fn a_store_that_cant_answer_is_an_error_never_none() {
     assert!(platform.get("connection").is_some());
 }
 
+/// Decisions 17 and 47: what the leaf crates read through each time says
+/// when it couldn't be read, logged, rather than "none" (till-sales then
+/// never saves over the shift, and till-pos never over the cursor or the
+/// tender id).
 #[test]
-fn a_shift_that_couldnt_be_read_is_never_saved_over() {
-    let platform = FakePlatform::with(&[("shift.sales", SHIFT)]);
+fn what_is_read_through_says_when_it_couldnt_be_read() {
+    let platform = FakePlatform::with(KOTLIN);
     let lines = Arc::new(Mutex::new(Vec::new()));
     let log: Log = {
         let lines = lines.clone();
         Arc::new(move |line| lines.lock().unwrap().push(line))
     };
-    let shift = ShiftKept::new(store(&platform), log);
+    let s = store(&platform);
+    let shift = ShiftKept::new(s.clone(), log.clone());
+    let cursor = PosCursor::new(s.clone(), PointOfSale::Square, log.clone());
+    let tenders = Tenders::new(s, log);
     platform.fail(true);
-    assert!(shift.load().is_empty());
+    assert!(shift.load().is_err());
+    assert!(cursor.since().is_err());
+    assert!(cursor.handled().is_err());
+    assert!(tenders.tender_id("MID1").is_err());
+    assert_eq!(lines.lock().unwrap().len(), 4, "each logged");
     platform.fail(false);
-    shift.save(&[]);
-    assert_eq!(platform.get("shift.sales").as_deref(), Some(SHIFT));
-    assert!(
-        lines
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|l| l.contains("isn't saved over"))
-    );
-    assert_eq!(shift.load().len(), 1);
-    shift.save(&[]);
-    assert_eq!(platform.get("shift.sales"), None, "read again, saved again");
+    assert_eq!(shift.load().unwrap().len(), 1, "and all still there");
+    assert_eq!(tenders.tender_id("MID1").unwrap().as_deref(), Some("TND1"));
 }
 
 #[test]
@@ -371,7 +421,7 @@ fn wake_ups_keep_the_change_in_memory_when_the_store_refuses() {
 }
 
 #[test]
-fn a_sign_in_that_cant_be_read_reads_as_signed_out_and_is_logged() {
+fn a_sign_in_that_cant_be_read_is_an_error_never_signed_out() {
     let platform = FakePlatform::with(KOTLIN);
     let lines = Arc::new(Mutex::new(Vec::new()));
     let log: Log = {
@@ -380,8 +430,11 @@ fn a_sign_in_that_cant_be_read_reads_as_signed_out_and_is_logged() {
     };
     let tokens = PosTokenStore::new(store(&platform), PointOfSale::Square, log);
     platform.fail(true);
-    assert_eq!(tokens.load(), None);
+    assert!(tokens.load().is_err());
     assert_eq!(lines.lock().unwrap().len(), 1);
     platform.fail(false);
-    assert!(tokens.load().is_some(), "and nothing was saved over it");
+    assert!(
+        tokens.load().unwrap().is_some(),
+        "and nothing was saved over it"
+    );
 }

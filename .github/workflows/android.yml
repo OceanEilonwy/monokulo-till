@@ -35,15 +35,13 @@ jobs:
       - name: Rust for Android
         run: |
           rustup toolchain install stable --profile minimal
+          rustup default stable
           rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
-      - uses: actions/cache@v6
+      # Compiled dependencies only, pruned, falling back to the last cache
+      # when Cargo.lock changes; cargo-ndk's binary with them.
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/bin/cargo-ndk
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: android-rust-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          shared-key: android
       # Core's contract test generates Monokulo's OpenAPI document at the
       # pinned commit (docs/decisions/android.md 53). It needs only Rust:
       # rustup installs the toolchain Monokulo's rust-toolchain.toml names.
@@ -57,8 +55,15 @@ jobs:
           restore-keys: monokulo-src-${{ runner.os }}-
       - name: cargo-ndk
         run: command -v cargo-ndk || cargo install cargo-ndk --version 4.1.2 --locked
+      # Pull requests build the Rust core for one ABI with the plain release
+      # profile; main builds every ABI with LTO, as a release does.
       - name: Build, lint and test
-        run: ./gradlew build
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            ./gradlew build -Ptill.rust.abis=arm64-v8a -Ptill.rust.profile=release
+          else
+            ./gradlew build
+          fi
       - uses: actions/upload-artifact@v7
         with:
           name: till-debug-apk
