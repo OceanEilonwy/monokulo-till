@@ -1,40 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The Monokulo mark (monokulo xtask/src/logo.rs), for the launcher. -->
+<!-- The Monokulo Till mark, a card terminal whose screen is the faceted Monokulo lens, for the launcher. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-<group android:translateX="54" android:translateY="54"><group android:scaleX="1.48" android:scaleY="1.48"><group android:translateX="-30" android:translateY="-28">
-<clip-path android:pathData="M14.25,28 a15.75,15.75 0 1,0 31.5,0 a15.75,15.75 0 1,0 -31.5,0 Z"/>
-<path android:fillColor="#FFFF6600" android:pathData="M14.25,28 a15.75,15.75 0 1,0 31.5,0 a15.75,15.75 0 1,0 -31.5,0 Z"/>
-<path android:fillColor="#FFC24E00" android:pathData="M30,23L34.33,25.5L34.33,30.5L30,33L25.67,30.5L25.67,25.5Z"/>
-<path android:fillColor="#FFE85D00" android:pathData="M30,23L34.33,25.5L35.5,18.47Z"/>
-<path android:fillColor="#FFE85D00" android:pathData="M34.33,25.5L34.33,30.5L41,28Z"/>
-<path android:fillColor="#FFE85D00" android:pathData="M34.33,30.5L30,33L35.5,37.53Z"/>
-<path android:fillColor="#FFE85D00" android:pathData="M30,33L25.67,30.5L24.5,37.53Z"/>
-<path android:fillColor="#FFE85D00" android:pathData="M25.67,30.5L25.67,25.5L19,28Z"/>
-<path android:fillColor="#FFE85D00" android:pathData="M25.67,25.5L30,23L24.5,18.47Z"/>
-<path android:fillColor="#FFFF6600" android:pathData="M30,23L24.5,18.47L30,4Z"/>
-<path android:fillColor="#FFFF6600" android:pathData="M30,23L30,4L35.5,18.47Z"/>
-<path android:fillColor="#FFFF6600" android:pathData="M34.33,25.5L35.5,18.47L50.78,16Z"/>
-<path android:fillColor="#FFFF6600" android:pathData="M34.33,25.5L50.78,16L41,28Z"/>
-<path android:fillColor="#FFFF6600" android:pathData="M34.33,30.5L41,28L50.78,40Z"/>
-<path android:fillColor="#FFFF6600" android:pathData="M34.33,30.5L50.78,40L35.5,37.53Z"/>
-<path android:fillColor="#FFFF6600" android:pathData="M30,33L35.5,37.53L30,52Z"/>
-<path android:fillColor="#FFFF6600" android:pathData="M30,33L30,52L24.5,37.53Z"/>
-<path android:fillColor="#FFFF6600" android:pathData="M25.67,30.5L24.5,37.53L9.22,40Z"/>
-<path android:fillColor="#FFFF6600" android:pathData="M25.67,30.5L9.22,40L19,28Z"/>
-<path android:fillColor="#FFFF6600" android:pathData="M25.67,25.5L19,28L9.22,16Z"/>
-<path android:fillColor="#FFFF6600" android:pathData="M25.67,25.5L9.22,16L24.5,18.47Z"/>
-<path android:fillColor="#FFE85D00" android:pathData="M35.5,18.47L30,4L42,7.22Z"/>
-<path android:fillColor="#FFE85D00" android:pathData="M35.5,18.47L42,7.22L50.78,16Z"/>
-<path android:fillColor="#FFE85D00" android:pathData="M41,28L50.78,16L54,28Z"/>
-<path android:fillColor="#FFE85D00" android:pathData="M41,28L54,28L50.78,40Z"/>
-<path android:fillColor="#FFE85D00" android:pathData="M35.5,37.53L50.78,40L42,48.78Z"/>
-<path android:fillColor="#FFE85D00" android:pathData="M35.5,37.53L42,48.78L30,52Z"/>
-<path android:fillColor="#FFE85D00" android:pathData="M24.5,37.53L30,52L18,48.78Z"/>
-<path android:fillColor="#FFE85D00" android:pathData="M24.5,37.53L18,48.78L9.22,40Z"/>
-<path android:fillColor="#FFE85D00" android:pathData="M19,28L9.22,40L6,28Z"/>
-<path android:fillColor="#FFE85D00" android:pathData="M19,28L6,28L9.22,16Z"/>
-<path android:fillColor="#FFE85D00" android:pathData="M24.5,18.47L9.22,16L18,7.22Z"/>
-<path android:fillColor="#FFE85D00" android:pathData="M24.5,18.47L18,7.22L30,4Z"/>
+<!-- The mark is drawn on a 120 grid; 0.54 keeps its corners inside the 66dp safe zone. -->
+<group android:translateX="54" android:translateY="54"><group android:scaleX="0.54" android:scaleY="0.54"><group android:translateX="-60" android:translateY="-60">
+<path android:pathData="M30,12H90A18,18 0 0 1 108,30V90A18,18 0 0 1 90,108H30A18,18 0 0 1 12,90V30A18,18 0 0 1 30,12Z" android:fillColor="#FF1A1917"/>
+<path android:pathData="M83,28H93A3,3 0 0 1 96,31V36A3,3 0 0 1 93,39H83A3,3 0 0 1 80,36V31A3,3 0 0 1 83,28Z" android:fillColor="#FF4A4740"/>
+<path android:pathData="M83,45.5H93A3,3 0 0 1 96,48.5V53.5A3,3 0 0 1 93,56.5H83A3,3 0 0 1 80,53.5V48.5A3,3 0 0 1 83,45.5Z" android:fillColor="#FF4A4740"/>
+<path android:pathData="M83,63H93A3,3 0 0 1 96,66V71A3,3 0 0 1 93,74H83A3,3 0 0 1 80,71V66A3,3 0 0 1 83,63Z" android:fillColor="#FFFF6600"/>
+<path android:pathData="M27.5,88H92.5A3.5,3.5 0 0 1 96,91.5V91.5A3.5,3.5 0 0 1 92.5,95H27.5A3.5,3.5 0 0 1 24,91.5V91.5A3.5,3.5 0 0 1 27.5,88Z" android:fillColor="#FF4A4740"/>
+<group><clip-path android:pathData="M33.0,29.5H63.0A6.5,6.5 0 0 1 69.5,36.0V66.0A6.5,6.5 0 0 1 63.0,72.5H33.0A6.5,6.5 0 0 1 26.5,66.0V36.0A6.5,6.5 0 0 1 33.0,29.5Z"/>
+<path android:pathData="M33.0,29.5H63.0A6.5,6.5 0 0 1 69.5,36.0V66.0A6.5,6.5 0 0 1 63.0,72.5H33.0A6.5,6.5 0 0 1 26.5,66.0V36.0A6.5,6.5 0 0 1 33.0,29.5Z" android:fillColor="#FFFF6600"/>
+<path android:pathData="M43,46H53L48,39.5ZM53,46V56L59.5,51ZM53,56H43L48,62.5ZM43,56V46L36.5,51ZM48,39.5L26.5,29.5H69.5ZM59.5,51L69.5,29.5V72.5ZM48,62.5L69.5,72.5H26.5ZM36.5,51L26.5,72.5V29.5Z" android:fillColor="#FFE85D00"/>
+<path android:pathData="M43,46H53V56H43Z" android:fillColor="#FFC24E00"/>
+</group>
+<path android:pathData="M33,27H63A9,9 0 0 1 72,36V66A9,9 0 0 1 63,75H33A9,9 0 0 1 24,66V36A9,9 0 0 1 33,27Z" android:strokeColor="#FFF4F1EA" android:strokeWidth="5"/>
 </group></group></group>
-<group android:translateX="54" android:translateY="54"><group android:scaleX="1.48" android:scaleY="1.48"><group android:translateX="-30" android:translateY="-28"><path android:strokeColor="#FF1A1917" android:strokeWidth="4.5" android:pathData="M12,28 a18,18 0 1,0 36,0 a18,18 0 1,0 -36,0 Z"/></group></group></group>
 </vector>
