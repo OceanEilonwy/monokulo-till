@@ -440,3 +440,39 @@ on from 1; the Android app's own choices are in [android.md](android.md).
     (`ScanConnectCode`) and App Links (`ConnectLink`) each have their own
     action and problem words ("Nothing to paste", "not a connect link",
     "not a connect code"). iOS sends them.
+
+## Phase 5b done: Android on the engine (2026-11-08)
+
+76. **The bubble panel's whole order is `OrderPageView`, the app order
+    page's record**, and its ring is `PanelView.sale.ring`, replacing
+    `confirmations`, `confirmations_required` and `items` (amends 71). The
+    views carry a `Ring` (step and confirmations); Kotlin keeps the arc's
+    maths.
+77. **Android copies every `Effect::CopyText` in `TillService.follow`**,
+    labelled by its `CopyKind`, whether or not Till is on screen; the
+    service owns Android's effects while the app is away and the activity
+    while it's in front. Android's new-sale alert is the ongoing
+    notification's heads-up, never a notification of its own.
+78. **Android passes `returnUri` only when its debug return differs from the
+    redirect**, and sends every incoming link as `SignInReturned` (closes
+    57's first item on Android). iOS's own-Bell field goes through
+    `EditOwnBell` (closes 68's second half).
+79. **Previews draw from the saved shift's JSON with no engine**
+    (`preview_shift`, `preview_sale`, `preview_close`, `preview_panel`,
+    and the `TillPreview` record, named so because SwiftUI declares
+    `Preview`): the on-device tests write their sales as saved-shift JSON,
+    and nothing on Android uses a Kotlin sale model any more.
+80. **The order page is published whole (`OrderPageView`), the tray header
+    carries its `count` and the fold its `hidden` rows, and the engine opens
+    a fold hiding the row a Back returns to** (android.md 269, 289). Engine
+    records are taken apart into stable Compose types where a re-sent view
+    would otherwise redraw.
+81. **The Kotlin `core`, `sales`, `push` and `receipt` modules are gone**:
+    Android is `:ffi` and `:app`, closing decision 2's move. All 257
+    on-device tests pass on an API 36 emulator (two adjusted: one scrolls to
+    a fold row a phone screen can't show, one allows edge antialiasing of
+    up to 8 levels).
+82. **Emulators with `-gpu host` (the RX 6800 XT through gfxstream) still
+    die with "null ctx" partway through the full on-device suite** on
+    emulator 37.2, though a single capture-heavy class passes; the full
+    suite runs on SwiftShader or a real phone.
