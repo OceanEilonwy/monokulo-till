@@ -134,7 +134,7 @@ final class Core {
                 guard let returned else { return }
                 self?.send(.signInReturned(url: returned.absoluteString))
             }
-        case .copyText(let text):
+        case .copyText(let text, _):
             UIPasteboard.general.string = text
         case .clearNotification(let id):
             SaleAlerts.clear(id)

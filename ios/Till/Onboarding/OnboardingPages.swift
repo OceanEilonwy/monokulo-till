@@ -156,7 +156,7 @@ struct ScanPage: View {
         ZStack {
             Color(hex: 0x2B2926)
             if camera == .authorized {
-                QRScanner { text in send(.connectLink(url: text)) }
+                QRScanner { text in send(.scanConnectCode(text: text)) }
                 RoundedRectangle(cornerRadius: 16)
                     .stroke(Color.white, lineWidth: 4)
                     .frame(width: 200, height: 200)
@@ -192,8 +192,8 @@ struct ScanPage: View {
     }
 
     private func paste() {
-        let text = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        send(.connectLink(url: text))
+        let text = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines)
+        send(.pasteConnectLink(text: text))
     }
 
     private func askForCamera() async {
@@ -307,10 +307,10 @@ struct PointOfSalePage: View {
             }
         } bottom: {
             if let next = step.next {
-                PrimaryPress(press: next) { send(signedIn ? .next : .signIn(applicationId: nil)) }
+                PrimaryPress(press: next) { send(.next) }
             }
             if let skip = step.skip {
-                LinkPress(press: skip) { send(signedIn ? .next : .withoutPos) }
+                LinkPress(press: skip) { send(.skip) }
             }
         }
     }
@@ -542,7 +542,7 @@ struct AlertsPage: View {
         } bottom: {
             PrimaryPress(press: next) { Task { await turnOn() } }
             if let notNow {
-                LinkPress(press: notNow) { send(.next) }
+                LinkPress(press: notNow) { send(.skip) }
             }
         }
     }
