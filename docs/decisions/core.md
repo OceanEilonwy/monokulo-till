@@ -340,3 +340,27 @@ on from 1; the Android app's own choices are in [android.md](android.md).
     in debug builds sign-ins return on the debug scheme while the engine
     matches `redirect_uri` (either the setups gain a return URI or Kotlin
     rewrites it), and the per-sale alert faces are still stand-ins.
+
+## iOS phase I2: onboarding (2026-11-08)
+
+58. **"Open in Till" links are `https://till.monokulo.com/connect#<the
+    connect link, percent-encoded>`**: in the fragment, so the token never
+    reaches a server. Monokulo's dashboard has to write them, and the site
+    serves `/.well-known/apple-app-site-association` (team ID still a
+    `TEAMID` placeholder) but no `/connect` page yet.
+59. **iOS rewrites a sign-in returned on `monokulo-till(-debug)://` to the
+    setup's `redirect_uri` before sending `SignInReturned`**, and the
+    sign-in session ends at the `redirect_uri` the sign-in page names.
+60. **Two choices Swift makes from the view, for want of engine actions**:
+    "Next" is `SignIn` until the point-of-sale card says connected, then
+    `Next`; "Skip" is `WithoutPos` until then, then `Next`. A paste or a
+    scan always sends `ConnectLink`, so the engine can't yet tell
+    "nothing to paste" from "not a code": both want their own actions.
+61. **Asking for alerts asks `[.alert, .sound, .badge]` only**; a
+    time-sensitive alert comes from each alert's interruption level and its
+    entitlement (I3, I5). A refused request opens notification Settings,
+    and the permission is read again whenever the app comes to the front.
+    The Associated Domains entitlement has `webcredentials` beside
+    `applinks`. New iOS words ("Dashboard open on this iPhone?", a shorter
+    alerts lead) await the owner's review; the Square and Clover tiles are
+    stand-ins, not their brands' art.
