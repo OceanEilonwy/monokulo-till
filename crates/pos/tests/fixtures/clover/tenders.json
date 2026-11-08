@@ -1,0 +1,8 @@
+{
+  "elements": [
+    { "id": "T_CASH", "label": "Cash", "labelKey": "com.clover.tender.cash", "enabled": true, "visible": true, "opensCashDrawer": true, "supportsTipping": true, "editable": false },
+    { "id": "T_CARD", "label": "Credit Card", "labelKey": "com.clover.tender.credit_card", "enabled": true, "visible": true, "opensCashDrawer": false, "supportsTipping": true, "editable": false },
+    { "id": "T_MONERO", "label": " MONERO ", "labelKey": "com.clover.tender.external_payment", "enabled": true, "visible": true, "opensCashDrawer": false, "supportsTipping": false, "editable": true }
+  ],
+  "href": "https://api.clover.com/v3/merchants/MCLOVER00001/tenders?limit=1000"
+}

@@ -1,0 +1,290 @@
+//! Square's API, as the till uses it (Android: `SquareApi.kt`).
+
+use std::sync::Arc;
+
+use monokulo_client::PointOfSale;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+
+use super::{SquareAuth, SquareConfig, answered};
+use crate::PosError;
+use crate::http;
+use crate::receipts::one_line;
+
+/// An amount in a currency's minor unit, as Square writes it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Money {
+    pub amount: i64,
+    pub currency: String,
+}
+
+/// The parts of a Square payment the till reads.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct SquarePayment {
+    pub id: String,
+    pub created_at: String,
+    pub status: String,
+    #[serde(default)]
+    pub source_type: Option<String>,
+    pub amount_money: Money,
+    #[serde(default)]
+    pub total_money: Option<Money>,
+    #[serde(default)]
+    pub location_id: Option<String>,
+    #[serde(default)]
+    pub order_id: Option<String>,
+    #[serde(default)]
+    pub receipt_number: Option<String>,
+    #[serde(default)]
+    pub external_details: Option<External>,
+    #[serde(default)]
+    pub device_details: Option<Device>,
+}
+
+/// A payment's `external_details`: an Other tender's.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct External {
+    #[serde(rename = "type")]
+    pub kind: String,
+    /// The tender's name ("Monero").
+    pub source: String,
+}
+
+/// A payment's `device_details`.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct Device {
+    #[serde(default)]
+    pub device_id: Option<String>,
+}
+
+/// The parts of a Square order a receipt is made from.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct SquareOrder {
+    pub id: String,
+    pub location_id: String,
+    pub created_at: String,
+    #[serde(default)]
+    pub line_items: Vec<LineItem>,
+    #[serde(default)]
+    pub taxes: Vec<OrderTax>,
+    pub total_money: Money,
+    #[serde(default)]
+    pub total_tip_money: Option<Money>,
+    #[serde(default)]
+    pub total_discount_money: Option<Money>,
+    /// The order's pickups, deliveries and shipments, kept as plain JSON:
+    /// only the name of whom each is for is read
+    /// ([`customer_name`](Self::customer_name)), and a shape Square changes
+    /// there never costs the sale its receipt.
+    #[serde(default)]
+    pub fulfillments: Option<serde_json::Value>,
+}
+
+/// One line of a Square order.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct LineItem {
+    #[serde(default)]
+    pub name: Option<String>,
+    /// A decimal: "2", "1.5".
+    pub quantity: String,
+    #[serde(default)]
+    pub variation_name: Option<String>,
+    #[serde(default)]
+    pub modifiers: Vec<Modifier>,
+    #[serde(default)]
+    pub base_price_money: Option<Money>,
+    #[serde(default)]
+    pub gross_sales_money: Option<Money>,
+}
+
+/// A line's modifier ("Oat milk").
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct Modifier {
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+/// A tax on a Square order.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct OrderTax {
+    #[serde(default)]
+    pub name: Option<String>,
+    /// A percentage, as a decimal string: "8.875".
+    #[serde(default)]
+    pub percentage: Option<String>,
+    #[serde(default)]
+    pub applied_money: Option<Money>,
+}
+
+impl SquareOrder {
+    /// Where a fulfillment names whom it's for, by its type.
+    const RECIPIENT_DETAILS: [&'static str; 3] =
+        ["pickup_details", "delivery_details", "shipment_details"];
+
+    /// The most of a name kept, in characters: a title shows far less, and
+    /// a shift keeps it for every sale.
+    const MAX_NAME: usize = 80;
+
+    /// Who the order is for, when the seller named them on a pickup,
+    /// delivery or shipment ("Ana López"): the first recipient's
+    /// `display_name` that isn't blank, on one line. `None` when none names
+    /// one; an order with only a `customer_id` would need Square's
+    /// Customers API, which the till's scopes don't reach.
+    pub fn customer_name(&self) -> Option<String> {
+        let fulfillments = self.fulfillments.as_ref()?.as_array()?;
+        fulfillments
+            .iter()
+            .filter_map(|f| f.as_object())
+            .flat_map(|f| {
+                Self::RECIPIENT_DETAILS
+                    .iter()
+                    .filter_map(|key| f.get(*key)?.as_object())
+            })
+            .filter_map(|details| details.get("recipient")?.get("display_name")?.as_str())
+            .map(|name| {
+                one_line(name)
+                    .chars()
+                    .take(Self::MAX_NAME)
+                    .collect::<String>()
+            })
+            .find(|name| !name.is_empty())
+    }
+}
+
+/// A Square location: where the till takes payments.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SquareLocation {
+    pub id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub business_name: Option<String>,
+    /// ISO 3166 alpha-2.
+    pub country: String,
+    pub currency: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timezone: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct PaymentPage {
+    #[serde(default)]
+    payments: Vec<SquarePayment>,
+    #[serde(default)]
+    cursor: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct OrderResult {
+    order: SquareOrder,
+}
+
+#[derive(Deserialize)]
+struct Locations {
+    #[serde(default)]
+    locations: Vec<SquareLocation>,
+}
+
+/// Square's API, as the till uses it, with its own sign-in. Every request
+/// asks for [`SquareConfig::API_VERSION`]; a `401` means signing in again.
+#[derive(Clone)]
+pub struct SquareApi {
+    http: reqwest::Client,
+    config: SquareConfig,
+    auth: Arc<SquareAuth>,
+}
+
+impl SquareApi {
+    pub fn new(http: reqwest::Client, config: SquareConfig, auth: Arc<SquareAuth>) -> SquareApi {
+        SquareApi { http, config, auth }
+    }
+
+    /// Payments at `location_id` made at or after `begin_time` (RFC 3339),
+    /// oldest first: page after page until Square gives no cursor.
+    pub async fn payments(
+        &self,
+        location_id: &str,
+        begin_time: &str,
+    ) -> Result<Vec<SquarePayment>, PosError> {
+        let mut all = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let mut query = vec![
+                ("location_id", location_id),
+                ("begin_time", begin_time),
+                ("sort_order", "ASC"),
+                ("limit", "100"),
+            ];
+            if let Some(cursor) = &cursor {
+                query.push(("cursor", cursor));
+            }
+            let url = http::url(self.config.connect_base(), &["v2", "payments"], &query);
+            let page: PaymentPage = self.get(&url).await?;
+            all.extend(page.payments);
+            match page.cursor {
+                Some(next) => cursor = Some(next),
+                None => return Ok(all),
+            }
+        }
+    }
+
+    /// One order.
+    pub async fn order(&self, order_id: &str) -> Result<SquareOrder, PosError> {
+        let url = http::url(self.config.connect_base(), &["v2", "orders", order_id], &[]);
+        Ok(self.get::<OrderResult>(&url).await?.order)
+    }
+
+    /// The seller's locations that aren't inactive.
+    pub async fn locations(&self) -> Result<Vec<SquareLocation>, PosError> {
+        let url = http::url(self.config.connect_base(), &["v2", "locations"], &[]);
+        let mut locations = self.get::<Locations>(&url).await?.locations;
+        locations.retain(|l| l.status.as_deref() != Some("INACTIVE"));
+        Ok(locations)
+    }
+
+    /// Refunds a payment in full. `idempotency_key` makes a retry refund it
+    /// once.
+    pub async fn refund(
+        &self,
+        payment_id: &str,
+        amount: &Money,
+        idempotency_key: &str,
+        reason: &str,
+    ) -> Result<(), PosError> {
+        let url = http::url(self.config.connect_base(), &["v2", "refunds"], &[]);
+        let body = json!({
+            "idempotency_key": idempotency_key,
+            "payment_id": payment_id,
+            "amount_money": {"amount": amount.amount, "currency": amount.currency},
+            "reason": reason,
+        });
+        self.send(self.http.post(url).json(&body)).await?;
+        Ok(())
+    }
+
+    async fn get<T: serde::de::DeserializeOwned>(&self, url: &str) -> Result<T, PosError> {
+        let body = self.send(self.http.get(url)).await?;
+        http::read(PointOfSale::Square, &body)
+    }
+
+    async fn send(&self, request: reqwest::RequestBuilder) -> Result<String, PosError> {
+        let token = self.auth.access_token().await?;
+        let request = request
+            .bearer_auth(token)
+            .header("Square-Version", SquareConfig::API_VERSION);
+        let answer = http::send(request).await?;
+        if answer.ok() {
+            return Ok(answer.body);
+        }
+        match answered(answer.status, &answer.body) {
+            PosError::Answered {
+                pos,
+                status,
+                message,
+                ..
+            } if status == 401 => Err(PosError::sign_in(pos, status, message)),
+            e => Err(e),
+        }
+    }
+}

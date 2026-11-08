@@ -1,0 +1,28 @@
+{
+  "order": {
+    "id": "ord_sq_2",
+    "location_id": "L1",
+    "created_at": "2026-10-22T16:06:41.877Z",
+    "customer_id": "CUST_7",
+    "line_items": [
+      {
+        "name": "Flat white",
+        "quantity": "1",
+        "base_price_money": { "amount": 450, "currency": "USD" },
+        "gross_sales_money": { "amount": 450, "currency": "USD" }
+      }
+    ],
+    "total_money": { "amount": 450, "currency": "USD" },
+    "fulfillments": [
+      {
+        "uid": "f1",
+        "type": "PICKUP",
+        "state": "PROPOSED",
+        "pickup_details": {
+          "recipient": { "display_name": "  Ana\nLópez ", "phone_number": "+15550100" },
+          "schedule_type": "ASAP"
+        }
+      }
+    ]
+  }
+}

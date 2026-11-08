@@ -1,0 +1,27 @@
+{
+  "href": "https://api.clover.com/v3/merchants/MCLOVER00001/orders/ORDER_CL_1",
+  "id": "ORDER_CL_1",
+  "currency": "USD",
+  "employee": { "id": "EMP1" },
+  "total": 2205,
+  "title": "Table 4",
+  "note": "",
+  "taxRemoved": false,
+  "isVat": false,
+  "state": "locked",
+  "manualTransaction": false,
+  "groupLineItems": true,
+  "testMode": false,
+  "paymentState": "PAID",
+  "createdTime": 1793177758000,
+  "modifiedTime": 1793177760000,
+  "lineItems": {
+    "elements": [
+      { "id": "LI1", "orderRef": { "id": "ORDER_CL_1" }, "item": { "id": "ITEM_FW" }, "name": "Flat white", "price": 450, "printed": true, "createdTime": 1793177700000, "isRevenue": true },
+      { "id": "LI2", "orderRef": { "id": "ORDER_CL_1" }, "item": { "id": "ITEM_CR" }, "name": "Almond croissant", "price": 375, "printed": true, "createdTime": 1793177701000, "isRevenue": true },
+      { "id": "LI3", "orderRef": { "id": "ORDER_CL_1" }, "item": { "id": "ITEM_FW" }, "name": "Flat white", "price": 450, "printed": true, "createdTime": 1793177702000, "isRevenue": true },
+      { "id": "LI4", "orderRef": { "id": "ORDER_CL_1" }, "item": { "id": "ITEM_FW" }, "name": "Flat white", "price": 450, "note": "oat milk", "printed": true, "createdTime": 1793177703000, "isRevenue": true },
+      { "id": "LI5", "orderRef": { "id": "ORDER_CL_1" }, "item": { "id": "ITEM_GR" }, "name": "Granola, per 100 g", "price": 120, "unitQty": 2500, "unitName": "100 g", "printed": true, "createdTime": 1793177704000, "isRevenue": true }
+    ]
+  }
+}
