@@ -21,7 +21,8 @@ concurrency:
 
 jobs:
   test:
-    runs-on: macos-26
+    # The Xcode 27 image (macOS 27, arm64): macos-26's newest Xcode is 26.6.
+    runs-on: xcode-27
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@v7
@@ -31,11 +32,13 @@ jobs:
         run: |
           ls -d /Applications/Xcode*.app
           xcode="$(ls -d /Applications/Xcode_27*.app 2>/dev/null | sort -V | tail -n 1)"
-          if [ -z "$xcode" ]; then
+          if [ -n "$xcode" ]; then
+            sudo xcode-select -s "$xcode/Contents/Developer"
+          fi
+          if ! xcodebuild -version | grep -q '^Xcode 27'; then
             echo "::error::This runner image has no Xcode 27"
             exit 1
           fi
-          sudo xcode-select -s "$xcode/Contents/Developer"
           xcodebuild -version
           xcrun simctl list runtimes
       - name: Rust for iOS

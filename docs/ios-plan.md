@@ -384,14 +384,13 @@ majors.
 Unchanged except the module that builds the Rust library. Its path filter
 already includes `crates/**`.
 
-### `ios.yml` (macos-26, new)
+### `ios.yml` (the `xcode-27` runner, new)
 
 macOS minutes cost about ten times Linux minutes, so this job runs only on
 `ios/**`, `crates/**`, `Cargo.*` and its own file.
 
-1. `actions/checkout`; select Xcode 27, pinned in the workflow. If the
-   runner image doesn't have Xcode 27 yet, use the newer macOS image that
-   does.
+1. `actions/checkout`; select Xcode 27. It runs on GitHub's `xcode-27`
+   image (macOS 27, arm64), since `macos-26`'s newest Xcode is 26.6.
 2. `rustup target add aarch64-apple-ios aarch64-apple-ios-sim`; cache
    `~/.cargo` and `target` keyed on `Cargo.lock`.
 3. `ios/Scripts/build-core.sh --sim` builds only the simulator slice for
@@ -405,7 +404,7 @@ macOS minutes cost about ten times Linux minutes, so this job runs only on
 The bindings are generated in CI, never committed, the same as on Android
 (decision 8).
 
-### `release-ios.yml` (macos-26, new; on `v*` tags and manual runs)
+### `release-ios.yml` (the `xcode-27` runner, new; on `v*` tags and manual runs)
 
 - Builds the full XCFramework (device and simulator slices).
 - Imports the distribution certificate (`IOS_DIST_P12_BASE64`,
