@@ -19,7 +19,7 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
-        android:name=".MonokularApp"
+        android:name=".TillApp"
         android:allowBackup="false"
         android:enableOnBackInvokedCallback="true"
         tools:targetApi="33"
@@ -29,7 +29,7 @@
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Monokular">
+        android:theme="@style/Theme.Till">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -44,8 +44,8 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="monokular.monokulo.com" android:path="/square" />
-                <data android:scheme="https" android:host="monokular.monokulo.com" android:path="/clover" />
+                <data android:scheme="https" android:host="till.monokulo.com" android:path="/square" />
+                <data android:scheme="https" android:host="till.monokulo.com" android:path="/clover" />
             </intent-filter>
             <!-- A connect link shared from a browser or a message. -->
             <intent-filter>

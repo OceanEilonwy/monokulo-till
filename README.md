@@ -1,14 +1,16 @@
-# Monokular
+# Till
 
-The companion app to [Monokulo](https://github.com/OceanEilonwy/monokulo) that
-helps you take Monero payments at the till using your existing POS apps.
+Monokulo Till (Till for short) is the companion app to
+[Monokulo](https://github.com/OceanEilonwy/monokulo) that helps you take
+Monero payments at the till using your existing POS apps. It was called
+Monokular until 2026-11-08.
 
 When the cashier takes a Monero sale in their point of sale (Square first),
-Monokular shows the customer the payment code and confirms when the money
+Till shows the customer the payment code and confirms when the money
 arrives: in the Dynamic Island on iPhone, in Slide Over on iPad, and in a
 floating bubble or Live Update notification on Android.
 
-Monokulo is self-hosted, so Monokular always connects from a store's own
+Monokulo is self-hosted, so Till always connects from a store's own
 Monokulo dashboard (Store settings › Connections › Apps), never to a central
 server. The till holds the Square sign-in, and builds each receipt itself:
 what someone bought never reaches Monokulo.
@@ -24,7 +26,7 @@ up with a sale and opens its code over it, a Live Update notification with the
 payment's progress, and the sale full screen in the app, with the receipt
 in the code, until it's paid or refunded. A Clover sale never paid is
 refunded by the cashier in Clover's Orders app, which the till guides and
-then sees (Clover's API can't refund it). With a Monokular Bell
+then sees (Clover's API can't refund it). With a Monokulo Bell
 ([below](#running-a-bell)) chosen in Settings › Wake-ups, the point of sale
 wakes the till through the Bell within a second or two of a sale and the till
 checks it every 30 seconds instead of every 2; the dings come over UnifiedPush,
@@ -60,28 +62,36 @@ cargo install cargo-ndk --version 4.1.2 --locked       # once
 ```
 
 The Square application id is a build property:
-`-Pmonokular.square.applicationId=sq0idp-…` (a placeholder otherwise). It's
+`-Ptill.square.applicationId=sq0idp-…` (a placeholder otherwise). It's
 public, so `~/.gradle/gradle.properties` is a good home for it; the
 application's secret is never used (the till signs in with PKCE). Clover's
-are `-Pmonokular.clover.applicationId=…` (the app's App ID) and
-`-Pmonokular.clover.environment=` `north_america` (the default), `europe`,
+are `-Ptill.clover.applicationId=…` (the app's App ID) and
+`-Ptill.clover.environment=` `north_america` (the default), `europe`,
 `latin_america` or `sandbox`; Clover's app secret is never used either (its
 PKCE flow for low-trust apps needs none).
+
+A release build signs in through the App Link host `till.monokulo.com`, so
+the Square application's OAuth redirect URL is
+`https://till.monokulo.com/square` and the Clover app's Site URL is
+`https://till.monokulo.com/clover`; a debug build comes back through
+`https://till.monokulo.com/square/debug/` and `/clover/debug/` (below), which
+open its `monokulo-till-debug://` scheme. The site those pages are on is
+[site/](site/), published by GitHub Pages at `till.monokulo.com`.
 
 ### Signing a debug build in to Square's sandbox
 
 ```properties
 # ~/.gradle/gradle.properties
-monokular.square.applicationId=sandbox-sq0idb-…
-monokular.square.sandbox=true
+till.square.applicationId=sandbox-sq0idb-…
+till.square.sandbox=true
 ```
 
 In the Developer Console, on the application's **OAuth** page for
 **Sandbox**, set the redirect URL to
-`https://monokular.monokulo.com/square/debug/` (trailing slash and
+`https://till.monokulo.com/square/debug/` (trailing slash and
 all). Square only sends a sign-in back to https; that page
 ([site/square/debug/](site/square/debug/index.html)) hands it to the debug
-build's `monokular-debug://square`. `-Pmonokular.square.redirectUri=…` names
+build's `monokulo-till-debug://square`. `-Ptill.square.redirectUri=…` names
 another such page. Square's sandbox sign-in only works with the test
 seller's **Sandbox Square Dashboard** already open in the same browser:
 open it in Chrome on the phone (from the console's *Sandbox test accounts*)
@@ -102,16 +112,16 @@ cargo run -p square-sandbox   # http://127.0.0.1:8739, then enter the token on t
 
 ```properties
 # ~/.gradle/gradle.properties
-monokular.clover.applicationId=…        # the sandbox app's App ID
-monokular.clover.environment=sandbox
+till.clover.applicationId=…        # the sandbox app's App ID
+till.clover.environment=sandbox
 ```
 
 In the sandbox developer dashboard (sandbox.dev.clover.com), give the app
-platform **Web** with the **Site URL** `https://monokular.monokulo.com/clover`
+platform **Web** with the **Site URL** `https://till.monokulo.com/clover`
 and the default OAuth response **Code**. Clover sends a sign-in only to https
 under the Site URL, so a debug build asks for `/clover/debug/`; that page
 ([site/clover/debug/](site/clover/debug/index.html)) hands it to the debug
-build's `monokular-debug://clover`, as Square's does. Request the
+build's `monokulo-till-debug://clover`, as Square's does. Request the
 permissions Payments and Orders read and Merchant read and write (write only
 to add the Monero payment type; without it the till asks the cashier to add one called
 Monero in Clover and **Look again**). The sandbox signs in and answers the
@@ -121,15 +131,15 @@ Clover's emulator image.
 | Module | What it is |
 | --- | --- |
 | `android/core` | Pure Kotlin, no Android: connect codes, the Monokulo client, sale events. |
-| `android/receipt` | ORF receipts in the payment code, through `crates/orf-codec-ffi` (UniFFI), inside the one native library `crates/monokular-ffi` builds. |
+| `android/receipt` | ORF receipts in the payment code, through `crates/orf-codec-ffi` (UniFFI), inside the one native library `crates/till-ffi` builds. |
 | `android/sales` | Square and Clover on the till (PKCE sign-in, Monero tenders, orders, refunds) and the till's sales. |
 | `android/push` | Wake-ups: the Bell's API, the till's registration with it, and its dings over UnifiedPush. |
 | `android/app` | The Compose app, the shift's foreground service, its notifications and the bubble over other apps. |
 
 The Android modules above are moving into a Rust core shared with the
 coming iOS app ([docs/ios-plan.md](docs/ios-plan.md)): `crates/monokulo-client`,
-`crates/pos`, `crates/till`, `crates/bell` and the engine,
-`crates/monokular-app`. Android keeps its Kotlin modules until the engine
+`crates/till-pos`, `crates/till-sales`, `crates/till-bell` and the engine,
+`crates/till-app`. Android keeps its Kotlin modules until the engine
 can drive it ([docs/decisions/core.md](docs/decisions/core.md) 2).
 
 ### Running it end to end on an emulator
@@ -146,7 +156,7 @@ cargo run -p monokulo --example apps_dev_server
 # monokulo: a stand-in Square on :8738
 python3 -I tools/fake-square/fake_square.py
 # Here: the app, pointed at it
-cd android && ./gradlew :app:installDebug -Pmonokular.square.baseUrl=http://10.0.2.2:8738
+cd android && ./gradlew :app:installDebug -Ptill.square.baseUrl=http://10.0.2.2:8738
 
 curl -X POST localhost:8737/__dev/code    # a connect code: paste it in, or share it to the app
 curl -X POST localhost:8738/fake/sale -d '{"items":[["Flat white",2,450]]}'   # ring up a sale
@@ -159,7 +169,7 @@ for The Bean Room, merchant `MCLOVERDEV001`):
 
 ```sh
 python3 -I tools/fake-clover/fake_clover.py    # monokulo: :8740
-cd android && ./gradlew :app:installDebug -Pmonokular.clover.baseUrl=http://10.0.2.2:8740
+cd android && ./gradlew :app:installDebug -Ptill.clover.baseUrl=http://10.0.2.2:8740
 
 curl -X POST localhost:8740/fake/sale -d '{"items":[["Flat white, oat milk",2,450]],"title":"Table 4"}'
 curl -X POST localhost:8740/fake/refund -d '{"payment_id":"<id>"}'   # the cashier's refund in Clover
@@ -189,9 +199,9 @@ FAKE_SQUARE_WEBHOOK_URL=http://127.0.0.1:8445/v1/square/webhook FAKE_SQUARE_WEBH
 apksigner verify --print-certs ntfy-<version>-fdroid.apk | grep SHA-256
 adb -s emulator-5554 install ntfy-<version>-fdroid.apk      # then open it once
 # The app, for the Bell's application and the Bell
-cd android && ./gradlew :app:installDebug -Pmonokular.square.applicationId=sandbox-sq0idb-dev \
-  -Pmonokular.square.sandbox=true -Pmonokular.square.baseUrl=http://10.0.2.2:8738 \
-  -Pmonokular.bell.url=http://10.0.2.2:8445
+cd android && ./gradlew :app:installDebug -Ptill.square.applicationId=sandbox-sq0idb-dev \
+  -Ptill.square.sandbox=true -Ptill.square.baseUrl=http://10.0.2.2:8738 \
+  -Ptill.bell.url=http://10.0.2.2:8445
 ```
 
 For Clover, give the Bell a `[bell.clover]` with `application_id =
@@ -199,13 +209,13 @@ For Clover, give the Bell a `[bell.clover]` with `application_id =
 `MONOKULO_BELL_CLOVER_AUTH_CODE=dev`, run fake-clover with
 `FAKE_CLOVER_WEBHOOK_URL=http://127.0.0.1:8445/v1/clover/webhook
 FAKE_CLOVER_AUTH_CODE=dev`, and build with
-`-Pmonokular.clover.applicationId=FAKECLOVERAPP
--Pmonokular.clover.baseUrl=http://10.0.2.2:8740 -Pmonokular.bell.url=http://10.0.2.2:8445`.
+`-Ptill.clover.applicationId=FAKECLOVERAPP
+-Ptill.clover.baseUrl=http://10.0.2.2:8740 -Ptill.bell.url=http://10.0.2.2:8445`.
 
-Then Settings › Wake-ups › Monokular Bell. The ding goes Bell → ntfy.sh →
+Then Settings › Wake-ups › Monokulo Bell. The ding goes Bell → ntfy.sh →
 ntfy on the emulator, so the emulator needs the internet; fake-square's log
 shows the till's pace (`GET /v2/payments` every 30 s once connected, and one
-within a second of each sale). `-Pmonokular.bell.url` takes what the
+within a second of each sale). `-Ptill.bell.url` takes what the
 Settings field takes: a release build only an https address.
 
 Versions live in `android/gradle/libs.versions.toml`; each was released at
@@ -217,7 +227,7 @@ release pulls in is held at the oldest version it accepts.
 
 ## Running a Bell
 
-The Monokular Bell rings the tills at a point of sale's location within a
+The Monokulo Bell rings the tills at a point of sale's location within a
 second or two of a payment there, instead of their waiting for their next
 look: the point of sale's payment webhook (Square's or Clover's) comes to the
 Bell, and the Bell sends each registered till a Web Push "ding". It lives in

@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "app.monokular.push"
+    namespace = "com.monokulo.till.push"
     compileSdk = 37
     compileSdkMinor = 2
     defaultConfig {

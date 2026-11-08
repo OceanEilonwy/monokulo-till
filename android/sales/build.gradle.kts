@@ -7,7 +7,7 @@ val monokuloOpenApi: String = providers.gradleProperty("monokulo.openapi").orNul
     ?: File(rootDir, "core/build/monokulo/openapi-${providers.gradleProperty("monokulo.sha").get()}.json").absolutePath
 
 android {
-    namespace = "app.monokular.sales"
+    namespace = "com.monokulo.till.sales"
     compileSdk = 37
     compileSdkMinor = 2
     defaultConfig {

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Monokular</string>
+    <string name="app_name">Till</string>
     <string name="channel_shift">Watching for sales</string>
     <string name="channel_sales">Monero sales</string>
     <string name="watching_title">Watching for Monero sales</string>
