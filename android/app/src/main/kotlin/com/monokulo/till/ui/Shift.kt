@@ -60,6 +60,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.FloatState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
@@ -147,7 +148,6 @@ import uniffi.till_screens.ShiftEntry
 import uniffi.till_screens.ShiftFilter
 import uniffi.till_screens.ShiftIdle
 import uniffi.till_screens.ShiftRow
-import uniffi.till_screens.ShiftTop
 import uniffi.till_screens.ShiftView
 import uniffi.till_screens.StateIcon
 import uniffi.till_screens.Tone
@@ -230,7 +230,7 @@ fun ShiftScreen(
                 // The items above the rows, from the one list a Back's place counts them by too (rowIndex).
                 for (key in head) item(key = key) {
                     when (key) {
-                        Head.Top -> Box(chrome) { TopRow(view.top, actions) }
+                        Head.Top -> Box(chrome) { TopRow(view.top.place, view.top.state, view.top.tone, view.top.said, actions) }
                         Head.Disconnected -> view.disconnected?.let { gone ->
                             Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                                 Heading(gone.heading)
@@ -367,7 +367,7 @@ private fun SaleItem(
                 Box(Modifier.matchParentSize().sharedGround("sale/$id", Move.RowGrow, rowLook(ends, mk.card), ground))
                 Column(Modifier.fillMaxWidth().words(over = Move.RowGrow, on = ground).clip(shape)) {
                     if (ends == RowEnds.MIDDLE || ends == RowEnds.LAST) Box(Modifier.padding(start = 64.dp).fillMaxWidth().height(1.dp).background(mk.divider))
-                    SaleRow(id, item.row, if (focus != null) Modifier.focusRequester(focus).focusProperties { canFocus = true } else Modifier, onAsk, onOpen)
+                    SaleRow(id, RowWords.of(item.row), if (focus != null) Modifier.focusRequester(focus).focusProperties { canFocus = true } else Modifier, onAsk, onOpen)
                 }
             }
         }
@@ -831,7 +831,8 @@ private fun rowShape(ends: RowEnds): Shape = when (ends) {
 
 /** The point of sale's mark, the store, this till and whether it's watching, the word in the dot's old colour; Settings. */
 @Composable
-private fun TopRow(top: ShiftTop, actions: TillActions) = Row(
+// The engine's record taken apart: it isn't stable to Compose, and a tick must not redraw the top row.
+private fun TopRow(place: String?, state: String, tone: Tone, said: String, actions: TillActions) = Row(
     Modifier.fillMaxWidth().height(64.dp).padding(start = 24.dp, end = 16.dp),
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -839,23 +840,22 @@ private fun TopRow(top: ShiftTop, actions: TillActions) = Row(
     // The word carries what the dot did (the Logos board, B): paid green while watching, danger when disconnected,
     // else plain muted (the dot's grey outline is too faint for text). Light paid on ground is 4.50:1, right at the
     // text bar: a lighter paid or a darker ground in Theme.kt needs this word checked again.
-    val tone = top.tone.takeUnless { it == Tone.MUTED || it == Tone.PLAIN }
+    val shown = tone.takeUnless { it == Tone.MUTED || it == Tone.PLAIN }
     Row(
-        Modifier.weight(1f).semantics(mergeDescendants = true) { contentDescription = top.said },
+        Modifier.weight(1f).semantics(mergeDescendants = true) { contentDescription = said },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         PosBadge(LocalPointOfSale.current)
         // The state word is what the cashier reads this row for: the store and location give way first at large font sizes.
         Row(verticalAlignment = Alignment.CenterVertically) {
-            val place = top.place
             if (place != null) Text(
                 place, fontSize = 13.sp, color = mk.muted, maxLines = 1,
                 overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
             )
             if (place != null) Text(" · ", fontSize = 13.sp, color = mk.muted, maxLines = 1, softWrap = false)
             Text(
-                top.state, fontSize = 13.sp, color = tone?.let { toneColor(it) } ?: mk.muted, fontWeight = tone?.let { FontWeight.Medium },
+                state, fontSize = 13.sp, color = shown?.let { toneColor(it) } ?: mk.muted, fontWeight = shown?.let { FontWeight.Medium },
                 maxLines = 1, softWrap = false,
             )
         }
@@ -948,9 +948,33 @@ private fun badgeGround(icon: StateIcon): Ground = when (icon) {
     StateIcon.RING, StateIcon.REFUND, StateIcon.CLOSE -> Ground.CHIP
 }
 
+/**
+ * A row as the engine wrote it, in a stable class equal by value: the engine's records aren't stable to Compose, so a
+ * view drawn again (a tick, the tray opening) would otherwise recompose every row on screen.
+ */
+@Immutable
+private data class RowWords(
+    val title: String,
+    val sub: String,
+    val tone: Tone,
+    val quiet: Boolean,
+    val icon: StateIcon,
+    val opens: RowOpens,
+    val step: Int,
+    val confirmations: Int?,
+    val required: Int?,
+) {
+    companion object {
+        fun of(row: ShiftRow) = RowWords(
+            row.title, row.sub, row.tone, row.quiet, row.icon, row.opens,
+            row.ring.step.toInt(), row.ring.confirmations?.toInt(), row.ring.required?.toInt(),
+        )
+    }
+}
+
 /** One sale: its state's icon, "Sale #m2Qe · $8.40", how it stands, and where a tap goes. */
 @Composable
-private fun SaleRow(id: String, row: ShiftRow, modifier: Modifier, onAsk: (() -> Unit)?, onOpen: () -> Unit) {
+private fun SaleRow(id: String, row: RowWords, modifier: Modifier, onAsk: (() -> Unit)?, onOpen: () -> Unit) {
     // The swipe's way for TalkBack: the X's own words, on the row.
     val asks = onAsk?.let { remember(it) { listOf(CustomAccessibilityAction("Close sale") { it(); true }) } }
     Row(
@@ -961,7 +985,7 @@ private fun SaleRow(id: String, row: ShiftRow, modifier: Modifier, onAsk: (() ->
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        RowBadge(id, row.icon, row.ring)
+        RowBadge(id, row.icon, row.step, row.confirmations, row.required)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Text(row.title, fontSize = 16.sp, color = if (row.quiet) mk.muted else mk.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
             // The engine writes a live row's time left and draws it again each second (docs/decisions/core.md 37).
@@ -983,11 +1007,11 @@ private fun SaleRow(id: String, row: ShiftRow, modifier: Modifier, onAsk: (() ->
  * into its page's hero; a paid sale stepping back, the hero shrinks into it.
  */
 @Composable
-private fun RowBadge(id: String, icon: StateIcon, ring: Ring) = Box(Modifier.clearAndSetSemantics {}) {
+private fun RowBadge(id: String, icon: StateIcon, step: Int, confirmations: Int?, required: Int?) = Box(Modifier.clearAndSetSemantics {}) {
     val fade = motion.fade.fraction
     AnimatedContent(targetState = icon, transitionSpec = { (fadeIn(fade) togetherWith fadeOut(fade)).using(null) }, label = "row badge") { face ->
         Box(Modifier.sharedSurface(badgeKey(id), Move.RowGrow, CircleShape, layer = Layers.OVER_GROUND)) {
-            StateBadge(ring, face, badgeGround(face), RingRowSize, 18.dp, quiet = true)
+            StateBadge(Ring(step.toUByte(), confirmations?.toUInt(), required?.toUInt()), face, badgeGround(face), RingRowSize, 18.dp, quiet = true)
         }
     }
 }

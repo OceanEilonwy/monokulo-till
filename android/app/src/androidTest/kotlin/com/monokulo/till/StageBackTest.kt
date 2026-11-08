@@ -52,7 +52,7 @@ class StageBackTest {
                 when (s) {
                     is Screen.Code -> CodeScreen(rememberFace(sale), onBack = { model.back(s) })
                     is Screen.Sale -> SaleScreen(rememberFace(sales.first { it.orderId == s.orderId }, now.longValue), noActions)
-                    else -> ShiftScreen(rememberShift(sales, now.longValue), noActions)
+                    else -> EngineShift(sales, now.longValue, noActions)
                 }
             }
             }

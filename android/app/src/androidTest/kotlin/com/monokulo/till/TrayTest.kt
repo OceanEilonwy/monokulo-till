@@ -84,7 +84,7 @@ class TrayTest {
         }, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
 
     private fun show(sales: List<TillSale>, motion: Motion = Motion.Full) {
-        compose.setContent { Till(motion) { ShiftScreen(rememberShift(sales, now.longValue), noActions) } }
+        compose.setContent { Till(motion) { EngineShift(sales, now.longValue, noActions) } }
         compose.waitForIdle()
     }
 
@@ -159,7 +159,7 @@ class TrayTest {
     fun theFoldIsKeptAcrossARotation() {
         val restore = StateRestorationTester(compose)
         val sales = busy(4)
-        restore.setContent { Till { ShiftScreen(rememberShift(sales, now.longValue), noActions) } }
+        restore.setContent { Till { EngineShift(sales, now.longValue, noActions) } }
         compose.onNodeWithContentDescription("Show 1 more waiting sale").performClick()
         compose.waitForIdle()
         restore.emulateSavedInstanceStateRestore()
@@ -172,7 +172,7 @@ class TrayTest {
     fun aSalePaidMovesFromTheTrayToTheTopOfEarlier() {
         val start = busy(3)
         var sales by mutableStateOf(start)
-        compose.setContent { Till { ShiftScreen(rememberShift(sales, now.longValue), noActions) } }
+        compose.setContent { Till { EngineShift(sales, now.longValue, noActions) } }
         compose.waitForIdle()
         val w2 = start[1]
         val from = top(w2)
@@ -196,7 +196,7 @@ class TrayTest {
     fun theLastLiveSaleGoneTakesTheHeadersWithIt() {
         val start = busy(1)
         var sales by mutableStateOf(start)
-        compose.setContent { Till { ShiftScreen(rememberShift(sales, now.longValue), noActions) } }
+        compose.setContent { Till { EngineShift(sales, now.longValue, noActions) } }
         compose.waitForIdle()
         assertTrue(exists("Waiting for payment, 1 sale"))
         compose.mainClock.autoAdvance = false
@@ -211,7 +211,7 @@ class TrayTest {
     fun aNewSaleLandsAtTheTopOfTheTray() {
         val start = busy(3)
         var sales by mutableStateOf(start)
-        compose.setContent { Till { ShiftScreen(rememberShift(sales, now.longValue), noActions) } }
+        compose.setContent { Till { EngineShift(sales, now.longValue, noActions) } }
         compose.waitForIdle()
         val first = top(start[0])
         compose.mainClock.autoAdvance = false

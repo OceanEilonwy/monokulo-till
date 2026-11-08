@@ -64,7 +64,7 @@ class InterruptTest(private val move: Moved, private val interruption: Interrupt
                         is Screen.Code -> CodeScreen(rememberFace(shown), onBack = { model.back(s) })
                         is Screen.Order -> OrderPage(rememberFace(shown), "Back to the sale", onBack = { model.back(s) }, onShowCode = { model.back(s) })
                         is Screen.Sale -> SaleScreen(rememberFace(shown, now.longValue), noActions)
-                        else -> ShiftScreen(rememberShift(listOf(sale, other), now.longValue), noActions)
+                        else -> EngineShift(listOf(sale, other), now.longValue, noActions)
                     }
                 }
             }

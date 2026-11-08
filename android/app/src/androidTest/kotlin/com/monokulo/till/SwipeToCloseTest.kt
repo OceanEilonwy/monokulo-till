@@ -72,7 +72,7 @@ class SwipeToCloseTest {
         this.sales = sales
         compose.setContent {
             CompositionLocalProvider(LocalLayoutDirection provides direction) {
-                Till(motion) { ShiftScreen(rememberShift(sales, now.longValue), actions, close = sheet.value) }
+                Till(motion) { EngineShift(sales, now.longValue, actions, close = sheet.value) }
             }
         }
         compose.waitForIdle()

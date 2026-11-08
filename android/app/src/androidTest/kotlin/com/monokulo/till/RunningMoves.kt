@@ -96,7 +96,7 @@ class RunningMoves(private val compose: AndroidComposeTestRule<*, ComponentActiv
                         is Screen.Code -> CodeScreen(rememberFace(sale), onBack = {})
                         is Screen.Order -> OrderPage(rememberFace(sale), "Back to the sale", onBack = {}, onShowCode = {})
                         is Screen.Sale -> SaleScreen(rememberFace(sale, now.longValue), noActions)
-                        else -> ShiftScreen(rememberShift(shift, now.longValue), noActions, place)
+                        else -> EngineShift(shift, now.longValue, noActions, place)
                     }
                     }
                 }

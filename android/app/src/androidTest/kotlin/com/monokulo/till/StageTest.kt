@@ -56,7 +56,7 @@ class StageTest {
             TillStage(state, cameUpByItself = { byItself }) { s ->
                 when (s) {
                     is Screen.Sale -> SaleScreen(rememberFace(sale, now.longValue), noActions)
-                    else -> ShiftScreen(rememberShift(sales, now.longValue), noActions)
+                    else -> EngineShift(sales, now.longValue, noActions)
                 }
             }
         }
@@ -77,7 +77,7 @@ class StageTest {
                 TillStage(state, cameUpByItself = { false }) { s ->
                     when (s) {
                         is Screen.Sale -> SaleScreen(rememberFace(sale, now.longValue), noActions)
-                        else -> ShiftScreen(rememberShift(sales, now.longValue), noActions)
+                        else -> EngineShift(sales, now.longValue, noActions)
                     }
                 }
             }
@@ -200,7 +200,7 @@ class StageTest {
                 TillStage(state, cameUpByItself = { false }) { s ->
                     when (s) {
                         is Screen.Sale -> SaleScreen(rememberFace(rows.first { it.orderId == s.orderId }, now.longValue), noActions)
-                        else -> ShiftScreen(rememberShift(rows, now.longValue), noActions)
+                        else -> EngineShift(rows, now.longValue, noActions)
                     }
                 }
             }

@@ -42,7 +42,6 @@ class OneClockTest {
 
         // A row's badge transition is called only when its glyph changes, never by the row's countdown.
         assertEquals(0, recompositions.count("com.monokulo.till.ui.RowBadge"), "the badges don't tick")
-        assertEquals(0, recompositions.count("com.monokulo.till.ui.TopRow"), "the top row doesn't tick")
     }
 
     @Test

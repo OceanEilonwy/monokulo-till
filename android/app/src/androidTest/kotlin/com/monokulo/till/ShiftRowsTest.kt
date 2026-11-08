@@ -30,7 +30,7 @@ class ShiftRowsTest {
         val a = testSale("a1", expiresAt = 1_600)
         val b = testSale("b2", expiresAt = 1_600)
         var sales by mutableStateOf(listOf(a, b))
-        compose.setContent { Till { ShiftScreen(rememberShift(sales, now.longValue), noActions) } }
+        compose.setContent { Till { EngineShift(sales, now.longValue, noActions) } }
         compose.waitForIdle()
         val pitch = top(b) - top(a)
         val before = top(a)
@@ -53,7 +53,7 @@ class ShiftRowsTest {
         val a = testSale("a1", expiresAt = 1_600)
         val b = testSale("b2", expiresAt = 1_600)
         var sales by mutableStateOf(listOf(a, b))
-        compose.setContent { Till(Motion.Still) { ShiftScreen(rememberShift(sales, now.longValue), noActions) } }
+        compose.setContent { Till(Motion.Still) { EngineShift(sales, now.longValue, noActions) } }
         compose.waitForIdle()
         val pitch = top(b) - top(a)
         val before = top(a)

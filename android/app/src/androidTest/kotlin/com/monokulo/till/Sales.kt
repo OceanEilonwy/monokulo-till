@@ -4,6 +4,15 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import com.monokulo.till.engine.CloseSheet
+import com.monokulo.till.ui.ShiftPlace
+import com.monokulo.till.ui.ShiftScreen
+import com.monokulo.till.ui.rememberShiftPlace
+import uniffi.till_app.Action
 import com.monokulo.till.core.PointOfSale
 import com.monokulo.till.core.SalePhase
 import com.monokulo.till.receipt.PaymentCode
@@ -148,3 +157,44 @@ fun rowTitle(sale: TillSale): String = shiftView(listOf(sale)).entries.filterIsI
 /** The shift's headers, as the engine writes them. */
 const val EARLIER = "Earlier"
 const val TRAY_HEADER = "Waiting for payment"
+
+/**
+ * The shift as the engine keeps it, for screens under test: the chip and the tray's fold are the engine's
+ * ([Action.ChooseFilter], [Action.FoldTray]), kept here as it keeps them (through a turn too), and a Back from a sale
+ * whose row the folded tray hides opens the tray before the change starts, as the engine's `unfold_for` does.
+ * Every other action goes to [actions].
+ */
+@Composable
+fun EngineShift(
+    sales: List<TillSale>,
+    now: Long = 1_000,
+    actions: TillActions = noActions,
+    place: ShiftPlace = rememberShiftPlace(),
+    close: CloseSheet? = null,
+) {
+    var filter by rememberSaveable { mutableStateOf<String?>(null) }
+    var folded by rememberSaveable { mutableStateOf(true) }
+    val chip = filter?.let { ShiftFilter.valueOf(it) }
+    val leaving = com.monokulo.till.LocalStage.current?.leavingSale
+    if (folded && leaving != null && hiddenByFold(sales, chip, leaving)) folded = false
+    val view = remember(sales, now, chip, folded) { shiftView(sales, now, chip, folded) }
+    val engine = remember(actions) {
+        TillActions(
+            send = { action ->
+                when (action) {
+                    is Action.ChooseFilter -> filter = action.filter.name
+                    is Action.FoldTray -> folded = action.folded
+                    else -> actions.send(action)
+                }
+            },
+            onBackToPos = actions.onBackToPos,
+        )
+    }
+    ShiftScreen(view, engine, place, close)
+}
+
+/** Whether [orderId]'s row is one the folded tray hides. */
+private fun hiddenByFold(sales: List<TillSale>, filter: ShiftFilter?, orderId: String): Boolean {
+    fun shows(folded: Boolean) = shiftView(sales, filter = filter, folded = folded).entries.any { it is ShiftEntry.Row && it.orderId == orderId }
+    return !shows(true) && shows(false)
+}

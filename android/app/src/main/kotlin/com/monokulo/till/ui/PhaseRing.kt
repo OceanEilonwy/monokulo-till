@@ -65,9 +65,13 @@ fun PhaseRing(
     paid: Color = mk.paid,
 ) = PhaseRing(SaleText.step(sale.phase), size, modifier, track, fill, paid, sale.confirmations, sale.confirmationsRequired)
 
-/** A ring as the engine drew it: its step, and its payment's confirmations. */
+/**
+ * A ring as the engine drew it: its step, and its payment's confirmations. Inline, so the ring's own scope takes
+ * the numbers, and a view drawn again with the same ring skips it (the engine's records aren't stable to Compose).
+ */
+@Suppress("NOTHING_TO_INLINE")
 @Composable
-fun PhaseRing(
+inline fun PhaseRing(
     ring: Ring,
     size: Dp,
     modifier: Modifier = Modifier,

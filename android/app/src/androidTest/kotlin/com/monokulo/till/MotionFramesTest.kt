@@ -79,7 +79,7 @@ class MotionFramesTest {
                         is Screen.Code -> CodeScreen(rememberFace(shown), onBack = {})
                         is Screen.Order -> OrderPage(rememberFace(shown), "Back to the sale", onBack = {}, onShowCode = {})
                         is Screen.Sale -> SaleScreen(rememberFace(shown, now.longValue), noActions)
-                        else -> ShiftScreen(rememberShift(sales, now.longValue), noActions)
+                        else -> EngineShift(sales, now.longValue, noActions)
                     }
                 }
                 }

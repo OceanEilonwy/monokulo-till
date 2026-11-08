@@ -55,7 +55,7 @@ class CloverCardTest {
     @Test
     fun theStepsAreNumberedUnderTheCardsTitleWithTheTestSaleWaiting() {
         show(lookAgain = false, TestSale(false, "Waiting for a test sale…"))
-        shown("On your Clover device")
+        shown("ON YOUR CLOVER DEVICE")
         shown("Take Monero in Clover Register")
         shown("1.  Add a payment type called Monero in Clover")
         shown("2.  Open Clover Register")
@@ -67,10 +67,12 @@ class CloverCardTest {
     @Test
     fun lookAgainComesAfterTheFirstStep() {
         show(lookAgain = true, null)
-        val first = compose.onNodeWithText("1.  Add a payment type", substring = true, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
-        val look = compose.onNodeWithText("Look again").assertHasClickAction().assertHeightIsAtLeast(48.dp).fetchSemanticsNode().boundsInRoot
-        val second = compose.onNodeWithText("2.  Open Clover Register", substring = true, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
-        assertTrue(first.bottom <= look.top && look.bottom <= second.top, "step 1, Look again, step 2: $first $look $second")
+        // Where each is laid out, scrolled into view or not.
+        fun top(node: androidx.compose.ui.semantics.SemanticsNode) = node.positionInRoot.y
+        val first = compose.onNodeWithText("1.  Add a payment type", substring = true, useUnmergedTree = true).fetchSemanticsNode()
+        val look = compose.onNodeWithText("Look again").assertHasClickAction().assertHeightIsAtLeast(48.dp).fetchSemanticsNode()
+        val second = compose.onNodeWithText("2.  Open Clover Register", substring = true, useUnmergedTree = true).fetchSemanticsNode()
+        assertTrue(top(first) < top(look) && top(look) < top(second), "step 1, Look again, step 2: ${top(first)} ${top(look)} ${top(second)}")
         compose.onNodeWithText("Waiting for a test sale", substring = true, useUnmergedTree = true).assertDoesNotExist()
     }
 }
