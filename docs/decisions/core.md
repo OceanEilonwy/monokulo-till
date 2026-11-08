@@ -231,3 +231,32 @@ on from 1; the Android app's own choices are in [android.md](android.md).
     `rustls-platform-verifier-android` Maven component, before the first
     request, or that request panics: phase 5b's Android switch does it. On
     iOS it uses the Security framework and needs nothing.
+
+## Phase 5a: the till's screens (2026-11-08)
+
+37. **A countdown is words at the clock's now, redrawn by the engine.** A
+    view whose words count down says `ticks`, and the engine publishes it
+    again each second while it does; the platform never writes a time
+    left.
+38. **Logic that only Android draws, but that is pure, moved too**: the
+    bubble's look, focus, tap and label, `PaidBuzz`, the panel's ended
+    words, `TillNav` (as `TillPlace`) and `PhaseChanges` are in
+    `till-screens`, so the engine holds them. The loading mark's animation
+    keyframes stay with each platform's drawing (SaleTextTest's
+    `glintAlpha`/`coreAlpha`).
+39. **A receipt's numbers are exact on screen too**: the `BigDecimal`s that
+    wrote quantities, amounts, rates and subtotals become a small integer
+    decimal that reads a double by its shortest digits, as
+    `BigDecimal.valueOf` did; the order's summary adds in minor units.
+40. **The Live Activity's state comes from the till's own sales only**: the
+    sale just paid, else the newest live sale, else the sale just ended
+    (as expired), else idle. `waiting_count` counts own live sales whose
+    code counts down. `payment_uri` is the code without its `orf`
+    parameter, sent only while waiting (never part-paid) with "Show code in
+    island" on. iPhone only; `None` on iPad and Android.
+41. **iOS's ongoing face is the Live Activity**, so `notification` gives iOS
+    only the new-sale alert, and Android its ongoing notification. The
+    alert's words differ on iPad ("Swipe in Till, or tap here, to show the
+    payment code.", from PadTucked) and iPhone ("Tap here to show the
+    payment code."); design.md §3's "Monero sale · $24.50 · Tap to show
+    code" is the alternative. The iOS words await the owner's review.
