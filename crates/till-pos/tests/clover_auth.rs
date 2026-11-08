@@ -145,7 +145,7 @@ async fn finishing_posts_exactly_the_code_and_verifier_and_keeps_the_tokens_with
         "Unix seconds, never read as milliseconds"
     );
     assert_eq!(f.tokens.get(), Some(signed_in));
-    assert!(f.auth.signed_in());
+    assert!(f.auth.signed_in().unwrap());
     let request = f.stand.take_request().await;
     assert_eq!(request.url.path(), "/oauth/v2/token");
     assert_eq!(
@@ -204,7 +204,7 @@ async fn an_echoed_state_must_be_the_attempts_and_a_redirect_needs_its_merchant_
         "Clover sign-in was cancelled or refused (access_denied)."
     );
     assert_eq!(f.stand.request_count().await, 0, "Clover isn't asked");
-    assert!(!f.auth.signed_in());
+    assert!(!f.auth.signed_in().unwrap());
 
     f.stand.enqueue(token_answer("acc1", "ref1", 1793179800));
     f.auth
@@ -269,7 +269,7 @@ async fn a_refused_refresh_signs_out_and_says_to_sign_in_again_once() {
     assert!(e.sign_in_again());
     assert_eq!(e.to_string(), "Clover's sign-in has ended. Sign in again.");
     assert_eq!(f.tokens.get(), None);
-    assert!(!f.auth.signed_in());
+    assert!(!f.auth.signed_in().unwrap());
     let again = f.auth.access_token().await.unwrap_err();
     assert!(again.sign_in_again());
     assert_eq!(

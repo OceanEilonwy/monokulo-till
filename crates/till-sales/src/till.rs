@@ -10,7 +10,9 @@ use monokulo_client::{
     payment_uri, problems,
 };
 use sha2::{Digest, Sha256};
-use till_pos::{FoundSale, PosError, RefundInPos, Refunds, SaleOrder, SaleSource, decimal_amount};
+use till_pos::{
+    FoundSale, PosError, RefundInPos, Refunds, SaleOrder, SaleSource, StoreError, decimal_amount,
+};
 use tokio::sync::watch;
 
 use crate::{PaymentCode, TillSale, TillState};
@@ -22,9 +24,13 @@ mod tests;
 /// docs/decisions/android.md): the app backs it with its encrypted store,
 /// since a sale's receipt says what was bought. [`crate::shift_json`]
 /// writes and reads them as the Android app does.
+///
+/// A shift the store couldn't read is a [`StoreError`], never "no sales":
+/// a till that took it for none would save its next change over the kept
+/// shift, losing every sale on it (decision 42 in docs/decisions/core.md).
 pub trait ShiftStore: Send + Sync {
     /// The sales as last saved, newest first; none when nothing was.
-    fn load(&self) -> Vec<TillSale>;
+    fn load(&self) -> Result<Vec<TillSale>, StoreError>;
 
     /// Keeps `sales` in place of what was saved.
     fn save(&self, sales: &[TillSale]);
@@ -105,6 +111,8 @@ pub struct Till {
     device_id: Option<String>,
     clock: Arc<dyn Clock>,
     store: Option<Arc<dyn ShiftStore>>,
+    /// The store's shift couldn't be read, so nothing is saved over it.
+    unread: bool,
     state: watch::Sender<TillState>,
     checking: tokio::sync::Mutex<Checking>,
     saving: Mutex<()>,
@@ -141,6 +149,7 @@ impl Till {
             device_id: None,
             clock: Arc::new(SystemClock),
             store: None,
+            unread: false,
             state: watch::Sender::new(TillState::default()),
             checking: tokio::sync::Mutex::new(Checking::default()),
             saving: Mutex::new(()),
@@ -164,9 +173,14 @@ impl Till {
     }
 
     /// The same till, starting from the sales `store` saved (cut down to
-    /// [`Till::MAX_SALES`]) and saving them again on every change.
+    /// [`Till::MAX_SALES`]) and saving them again on every change. A shift
+    /// the store couldn't read starts the till with no sales and is never
+    /// saved over ([`Till::shift_unread`]): a till made later reads it again.
     pub fn with_store(self, store: Arc<dyn ShiftStore>) -> Till {
-        let mut sales = store.load();
+        let (mut sales, unread) = match store.load() {
+            Ok(sales) => (sales, false),
+            Err(_) => (Vec::new(), true),
+        };
         sales.truncate(Till::MAX_SALES);
         self.state.send_replace(TillState {
             sales,
@@ -174,8 +188,15 @@ impl Till {
         });
         Till {
             store: Some(store),
+            unread,
             ..self
         }
+    }
+
+    /// Whether the store's shift couldn't be read as the till started, so
+    /// the till's changes aren't being saved.
+    pub fn shift_unread(&self) -> bool {
+        self.unread
     }
 
     /// The till's state as it changes: its sales, newest first, and the
@@ -227,7 +248,7 @@ impl Till {
             *state = new;
             modified
         });
-        if let (true, Some(store)) = (moved, &self.store) {
+        if let (true, false, Some(store)) = (moved, self.unread, &self.store) {
             let _saving = self.saving.lock().unwrap_or_else(|e| e.into_inner());
             let sales = self.state.borrow().sales.clone();
             store.save(&sales);

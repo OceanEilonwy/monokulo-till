@@ -508,8 +508,8 @@ mod tests {
     }
 
     impl ShiftStore for Side {
-        fn load(&self) -> Vec<TillSale> {
-            self.sales.lock().unwrap().clone()
+        fn load(&self) -> Result<Vec<TillSale>, till_pos::StoreError> {
+            Ok(self.sales.lock().unwrap().clone())
         }
         fn save(&self, sales: &[TillSale]) {
             *self.sales.lock().unwrap() = sales.to_vec();
@@ -519,7 +519,7 @@ mod tests {
     struct Store(Arc<Side>);
 
     impl ShiftStore for Store {
-        fn load(&self) -> Vec<TillSale> {
+        fn load(&self) -> Result<Vec<TillSale>, till_pos::StoreError> {
             self.0.load()
         }
         fn save(&self, sales: &[TillSale]) {
@@ -622,7 +622,7 @@ mod tests {
         );
         runner.close_live();
         until(&runner, |s| s.till.sales[0].closed_at == Some(70)).await;
-        assert_eq!(side.load()[0].closed_at, Some(70), "and saved");
+        assert_eq!(side.load().unwrap()[0].closed_at, Some(70), "and saved");
         runner.stop();
         assert!(!runner.state().running);
         runner.reopen("ord_2");

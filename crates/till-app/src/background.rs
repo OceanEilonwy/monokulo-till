@@ -118,11 +118,10 @@ pub(crate) async fn check(
         return BackgroundCheck::nothing();
     };
     let monokulo = MonokuloApi::new(http, side.identity(), clock.clone());
-    let shift = side.shift_kept().clone();
     let till = Till::new(source, monokulo, connection)
         .with_clock(clock)
-        .with_store(shift.clone());
-    if shift.unread() {
+        .with_store(side.shift_kept().clone());
+    if till.shift_unread() {
         // A look now would save its orders over the shift it couldn't read.
         return BackgroundCheck::failed("Couldn't read the shift this till keeps.");
     }
