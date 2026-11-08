@@ -2409,6 +2409,7 @@ version = "0.1.0"
 dependencies = [
  "monokulo-client",
  "thiserror",
+ "till-screens",
  "tokio",
  "uniffi",
 ]
@@ -2464,6 +2465,16 @@ version = "0.1.0"
 dependencies = [
  "monokulo-client",
  "till-pos",
+]
+
+[[package]]
+name = "till-screens"
+version = "0.1.0"
+dependencies = [
+ "monokulo-client",
+ "till-bell",
+ "till-pos",
+ "uniffi",
 ]
 
 [[package]]

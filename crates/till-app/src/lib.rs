@@ -6,8 +6,8 @@
 //! channel, and the task publishes through the [`EngineListener`].
 //!
 //! Phase 0 is the shape only: the traits a platform implements, the engine's
-//! task, and one action. The till, the screens and their words arrive in
-//! phase 5.
+//! task, and one action. The screens' records are till-screens' (phase 5a),
+//! in [`Update`] already; the engine fills and publishes them in phase 5b.
 
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
@@ -15,6 +15,7 @@ uniffi::setup_scaffolding!();
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, OnceLock};
 
+use till_screens::{OnboardingView, SettingsView, WakeUpsView};
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
 /// The version of the core, for the platform's About screen and logs.
@@ -77,12 +78,23 @@ pub enum Action {
     Opened,
 }
 
-/// A slice of what the screens show, sent only when it changed.
+/// A slice of what the screens show, sent only when it changed. Each
+/// screen's record is till-screens', crossing UniFFI as it is.
+// Sent by value across UniFFI, which can't box a variant.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum Update {
     /// The core is running.
     Core { version: String },
+    /// Onboarding's step, as `till_screens::onboarding` draws it.
+    /// Published from phase 5b on, when the engine holds the flow.
+    Onboarding { view: OnboardingView },
+    /// Settings, as `till_screens::settings` draws it (phase 5b).
+    Settings { view: SettingsView },
+    /// Settings › Wake-ups, as `till_screens::wake_ups` draws it: Android
+    /// draws it inside Settings, iOS on its own screen (phase 5b).
+    WakeUps { view: WakeUpsView },
 }
 
 /// Something only the platform can do.

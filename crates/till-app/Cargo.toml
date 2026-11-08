@@ -10,10 +10,11 @@ publish = false
 # The bridge for Kotlin and Swift is behind `uniffi`, so the engine builds
 # and tests without it (docs/ios-plan.md §2). till-ffi turns it on.
 [features]
-uniffi = ["dep:uniffi"]
+uniffi = ["dep:uniffi", "till-screens/uniffi"]
 
 [dependencies]
 monokulo-client.workspace = true
 thiserror.workspace = true
+till-screens.workspace = true
 tokio.workspace = true
 uniffi = { workspace = true, optional = true }
