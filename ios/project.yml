@@ -13,8 +13,18 @@ packages:
 settings:
   base:
     SWIFT_VERSION: "6.0"
+    # The version TestFlight and the App Store show; release-ios.yml sets
+    # the build number (CURRENT_PROJECT_VERSION) to its run number, for
+    # the app and its extensions alike (docs/release.md).
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
+    # Signing for every target: Xcode's automatic signing under the team in
+    # TILL_TEAM_ID, which release-ios.yml passes from the APPLE_TEAM_ID
+    # variable; a local build takes it from the environment
+    # (export TILL_TEAM_ID=…) or Xcode's Signing & Capabilities. Builds
+    # without a team pass CODE_SIGNING_ALLOWED=NO, as ios.yml's do.
+    DEVELOPMENT_TEAM: $(TILL_TEAM_ID)
+    CODE_SIGN_STYLE: Automatic
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     SWIFT_STRICT_CONCURRENCY: complete
 targets:
