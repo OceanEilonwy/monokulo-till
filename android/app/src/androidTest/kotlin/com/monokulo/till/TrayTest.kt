@@ -31,9 +31,6 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.unit.dp
-import com.monokulo.till.core.PointOfSale
-import com.monokulo.till.core.SalePhase
-import com.monokulo.till.sales.TillSale
 import com.monokulo.till.ui.Motion
 import com.monokulo.till.ui.ShiftScreen
 import org.junit.After

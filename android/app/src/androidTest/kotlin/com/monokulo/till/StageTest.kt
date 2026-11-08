@@ -19,7 +19,6 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.unit.IntSize
-import com.monokulo.till.core.PointOfSale
 import com.monokulo.till.ui.CodeScreen
 import com.monokulo.till.ui.Motion
 import com.monokulo.till.ui.SaleScreen
@@ -29,7 +28,6 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.semantics.SemanticsProperties
-import com.monokulo.till.core.SalePhase
 import org.junit.After
 import org.junit.Rule
 import org.junit.Test
@@ -206,7 +204,7 @@ class StageTest {
             }
         }
         compose.waitForIdle()
-        fun top(sale: com.monokulo.till.sales.TillSale) =
+        fun top(sale: TillSale) =
             compose.onNodeWithText(rowTitle(sale), substring = true, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.top
         val rest = rows.map(::top)
 

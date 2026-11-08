@@ -7,8 +7,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import com.monokulo.till.sales.TillSale
-import com.monokulo.till.sales.live
 
 /**
  * The view model as the stage sees it (`AppViewModel.back`, `backTarget`,
@@ -52,9 +50,25 @@ class TestModel(start: Screen) {
 
     /** The sales changed, as `AppViewModel.follow` takes them: a sale new since the last look rises only off the resting shift. */
     fun salesChanged(sales: List<TillSale>) {
-        val next = TillNav.follow(screen.value, sales, left, liveBefore, restingOn == Screen.Till)
+        val next = follow(screen.value, sales, restingOn == Screen.Till)
         if (next != screen.value) go(next, byItself = true)
         liveBefore = sales.filter { it.live }.map { it.orderId }.toSet()
+    }
+
+    /**
+     * The engine's `till_nav::follow`: the shift at rest brings up a live sale new since the last look and not
+     * left; the enlarged code and the order page give way to the sale's page once it isn't live.
+     */
+    private fun follow(screen: Screen, sales: List<TillSale>, restingOnShift: Boolean): Screen {
+        fun liveOrUnknown(id: String) = sales.firstOrNull { it.orderId == id }?.live ?: true
+        return when (screen) {
+            Screen.Till -> if (!restingOnShift) screen else {
+                sales.firstOrNull { it.live && it.orderId !in left && it.orderId !in liveBefore }?.let { Screen.Sale(it.orderId) } ?: screen
+            }
+            is Screen.Code -> if (liveOrUnknown(screen.orderId)) screen else Screen.Sale(screen.orderId)
+            is Screen.Order -> if (liveOrUnknown(screen.orderId)) screen else Screen.Sale(screen.orderId)
+            else -> screen
+        }
     }
 
     /** Back from [from] only if it's still up (decision 77). */

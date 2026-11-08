@@ -13,12 +13,9 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToKey
-import com.monokulo.till.core.PointOfSale
-import com.monokulo.till.sales.TillSale
 import com.monokulo.till.RunningMoves.Companion.flashes
 import com.monokulo.till.RunningMoves.Companion.lum
 import com.monokulo.till.RunningMoves.Companion.range
-import com.monokulo.till.core.SalePhase
 import com.monokulo.till.ui.Motion
 import com.monokulo.till.ui.codeGround
 import org.junit.Rule
@@ -110,7 +107,7 @@ class RunningMovesTest {
      * screen keeps its code card on the live layout, and on every frame the row's ground still holds the card's place
      * the code is drawn there, dimming with the screen's words (decision 313); then the row's shrink takes it.
      */
-    private fun leavesWithItsCode(name: String, dark: Boolean, change: (com.monokulo.till.sales.TillSale) -> com.monokulo.till.sales.TillSale) {
+    private fun leavesWithItsCode(name: String, dark: Boolean, change: (TillSale) -> TillSale) {
         moves.start(Screen.Sale("a1"), dark)
         val frames = moves.run(Screen.Till, groundKey = "sale/a1", change = { moves.shown = change(moves.sale) })
         val failures = mutableListOf<String>()

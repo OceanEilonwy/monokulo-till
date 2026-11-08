@@ -13,12 +13,6 @@ import com.monokulo.till.ui.ShiftPlace
 import com.monokulo.till.ui.ShiftScreen
 import com.monokulo.till.ui.rememberShiftPlace
 import uniffi.till_app.Action
-import com.monokulo.till.core.PointOfSale
-import com.monokulo.till.core.SalePhase
-import com.monokulo.till.receipt.PaymentCode
-import com.monokulo.till.receipt.Receipt
-import com.monokulo.till.sales.FoundSale
-import com.monokulo.till.sales.TillSale
 import com.monokulo.till.ui.LocalMotion
 import com.monokulo.till.ui.LocalPointOfSale
 import com.monokulo.till.ui.TillTheme
@@ -26,8 +20,6 @@ import com.monokulo.till.ui.Motion
 import com.monokulo.till.ui.SaleFace
 import com.monokulo.till.ui.TillActions
 import com.monokulo.till.engine.Money
-import kotlinx.serialization.builtins.ListSerializer
-import kotlinx.serialization.json.Json
 import uniffi.till_app.Platform
 import uniffi.till_app.Pos
 import uniffi.till_app.TillPreview
@@ -36,6 +28,7 @@ import uniffi.till_app.previewClose
 import uniffi.till_app.previewSale
 import uniffi.till_app.previewShift
 import uniffi.till_screens.CloseView
+import uniffi.till_screens.PosMark
 import uniffi.till_screens.ShiftEntry
 import uniffi.till_screens.ShiftFilter
 import uniffi.till_screens.ShiftView
@@ -70,7 +63,7 @@ fun testSale(
 fun Till(motion: Motion = Motion.Full, dark: Boolean? = null, content: @Composable () -> Unit) = TillTheme(dark ?: isSystemInDarkTheme()) {
     // A till on Square, as the activity and the overlay provide it (the sample sales are Square's), so a sale of
     // this till reads "Front · this till", not as one rung up at a point of sale the till has changed from.
-    CompositionLocalProvider(LocalMotion provides motion, LocalPointOfSale provides PointOfSale.Square, content = content)
+    CompositionLocalProvider(LocalMotion provides motion, LocalPointOfSale provides PosMark.SQUARE, content = content)
 }
 
 /** The design's order: 15 items on 8 lines, so the sale's card shows three and "+5 more". */
@@ -100,9 +93,6 @@ object TestPlatform : Platform {
     override fun formatMoney(minor: Long, currency: String) = Money.format(minor, currency)
 }
 
-/** As `Stores.kt` saved a shift, which the engine's previews read. */
-private val shiftJson = Json { ignoreUnknownKeys = true; explicitNulls = false }
-
 /** A till on Square at "Front" with [sales], watching, at the clock's [now]: the engine's preview of its screens. */
 fun preview(
     sales: List<TillSale>,
@@ -115,7 +105,7 @@ fun preview(
     refunding: Boolean = false,
     refundProblem: String? = null,
 ) = TillPreview(
-    salesJson = shiftJson.encodeToString(ListSerializer(TillSale.serializer()), sales),
+    salesJson = shiftJson(sales),
     now = now,
     till = Pos.SQUARE,
     store = "Corner shop",

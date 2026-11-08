@@ -25,7 +25,6 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.test.platform.app.InstrumentationRegistry
-import com.monokulo.till.core.SalePhase
 import com.monokulo.till.ui.CodeScreen
 import androidx.compose.runtime.CompositionLocalProvider
 import com.monokulo.till.ui.HeroSize

@@ -18,16 +18,12 @@ import androidx.compose.ui.semantics.getOrNull
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import androidx.compose.ui.unit.dp
-import com.monokulo.till.core.SalePhase
 import com.monokulo.till.overlay.CODE_SLOT_TAG
 import com.monokulo.till.overlay.CODE_TAG
 import com.monokulo.till.overlay.STATUS_TAG
 import com.monokulo.till.overlay.PanelActions
 import com.monokulo.till.overlay.Presence
 import com.monokulo.till.overlay.SalePanel
-import com.monokulo.till.receipt.PaymentCode
-import com.monokulo.till.sales.FoundSale
-import com.monokulo.till.sales.TillSale
 import com.monokulo.till.ui.LocalMotion
 import com.monokulo.till.ui.TillTheme
 import com.monokulo.till.ui.Motion

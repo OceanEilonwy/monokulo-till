@@ -6,7 +6,6 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
-import com.monokulo.till.core.SalePhase
 import com.monokulo.till.ui.SaleScreen
 import org.junit.Rule
 import org.junit.Test
@@ -34,7 +33,7 @@ class CustomerNameTitleTest {
         compose.onNodeWithText("Front · this till", useUnmergedTree = true).assertExists()
     }
 
-    private fun titled(sale: com.monokulo.till.sales.TillSale) {
+    private fun titled(sale: TillSale) {
         compose.setContent { Till { SaleScreen(saleFace(sale), noActions) } }
         compose.onNodeWithText("Ana López", useUnmergedTree = true).assertExists()
         // The number leads the line under it; a detail page puts the time before the place ("Sale #m2Qe · 4:00 PM · Front · this till").

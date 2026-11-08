@@ -23,6 +23,7 @@ import org.junit.Rule
 import org.junit.Test
 import java.io.FileInputStream
 import kotlin.test.assertTrue
+import uniffi.till_screens.BubbleLook
 
 /**
  * The panel growing out of the bubble and collapsing into it draws its
@@ -71,7 +72,7 @@ class PanelGlyphsOnDeviceTest {
                     if (tablet) {
                         FloatingPanel(panelOf(sale), "Front Counter", PanelPage.Code, actions, motion)
                     } else {
-                        PhonePanel(panelOf(sale), "Front Counter", BubbleLook.Lit, PanelPage.Code, actions, motion)
+                        PhonePanel(panelOf(sale), "Front Counter", BubbleLook.LIT, PanelPage.Code, actions, motion)
                     }
                 }
             }

@@ -15,7 +15,6 @@ import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.dp
-import com.monokulo.till.core.SalePhase
 import com.monokulo.till.ui.Fixed
 import com.monokulo.till.ui.LightTokens
 import com.monokulo.till.ui.LocalMotion
@@ -51,7 +50,7 @@ class PhaseRingOnDeviceTest {
             TillTheme(dark = false) {
                 CompositionLocalProvider(LocalMotion provides motion) {
                     Box(Modifier.testTag("ring").padding(0.dp)) {
-                        PhaseRing(SaleText.step(phase), 120.dp, track = track, fill = fill, confirmations = confirmations, required = required.takeIf { confirmations != null })
+                        PhaseRing(phase.step, 120.dp, track = track, fill = fill, confirmations = confirmations, required = required.takeIf { confirmations != null })
                     }
                 }
             }

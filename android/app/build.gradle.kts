@@ -105,8 +105,8 @@ dependencies {
     debugImplementation(libs.compose.ui.test.manifest)
     testImplementation(libs.kotlin.test.junit)
     testImplementation(libs.junit)
-    // The on-device tests' saved-shift fixtures, until they are written without the Kotlin sale.
-    androidTestImplementation(project(":sales"))
+    // The on-device tests write their sales as a saved shift for the engine's previews.
+    androidTestImplementation(libs.kotlinx.serialization.json)
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.kotlin.test.junit)
     androidTestImplementation(libs.compose.ui.test.junit4)

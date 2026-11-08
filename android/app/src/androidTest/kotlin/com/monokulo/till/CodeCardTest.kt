@@ -10,7 +10,6 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.monokulo.till.core.SalePhase
 import com.monokulo.till.ui.SaleScreen
 import com.monokulo.till.ui.StatusFoot
 import org.junit.Rule
@@ -56,6 +55,6 @@ class CodeCardTest {
         val now = mutableLongStateOf(1_000)
         compose.setContent { Till { StatusFoot(saleFace(sale).view) } }
         compose.onNodeWithText("Paid", useUnmergedTree = true).assertExists()
-        compose.onNodeWithText("${SaleText.xmr(sale)} received", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("${sale.xmr} XMR received", useUnmergedTree = true).assertExists()
     }
 }

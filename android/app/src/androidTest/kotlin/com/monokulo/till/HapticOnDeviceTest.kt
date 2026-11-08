@@ -9,11 +9,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
-import com.monokulo.till.core.SalePhase
 import com.monokulo.till.overlay.BubbleFace
 import org.junit.Rule
 import org.junit.Test
 import kotlin.test.assertEquals
+import uniffi.till_screens.BubbleLook
 
 /** One buzz per payment, from the surface the cashier is looking at (`docs/motion.md` §6, decision 176). */
 class HapticOnDeviceTest {
@@ -28,22 +28,23 @@ class HapticOnDeviceTest {
         }
     }
 
-    private var look by mutableStateOf(BubbleLook.Lit)
+    private var look by mutableStateOf(BubbleLook.LIT)
 
     private fun buzzesForAPayment(appVisible: Boolean): Int {
         val view = Counting(InstrumentationRegistry.getInstrumentation().targetContext)
         compose.setContent {
             Till {
                 CompositionLocalProvider(LocalView provides view) {
-                    BubbleFace(look, phase = SalePhase.Confirming, confirms = PaidBuzz.bubble(appVisible))
+                    // The engine's `BubbleView.buzzes`: the bubble buzzes only while Till isn't on screen.
+                    BubbleFace(look, confirms = !appVisible)
                 }
             }
         }
         compose.waitForIdle()
-        look = BubbleLook.Paid
+        look = BubbleLook.PAID
         compose.waitForIdle()
         // The same payment seen again (a poll, the free bubble taking over) is not a second buzz.
-        look = BubbleLook.Paid
+        look = BubbleLook.PAID
         compose.mainClock.advanceTimeBy(1_000)
         return view.buzzes
     }

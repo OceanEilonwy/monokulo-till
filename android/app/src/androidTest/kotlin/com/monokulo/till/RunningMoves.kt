@@ -27,7 +27,6 @@ import android.graphics.Canvas
 import android.view.ViewGroup
 import androidx.core.view.WindowCompat
 import androidx.test.platform.app.InstrumentationRegistry
-import com.monokulo.till.sales.TillSale
 import com.monokulo.till.ui.CodeScreen
 import com.monokulo.till.ui.HeroTag
 import com.monokulo.till.ui.Motion

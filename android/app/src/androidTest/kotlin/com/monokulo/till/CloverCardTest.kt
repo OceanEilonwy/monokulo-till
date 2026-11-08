@@ -44,7 +44,7 @@ class CloverCardTest {
             choices = listOf(PosChoice(PosMark.CLOVER, false, Choice("Clover", null, selected = true, enabled = true))),
             card = card, next = Press("Continue", testSale?.found == true), skip = Press("Skip the test", true),
         )
-        val actions = PosSetupActions({}, {}, {}, {}, {}, {}, {})
+        val actions = PosSetupActions({}, {}, {}, {}, {}, {})
         // Still, so the loading mark's glints don't keep the clock from idling.
         compose.setContent { Till(Motion.Still) { PointOfSaleScreen(step, "Step 4 of 6", actions) } }
         compose.waitForIdle()

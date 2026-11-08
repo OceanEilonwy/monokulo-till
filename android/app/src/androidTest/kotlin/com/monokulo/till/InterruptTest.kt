@@ -10,8 +10,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.unit.dp
-import com.monokulo.till.core.SalePhase
-import com.monokulo.till.sales.live
 import com.monokulo.till.ui.CodeScreen
 import com.monokulo.till.ui.OrderPage
 import com.monokulo.till.ui.SaleScreen

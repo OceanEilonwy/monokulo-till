@@ -29,7 +29,7 @@ class OneClockTest {
     @Test
     fun aTickRecomposesTheLiveRowsAndNotTheirBadges() {
         val sales = List(6) { testSale("live$it", expiresAt = 1_900L + it) } +
-            List(6) { testSale("paid$it", phase = com.monokulo.till.core.SalePhase.Paid, paidAt = 990) }
+            List(6) { testSale("paid$it", phase = SalePhase.Paid, paidAt = 990) }
         var view by mutableStateOf(shiftView(sales, now = 1_000))
         compose.setContent { Till { ShiftScreen(view, noActions) } }
         compose.waitForIdle()

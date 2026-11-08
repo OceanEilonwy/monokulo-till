@@ -11,8 +11,6 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.util.lerp
 import androidx.compose.ui.test.onNodeWithText
-import com.monokulo.till.core.PointOfSale
-import com.monokulo.till.core.SalePhase
 import com.monokulo.till.ui.CodeScreen
 import com.monokulo.till.ui.HeroTag
 import com.monokulo.till.ui.SaleScreen

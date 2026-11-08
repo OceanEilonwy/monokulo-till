@@ -6,8 +6,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
-import com.monokulo.till.core.PointOfSale
-import com.monokulo.till.sales.TillSale
 import com.monokulo.till.ui.Motion
 import com.monokulo.till.ui.ShiftScreen
 import org.junit.Rule

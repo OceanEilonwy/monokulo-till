@@ -17,7 +17,6 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
-import com.monokulo.till.core.SalePhase
 import com.monokulo.till.ui.CodeScreen
 import com.monokulo.till.ui.LocalReceiptFolds
 import com.monokulo.till.ui.OrderPage

@@ -24,7 +24,6 @@ import androidx.compose.ui.geometry.Rect
 import com.monokulo.till.overlay.CODE_SLOT_TAG
 import com.monokulo.till.overlay.HERO_TAG
 import androidx.test.platform.app.InstrumentationRegistry
-import com.monokulo.till.core.SalePhase
 import com.monokulo.till.overlay.CARD_TAG
 import com.monokulo.till.overlay.CODE_TAG
 import com.monokulo.till.overlay.FloatingPanel
@@ -51,6 +50,7 @@ import java.io.File
 import kotlin.math.abs
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import uniffi.till_screens.BubbleLook
 
 /**
  * The overlay's moves stopped at a quarter, a half and three quarters of
@@ -94,7 +94,7 @@ class OverlayFramesTest {
                     if (tablet) {
                         FloatingPanel(panelOf(sale), "Front Counter", page, actions, motion)
                     } else {
-                        PhonePanel(panelOf(sale), "Front Counter", BubbleLook.Lit, page, actions, motion)
+                        PhonePanel(panelOf(sale), "Front Counter", BubbleLook.LIT, page, actions, motion)
                     }
                 }
             }
@@ -372,14 +372,14 @@ class OverlayFramesTest {
         sale = paid
         panel(raised = 1f)
         compose.mainClock.advanceTimeBy(1_500)
-        val old = "${SaleText.xmr(paid)} received"
-        val header = SaleText.title(next)
+        val old = "${paid.xmr} XMR received"
+        val header = panelOf(next).title
         val card = compose.onNodeWithTag(CARD_TAG, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
         val groundAt = { image: Bitmap -> image.getPixel(card.left.toInt() + 6, card.top.toInt() + (card.height / 2).toInt()) }
         val before = window()
         val oldFull = ink(before, boundsOf(old)!!, groundAt(before))
         // Only the part of the header's line past the last header's words: what is drawn there is the next sale's.
-        val lastTitle = boundsOf(SaleText.title(paid))!!
+        val lastTitle = boundsOf(panelOf(paid).title)!!
         var lastEnds = lastTitle.left.toInt()
         for (x in lastTitle.left.toInt() until lastTitle.right.toInt()) {
             for (y in lastTitle.top.toInt() until lastTitle.bottom.toInt()) {
@@ -563,7 +563,7 @@ class OverlayFramesTest {
 
     // The bubble as the logo (`docs/motion.md` §12.5, B5 c): its border's chase, the paid spread and tick, Still, its label.
 
-    private var look by mutableStateOf(BubbleLook.Idle)
+    private var look by mutableStateOf(BubbleLook.IDLE)
 
     /** The free bubble over Square's white, in [look] from its first frame, on the test clock; light unless [dark]. */
     private fun bubble(from: BubbleLook, presets: Motion = Motion.Full, label: String? = null, dark: Boolean = false) {
@@ -571,7 +571,7 @@ class OverlayFramesTest {
         compose.mainClock.autoAdvance = false
         compose.setContent {
             Till(presets, dark = dark) {
-                Box(Modifier.background(Fixed.White)) { BubbleFace(look, phase = SalePhase.Waiting, label = label) }
+                Box(Modifier.background(Fixed.White)) { BubbleFace(look, label = label) }
             }
         }
         compose.mainClock.advanceTimeByFrame()
@@ -615,7 +615,7 @@ class OverlayFramesTest {
      */
     @Test
     fun theWaitingBubblesBorderChasesClockwise() {
-        bubble(BubbleLook.Lit)
+        bubble(BubbleLook.LIT)
         val turn = Motion.CHASE_MS.toFloat()
         val middle = MarkGeometry.ARC_SHARE * 360f / 2
         var at = 0L
@@ -635,7 +635,7 @@ class OverlayFramesTest {
     /** In night mode the disc is dark and a light segment chases round a dark track; paid, the border is whole light ink. */
     @Test
     fun inDarkModeALightArcChasesRoundADarkDisc() {
-        bubble(BubbleLook.Lit, dark = true)
+        bubble(BubbleLook.LIT, dark = true)
         compose.mainClock.advanceTimeBy(Motion.CHASE_MS / 3L)
         val middle = 360f / 3 + MarkGeometry.ARC_SHARE * 180f
         val image = mark()
@@ -644,7 +644,7 @@ class OverlayFramesTest {
         assertTrue(near(image.onBorder(middle + 180f), Fixed.BubbleDarkTrack), "across from it is the dark track")
         // Up and right of the lens, past the border's edge and inside the disc.
         assertTrue(near(image.atMark(46f, 12f), Fixed.BubbleDark), "between the border and the disc's edge is the dark disc, not white")
-        look = BubbleLook.Paid
+        look = BubbleLook.PAID
         compose.mainClock.advanceTimeBy(1_000)
         val paid = mark()
         save("bubble-dark", 1, paid)
@@ -654,7 +654,7 @@ class OverlayFramesTest {
 
     @Test
     fun theIdleBubbleHasAWholeGreyBorderAndNoArc() {
-        bubble(BubbleLook.Idle)
+        bubble(BubbleLook.IDLE)
         repeat(3) {
             compose.mainClock.advanceTimeBy(Motion.CHASE_MS / 3L)
             // The whole bubble at 55 % over white: its grey border, faded, the same all round.
@@ -670,9 +670,9 @@ class OverlayFramesTest {
      */
     @Test
     fun paidFillsTheLensFromTheCoreOutThenDrawsTheTick() {
-        bubble(BubbleLook.Lit)
+        bubble(BubbleLook.LIT)
         compose.mainClock.advanceTimeBy(Motion.CHASE_MS / 3L)
-        look = BubbleLook.Paid
+        look = BubbleLook.PAID
         compose.mainClock.advanceTimeByFrame()
         val start = compose.mainClock.currentTime
         // A point of the core clear of the tick, one of the rim (the twelfth ring's), and three along the tick.
@@ -726,7 +726,7 @@ class OverlayFramesTest {
      */
     @Test
     fun paidToIdleFadesTheTickWholeNeverUndrawsIt() {
-        bubble(BubbleLook.Paid)
+        bubble(BubbleLook.PAID)
         compose.mainClock.advanceTimeBy(1_000)
         // Along the tick, and beside each, 2.6 units off its line inside the V, the lens with no tick on it.
         val along = listOf(24.82f to 29.82f, 30.43f to 30.08f, 34.56f to 25.81f)
@@ -738,7 +738,7 @@ class OverlayFramesTest {
         }
         val whole = shown(mark())
         assertTrue(whole.all { it > 0.8f }, "paid at rest, the tick is whole and white: $whole")
-        look = BubbleLook.Idle
+        look = BubbleLook.IDLE
         compose.mainClock.advanceTimeByFrame()
         val start = compose.mainClock.currentTime
         var last = 1f
@@ -761,11 +761,11 @@ class OverlayFramesTest {
     /** A payment landing mid-turn holds the arc where it was as it fades into the darkening border: no jump to 12 o'clock. */
     @Test
     fun paidMidTurnFadesTheArcWhereItIs() {
-        bubble(BubbleLook.Lit)
+        bubble(BubbleLook.LIT)
         val third = Motion.CHASE_MS / 3L
         compose.mainClock.advanceTimeBy(third)
         val middle = 360f * third / Motion.CHASE_MS + MarkGeometry.ARC_SHARE * 180f
-        look = BubbleLook.Paid
+        look = BubbleLook.PAID
         repeat(3) { compose.mainClock.advanceTimeByFrame() }
         val image = mark()
         assertTrue(nearer(image.onBorder(middle), Fixed.Ink, Fixed.ChaseTrack), "the arc is still at ${middle}° as it fades")
@@ -778,13 +778,13 @@ class OverlayFramesTest {
     fun underStillTheWaitingBorderIsWholeInkAndNothingLoops() {
         val recompositions = Recompositions()
         try {
-            bubble(BubbleLook.Lit, Motion.Still)
+            bubble(BubbleLook.LIT, Motion.Still)
             compose.mainClock.advanceTimeBy(200)
             val waiting = mark()
             save("bubble-still", 0, waiting)
             assertWholeBorder(waiting, Fixed.Ink, "still, waiting")
             assertEquals(0, recompositions.count(INFINITE), "no infinite transition is made under Still")
-            look = BubbleLook.Paid
+            look = BubbleLook.PAID
             compose.mainClock.advanceTimeByFrame()
             compose.mainClock.advanceTimeBy(140)
             val paid = mark()
@@ -802,10 +802,10 @@ class OverlayFramesTest {
     fun onlyTheLitBubbleRunsALoop() {
         val recompositions = Recompositions()
         try {
-            bubble(BubbleLook.Idle)
+            bubble(BubbleLook.IDLE)
             compose.mainClock.advanceTimeBy(500)
             assertEquals(0, recompositions.count(INFINITE), "idle runs no loop")
-            look = BubbleLook.Lit
+            look = BubbleLook.LIT
             compose.mainClock.advanceTimeBy(500)
             assertTrue(recompositions.count(INFINITE) > 0, "lit, the chase's loop is made")
         } finally {
@@ -817,7 +817,7 @@ class OverlayFramesTest {
     fun aPaidBubbleRunsNoLoop() {
         val recompositions = Recompositions()
         try {
-            bubble(BubbleLook.Paid)
+            bubble(BubbleLook.PAID)
             compose.mainClock.advanceTimeBy(500)
             assertEquals(0, recompositions.count(INFINITE), "paid runs no loop")
         } finally {
@@ -831,17 +831,17 @@ class OverlayFramesTest {
         var label by mutableStateOf<String?>(null)
         compose.mainClock.autoAdvance = false
         compose.setContent { Till { BubbleFace(look, label = label) } }
-        val amount = SaleText.amount(testSale("l1"))
+        // The engine's `BubbleView.label` (`till_screens::bubble::label`, whose words its own tests pin).
         val cases = listOf(
-            Triple(BubbleLook.Lit, SalePhase.Waiting, "Till, $amount waiting for payment"),
-            Triple(BubbleLook.Lit, SalePhase.Seen, "Till, $amount seen on the network"),
-            Triple(BubbleLook.Lit, SalePhase.Confirming, "Till, $amount confirming"),
-            Triple(BubbleLook.Paid, SalePhase.Paid, "Till, $amount paid"),
-            Triple(BubbleLook.Idle, SalePhase.Paid, "Till, nothing waiting"),
+            BubbleLook.LIT to "Till, \$8.40 waiting for payment",
+            BubbleLook.LIT to "Till, \$8.40 seen on the network",
+            BubbleLook.LIT to "Till, \$8.40 confirming",
+            BubbleLook.PAID to "Till, \$8.40 paid",
+            BubbleLook.IDLE to "Till, nothing waiting",
         )
-        for ((shown, phase, says) in cases) {
+        for ((shown, says) in cases) {
             look = shown
-            label = Bubble.label(shown, testSale("l1", phase, expiresAt = expires))
+            label = says
             compose.mainClock.advanceTimeByFrame()
             compose.onNodeWithContentDescription(says).assertExists()
         }

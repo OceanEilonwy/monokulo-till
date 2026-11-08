@@ -16,9 +16,6 @@ import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.unit.LayoutDirection
-import com.monokulo.till.core.PointOfSale
-import com.monokulo.till.core.SalePhase
-import com.monokulo.till.sales.TillSale
 import com.monokulo.till.ui.Motion
 import com.monokulo.till.ui.ShiftScreen
 import com.monokulo.till.ui.TillActions

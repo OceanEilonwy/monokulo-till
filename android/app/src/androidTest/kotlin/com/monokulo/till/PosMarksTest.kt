@@ -8,7 +8,6 @@ import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.unit.dp
-import com.monokulo.till.core.PointOfSale
 import com.monokulo.till.ui.LinkedMarks
 import com.monokulo.till.ui.PosChoices
 import uniffi.till_screens.Choice
@@ -35,12 +34,12 @@ class PosMarksTest {
                             PosChoice(PosMark.CLOVER, false, Choice("Clover", "Clover Register", selected = false, enabled = true)),
                         ),
                     ) {}
-                    LinkedMarks(PointOfSale.Clover)
+                    LinkedMarks(PosMark.CLOVER)
                 }
             }
         }
         compose.waitForIdle()
-        for (pos in PointOfSale.entries) compose.onNodeWithText(pos.displayName).assertHeightIsAtLeast(48.dp)
+        for (name in listOf("Square", "Clover")) compose.onNodeWithText(name).assertHeightIsAtLeast(48.dp)
         compose.onAllNodes(described, useUnmergedTree = true).assertCountEquals(0)
     }
 }
