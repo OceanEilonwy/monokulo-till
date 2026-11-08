@@ -246,7 +246,11 @@ class MotionFramesTest {
         repeat(3) { compose.mainClock.advanceTimeByFrame() }
         val start = compose.onRoot().captureToImage().asAndroidBitmap()
         var differ = 0
-        for (y in 0 until sale.height step 4) for (x in 0 until sale.width step 4) if (sale.getPixel(x, y) != start.getPixel(x, y)) differ++
+        // A pixel differs when a channel is off by more than a few levels: drawn through the stage's layer at 0, the
+        // sale's own edges are antialiased a level or two differently (at most 6 of 255 on an API 37 emulator),
+        // which no one sees; a word or bar of the page showing through is far more.
+        fun near(a: Int, b: Int) = (0..24 step 8).all { kotlin.math.abs((a shr it and 0xFF) - (b shr it and 0xFF)) <= 8 }
+        for (y in 0 until sale.height step 4) for (x in 0 until sale.width step 4) if (!near(sale.getPixel(x, y), start.getPixel(x, y))) differ++
         val total = (sale.height / 4) * (sale.width / 4)
         assertTrue(differ * 200 < total, "at 0 the page's bar, heading and foot are unseen and the card is the sale's own: $differ of $total differ")
     }

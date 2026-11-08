@@ -24,6 +24,7 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -109,7 +110,10 @@ class TrayTest {
         assertTrue(exists("+18"))
         compose.onNodeWithContentDescription("Show 18 more waiting sales").performClick()
         compose.waitForIdle()
-        assertTrue(exists("Show fewer"), "the fold row's words change at once; the rows open under it")
+        // Open, the fold row follows all 21 rows: further down than a phone's screen, where the lazy list hasn't
+        // composed it until it is scrolled to.
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasContentDescription("Show fewer"))
+        assertTrue(exists("Show fewer"), "the fold row's words change at once; the rows open above it")
     }
 
     @Test
