@@ -24,6 +24,8 @@ targets:
     sources: [Till]
     dependencies:
       - package: TillCore
+      # Embedded in the app's PlugIns (phase I5).
+      - target: TillNotifications
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.monokulo.till
@@ -43,6 +45,32 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.business
+  # The Notification Service Extension (docs/ios-plan.md §5, phase I5): opens
+  # a Bell's ding the relay carried, looks for the sale through the core and
+  # rewrites the alert. It links the core's static library itself, and shares
+  # the app's Keychain storage, configuration and build settings.
+  TillNotifications:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: TillNotifications
+        excludes: [Info.plist]
+      - Till/DevicePlatform.swift
+      - Till/TillShared.swift
+      - Till/Build.swift
+    dependencies:
+      - package: TillCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.monokulo.till.notifications
+        PRODUCT_NAME: TillNotifications
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: YES
+        # NSExtension, which no INFOPLIST_KEY_ setting can say; merged with
+        # the generated keys.
+        INFOPLIST_FILE: TillNotifications/Info.plist
+        INFOPLIST_KEY_CFBundleDisplayName: Till
+        CODE_SIGN_ENTITLEMENTS: Support/TillNotifications.entitlements
   TillTests:
     type: bundle.unit-test
     platform: iOS
