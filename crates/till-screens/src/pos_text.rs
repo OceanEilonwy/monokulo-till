@@ -5,13 +5,13 @@
 //! itself. `None` is a till that runs without one (or hasn't chosen yet):
 //! "your point of sale".
 //!
-//! Not here yet: the words that need a till's sale (`PosText.of`,
-//! `elsewhere` and `placeOf`, which read `TillSale.found`), until the till's
-//! sales are ported (phase 3). The reasons a Wake-ups status carries are
-//! [`till_bell::pos_words`]'.
+//! The words that read a sale's point of sale ([`of`], [`elsewhere`],
+//! [`place_of`]) take a [`TillSale`]. The reasons a Wake-ups status carries
+//! are [`till_bell::pos_words`]'.
 
 use monokulo_client::PointOfSale;
 use till_bell::pos_words;
+use till_sales::TillSale;
 
 pub use crate::view::mark;
 
@@ -301,6 +301,41 @@ pub fn checking(pos: Option<PointOfSale>) -> String {
 }
 
 // A sale's words, by the point of sale it was rung up at.
+
+/// The point of sale `sale` was rung up at: the one that found it
+/// ([`till_pos::FoundSale::point_of_sale`]), so it keeps that name after the
+/// till's changes; another till's sale is named by the till's own, since
+/// Monokulo doesn't say which point of sale took it (decision 141 of
+/// android.md).
+pub fn of(sale: &TillSale, till: Option<PointOfSale>) -> Option<PointOfSale> {
+    sale.found
+        .as_ref()
+        .map(|found| found.point_of_sale)
+        .or(till)
+}
+
+/// Whether this till rang `sale` up at a point of sale it has since changed
+/// from (decision 141 of android.md).
+pub fn elsewhere(sale: &TillSale, till: Option<PointOfSale>) -> bool {
+    sale.found.is_some() && of(sale, till) != till
+}
+
+/// Where `sale` was rung up, by name: the till's `location` (its Square
+/// location or Clover merchant) for a sale of the point of sale it watches
+/// now, or another till's; for one rung up at the point of sale it changed
+/// from, that point of sale's name, since the old location or merchant went
+/// with its sign-in ("Clover · this till", never the new "Front Counter").
+pub fn place_of<'a>(
+    sale: &TillSale,
+    till: Option<PointOfSale>,
+    location: Option<&'a str>,
+) -> Option<&'a str> {
+    if elsewhere(sale, till) {
+        of(sale, till).map(PointOfSale::display_name)
+    } else {
+        location
+    }
+}
 
 pub fn refunded_in(pos: Option<PointOfSale>) -> String {
     format!("Refunded in {}", name(pos))

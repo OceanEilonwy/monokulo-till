@@ -14,7 +14,14 @@ publish = false
 uniffi = ["dep:uniffi"]
 
 [dependencies]
+# A receipt's issue time (RFC 3339, with its offset), as Unix seconds.
+jiff = "0.2.16"
 monokulo-client.workspace = true
+orf-codec.workspace = true
 till-bell.workspace = true
 till-pos.workspace = true
+till-sales.workspace = true
 uniffi = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true
