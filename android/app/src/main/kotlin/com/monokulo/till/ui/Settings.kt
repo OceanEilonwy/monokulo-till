@@ -36,128 +36,55 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.monokulo.till.PosText
-import com.monokulo.till.StoreNow
-import com.monokulo.till.WakeUpsText
-import com.monokulo.till.core.Connection
-import com.monokulo.till.core.PointOfSale
-import com.monokulo.till.core.Tor
-import com.monokulo.till.push.BellAddress
-import com.monokulo.till.push.WakeUpChoice
-import com.monokulo.till.push.WakeUpStatus
-import com.monokulo.till.sales.SquareLocation
+import uniffi.till_app.Action
+import uniffi.till_app.Pos
+import uniffi.till_app.WakeUps
+import uniffi.till_screens.Fact
+import uniffi.till_screens.PosMark
+import uniffi.till_screens.PosSection
+import uniffi.till_screens.SettingsView
+import uniffi.till_screens.StatusAction
+import uniffi.till_screens.Tone
+import uniffi.till_screens.WakeUpsPlace
+import uniffi.till_screens.WakeUpsView
 
-/** Settings' state. */
-data class SettingsState(
-    val connection: Connection?,
-    /** The store as last read: shown while Settings reads it again. */
-    val store: StoreNow,
-    val pos: PosState,
-    val live: Boolean,
-    val shiftOn: Boolean,
-    val alerts: Boolean,
-    val bubbleWanted: Boolean,
-    val bubbleAllowed: Boolean,
-    val debug: Boolean,
-    /** Debug builds: the stand-ins' addresses, by point of sale (acceptance T6.5). */
-    val baseUrls: Map<PointOfSale, String?>,
-    /** Orbot's proxy answers; null while that's being checked. */
-    val torRunning: Boolean? = null,
-    val wakeUps: WakeUpsState,
-    /** What went wrong on the way back here, such as the point of sale's words on a failed sign-in through a Bell (decision 105). */
-    val problem: String? = null,
-)
-
-/** Settings › Point of sale's state (acceptance T1.2). */
-data class PosState(
-    /** Null while none is chosen (or the till runs without one). */
-    val chosen: PointOfSale?,
-    val signedIn: Boolean,
-    /** Square's location, while signed in to Square. */
-    val location: SquareLocation?,
-    /** Clover's merchant name, while signed in to Clover. */
-    val merchant: String?,
-    val tenderName: String,
-    /** Clover's Monero payment type, while signed in to Clover. */
-    val tender: CloverTender = CloverTender.Ready,
-) {
-    /** Signed in and at a location or merchant: the facts show. */
-    val connected: Boolean
-        get() = signedIn && when (chosen) {
-            PointOfSale.Square -> location != null
-            PointOfSale.Clover -> merchant != null
-            null -> false
-        }
-}
-
-/** Settings › Wake-ups' state (acceptance A1). */
-data class WakeUpsState(
-    val choice: WakeUpChoice,
-    val status: WakeUpStatus,
-    /** The project's Bell: the Monokulo Bell row's detail is its address. */
-    val monokulo: BellAddress,
-    /** The last "My own Bell" address entered, kept through Timer only. */
-    val ownBell: BellAddress?,
-    /** The installed UnifiedPush apps' names, by package, for [WakeUpStatus.ChooseDistributor]'s rows. */
-    val distributorNames: Map<String, String> = emptyMap(),
-    /** A debug build: an http Bell is taken (decision 98). */
-    val allowHttp: Boolean = false,
-)
-
-/** What settings can do. */
+/** What Settings does on the device itself; everything else goes to the engine through [send]. */
 class SettingsActions(
-    val onShift: (Boolean) -> Unit,
+    val send: (Action) -> Unit,
+    /** The alerts switch: Android's own page for Till's notifications. */
     val onAlerts: () -> Unit,
+    /** The bubble switch: kept, and Android's page to allow it when it isn't. */
     val onBubble: (Boolean) -> Unit,
-    /** One of the choice rows, while not signed in: saved at once. */
-    val onChoosePos: (PointOfSale) -> Unit,
-    /** Sign in to the point of sale chosen. */
-    val onSignIn: () -> Unit,
-    val onChangeLocation: () -> Unit,
-    val onSignOut: () -> Unit,
-    /** "Change the point of sale": step 4's choice (acceptance T1.4). */
-    val onChangePos: () -> Unit,
-    /** Clover's "Look again" for the Monero payment type. */
-    val onLookAgain: () -> Unit,
-    val onDisconnect: () -> Unit,
-    val onBaseUrl: (PointOfSale, String) -> Unit,
     /** Copies the store wallet's whole address. */
     val onCopyAddress: (String) -> Unit,
-    /** Reach the store over Tor, or not. */
-    val onTor: (Boolean) -> Unit,
-    /** Settings › Wake-ups' choice: Timer only, the Monokulo Bell, or a saved own Bell. */
-    val onWakeUps: (WakeUpChoice) -> Unit,
-    /** "Use this Bell": the address as typed. */
-    val onOwnBell: (String) -> Unit,
-    /** A UnifiedPush app picked, by package, from several. */
-    val onDistributor: (String) -> Unit,
     /** "Get ntfy": a UnifiedPush app to install. */
     val onGetDistributor: () -> Unit,
-    /** Sign in to the point of sale through the Bell's application, by its application id. */
-    val onBellSignIn: (PointOfSale, String) -> Unit,
-    val onBack: () -> Unit,
+    /** A UnifiedPush app's name, by its package, as Android names it. */
+    val distributorName: (String) -> String,
 )
 
-/** Settings (PhoneSettings), with Android's shift and bubble in place of the Dynamic Island. */
+/** The engine's point of sale for a [PosMark]. */
+fun PosMark.pos(): Pos = when (this) {
+    PosMark.SQUARE -> Pos.SQUARE
+    PosMark.CLOVER -> Pos.CLOVER
+}
+
+/** Settings (PhoneSettings), as the engine wrote it, with Android's shift and bubble in place of the Dynamic Island. */
 @Composable
-fun SettingsScreen(s: SettingsState, a: SettingsActions) = Page(
+fun SettingsScreen(s: SettingsView, a: SettingsActions) = Page(
     top = {
         Row(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            RoundIconButton(MkIcons.Back, "Back", a.onBack)
+            RoundIconButton(MkIcons.Back, "Back", { a.send(Action.Back) })
         }
     },
 ) {
     Heading("Settings", Modifier.padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 8.dp), size = 34)
 
-    val connection = s.connection
     SectionLabel("Store")
-    if (connection != null) {
-        val store = s.store.store
-        val wallet = store?.wallet
-        val unknown = if (s.store.reading) "Reading…" else "—"
-        Notice(s.store.problem, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
+    s.store?.let { store ->
+        Notice(store.problem, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
         Group(
-            rows = listOfNotNull(
+            rows = listOf<@Composable () -> Unit>(
                 {
                     Row(
                         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp).semantics(mergeDescendants = true) {},
@@ -166,88 +93,92 @@ fun SettingsScreen(s: SettingsState, a: SettingsActions) = Page(
                     ) {
                         Logo(40.dp)
                         Column(Modifier.weight(1f)) {
-                            Text(store?.name ?: unknown, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                            Text(store.name, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                if (connection.encrypted) {
+                                if (store.encrypted) {
                                     Icon(MkIcons.Lock, contentDescription = "Encrypted", tint = mk.paid, modifier = Modifier.size(11.dp))
                                 }
-                                Muted(connection.host)
+                                Muted(store.host)
                             }
                         }
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Box(Modifier.size(8.dp).clip(CircleShape).background(if (s.live) mk.paid else mk.outline))
-                            Text(if (s.live) "Online" else "Offline", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Box(Modifier.size(8.dp).clip(CircleShape).background(if (store.online) mk.paid else mk.outline))
+                            Text(store.onlineLabel, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 },
-                wallet?.let { { FactRow("Payments go to", it.name) } },
-                wallet?.let {
-                    {
+            ) + store.facts.map { fact ->
+                {
+                    val address = store.walletAddress
+                    if (fact.mono && address != null) {
                         // The short form, with Copy for the whole address.
                         FactRow(
-                            "Wallet address", it.addressShort, mono = true,
+                            fact.label, fact.value, mono = true,
                             trailing = {
                                 RoundIconButton(
-                                    MkIcons.Copy, "Copy wallet address", { a.onCopyAddress(it.address) },
+                                    MkIcons.Copy, "Copy wallet address", { a.onCopyAddress(address) },
                                     Modifier.intoRowPadding(), iconSize = 20.dp,
                                 )
                             },
                         )
+                    } else {
+                        FactRow(fact.label, fact.value, mono = fact.mono, valueColor = valueColor(fact))
                     }
-                },
-                wallet?.let { { FactRow("Network", it.network.replaceFirstChar(Char::uppercase)) } },
-                { FactRow("Base currency", store?.baseCurrency ?: unknown) },
-                { FactRow("This device", s.store.device?.deviceName ?: unknown) },
-            ),
+                }
+            },
         )
         Footnote("To change the wallet, open the store's settings in your Monokulo dashboard. Till can't change it.")
-        TorSection(connection, s.store.onionApi, s.torRunning, a.onTor)
+    }
+    s.tor?.let { tor ->
+        SectionLabel("Tor")
+        if (tor.always) {
+            Group(rows = listOf({ FactRow("Over Tor", "Always") }))
+        } else {
+            Group(rows = listOf({ SwitchRow("Reach the store over Tor", tor.on, { a.send(Action.SetTor(it)) }) }))
+        }
+        Footnote(tor.footnote)
     }
 
-    PosSection(s.pos, a)
+    PosSection(s.pointOfSale, a)
 
-    SectionLabel("Shift")
-    Group(rows = listOf({ SwitchRow("Watch for sales", s.shiftOn, a.onShift) }))
-    Footnote(WakeUpsText.shift(s.wakeUps.status, s.pos.chosen))
+    s.shift?.let { shift ->
+        SectionLabel("Shift")
+        Group(rows = listOf({ SwitchRow("Watch for sales", shift.on, { on -> a.send(if (on) Action.StartShift else Action.StopShift) }) }))
+        Footnote(shift.footnote)
+    }
 
     SectionLabel("Alerts")
-    Group(rows = listOf({ SwitchRow("New sale alerts", s.alerts, { a.onAlerts() }) }))
-    Footnote(
-        if (s.alerts) {
-            "A new sale makes a sound and shows a banner when you're in another app. Change the sound in Android's settings."
-        } else {
-            "Alerts are off. Till still shows new sales in its bubble and here, but won't make a sound or show a banner."
-        },
-    )
+    Group(rows = listOf({ SwitchRow("New sale alerts", s.alerts.on, { a.onAlerts() }) }))
+    Footnote(s.alerts.footnote)
 
-    SectionLabel("Bubble")
-    Group(rows = listOf({ SwitchRow("Float over other apps", s.bubbleWanted && s.bubbleAllowed, a.onBubble) }))
-    Footnote(
-        when {
-            !s.bubbleAllowed -> "Android hasn't allowed Till to display over other apps, so sales show in the notification only."
-            s.bubbleWanted -> PosText.bubbleFootnote(s.pos.chosen)
-            else -> "Sales show in the notification only."
-        },
-    )
+    s.bubble?.let { bubble ->
+        SectionLabel("Bubble")
+        Group(rows = listOf({ SwitchRow("Float over other apps", bubble.on, a.onBubble) }))
+        Footnote(bubble.footnote)
+    }
 
-    WakeUpsSection(s.wakeUps, s.pos.chosen, s.problem, a)
+    (s.wakeUps as? WakeUpsPlace.Inline)?.let { WakeUpsSection(it.view, a) }
 
-    if (s.debug) {
+    if (s.standIns.isNotEmpty()) {
         SectionLabel("Developer (debug builds)")
         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            for (pos in PointOfSale.entries) {
-                var base by remember(pos) { mutableStateOf(s.baseUrls[pos] ?: "") }
-                OutlinedTextField(base, { base = it }, label = { Text(PosText.standIn(pos)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlineButton("Use it", { a.onBaseUrl(pos, base) }, Modifier.fillMaxWidth())
+            for (standIn in s.standIns) {
+                var base by remember(standIn.pointOfSale) { mutableStateOf(standIn.value) }
+                OutlinedTextField(base, { base = it }, label = { Text(standIn.label) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlineButton("Use it", { a.send(Action.SetBaseUrl(standIn.pointOfSale.pos(), base)) }, Modifier.fillMaxWidth())
             }
         }
     }
 
     Spacer(Modifier.height(22.dp))
-    Group(rows = listOf({ ActionRow("Disconnect this device", a.onDisconnect, mk.danger) }))
+    Group(rows = listOf({ ActionRow("Disconnect this device", { a.send(Action.Disconnect) }, mk.danger) }))
     Footnote("Removes Till from the store's Apps: its key stops working at once. Payments already made aren't affected.")
     Spacer(Modifier.height(32.dp))
 }
+
+/** A fact's value colour: its tone, the muted secondary ink when plain. */
+@Composable
+private fun valueColor(fact: Fact) = if (fact.tone == Tone.PLAIN) mk.muted else toneColor(fact.tone)
 
 /**
  * Settings › Point of sale (acceptance T1.2): signed in, which one and its
@@ -255,49 +186,34 @@ fun SettingsScreen(s: SettingsState, a: SettingsActions) = Page(
  * rows and the chosen one's sign-in.
  */
 @Composable
-private fun PosSection(p: PosState, a: SettingsActions) {
-    SectionLabel(PosText.POINT_OF_SALE)
-    val chosen = p.chosen
-    if (p.connected && chosen != null) {
-        Group(
-            rows = buildList<@Composable () -> Unit> {
-                add { PosRow(chosen) }
-                when (chosen) {
-                    PointOfSale.Square -> {
-                        val location = p.location ?: return@buildList
-                        add { FactRow("Account", location.businessName ?: "Signed in") }
-                        add {
-                            Box(Modifier.clickable(onClickLabel = "Change the location", onClick = a.onChangeLocation)) {
-                                FactRow(PosText.placeRow(chosen), location.name)
-                            }
-                        }
-                        add { FactRow("Payment type", p.tenderName) }
+private fun PosSection(p: PosSection, a: SettingsActions) {
+    SectionLabel("Point of sale")
+    when (p) {
+        is PosSection.SignedIn -> {
+            Group(
+                rows = buildList<@Composable () -> Unit> {
+                    add { PosRow(p.mark, p.name) }
+                    p.account?.let { add { FactRow(it.label, it.value) } }
+                    add {
+                        val row = if (p.changeLocation) Modifier.clickable(onClickLabel = "Change the location") { a.send(Action.ChangeLocation) } else Modifier
+                        Box(row) { FactRow(p.place.label, p.place.value) }
                     }
-                    PointOfSale.Clover -> {
-                        add { FactRow(PosText.placeRow(chosen), p.merchant.orEmpty()) }
-                        if (p.tender == CloverTender.AddInClover) {
-                            add { FactRow("Payment type", PosText.tenderMissing(chosen), valueColor = mk.warn) }
-                            add { ActionRow(PosText.LOOK_AGAIN, a.onLookAgain, mk.link) }
-                        } else {
-                            add { FactRow("Payment type", p.tenderName) }
-                        }
-                    }
-                }
-                add { ActionRow(PosText.signOut(chosen), a.onSignOut, mk.link) }
-                add { ActionRow(PosText.CHANGE, a.onChangePos, mk.link) }
-            },
-        )
-        if (chosen == PointOfSale.Clover && p.tender == CloverTender.AddInClover) {
-            Footnote(PosText.CLOVER_ADD_TENDER.replace("**", ""))
+                    add { FactRow(p.paymentType.label, p.paymentType.value, valueColor = valueColor(p.paymentType)) }
+                    p.lookAgain?.let { add { ActionRow(it, { a.send(Action.LookAgain) }, mk.link) } }
+                    add { ActionRow(p.signOut, { a.send(Action.SignOutOfPos) }, mk.link) }
+                    add { ActionRow(p.change, { a.send(Action.OpenPointOfSale) }, mk.link) }
+                },
+            )
+            p.footnotes.forEach { Footnote(it) }
         }
-        Footnote(PosText.signedInFootnote(chosen))
-    } else {
-        PosChoices(chosen, onChoose = a.onChoosePos)
-        if (chosen != null) {
-            Spacer(Modifier.height(12.dp))
-            Group(rows = listOf({ ActionRow(PosText.signIn(chosen), a.onSignIn, mk.link) }))
+        is PosSection.Choosing -> {
+            PosChoices(p.choices, onChoose = { a.send(Action.ChoosePointOfSale(it.pos())) })
+            p.signIn?.let { signIn ->
+                Spacer(Modifier.height(12.dp))
+                Group(rows = listOf({ ActionRow(signIn, { a.send(Action.SignIn(null)) }, mk.link) }))
+            }
+            Footnote(p.footnote)
         }
-        Footnote(PosText.withoutFootnote(chosen))
     }
 }
 
@@ -306,130 +222,86 @@ private fun PosSection(p: PosState, a: SettingsActions) {
  * left out: the location or merchant row just below says it, and is where the location is changed.
  */
 @Composable
-private fun PosRow(pos: PointOfSale) = Row(
+private fun PosRow(mark: PosMark, name: String) = Row(
     Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 16.dp, vertical = 12.dp).semantics(mergeDescendants = true) {},
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(12.dp),
 ) {
-    PosTile(pos)
-    Text(pos.displayName, fontSize = 17.sp)
+    PosTile(mark.pointOfSale())
+    Text(name, fontSize = 17.sp)
 }
 
 /**
- * Tor (decision 55): offered while the store has an onion address, through
- * Orbot. A till that connected at the onion address is on Tor already.
+ * Settings › Wake-ups (acceptance A1, decision 99), as the engine wrote it:
+ * the three choices as one radio group, "My own Bell" with its address
+ * field in the same card, then, with a Bell chosen, its status card, the
+ * status's footnote and what the Bell learns.
  */
 @Composable
-private fun TorSection(connection: Connection, onionApi: String?, running: Boolean?, onTor: (Boolean) -> Unit) {
-    val atOnion = Tor.isOnion(connection.api)
-    if (!atOnion && connection.onionApi == null && onionApi == null) return
-    SectionLabel("Tor")
-    if (atOnion) {
-        Group(rows = listOf({ FactRow("Over Tor", "Always") }))
-    } else {
-        Group(rows = listOf({ SwitchRow("Reach the store over Tor", connection.tor, onTor) }))
-    }
-    Footnote(
-        when {
-            connection.overTor && running == false ->
-                "Orbot isn't running, so Till can't reach the store. Open Orbot" + if (atOnion) "." else ", or turn this off."
-            atOnion -> "Till connected at the store's onion address, so it reaches the store through Orbot."
-            connection.tor -> "Till reaches the store at its onion address, through Orbot."
-            else -> "The store has an onion address. Turn this on to reach it over Tor, through the Orbot app."
-        },
-    )
-}
-
-/**
- * Settings › Wake-ups (acceptance A1, decision 99): the three choices as
- * one radio group, "My own Bell" with its address field in the same card,
- * then, with a Bell chosen, its status card, the status's footnote and
- * what the Bell learns.
- */
-@Composable
-private fun WakeUpsSection(w: WakeUpsState, pos: PointOfSale?, problem: String?, a: SettingsActions) {
-    // My own Bell tapped with no address saved yet: its field opens, but the tick and the status
-    // card stay with the saved choice until "Use this Bell" is pressed (decisions 103, 124).
-    var ownPicked by rememberSaveable { mutableStateOf(false) }
-    val ownShown = ownPicked || w.choice is WakeUpChoice.OwnBell
-    fun pick(choice: WakeUpChoice) {
-        ownPicked = false
-        a.onWakeUps(choice)
-    }
+private fun WakeUpsSection(w: WakeUpsView, a: SettingsActions) {
     SectionLabel("Wake-ups")
-    Notice(problem, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
+    Notice(w.problem, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
     Group(
         Modifier.selectableGroup(),
         rows = listOfNotNull(
-            { ChoiceRow("Timer only", w.choice == WakeUpChoice.TimerOnly, { pick(WakeUpChoice.TimerOnly) }, WakeUpsText.timerDetail(pos)) },
-            { ChoiceRow("Monokulo Bell", w.choice == WakeUpChoice.MonokuloBell, { pick(WakeUpChoice.MonokuloBell) }, WakeUpsText.bell(w.monokulo)) },
-            {
-                ChoiceRow("My own Bell", w.choice is WakeUpChoice.OwnBell, {
-                    val saved = w.ownBell
-                    if (saved != null) pick(WakeUpChoice.OwnBell(saved)) else ownPicked = true
-                }, WakeUpsText.ownDetail(w.ownBell))
-            },
-            if (ownShown) {
+            { ChoiceRow(w.timer.label, w.timer.selected, { a.send(Action.ChooseWakeUps(WakeUps.Timer)) }, w.timer.detail) },
+            { ChoiceRow(w.monokuloBell.label, w.monokuloBell.selected, { a.send(Action.ChooseWakeUps(WakeUps.MonokuloBell)) }, w.monokuloBell.detail) },
+            // With an address saved the engine picks it at once; with none, its field opens and the saved choice stays
+            // ticked until "Use this Bell" (decisions 103, 124).
+            { ChoiceRow(w.ownBell.label, w.ownBell.selected, { a.send(Action.EditOwnBell(true, null)) }, w.ownBell.detail) },
+            w.ownField?.let { field ->
                 {
-                    OwnBellField(w) { text ->
-                        // Chosen now: the status card shows this Bell's, as a pick does.
-                        ownPicked = false
-                        a.onOwnBell(text)
+                    OwnBellField(field.initial, field.problem, field.useThis.label, field.useThis.enabled, onType = { a.send(Action.EditOwnBell(!w.ownBell.selected, it)) }) {
+                        a.send(Action.ChooseWakeUps(WakeUps.OwnBell(it)))
                     }
                 }
-            } else {
-                null
             },
         ),
     )
-    // The status is the saved choice's, and stays up while My own Bell waits for its address.
-    if (ownPicked) Footnote(WakeUpsText.NO_OWN_BELL_YET)
-    if (w.choice == WakeUpChoice.TimerOnly) {
-        if (!ownPicked) Footnote(WakeUpsText.timerOnly(pos))
-        return
-    }
-    val status = w.status
+    w.notes.forEach { Footnote(it) }
+    val status = w.status ?: return
     Spacer(Modifier.height(12.dp))
     Group(
         rows = buildList<@Composable () -> Unit> {
-            add { FactRow(PosText.checking(pos), WakeUpsText.pace(status)) }
-            add { FactRow("Bell", WakeUpsText.word(status), valueColor = if (status is WakeUpStatus.Connected) mk.paid else mk.muted) }
-            WakeUpsText.lastWakeUp(status)?.let { at -> add { FactRow("Last wake-up", at) } }
-            when (status) {
-                WakeUpStatus.NoDistributor -> add { ActionRow("Get ntfy", a.onGetDistributor, mk.link) }
-                is WakeUpStatus.ChooseDistributor -> add {
+            add { FactRow(status.checking.label, status.checking.value) }
+            add { FactRow(status.bell.label, status.bell.value, valueColor = valueColor(status.bell)) }
+            status.lastWakeUp?.let { add { FactRow(it.label, it.value) } }
+            when (val action = status.action) {
+                StatusAction.GetDistributor -> add { ActionRow("Get ntfy", a.onGetDistributor, mk.link) }
+                is StatusAction.ChooseDistributor -> add {
                     Column(Modifier.selectableGroup()) {
-                        status.packages.forEach { pkg ->
-                            ChoiceRow(w.distributorNames[pkg] ?: pkg, selected = false, onClick = { a.onDistributor(pkg) })
+                        action.apps.forEach { app ->
+                            ChoiceRow(a.distributorName(app.`package`), selected = false, onClick = { a.send(Action.ChooseDistributor(app.`package`)) })
                         }
                     }
                 }
-                is WakeUpStatus.SignInNeeded -> add {
-                    ActionRow(PosText.signIn(status.pointOfSale), { a.onBellSignIn(status.pointOfSale, status.applicationId) }, mk.link)
+                is StatusAction.SignIn -> add {
+                    ActionRow(action.label, { a.send(Action.SignIn(action.applicationId)) }, mk.link)
                 }
-                else -> Unit
+                StatusAction.OpenAlertSettings, null -> Unit
             }
         },
     )
-    Footnote(WakeUpsText.footnote(status, pos))
-    Footnote(WakeUpsText.privacy(pos))
+    Footnote(status.footnote)
+    Footnote(status.privacy)
 }
 
 /**
  * My own Bell's address, a fourth row in the choices' card: prefilled with
- * the saved one, "Use this Bell" only for an address that differs and
- * parses, and why one doesn't under the field (acceptance A1.4–A1.5).
+ * the saved one ([initial]); the engine says whether what's typed is a
+ * Bell's ([problem], [usable]), and "Use this Bell" chooses it (acceptance
+ * A1.4–A1.5). The keyboard and the field's text are the platform's.
  */
 @Composable
-private fun OwnBellField(w: WakeUpsState, onUse: (String) -> Unit) {
-    var text by rememberSaveable(w.ownBell) { mutableStateOf(WakeUpsText.ownField(w.ownBell)) }
-    val parsed = BellAddress.parse(text, w.allowHttp)
-    val usable = parsed != null && parsed != w.ownBell
-    val problem = if (text.isBlank()) null else BellAddress.problem(text, w.allowHttp)
+private fun OwnBellField(initial: String, problem: String?, useThis: String, usable: Boolean, onType: (String) -> Unit, onUse: (String) -> Unit) {
+    var text by rememberSaveable(initial) { mutableStateOf(initial) }
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedTextField(
             text,
-            { text = it },
+            {
+                text = it
+                onType(it)
+            },
             label = { Text("Bell address") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done, autoCorrectEnabled = false),
@@ -437,7 +309,7 @@ private fun OwnBellField(w: WakeUpsState, onUse: (String) -> Unit) {
             modifier = Modifier.fillMaxWidth(),
         )
         if (problem != null) Muted(problem)
-        OutlineButton("Use this Bell", { onUse(text) }, Modifier.fillMaxWidth(), enabled = usable)
+        OutlineButton(useThis, { onUse(text) }, Modifier.fillMaxWidth(), enabled = usable)
     }
 }
 

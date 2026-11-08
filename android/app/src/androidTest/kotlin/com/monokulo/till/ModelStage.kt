@@ -1,5 +1,6 @@
 package com.monokulo.till
 
+import uniffi.till_app.Screen
 import androidx.compose.animation.core.SeekableTransitionState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf

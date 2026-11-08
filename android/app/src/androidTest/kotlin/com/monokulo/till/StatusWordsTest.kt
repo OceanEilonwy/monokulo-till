@@ -27,8 +27,7 @@ class StatusWordsTest {
     @Test
     fun newStatusWordsFadeThroughTheOldAndThenStandAlone() {
         var sale by mutableStateOf(testSale("a"))
-        val now = mutableLongStateOf(0)
-        compose.setContent { Till { StatusPill(sale, now) } }
+        compose.setContent { Till { StatusPill(saleFace(sale).view) } }
         compose.waitForIdle()
         compose.mainClock.autoAdvance = false
 
@@ -46,8 +45,7 @@ class StatusWordsTest {
     @Test
     fun underStillTheWordsSwapWithTheQuickFade() {
         var sale by mutableStateOf(testSale("a"))
-        val now = mutableLongStateOf(0)
-        compose.setContent { Till(Motion.Still) { StatusPill(sale, now) } }
+        compose.setContent { Till(Motion.Still) { StatusPill(saleFace(sale).view) } }
         compose.waitForIdle()
         compose.mainClock.autoAdvance = false
 

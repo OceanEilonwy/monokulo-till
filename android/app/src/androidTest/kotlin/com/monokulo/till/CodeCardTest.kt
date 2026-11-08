@@ -29,7 +29,7 @@ class CodeCardTest {
         compose.setContent {
             Till {
                 Box(Modifier.size(412.dp, 915.dp)) {
-                    SaleScreen(testSale("a", expiresAt = 1_065), "Front", refunding = false, refundProblem = null, refundSheet = null, actions = OneClockTest.noActions, now = now)
+                    SaleScreen(saleFace(testSale("a", expiresAt = 1_065), now = 1_000), noActions)
                 }
             }
         }
@@ -54,7 +54,7 @@ class CodeCardTest {
     fun paidTheFootSaysWhatCameIn() {
         val sale = testSale("a", SalePhase.Paid, paidAt = 990)
         val now = mutableLongStateOf(1_000)
-        compose.setContent { Till { StatusFoot(sale, now) } }
+        compose.setContent { Till { StatusFoot(saleFace(sale).view) } }
         compose.onNodeWithText("Paid", useUnmergedTree = true).assertExists()
         compose.onNodeWithText("${SaleText.xmr(sale)} received", useUnmergedTree = true).assertExists()
     }

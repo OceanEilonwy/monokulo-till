@@ -1,5 +1,6 @@
 package com.monokulo.till
 
+import uniffi.till_app.Screen
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse

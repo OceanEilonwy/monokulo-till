@@ -55,13 +55,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.FloatState
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.LongState
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -126,66 +126,62 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.monokulo.till.CloseOutcome
-import com.monokulo.till.Closing
 import com.monokulo.till.FoldStack
-import com.monokulo.till.Ground
 import com.monokulo.till.GroundLook
 import com.monokulo.till.Layers
 import com.monokulo.till.LocalStage
 import com.monokulo.till.Move
-import com.monokulo.till.RowEnds
-import com.monokulo.till.RowOpens
-import com.monokulo.till.ShiftFilter
-import com.monokulo.till.ShiftItem
-import com.monokulo.till.PosText
-import com.monokulo.till.ShiftList
-import com.monokulo.till.StateIcon
 import com.monokulo.till.rememberGroundTrack
 import com.monokulo.till.RowSwipe
-import com.monokulo.till.sales.TillSale
-import com.monokulo.till.sales.live
 import com.monokulo.till.sharedGround
 import com.monokulo.till.sharedSurface
 import com.monokulo.till.words
+import com.monokulo.till.engine.CloseSheet
+import uniffi.till_app.Action
+import uniffi.till_screens.CloseChoice
+import uniffi.till_screens.Ground
+import uniffi.till_screens.Ring
+import uniffi.till_screens.RowEnds
+import uniffi.till_screens.RowOpens
+import uniffi.till_screens.ShiftEntry
+import uniffi.till_screens.ShiftFilter
+import uniffi.till_screens.ShiftIdle
+import uniffi.till_screens.ShiftRow
+import uniffi.till_screens.ShiftTop
+import uniffi.till_screens.ShiftView
+import uniffi.till_screens.StateIcon
+import uniffi.till_screens.Tone
+import uniffi.till_screens.FilterChip as ViewChip
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
- * The shift (the design's ShiftList; decisions 60, 64, 72): what this
- * till is doing, this shift's summary, the filter chips and one row per
- * sale, newest first. Rows have no buttons: a live sale's row opens its
- * code, any other its page. [now] is the screen's clock: only the live
- * rows read it. [place] is where the list was when a row was tapped, kept
- * over the stage (the activity's) so a Back comes back to it.
+ * The shift (the design's ShiftList; decisions 60, 64, 72), as the engine
+ * wrote it: what this till is doing, this shift's summary, the filter chips
+ * and one row per sale, newest first. Rows have no buttons: a live sale's
+ * row opens its code, any other its page. [place] is where the list was
+ * when a row was tapped, kept over the stage (the activity's) so a Back
+ * comes back to it. [close] is the swiped row's sheet, drawn here while the
+ * shift is the screen the stage goes to.
  */
 @Composable
 fun ShiftScreen(
-    status: TillStatus,
-    sales: List<TillSale>,
+    view: ShiftView,
     actions: TillActions,
-    now: LongState = rememberNowSeconds(),
     place: ShiftPlace = rememberShiftPlace(),
+    close: CloseSheet? = null,
 ) {
-    var filter by rememberSaveable { mutableStateOf(ShiftFilter.All) }
-    // The tray's fold, for the shift screen's life and across a rotation; a fresh shift starts folded (A4).
-    var folded by rememberSaveable { mutableStateOf(true) }
     // Back from a sale (or a paid one stepping back): the sale the stage is leaving, read once as the change starts
-    // and once as it lands, never a frame. Its row must be there for the ground to shrink into, so a row the fold
-    // would hide opens the tray as the change starts (the rows past the third fade in under the arriving card), and it
-    // stays open until Show fewer or the shift is left (decision 269). Opened in this composition, the change's first:
-    // a frame later the stage already moves and the row it shrinks into isn't there (260 a, decision 289). Once landed,
-    // focus goes to that row.
+    // and once as it lands, never a frame. Its row must be there for the ground to shrink into, so the engine opens a
+    // tray whose fold would hide it before the change starts (decisions 269, 289). Once landed, focus goes to that row.
     val stage = LocalStage.current
     val cameFrom = stage?.leavingSale
-    val opens = folded && cameFrom != null && ShiftList.folds(sales, filter, cameFrom)
-    if (opens) SideEffect { folded = false }
-    val shownFolded = folded && !opens
-    val items = remember(sales, filter, shownFolded) { ShiftList.sections(sales, filter, shownFolded) }
-    val head = remember(status.disconnected, status.running, sales.isEmpty()) { Head.of(status, sales) }
-    val trayFolds = remember(items) { items.any { it is ShiftItem.Fold } }
+    val items = view.entries
+    val head = remember(view.disconnected, view.idle, view.chips.isEmpty()) { Head.of(view) }
+    val trayFolds = remember(items) { items.any { it is ShiftEntry.Fold } }
+    val folded = remember(items) { items.any { it is ShiftEntry.Fold && !it.open } }
     val list = rememberLazyListState()
     // The shift is composed afresh by a Back (the stage composes only the screens it shows), its list at the top: a
     // row tapped far down would be off screen, with nothing for the ground to shrink into. So in this same first
@@ -223,11 +219,8 @@ fun ShiftScreen(
     // fold row with them). So a scrolled tray folded is placed with no placement move, for as long as it shows that
     // fold of those sales: the next change (a sale paid, the tray opened, a filter chosen) moves its rows as ever. The
     // rows compose in the list's measure, after this composition, so the flag is a fact about what is shown, not a frame.
-    var keptFor by remember { mutableStateOf<List<TillSale>?>(null) }
-    val keeping = shownFolded && keptFor === sales
-    // The sale whose row was swiped left (or given TalkBack's "Close sale"): its X's sheet is up, for as long
-    // as the sale still has the X. Kept here, not on the row, so the sheet stays up as the row moves in the list.
-    var asking by rememberSaveable { mutableStateOf<String?>(null) }
+    var keptFor by remember { mutableStateOf<List<String>?>(null) }
+    val keeping = folded && keptFor == foldedLook(items)
     Surface(Modifier.fillMaxSize(), color = mk.ground, contentColor = mk.ink) {
         Box(Modifier.fillMaxSize().safeDrawingPadding(), contentAlignment = Alignment.TopCenter) {
             // The shift's own words, its chrome as much as its rows, fade through a row's grow and shrink at their own
@@ -237,91 +230,97 @@ fun ShiftScreen(
                 // The items above the rows, from the one list a Back's place counts them by too (rowIndex).
                 for (key in head) item(key = key) {
                     when (key) {
-                        Head.Top -> Box(chrome) { TopRow(status, actions) }
-                        Head.Disconnected -> Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                            Heading("Disconnected")
-                            Lead("The store disconnected this device. Connect it again with a new code from the store's settings.")
-                            PrimaryButton("Connect again", actions.onForget, Modifier.fillMaxWidth())
+                        Head.Top -> Box(chrome) { TopRow(view.top, actions) }
+                        Head.Disconnected -> view.disconnected?.let { gone ->
+                            Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                Heading(gone.heading)
+                                Lead(gone.lead)
+                                PrimaryButton(gone.connectAgain.label, { actions.send(Action.Forget) }, Modifier.fillMaxWidth(), enabled = gone.connectAgain.enabled)
+                            }
                         }
                         Head.Problem -> {
-                            Notice(status.problem, chrome.padding(start = 16.dp, end = 16.dp, bottom = 12.dp))
-                            if (status.signInAgain) {
-                                PrimaryButton(PosText.signInAgain(LocalPointOfSale.current), actions.onSignIn, chrome.padding(start = 16.dp, end = 16.dp, bottom = 12.dp).fillMaxWidth())
+                            Notice(view.problem, chrome.padding(start = 16.dp, end = 16.dp, bottom = 12.dp))
+                            view.signInAgain?.let { again ->
+                                PrimaryButton(again.label, { actions.send(Action.SignIn(null)) }, chrome.padding(start = 16.dp, end = 16.dp, bottom = 12.dp).fillMaxWidth(), enabled = again.enabled)
                             }
                         }
                         Head.Summary -> Column(chrome.padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text("This shift", style = display(28, -0.4), modifier = Modifier.semantics { heading() })
-                            Text(
-                                if (status.running) ShiftList.summary(sales, status.startedAt) else "Not watching",
-                                fontSize = 14.sp, color = mk.muted,
-                            )
+                            Text(view.summary, fontSize = 14.sp, color = mk.muted)
                         }
-                        Head.Idle -> Idle(status.running, actions)
+                        Head.Idle -> view.idle?.let { Idle(it, actions) }
                         // A filter chosen is a change of what is shown: its rows move as ever, even over a fold kept under the finger.
                         Head.Chips -> Box(chrome) {
-                            Chips(filter, ShiftList.needsAction(sales)) {
-                                filter = it
+                            Chips(view.chips) {
+                                actions.send(Action.ChooseFilter(it))
                                 keptFor = null
                             }
                         }
                     }
                 }
-                if (status.disconnected) return@LazyColumn
-                if (sales.isNotEmpty()) {
-                    if (items.isEmpty()) {
-                        item(key = "empty") {
-                            Text(
-                                ShiftList.empty(filter), fontSize = 15.sp, color = mk.muted, textAlign = TextAlign.Center,
-                                modifier = chrome.fillMaxWidth().padding(horizontal = 24.dp, vertical = 48.dp),
-                            )
-                        }
+                if (view.disconnected != null) return@LazyColumn
+                view.empty?.let { empty ->
+                    item(key = "empty") {
+                        Text(
+                            empty, fontSize = 15.sp, color = mk.muted, textAlign = TextAlign.Center,
+                            modifier = chrome.fillMaxWidth().padding(horizontal = 24.dp, vertical = 48.dp),
+                        )
                     }
-                    // One list for the tray and Earlier (A4): a row paid or ended is the same keyed item moving from the
-                    // tray to the top of Earlier, so the rows' own three specs move everything (M11) and the tray, which
-                    // has no node of its own, is its items' amber slices: its height is its rows'.
-                    items(items, key = ::itemKey, contentType = ::itemType) { item ->
-                        val moves = Modifier.animateItem(fadeInSpec = arrive, placementSpec = if (keeping) null else placement, fadeOutSpec = leave)
-                        when (item) {
-                            is ShiftItem.TrayHeader -> TrayHeader(item.count, moves.then(chrome))
-                            ShiftItem.Earlier -> SectionHeader(ShiftList.EARLIER, EarlierTop, moves.then(chrome))
-                            is ShiftItem.Fold -> FoldRow(item, moves.padding(horizontal = 16.dp).fillMaxWidth().background(mk.warnGround, TrayBottom), chrome) {
-                                keptFor = if (item.open && keepFoldInPlace(list, item.hidden)) sales else null
-                                folded = !folded
-                            }
-                            is ShiftItem.Row -> {
-                                // Opened by its id alone, so a row whose corners change keeps the one it had and skips.
-                                val id = item.sale.orderId
-                                val ask = if (RowSwipe.swipes(item.sale)) ({ asking = id }) else null
-                                SaleItem(item, trayFolds, now, focusOn, moves, ask) {
-                                    place.leave(list, id)
-                                    actions.onOpen(id)
-                                }
-                            }
-                        }
-                    }
-                    item(key = "end") { Spacer(Modifier.height(24.dp)) }
                 }
+                // One list for the tray and Earlier (A4): a row paid or ended is the same keyed item moving from the
+                // tray to the top of Earlier, so the rows' own three specs move everything (M11) and the tray, which
+                // has no node of its own, is its items' amber slices: its height is its rows'.
+                items(items, key = ::itemKey, contentType = ::itemType) { item ->
+                    val moves = Modifier.animateItem(fadeInSpec = arrive, placementSpec = if (keeping) null else placement, fadeOutSpec = leave)
+                    when (item) {
+                        is ShiftEntry.TrayHeader -> TrayHeader(item, moves.then(chrome))
+                        is ShiftEntry.Earlier -> SectionHeader(item.label, EarlierTop, moves.then(chrome))
+                        is ShiftEntry.Fold -> FoldRow(item, moves.padding(horizontal = 16.dp).fillMaxWidth().background(mk.warnGround, TrayBottom), chrome) {
+                            // Folding: the tray's rows past the third go, and the look the fold leaves is kept under the finger.
+                            keptFor = if (item.open && keepFoldInPlace(list, item.hidden.toInt())) foldedLook(items) else null
+                            actions.send(Action.FoldTray(item.open))
+                        }
+                        is ShiftEntry.Row -> {
+                            // Opened by its id alone, so a row whose corners change keeps the one it had and skips.
+                            val id = item.orderId
+                            val ask = if (item.closes) ({ actions.send(Action.AskClose(id)) }) else null
+                            SaleItem(item, trayFolds, focusOn, moves, ask) {
+                                place.leave(list, id)
+                                actions.send(Action.OpenSale(id))
+                            }
+                        }
+                    }
+                }
+                if (items.isNotEmpty()) item(key = "end") { Spacer(Modifier.height(24.dp)) }
             }
         }
     }
-    // The sale page's X's sheet, the same answers doing the same (decisions 62, 70). Paid or ended meanwhile, the sale
-    // has no X: the sheet goes and nothing is asked. "No: refund it" stays on the sale there, so here it opens the
-    // sale, whose page shows the refund and asks for the cashier's word when the point of sale refunds it.
-    val asked = asking?.let { id -> sales.firstOrNull { it.orderId == id } }?.takeIf(RowSwipe::swipes)
-    if (asking != null && asked == null) SideEffect { asking = null }
-    if (asked != null) {
-        val id = asked.orderId
+    // The sale page's X's sheet, the same answers doing the same (decisions 62, 70). Paid or ended meanwhile, the
+    // engine takes it down. "No: refund it" stays on the sale there, so here it opens the sale, whose page shows the
+    // refund and asks for the cashier's word when the point of sale refunds it.
+    val asked = close?.view
+    val id = close?.orderId
+    if (asked != null && id != null) {
         CloseSheet(
-            asked, actions.source, now,
+            asked,
             onChoice = { choice ->
-                actions.onClose(id, choice)
-                if (Closing.outcome(choice).then == CloseOutcome.Then.Sale) {
+                actions.send(Action.Close(id, choice))
+                if (choice == CloseChoice.REFUND_IT) {
                     place.leave(list, id)
-                    actions.onOpen(id)
+                    actions.send(Action.OpenSale(id))
                 }
             },
-            onDismiss = { asking = null },
+            onDismiss = { actions.send(Action.DismissClose) },
         )
+    }
+}
+
+/** What a folded tray leaves standing: the Earlier rows and the tray's count, the same before and after the fold. */
+private fun foldedLook(items: List<ShiftEntry>): List<String> = items.mapNotNull {
+    when (it) {
+        is ShiftEntry.Row -> it.orderId.takeUnless { _ -> it.tray }
+        is ShiftEntry.TrayHeader -> "tray ${it.count}"
+        else -> null
     }
 }
 
@@ -332,18 +331,17 @@ fun ShiftScreen(
  */
 @Composable
 private fun SaleItem(
-    item: ShiftItem.Row,
+    item: ShiftEntry.Row,
     trayFolds: Boolean,
-    now: LongState,
     focusOn: MutableState<String?>,
     modifier: Modifier = Modifier,
     onAsk: (() -> Unit)? = null,
     onOpen: () -> Unit,
 ) {
-    val sale = item.sale
+    val id = item.orderId
     // Only the row the cashier came back to reads where focus goes, and asks for it once the stage has landed. A row
     // that can be clicked takes no focus in touch mode, so this one row may, for as long as it is the one came back to.
-    val focused by remember(sale.orderId) { derivedStateOf { focusOn.value == sale.orderId } }
+    val focused by remember(id) { derivedStateOf { focusOn.value == id } }
     val focus = if (focused) remember { FocusRequester() } else null
     if (focus != null) {
         val stage = LocalStage.current
@@ -354,8 +352,8 @@ private fun SaleItem(
     }
     val ends = item.ends
     val shape = rowShape(ends)
-    val top = ends == RowEnds.First || ends == RowEnds.Only
-    val bottom = (ends == RowEnds.Last || ends == RowEnds.Only) && !trayFolds
+    val top = ends == RowEnds.FIRST || ends == RowEnds.ONLY
+    val bottom = (ends == RowEnds.LAST || ends == RowEnds.ONLY) && !trayFolds
     val slice = if (!item.tray) Modifier else Modifier.background(mk.warnGround, traySlice(top, bottom))
         .padding(start = TrayPadding, end = TrayPadding, top = if (top) TrayPadding else 0.dp, bottom = if (bottom) TrayPadding else 0.dp)
     // A row whose sale has the X swipes left over the X's ground ([RowSwipe]): the card and its words move as
@@ -365,11 +363,11 @@ private fun SaleItem(
         Box(if (pull != null && onAsk != null) Modifier.swipesToAsk(pull, onAsk) else Modifier) {
             if (pull != null) SwipeBacking(pull.dp, shape)
             Box(if (pull != null) Modifier.absoluteOffset { IntOffset(pull.dp.floatValue.dp.roundToPx(), 0) } else Modifier) {
-                val ground = rememberGroundTrack("sale/${sale.orderId}")
-                Box(Modifier.matchParentSize().sharedGround("sale/${sale.orderId}", Move.RowGrow, rowLook(ends, mk.card), ground))
+                val ground = rememberGroundTrack("sale/$id")
+                Box(Modifier.matchParentSize().sharedGround("sale/$id", Move.RowGrow, rowLook(ends, mk.card), ground))
                 Column(Modifier.fillMaxWidth().words(over = Move.RowGrow, on = ground).clip(shape)) {
-                    if (ends == RowEnds.Middle || ends == RowEnds.Last) Box(Modifier.padding(start = 64.dp).fillMaxWidth().height(1.dp).background(mk.divider))
-                    SaleRow(sale, now, if (focus != null) Modifier.focusRequester(focus).focusProperties { canFocus = true } else Modifier, onAsk, onOpen)
+                    if (ends == RowEnds.MIDDLE || ends == RowEnds.LAST) Box(Modifier.padding(start = 64.dp).fillMaxWidth().height(1.dp).background(mk.divider))
+                    SaleRow(id, item.row, if (focus != null) Modifier.focusRequester(focus).focusProperties { canFocus = true } else Modifier, onAsk, onOpen)
                 }
             }
         }
@@ -471,13 +469,13 @@ private fun BoxScope.SwipeBacking(pull: FloatState, shape: Shape) {
 
 /** "Waiting for payment" and how many, over the tray: one heading to TalkBack. */
 @Composable
-private fun TrayHeader(count: Int, modifier: Modifier) = Row(
+private fun TrayHeader(header: ShiftEntry.TrayHeader, modifier: Modifier) = Row(
     modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 18.dp, bottom = 8.dp)
-        .clearAndSetSemantics { heading(); contentDescription = ShiftList.trayHeaderSaid(count) },
+        .clearAndSetSemantics { heading(); contentDescription = header.said },
     verticalAlignment = Alignment.CenterVertically,
 ) {
-    Text(ShiftList.TRAY_HEADER, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = mk.ink, modifier = Modifier.weight(1f))
-    Text("$count", style = tabular, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = mk.muted)
+    Text(header.label, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = mk.ink, modifier = Modifier.weight(1f))
+    Text("${header.count}", style = tabular, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = mk.muted)
 }
 
 /** A section's header over its rows. */
@@ -496,7 +494,7 @@ private fun SectionHeader(text: String, top: Dp, modifier: Modifier) = Text(
  * Focus stays on it as the rows come and go.
  */
 @Composable
-private fun FoldRow(fold: ShiftItem.Fold, modifier: Modifier, words: Modifier, onToggle: () -> Unit) {
+private fun FoldRow(fold: ShiftEntry.Fold, modifier: Modifier, words: Modifier, onToggle: () -> Unit) {
     val m = motion
     val through = m.fadeThrough.fraction
     val quick = m.fadeQuick.fraction
@@ -549,7 +547,7 @@ private fun FoldRow(fold: ShiftItem.Fold, modifier: Modifier, words: Modifier, o
             .clickable(interactionSource = source, indication = null, role = Role.Button, onClick = toggle)
             .clearAndSetSemantics {
                 role = Role.Button
-                contentDescription = ShiftList.foldSaid(fold)
+                contentDescription = fold.said
                 stateDescription = if (fold.open) "Expanded" else "Collapsed"
                 onClick { toggle(); true }
             },
@@ -567,7 +565,7 @@ private fun FoldRow(fold: ShiftItem.Fold, modifier: Modifier, words: Modifier, o
                 Row(words, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     // Two different words, so through, not across: the old out quickly, the new in once it has gone
                     // (decision 188; the canvas's "crossfades", decision 291).
-                    AnimatedContent(targetState = ShiftList.foldLabel(fold), transitionSpec = { (fadeIn(through) togetherWith fadeOut(quick)).using(null) }, label = "fold label") { label ->
+                    AnimatedContent(targetState = fold.label, transitionSpec = { (fadeIn(through) togetherWith fadeOut(quick)).using(null) }, label = "fold label") { label ->
                         Text(label, fontFamily = Manrope, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = mk.ink, maxLines = 1)
                     }
                     Icon(MkIcons.Fold, contentDescription = null, tint = mk.ink, modifier = Modifier.size(14.dp).graphicsLayer { rotationZ = turn })
@@ -723,9 +721,9 @@ private val ShiftPlaceSaver = listSaver<ShiftPlace, Any>(
  * [id]'s row's index in the shift's list, -1 if it has none: after the list's own items above the rows, [head], the
  * same list [ShiftScreen] lays them out from, so an item added there is counted here too.
  */
-private fun rowIndex(head: List<String>, items: List<ShiftItem>, id: String): Int {
+private fun rowIndex(head: List<String>, items: List<ShiftEntry>, id: String): Int {
     if (Head.Disconnected in head) return -1
-    val at = items.indexOfFirst { it is ShiftItem.Row && it.sale.orderId == id }
+    val at = items.indexOfFirst { it is ShiftEntry.Row && it.orderId == id }
     return if (at < 0) -1 else head.size + at
 }
 
@@ -739,32 +737,32 @@ private object Head {
     const val Chips = "chips"
 
     /** The top row; disconnected, nothing else; or the notice, the summary, "Not watching" or nothing yet, and the chips. */
-    fun of(status: TillStatus, sales: List<TillSale>): List<String> = buildList {
+    fun of(view: ShiftView): List<String> = buildList {
         add(Top)
-        if (status.disconnected) {
+        if (view.disconnected != null) {
             add(Disconnected)
             return@buildList
         }
         add(Problem)
         add(Summary)
-        if (!status.running || sales.isEmpty()) add(Idle)
-        if (sales.isNotEmpty()) add(Chips)
+        if (view.idle != null) add(Idle)
+        if (view.chips.isNotEmpty()) add(Chips)
     }
 }
 
 /** A list item's key: the tray's three parts by name, a row by its sale, so a row keeps its item between sections. */
-private fun itemKey(item: ShiftItem): Any = when (item) {
-    is ShiftItem.TrayHeader -> "tray"
-    is ShiftItem.Fold -> FoldKey
-    ShiftItem.Earlier -> "earlier"
-    is ShiftItem.Row -> item.sale.orderId
+private fun itemKey(item: ShiftEntry): Any = when (item) {
+    is ShiftEntry.TrayHeader -> "tray"
+    is ShiftEntry.Fold -> FoldKey
+    is ShiftEntry.Earlier -> "earlier"
+    is ShiftEntry.Row -> item.orderId
 }
 
-private fun itemType(item: ShiftItem): Any = when (item) {
-    is ShiftItem.TrayHeader -> 0
-    is ShiftItem.Fold -> 1
-    ShiftItem.Earlier -> 2
-    is ShiftItem.Row -> 3
+private fun itemType(item: ShiftEntry): Any = when (item) {
+    is ShiftEntry.TrayHeader -> 0
+    is ShiftEntry.Fold -> 1
+    is ShiftEntry.Earlier -> 2
+    is ShiftEntry.Row -> 3
 }
 
 /** The fold row's key, by which [keepFoldInPlace] finds it on screen. */
@@ -817,23 +815,23 @@ private val LastRow = RoundedCornerShape(bottomStart = RowCorner, bottomEnd = Ro
 
 /** A row's ground: the rows' card's corners at its ends. */
 private fun rowLook(ends: RowEnds, card: Color) = when (ends) {
-    RowEnds.Only -> GroundLook(card, RowCorner)
-    RowEnds.First -> GroundLook(card, RowCorner, 0.dp)
-    RowEnds.Middle -> GroundLook(card, 0.dp)
-    RowEnds.Last -> GroundLook(card, 0.dp, RowCorner)
+    RowEnds.ONLY -> GroundLook(card, RowCorner)
+    RowEnds.FIRST -> GroundLook(card, RowCorner, 0.dp)
+    RowEnds.MIDDLE -> GroundLook(card, 0.dp)
+    RowEnds.LAST -> GroundLook(card, 0.dp, RowCorner)
 }
 
 /** A row's part of the card, made once rather than per row per composition. */
 private fun rowShape(ends: RowEnds): Shape = when (ends) {
-    RowEnds.Only -> OnlyRow
-    RowEnds.First -> FirstRow
-    RowEnds.Middle -> RectangleShape
-    RowEnds.Last -> LastRow
+    RowEnds.ONLY -> OnlyRow
+    RowEnds.FIRST -> FirstRow
+    RowEnds.MIDDLE -> RectangleShape
+    RowEnds.LAST -> LastRow
 }
 
 /** The point of sale's mark, the store, this till and whether it's watching, the word in the dot's old colour; Settings. */
 @Composable
-private fun TopRow(status: TillStatus, actions: TillActions) = Row(
+private fun TopRow(top: ShiftTop, actions: TillActions) = Row(
     Modifier.fillMaxWidth().height(64.dp).padding(start = 24.dp, end = 16.dp),
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -841,72 +839,54 @@ private fun TopRow(status: TillStatus, actions: TillActions) = Row(
     // The word carries what the dot did (the Logos board, B): paid green while watching, danger when disconnected,
     // else plain muted (the dot's grey outline is too faint for text). Light paid on ground is 4.50:1, right at the
     // text bar: a lighter paid or a darker ground in Theme.kt needs this word checked again.
-    val (tone, state) = when {
-        status.disconnected -> mk.danger to "Disconnected"
-        !status.running -> null to "Not watching"
-        status.live -> mk.paid to "Watching"
-        else -> null to "Reconnecting…"
-    }
-    // A Clover merchant is often named as the store is: said once.
-    val place = listOfNotNull(status.store, status.location).distinct()
+    val tone = top.tone.takeUnless { it == Tone.MUTED || it == Tone.PLAIN }
     Row(
-        Modifier.weight(1f).semantics(mergeDescendants = true) { contentDescription = (place + state).joinToString(", ") },
+        Modifier.weight(1f).semantics(mergeDescendants = true) { contentDescription = top.said },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         PosBadge(LocalPointOfSale.current)
         // The state word is what the cashier reads this row for: the store and location give way first at large font sizes.
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if (place.isNotEmpty()) Text(
-                place.joinToString(" · "), fontSize = 13.sp, color = mk.muted, maxLines = 1,
+            val place = top.place
+            if (place != null) Text(
+                place, fontSize = 13.sp, color = mk.muted, maxLines = 1,
                 overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
             )
-            if (place.isNotEmpty()) Text(" · ", fontSize = 13.sp, color = mk.muted, maxLines = 1, softWrap = false)
+            if (place != null) Text(" · ", fontSize = 13.sp, color = mk.muted, maxLines = 1, softWrap = false)
             Text(
-                state, fontSize = 13.sp, color = tone ?: mk.muted, fontWeight = tone?.let { FontWeight.Medium },
+                top.state, fontSize = 13.sp, color = tone?.let { toneColor(it) } ?: mk.muted, fontWeight = tone?.let { FontWeight.Medium },
                 maxLines = 1, softWrap = false,
             )
         }
     }
-    CircleButton(MkIcons.Settings, "Settings", actions.onSettings, ground = mk.chip, tint = mk.ink, iconSize = 20.dp)
+    CircleButton(MkIcons.Settings, "Settings", { actions.send(Action.OpenSettings) }, ground = mk.chip, tint = mk.ink, iconSize = 20.dp)
 }
 
 /** No sale yet, or not watching: the faded mark and what happens next. */
 @Composable
-private fun Idle(running: Boolean, actions: TillActions) = Column(
+private fun Idle(idle: ShiftIdle, actions: TillActions) = Column(
     Modifier.fillMaxWidth().heightIn(min = 320.dp).padding(24.dp),
     horizontalAlignment = Alignment.CenterHorizontally,
     verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
 ) {
     Logo(140.dp, Modifier.alpha(0.35f), grey = true)
+    Text(idle.title, style = display(22, 0.0), color = mk.muted, textAlign = TextAlign.Center)
     Text(
-        if (running) "No sale right now" else "Not watching for sales",
-        style = display(22, 0.0), color = mk.muted, textAlign = TextAlign.Center,
-    )
-    Text(
-        if (running) PosText.waitingHint(LocalPointOfSale.current) else PosText.startHint(LocalPointOfSale.current),
-        fontSize = 15.sp, lineHeight = 21.sp, color = mk.muted, textAlign = TextAlign.Center,
+        idle.hint, fontSize = 15.sp, lineHeight = 21.sp, color = mk.muted, textAlign = TextAlign.Center,
         modifier = Modifier.widthIn(max = 280.dp),
     )
-    if (!running) PrimaryButton("Start watching", actions.onStartShift)
+    idle.start?.let { PrimaryButton(it.label, { actions.send(Action.StartShift) }, enabled = it.enabled) }
 }
 
 /** All, Needs action with its count, Paid: one selected, as tabs to TalkBack. */
 @Composable
-private fun Chips(filter: ShiftFilter, needsAction: Int, onFilter: (ShiftFilter) -> Unit) = Row(
+private fun Chips(chips: List<ViewChip>, onFilter: (ShiftFilter) -> Unit) = Row(
     // A large font can make the chips wider than the screen: they scroll rather than wrap a label into a blob.
     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 6.dp).selectableGroup(),
     horizontalArrangement = Arrangement.spacedBy(8.dp),
 ) {
-    for (chip in ShiftFilter.entries) {
-        val selected = chip == filter
-        val label = when (chip) {
-            ShiftFilter.All -> "All"
-            ShiftFilter.NeedsAction -> "Needs action"
-            ShiftFilter.Paid -> "Paid"
-        }
-        FilterChip(label, needsAction.takeIf { chip == ShiftFilter.NeedsAction && it > 0 }, selected) { onFilter(chip) }
-    }
+    for (chip in chips) FilterChip(chip.label, chip.count?.toInt(), chip.selected) { onFilter(chip.filter) }
 }
 
 /** A filter chip's height at rest, and its label's inset from its ends. */
@@ -962,35 +942,32 @@ private fun Modifier.atLeastAsWideAsTall() = layout { measurable, constraints ->
 
 /** The ground of a row's badge, by its glyph. */
 private fun badgeGround(icon: StateIcon): Ground = when (icon) {
-    StateIcon.Clock -> Ground.Warn
-    StateIcon.Warning -> Ground.Danger
-    StateIcon.Tick -> Ground.Paid
-    StateIcon.Ring, StateIcon.Refund, StateIcon.Close -> Ground.Chip
+    StateIcon.CLOCK -> Ground.WARN
+    StateIcon.WARNING -> Ground.DANGER
+    StateIcon.TICK -> Ground.PAID
+    StateIcon.RING, StateIcon.REFUND, StateIcon.CLOSE -> Ground.CHIP
 }
 
 /** One sale: its state's icon, "Sale #m2Qe · $8.40", how it stands, and where a tap goes. */
 @Composable
-private fun SaleRow(sale: TillSale, now: LongState, modifier: Modifier, onAsk: (() -> Unit)?, onOpen: () -> Unit) {
-    // Only a live row reads the clock, and only its own second: the shift above it doesn't tick.
-    val seconds by remember(sale) { derivedStateOf { if (sale.live) secondsLeft(sale.expiresAt, now.longValue) else 0L } }
-    val pos = posOf(sale)
-    val row = remember(sale, pos, seconds) { ShiftList.row(sale, pos, seconds) }
+private fun SaleRow(id: String, row: ShiftRow, modifier: Modifier, onAsk: (() -> Unit)?, onOpen: () -> Unit) {
     // The swipe's way for TalkBack: the X's own words, on the row.
     val asks = onAsk?.let { remember(it) { listOf(CustomAccessibilityAction("Close sale") { it(); true }) } }
     Row(
         modifier.fillMaxWidth().heightIn(min = 64.dp)
-            .clickable(onClickLabel = if (row.opens == RowOpens.Code) "Show the code" else "Open the details", role = Role.Button, onClick = onOpen)
+            .clickable(onClickLabel = if (row.opens == RowOpens.CODE) "Show the code" else "Open the details", role = Role.Button, onClick = onOpen)
             .then(if (asks != null) Modifier.semantics { customActions = asks } else Modifier)
             .padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        RowBadge(sale, row.icon)
+        RowBadge(id, row.icon, row.ring)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Text(row.title, fontSize = 16.sp, color = if (row.quiet) mk.muted else mk.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(row.sub, fontSize = 13.sp, color = toneColor(row.tone), maxLines = 2, overflow = TextOverflow.Ellipsis)
+            // The engine writes a live row's time left and draws it again each second (docs/decisions/core.md 37).
+            Text(row.sub, fontSize = 13.sp, color = toneColor(row.tone), maxLines = 2, overflow = TextOverflow.Ellipsis, style = LocalTextStyle.current.merge(tabular))
         }
-        if (row.opens == RowOpens.Code) {
+        if (row.opens == RowOpens.CODE) {
             Icon(MkIcons.Code, contentDescription = null, tint = mk.muted, modifier = Modifier.size(22.dp))
         } else {
             Icon(MkIcons.Chevron, contentDescription = null, tint = mk.muted, modifier = Modifier.size(16.dp))
@@ -1006,11 +983,11 @@ private fun SaleRow(sale: TillSale, now: LongState, modifier: Modifier, onAsk: (
  * into its page's hero; a paid sale stepping back, the hero shrinks into it.
  */
 @Composable
-private fun RowBadge(sale: TillSale, icon: StateIcon) = Box(Modifier.clearAndSetSemantics {}) {
+private fun RowBadge(id: String, icon: StateIcon, ring: Ring) = Box(Modifier.clearAndSetSemantics {}) {
     val fade = motion.fade.fraction
     AnimatedContent(targetState = icon, transitionSpec = { (fadeIn(fade) togetherWith fadeOut(fade)).using(null) }, label = "row badge") { face ->
-        Box(Modifier.sharedSurface(badgeKey(sale.orderId), Move.RowGrow, CircleShape, layer = Layers.OVER_GROUND)) {
-            StateBadge(sale, face, badgeGround(face), RingRowSize, 18.dp, quiet = true)
+        Box(Modifier.sharedSurface(badgeKey(id), Move.RowGrow, CircleShape, layer = Layers.OVER_GROUND)) {
+            StateBadge(ring, face, badgeGround(face), RingRowSize, 18.dp, quiet = true)
         }
     }
 }

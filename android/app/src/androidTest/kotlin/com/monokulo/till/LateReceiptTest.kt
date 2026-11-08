@@ -12,7 +12,6 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
-import com.monokulo.till.OneClockTest.Companion.noActions
 import com.monokulo.till.ui.SaleScreen
 import org.junit.After
 import org.junit.Rule
@@ -43,7 +42,7 @@ class LateReceiptTest {
         // As Square first tells it: the device it was rung up on, no receipt yet.
         var sale by mutableStateOf(rung.copy(found = null, receipt = null, deviceName = "Register 2"))
         val now = mutableLongStateOf(1_000)
-        compose.setContent { Till { SaleScreen(sale, "Front", refunding = false, refundProblem = null, refundSheet = null, actions = noActions, now = now) } }
+        compose.setContent { Till { SaleScreen(saleFace(sale, now = now.longValue), noActions) } }
         compose.waitForIdle()
         compose.onNodeWithText("From Register 2").assertExists()
         compose.mainClock.autoAdvance = false

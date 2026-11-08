@@ -1,5 +1,6 @@
 package com.monokulo.till
 
+import uniffi.till_app.Screen
 import com.monokulo.till.core.Amounts
 import com.monokulo.till.core.PointOfSale
 import com.monokulo.till.core.SalePhase

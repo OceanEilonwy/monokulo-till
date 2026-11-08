@@ -1,5 +1,6 @@
 package com.monokulo.till
 
+import uniffi.till_app.Screen
 import androidx.activity.BackEventCompat
 import androidx.activity.OnBackPressedDispatcher
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
@@ -11,8 +12,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.util.lerp
 import androidx.compose.ui.test.onNodeWithText
 import com.monokulo.till.core.PointOfSale
-import com.monokulo.till.OneClockTest.Companion.noActions
-import com.monokulo.till.OneClockTest.Companion.status
 import com.monokulo.till.core.SalePhase
 import com.monokulo.till.ui.CodeScreen
 import com.monokulo.till.ui.HeroTag
@@ -51,9 +50,9 @@ class StageBackTest {
             CompositionLocalProvider(LocalGroundTracks provides { key -> GroundTrack(key).also { tracks.getOrPut(key) { mutableListOf() } += it } }) {
             ModelStage(model) { s ->
                 when (s) {
-                    is Screen.Code -> CodeScreen(sale, onBack = { model.back(s) })
-                    is Screen.Sale -> SaleScreen(sales.first { it.orderId == s.orderId }, "Front", refunding = false, refundProblem = null, refundSheet = null, actions = noActions, now = now)
-                    else -> ShiftScreen(status, sales, noActions, now)
+                    is Screen.Code -> CodeScreen(rememberFace(sale), onBack = { model.back(s) })
+                    is Screen.Sale -> SaleScreen(rememberFace(sales.first { it.orderId == s.orderId }, now.longValue), noActions)
+                    else -> ShiftScreen(rememberShift(sales, now.longValue), noActions)
                 }
             }
             }
@@ -147,7 +146,7 @@ class StageBackTest {
         stage(model)
         compose.waitForIdle()
         fun top(id: String) =
-            compose.onNodeWithText(ShiftList.row(sales.first { it.orderId == id }, PointOfSale.Square, 0).title, substring = true, useUnmergedTree = true)
+            compose.onNodeWithText(rowTitle(sales.first { it.orderId == id }), substring = true, useUnmergedTree = true)
                 .fetchSemanticsNode().boundsInRoot.top
         // The rows on screen: four live sales fill the folded tray's three rows and its fold, the fourth (b2) folded.
         val shown = sales.filter { it.orderId != "b2" }

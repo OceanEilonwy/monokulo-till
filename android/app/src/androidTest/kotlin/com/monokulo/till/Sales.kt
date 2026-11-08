@@ -3,6 +3,7 @@ package com.monokulo.till
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import com.monokulo.till.core.PointOfSale
 import com.monokulo.till.core.SalePhase
 import com.monokulo.till.receipt.PaymentCode
@@ -13,6 +14,22 @@ import com.monokulo.till.ui.LocalMotion
 import com.monokulo.till.ui.LocalPointOfSale
 import com.monokulo.till.ui.TillTheme
 import com.monokulo.till.ui.Motion
+import com.monokulo.till.ui.SaleFace
+import com.monokulo.till.ui.TillActions
+import com.monokulo.till.engine.Money
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
+import uniffi.till_app.Platform
+import uniffi.till_app.Pos
+import uniffi.till_app.TillPreview
+import uniffi.till_app.Update
+import uniffi.till_app.previewClose
+import uniffi.till_app.previewSale
+import uniffi.till_app.previewShift
+import uniffi.till_screens.CloseView
+import uniffi.till_screens.ShiftEntry
+import uniffi.till_screens.ShiftFilter
+import uniffi.till_screens.ShiftView
 
 /** A sale of this till's for the screens under test, live until [expiresAt] unless [phase] says otherwise. */
 fun testSale(
@@ -65,3 +82,69 @@ fun sampleReceipt() = Receipt(
     total = 79.21,
     currency = "USD",
 )
+
+/** Money written as the device writes it, for the engine's previews; it keeps nothing. */
+object TestPlatform : Platform {
+    override fun secretGet(key: String): ByteArray? = null
+    override fun secretPut(key: String, value: ByteArray) = Unit
+    override fun secretRemove(key: String) = Unit
+    override fun formatMoney(minor: Long, currency: String) = Money.format(minor, currency)
+}
+
+/** As `Stores.kt` saved a shift, which the engine's previews read. */
+private val shiftJson = Json { ignoreUnknownKeys = true; explicitNulls = false }
+
+/** A till on Square at "Front" with [sales], watching, at the clock's [now]: the engine's preview of its screens. */
+fun preview(
+    sales: List<TillSale>,
+    now: Long = 1_000,
+    filter: ShiftFilter? = null,
+    folded: Boolean = true,
+    running: Boolean = true,
+    live: Boolean = true,
+    startedAt: Long? = 900,
+    refunding: Boolean = false,
+    refundProblem: String? = null,
+) = TillPreview(
+    salesJson = shiftJson.encodeToString(ListSerializer(TillSale.serializer()), sales),
+    now = now,
+    till = Pos.SQUARE,
+    store = "Corner shop",
+    location = "Front",
+    running = running,
+    live = live,
+    startedAt = startedAt,
+    filter = filter,
+    folded = folded,
+    refunding = refunding,
+    refundProblem = refundProblem,
+)
+
+/** The shift the engine draws for [sales] (see [preview]). */
+fun shiftView(sales: List<TillSale>, now: Long = 1_000, filter: ShiftFilter? = null, folded: Boolean = true, running: Boolean = true): ShiftView =
+    requireNotNull(previewShift(preview(sales, now, filter, folded, running), TestPlatform)) { "the engine reads the shift" }
+
+/** [sale]'s screens as the engine draws them (see [preview]). */
+fun saleFace(sale: TillSale, now: Long = 1_000, refunding: Boolean = false, refundProblem: String? = null): SaleFace =
+    SaleFace.of(previewSale(preview(listOf(sale), now, refunding = refunding, refundProblem = refundProblem), sale.orderId, TestPlatform) as Update.Sale)
+
+/** The close sheet the engine draws over [sale], while it has answers. */
+fun closeView(sale: TillSale, now: Long = 1_000): CloseView? = previewClose(preview(listOf(sale), now), sale.orderId, TestPlatform)
+
+/** Actions that go nowhere, for screens under test. */
+val noActions = TillActions(send = {}, onBackToPos = {})
+
+/** [sale]'s screens as the engine draws them, made again only when the sale or the clock changes. */
+@Composable
+fun rememberFace(sale: TillSale, now: Long = 1_000): SaleFace = remember(sale, now) { saleFace(sale, now) }
+
+/** The shift the engine draws for [sales], made again only when they or the clock change. */
+@Composable
+fun rememberShift(sales: List<TillSale>, now: Long = 1_000, running: Boolean = true): ShiftView = remember(sales, now, running) { shiftView(sales, now, running = running) }
+
+/** [sale]'s row's title on the shift: "Sale #m2Qe · $8.40". */
+fun rowTitle(sale: TillSale): String = shiftView(listOf(sale)).entries.filterIsInstance<ShiftEntry.Row>().single().row.title
+
+/** The shift's headers, as the engine writes them. */
+const val EARLIER = "Earlier"
+const val TRAY_HEADER = "Waiting for payment"

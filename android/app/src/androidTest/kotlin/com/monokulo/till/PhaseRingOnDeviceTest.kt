@@ -51,7 +51,7 @@ class PhaseRingOnDeviceTest {
             TillTheme(dark = false) {
                 CompositionLocalProvider(LocalMotion provides motion) {
                     Box(Modifier.testTag("ring").padding(0.dp)) {
-                        PhaseRing(phase, 120.dp, track = track, fill = fill, confirmations = confirmations, required = required.takeIf { confirmations != null })
+                        PhaseRing(SaleText.step(phase), 120.dp, track = track, fill = fill, confirmations = confirmations, required = required.takeIf { confirmations != null })
                     }
                 }
             }

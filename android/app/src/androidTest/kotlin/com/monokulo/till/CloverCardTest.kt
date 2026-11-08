@@ -6,62 +6,71 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.unit.dp
-import com.monokulo.till.core.PointOfSale
-import com.monokulo.till.sales.TillSale
-import com.monokulo.till.ui.CloverTender
 import com.monokulo.till.ui.Motion
 import com.monokulo.till.ui.PointOfSaleScreen
-import com.monokulo.till.ui.PosSetup
 import com.monokulo.till.ui.PosSetupActions
 import org.junit.Rule
 import org.junit.Test
+import uniffi.till_screens.Account
+import uniffi.till_screens.Choice
+import uniffi.till_screens.PosCard
+import uniffi.till_screens.PosChoice
+import uniffi.till_screens.PosMark
+import uniffi.till_screens.PosStep
+import uniffi.till_screens.Press
+import uniffi.till_screens.TestSale
+import kotlin.test.assertTrue
 
-/** Step 4's Clover card laid out as Square's (the fixes canvas, board 2): titled steps, the payment type as step 1, the test sale row. */
+/**
+ * Step 4's Clover card laid out as Square's (the fixes canvas, board 2), drawn from the engine's card: titled
+ * numbered steps, Look again after the first when Clover refused the payment type, the test sale row. The words
+ * are the engine's, and its tests check them; here, where they go.
+ */
 class CloverCardTest {
     @get:Rule
     val compose = createComposeRule()
 
-    private fun show(tender: CloverTender, testSale: TillSale? = null) {
-        val setup = PosSetup(
-            chosen = PointOfSale.Clover, location = null, merchant = "Corner Café", signedIn = true,
-            tender = tender, busy = false, problem = null, testSale = testSale,
+    private val steps = listOf("Add a payment type called **Monero** in Clover", "Open **Clover Register**", "Ring up a sale")
+
+    private fun show(lookAgain: Boolean, testSale: TestSale?) {
+        val card = PosCard(
+            mark = PosMark.CLOVER, heading = "Connect Clover", lead = "Lead", accountTitle = "Clover account",
+            account = Account.Connected("Corner Café"), place = null, changeLocation = false, permissions = "Permissions", problem = null,
+            atTheTill = "On your Clover device", stepsTitle = "Take Monero in Clover Register", steps = steps,
+            lookAgain = Press("Look again", true).takeIf { lookAgain }, testSale = testSale, footnote = "Refunded in Clover's Orders app.",
         )
-        val actions = PosSetupActions({}, {}, null, {}, {}, {})
+        val step = PosStep(
+            back = false,
+            choices = listOf(PosChoice(PosMark.CLOVER, false, Choice("Clover", null, selected = true, enabled = true))),
+            card = card, next = Press("Continue", testSale?.found == true), skip = Press("Skip the test", true),
+        )
+        val actions = PosSetupActions({}, {}, {}, {}, {}, {}, {})
         // Still, so the loading mark's glints don't keep the clock from idling.
-        compose.setContent { Till(Motion.Still) { PointOfSaleScreen(setup, actions) } }
+        compose.setContent { Till(Motion.Still) { PointOfSaleScreen(step, "Step 4 of 6", actions) } }
         compose.waitForIdle()
     }
 
     private fun shown(text: String) = compose.onNodeWithText(text, substring = true, useUnmergedTree = true).assertExists()
 
     @Test
-    fun theAddedPaymentTypeIsStepOneUnderTheCardsTitle() {
-        show(CloverTender.Ready)
+    fun theStepsAreNumberedUnderTheCardsTitleWithTheTestSaleWaiting() {
+        show(lookAgain = false, TestSale(false, "Waiting for a test sale…"))
         shown("On your Clover device")
         shown("Take Monero in Clover Register")
-        shown("1.  Till added a payment type called Monero for you")
-        shown("2.  Open Clover Register on the Station, Mini, Flex or Go")
-        shown("3.  Ring up a sale, tap Pay, then choose Monero")
-        shown("Waiting for a test sale… Any amount; refund it in Clover's Orders app after.")
-        compose.onNodeWithContentDescription("Waiting for a test sale", useUnmergedTree = true).assertExists()
-        shown("A sale never paid in Monero is refunded in Clover's Orders app; Till shows you which.")
-    }
-
-    @Test
-    fun aPaymentTypeCloverRefusedIsStepOneWithLookAgain() {
-        show(CloverTender.AddInClover)
         shown("1.  Add a payment type called Monero in Clover")
-        compose.onNodeWithText("Look again").assertHasClickAction().assertHeightIsAtLeast(48.dp)
         shown("2.  Open Clover Register")
-        compose.onNodeWithText("Till added", substring = true, useUnmergedTree = true).assertDoesNotExist()
-        // No sale can be paid in Monero until the payment type is there, so nothing waits for one.
-        compose.onNodeWithText("Waiting for a test sale", substring = true, useUnmergedTree = true).assertDoesNotExist()
+        shown("3.  Ring up a sale")
+        compose.onNodeWithContentDescription("Waiting for a test sale", useUnmergedTree = true).assertExists()
+        shown("Refunded in Clover's Orders app.")
     }
 
     @Test
-    fun aTestSaleFoundSaysToRefundItInTheOrdersApp() {
-        val sale = testSale("t")
-        show(CloverTender.Ready, sale)
-        shown("Test sale found: ${SaleText.amount(sale)}. Refund it in Clover's Orders app when you like.")
+    fun lookAgainComesAfterTheFirstStep() {
+        show(lookAgain = true, null)
+        val first = compose.onNodeWithText("1.  Add a payment type", substring = true, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val look = compose.onNodeWithText("Look again").assertHasClickAction().assertHeightIsAtLeast(48.dp).fetchSemanticsNode().boundsInRoot
+        val second = compose.onNodeWithText("2.  Open Clover Register", substring = true, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        assertTrue(first.bottom <= look.top && look.bottom <= second.top, "step 1, Look again, step 2: $first $look $second")
+        compose.onNodeWithText("Waiting for a test sale", substring = true, useUnmergedTree = true).assertDoesNotExist()
     }
 }
