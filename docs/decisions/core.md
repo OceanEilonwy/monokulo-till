@@ -311,3 +311,32 @@ on from 1; the Android app's own choices are in [android.md](android.md).
     correction level M in ink `#1A1917` on white, cropped to its modules.
 51. **The glass button keeps its 44 pt minimum outside the button**, so it
     doesn't widen a large button's own tap area.
+
+## Phase 5b: Android's glue, and the till in the engine (2026-11-08)
+
+52. **The Rust core is Android's `:ffi` module**: it builds `till-ffi` and
+    its bindings and exposes JNA as `api`, finishing decision 3's move out
+    of `receipt`.
+53. **The certificate verifier starts through a JNI entry in `till-ffi`**:
+    `Tls.init(context)` from `Application.onCreate` calls
+    `rustls_platform_verifier::android::init_with_env` (Android only), and
+    the Kotlin component comes from rustls' Maven archive at the version
+    Cargo.lock names. An on-device test made a real HTTPS request through
+    it (on an API 37 emulator).
+54. **Orbot's probe reaches the engine as `Action::TorProbed`**, with no new
+    `Effect`, so iOS needs nothing. A till connects over Tor only after a
+    probe found Orbot running, replacing 47's "connecting sets tor =
+    false".
+55. **The engine owns the till's navigation**: `TillNav`'s follow (a new sale
+    rises only out of a shift at rest, which the platform reports with
+    `Action::Landed`), the paid sale's step back after 5 s, `backTarget`,
+    and Back from Settings. `Update::Nav` comes before each `Screen`; the
+    shift's filter and fold and the close sheet are engine state.
+56. **A countdown is redrawn by a one-second engine timer**, only while some
+    published view says `ticks` and the app is in front.
+57. **Android's Keystore platform keeps `SecureStore`'s file, key alias and
+    sealing, value for value**, so an upgraded till keeps its data; a
+    secret that can't be opened is `Unavailable`, never none. Still open:
+    in debug builds sign-ins return on the debug scheme while the engine
+    matches `redirect_uri` (either the setups gain a return URI or Kotlin
+    rewrites it), and the per-sale alert faces are still stand-ins.
