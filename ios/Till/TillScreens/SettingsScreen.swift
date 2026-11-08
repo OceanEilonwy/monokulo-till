@@ -33,10 +33,7 @@ struct SettingsScreen: View {
                 }
                 wakeUpsSection
                 if let island = view.island {
-                    Section("Dynamic Island") {
-                        SwitchRow(label: "Live Activity", on: island.liveActivity) { send(.setLiveActivity(on: $0)) }
-                        SwitchRow(label: "Show code in island", on: island.codeInIsland) { send(.setCodeInIsland(on: $0)) }
-                    }
+                    IslandSettings(island: island, send: send)
                 }
                 if !view.standIns.isEmpty {
                     Section("Developer (debug builds)") {
@@ -99,6 +96,46 @@ struct SettingsScreen: View {
             openURL(settings)
         }
     }
+}
+
+/// Settings › Dynamic Island, on iPhone (PhoneSettings): the Live Activity
+/// each shift, and "Show code in island", off by default, which first says
+/// that each sale's payment address then goes through the push relay
+/// (design.md §6). The words are the board's.
+struct IslandSettings: View {
+    let island: IslandSection
+    let send: Send
+
+    @State private var askCode = false
+
+    var body: some View {
+        Section {
+            SwitchRow(label: "Live Activity", on: island.liveActivity) { send(.setLiveActivity(on: $0)) }
+            // Turned on, it asks first, and springs back until the engine hears yes.
+            SwitchRow(label: "Show code in island", on: island.codeInIsland, snapsBack: !island.codeInIsland) { on in
+                if on {
+                    askCode = true
+                } else {
+                    send(.setCodeInIsland(on: false))
+                }
+            }
+            .disabled(!island.liveActivity)
+        } header: {
+            Text("Dynamic Island")
+        } footer: {
+            Text(IslandSettings.footnote)
+        }
+        .alert("Show the code in the island?", isPresented: $askCode) {
+            Button("Show code") { send(.setCodeInIsland(on: true)) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(IslandSettings.ask)
+        }
+    }
+
+    static let footnote = "Showing the code in the island sends each sale's payment address through the Till push service, which otherwise only sees amount and status. Live Activities end after 8 hours: start Till again each shift."
+
+    static let ask = "Each sale's payment address will pass through the Till push service. The island's code has no receipt: the customer's wallet won't show what was bought."
 }
 
 /// The store, its wallet and this device.
