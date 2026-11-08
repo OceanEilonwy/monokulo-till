@@ -32,7 +32,7 @@ use std::sync::{Arc, OnceLock};
 
 use tokio::sync::mpsc::UnboundedSender;
 
-pub use background::{Check, background_check};
+pub use background::{BackgroundCheck, background_check};
 pub use faces::NotificationFace;
 use monokulo_client::PointOfSale;
 pub use till_screens::Device;
@@ -221,17 +221,9 @@ pub enum WakeUps {
     },
 }
 
-/// The close sheet's answers (Android: `CloseChoice`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
-pub enum CloseChoice {
-    /// "No": the till refunds it (or says how, in Clover) and closes it.
-    RefundIt,
-    /// "Not sure": closed for now; it stays in the shift.
-    CloseForNow,
-    /// "Yes": the code stays up.
-    KeepUp,
-}
+/// The close sheet's answers are `till-screens`' own: one type, so the Swift
+/// bindings (one module for every crate) don't declare it twice.
+pub use till_screens::close::CloseChoice;
 
 /// Where the app is (Android: `Screen`). Setup follows the design's six
 /// onboarding steps.

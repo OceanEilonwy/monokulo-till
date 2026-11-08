@@ -24,7 +24,7 @@ use crate::{EngineConfig, Platform};
 /// What a background look found.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-pub struct Check {
+pub struct BackgroundCheck {
     /// One alert per sale this look made an order for whose code is up,
     /// newest first: what the notification should say in place of the
     /// ding's own words.
@@ -38,19 +38,19 @@ pub struct Check {
     pub finished: bool,
 }
 
-impl Check {
-    fn nothing() -> Check {
-        Check {
+impl BackgroundCheck {
+    fn nothing() -> BackgroundCheck {
+        BackgroundCheck {
             finished: true,
-            ..Check::default()
+            ..BackgroundCheck::default()
         }
     }
 
-    fn failed(problem: impl Into<String>) -> Check {
-        Check {
+    fn failed(problem: impl Into<String>) -> BackgroundCheck {
+        BackgroundCheck {
             problem: Some(problem.into()),
             finished: true,
-            ..Check::default()
+            ..BackgroundCheck::default()
         }
     }
 }
@@ -65,17 +65,17 @@ pub fn background_check(
     config: EngineConfig,
     platform: Arc<dyn Platform>,
     deadline_ms: u64,
-) -> Check {
+) -> BackgroundCheck {
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
     {
         Ok(runtime) => runtime,
-        Err(e) => return Check::failed(format!("Couldn't start the core: {e}")),
+        Err(e) => return BackgroundCheck::failed(format!("Couldn't start the core: {e}")),
     };
     let http = match tor::http_client(tor::SOCKS) {
         Ok(http) => http,
-        Err(e) => return Check::failed(format!("Couldn't start the core: {e}")),
+        Err(e) => return BackgroundCheck::failed(format!("Couldn't start the core: {e}")),
     };
     runtime.block_on(check(
         config,
@@ -93,27 +93,29 @@ pub(crate) async fn check(
     http: reqwest::Client,
     clock: Arc<dyn Clock>,
     budget: Duration,
-) -> Check {
+) -> BackgroundCheck {
     let deadline = tokio::time::Instant::now() + budget;
     // No listener to log to: what goes wrong is in the answer.
     let log: Log = Arc::new(|_| {});
     let kept = match Kept::load(Store::new(platform.clone()), log) {
         Ok(kept) => Arc::new(kept),
-        Err(e) => return Check::failed(format!("Couldn't read what this till keeps: {e}")),
+        Err(e) => {
+            return BackgroundCheck::failed(format!("Couldn't read what this till keeps: {e}"));
+        }
     };
     let model = kept.model();
     let Some(connection) = model.connection.clone() else {
-        return Check::nothing();
+        return BackgroundCheck::nothing();
     };
     if !model.shift_on {
-        return Check::nothing();
+        return BackgroundCheck::nothing();
     }
     let side = match Side::new(Arc::new(config), kept, http.clone(), clock.clone()) {
         Ok(side) => side,
-        Err(problem) => return Check::failed(problem),
+        Err(problem) => return BackgroundCheck::failed(problem),
     };
     let Some(source) = side.sale_source() else {
-        return Check::nothing();
+        return BackgroundCheck::nothing();
     };
     let monokulo = MonokuloApi::new(http, side.identity(), clock.clone());
     let shift = side.shift_kept().clone();
@@ -122,7 +124,7 @@ pub(crate) async fn check(
         .with_store(shift.clone());
     if shift.unread() {
         // A look now would save its orders over the shift it couldn't read.
-        return Check::failed("Couldn't read the shift this till keeps.");
+        return BackgroundCheck::failed("Couldn't read the shift this till keeps.");
     }
     let before: HashSet<String> = till
         .state()
@@ -135,7 +137,7 @@ pub(crate) async fn check(
         .is_ok();
     let state = till.state();
     let money = Money(platform);
-    Check {
+    BackgroundCheck {
         alerts: state
             .sales
             .iter()

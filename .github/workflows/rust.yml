@@ -85,3 +85,12 @@ jobs:
           test -f bindings/swift/till_app.swift
           test -f bindings/swift/till_screens.swift
           test -f bindings/swift/orf_codec_ffi.swift
+      # Swift compiles every crate's bindings into one module (TillCore), so
+      # two crates exporting the same type name breaks the iOS build: catch
+      # it here, on Linux, before a macOS runner does.
+      - name: No type is declared by two crates' Swift bindings
+        run: |
+          dupes=$(for f in bindings/swift/*.swift; do
+            grep -oE '^(public |open )?(struct|enum|class|protocol) [A-Za-z0-9_]+' "$f" | awk '{print $NF}' | sort -u
+          done | sort | uniq -d)
+          if [ -n "$dupes" ]; then echo "::error::Declared in more than one crate's bindings: $dupes"; exit 1; fi

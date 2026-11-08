@@ -77,7 +77,11 @@ async fn square(delay: Duration) -> MockServer {
 }
 
 /// [`background_check`] as a platform calls it: on a thread of its own.
-async fn look(config: EngineConfig, platform: Arc<FakePlatform>, deadline_ms: u64) -> Check {
+async fn look(
+    config: EngineConfig,
+    platform: Arc<FakePlatform>,
+    deadline_ms: u64,
+) -> BackgroundCheck {
     tokio::task::spawn_blocking(move || background_check(config, platform, deadline_ms))
         .await
         .unwrap()
@@ -121,7 +125,7 @@ async fn without_a_connection_or_a_shift_on_nothing_is_asked() {
     let none = look(config(&square), Arc::new(FakePlatform::default()), 10_000).await;
     assert_eq!(
         none,
-        Check {
+        BackgroundCheck {
             alerts: Vec::new(),
             problem: None,
             finished: true
