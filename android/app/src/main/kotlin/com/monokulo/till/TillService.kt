@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import uniffi.till_app.Action
 import uniffi.till_app.Effect
 import uniffi.till_screens.OngoingFace
 
@@ -47,14 +48,7 @@ class TillService : LifecycleService() {
             notes.watching(),
             if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0,
         )
-        overlay = Overlay(
-            this, app.graph, lifecycleScope,
-            onCopy = { SaleNotifications.copyAddress(this, it.address) },
-            onCopyXmr = { SaleNotifications.copyXmr(this, it.xmr) },
-            onFullScreen = { openSale(it.orderId) },
-            onOpenShift = ::openShift,
-            onOpenApp = ::openApp,
-        )
+        overlay = Overlay(this, lifecycleScope, onOpenShift = ::openShift, onOpenApp = ::openApp, onFullScreen = ::openSale)
         overlay.start()
         // The sale the ongoing notification has alerted for, once: a heads-up when it first appears, not again
         // when an older one comes back to the top (the engine's alert face says which sale is new).
@@ -98,6 +92,7 @@ class TillService : LifecycleService() {
 
     /** Opens Till on the shift (the panel's header row): the sale stays live, on the bubble and in the list. */
     private fun openShift() {
+        EngineStore.send(Action.OpenShift)
         startActivity(
             Intent(this, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -122,6 +117,7 @@ class TillService : LifecycleService() {
 
     /** Opens Till full screen on [orderId]'s sale (from the bubble's panel: an app showing an overlay may start activities). */
     private fun openSale(orderId: String) {
+        EngineStore.send(Action.OpenSale(orderId))
         startActivity(
             Intent(this, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)

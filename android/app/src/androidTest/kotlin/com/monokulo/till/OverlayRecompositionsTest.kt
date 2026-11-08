@@ -37,7 +37,7 @@ class OverlayRecompositionsTest {
 
     private val named = listOf(
         "com.monokulo.till.overlay.PanelCard", "com.monokulo.till.overlay.Details", "com.monokulo.till.ui.QrCode",
-        "com.monokulo.till.ui.PhaseRing", "com.monokulo.till.overlay.BubbleFace", "com.monokulo.till.ui.OrderContent",
+        "com.monokulo.till.ui.PhaseRing", "com.monokulo.till.overlay.BubbleFace", "com.monokulo.till.overlay.PanelOrderContent",
         "com.monokulo.till.overlay.StatusRow",
     )
 
@@ -50,7 +50,7 @@ class OverlayRecompositionsTest {
         compose.setContent {
             Till {
                 motion.raise.Attach()
-                PhonePanel(sale, "Front Counter", BubbleLook.Lit, page, actions, motion)
+                PhonePanel(panelOf(sale), "Front Counter", BubbleLook.Lit, page, actions, motion)
             }
         }
         compose.mainClock.advanceTimeBy(100)

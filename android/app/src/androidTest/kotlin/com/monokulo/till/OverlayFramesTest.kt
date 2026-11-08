@@ -92,9 +92,9 @@ class OverlayFramesTest {
                 motion.raise.Attach()
                 Box(Modifier.fillMaxSize().background(if (white) Fixed.White else mk.danger).testTag("window")) {
                     if (tablet) {
-                        FloatingPanel(sale, "Front Counter", page, actions, motion)
+                        FloatingPanel(panelOf(sale), "Front Counter", page, actions, motion)
                     } else {
-                        PhonePanel(sale, "Front Counter", BubbleLook.Lit, page, actions, motion)
+                        PhonePanel(panelOf(sale), "Front Counter", BubbleLook.Lit, page, actions, motion)
                     }
                 }
             }

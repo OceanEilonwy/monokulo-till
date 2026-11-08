@@ -247,7 +247,7 @@ class ShiftListTest {
     @Test
     fun `a till with no point of sale says so in plain words`() {
         assertEquals("Closed · not paid · refund it in your point of sale", ShiftList.row(sale("c", closedAt = at), null, 0, Locale.US, zone).sub)
-        assertEquals("Refund it in your point of sale on Back till.", Panel.endedLine(sale("t", SalePhase.Expired, mine = false), null))
+        assertEquals("Refund it in your point of sale on Back till.", PosText.refundOnOtherTill(null, "Back till"))
     }
 
     @Test
