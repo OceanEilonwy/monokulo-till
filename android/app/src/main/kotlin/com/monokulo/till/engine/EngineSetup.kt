@@ -25,12 +25,15 @@ fun engineConfig(context: Context): EngineConfig = EngineConfig(
         sandbox = BuildConfig.SQUARE_SANDBOX,
         redirectUri = BuildConfig.SQUARE_REDIRECT_URI,
         baseUrl = BuildConfig.SQUARE_BASE_URL.ifEmpty { null },
+        // A debug build's sign-in comes back on its own scheme; a release build's is the redirect itself.
+        returnUri = BuildConfig.SQUARE_RETURN_URI.takeIf { it != BuildConfig.SQUARE_REDIRECT_URI },
     ),
     clover = CloverSetup(
         applicationId = BuildConfig.CLOVER_APPLICATION_ID,
         environment = BuildConfig.CLOVER_ENVIRONMENT,
         redirectUri = BuildConfig.CLOVER_REDIRECT_URI,
         baseUrl = BuildConfig.CLOVER_BASE_URL.ifEmpty { null },
+        returnUri = BuildConfig.CLOVER_RETURN_URI.takeIf { it != BuildConfig.CLOVER_REDIRECT_URI },
     ),
     bellUrl = BuildConfig.BELL_URL,
 )

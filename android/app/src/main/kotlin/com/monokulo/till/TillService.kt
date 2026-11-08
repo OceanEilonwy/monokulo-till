@@ -17,12 +17,11 @@ import com.monokulo.till.overlay.Overlay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import uniffi.till_app.Action
 import uniffi.till_app.Effect
-import uniffi.till_screens.OngoingFace
 
 /**
  * Keeps the till running during a shift (`docs/design.md` §3, §7): a
@@ -49,22 +48,12 @@ class TillService : LifecycleService() {
         overlay = Overlay(this, lifecycleScope, onOpenShift = ::openShift, onOpenApp = ::openApp, onFullScreen = ::openSale)
         overlay.start()
         lifecycleScope.launch {
-            combine(app.engineStore.notification, app.engineStore.bubble) { notification, bubble ->
-                val face = notification?.ongoing
-                val orderId = (face as? OngoingFace.Sale)?.orderId
-                // The code and address are the panel's, when it is about the same sale (it is: the newest live one).
-                val panel = bubble?.panel?.takeIf { orderId != null && bubble.orderId == orderId }
-                Posted(face, panel?.code, panel?.address)
-            }.distinctUntilChanged().collect { posted ->
+            app.engineStore.notification.map { it?.ongoing }.distinctUntilChanged().collect { face ->
                 // A sale's heads-up is its face's alert, set in the one update as it arrives while Till is away.
-                val face = posted.face ?: return@collect
-                notes.ongoing(notes.ongoing(face, posted.code, posted.address))
+                if (face != null) notes.ongoing(notes.ongoing(face))
             }
         }
     }
-
-    /** What the ongoing notification was last posted from. */
-    private data class Posted(val face: OngoingFace?, val code: String?, val address: String?)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
@@ -133,8 +122,8 @@ class TillService : LifecycleService() {
          * (call once, after the engine is made): the service up while the
          * till runs ([uniffi.till_app.Update.Service]), a sale's notices
          * ([Effect.Notify], [Effect.ClearNotification]) posted and cleared,
-         * and a copy asked for while Till isn't on screen
-         * ([Effect.CopyText]; Till's own screen copies while it is).
+         * and every copy ([Effect.CopyText], by what it copies), from the
+         * app, the panel or a notification alike.
          */
         fun follow(app: TillApp) {
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -163,7 +152,7 @@ class TillService : LifecycleService() {
                     when (effect) {
                         is Effect.Notify -> notes.notice(effect.orderId, effect.notice, effect.paid, effect.quiet)
                         is Effect.ClearNotification -> notes.clear(effect.id)
-                        is Effect.CopyText -> if (EngineStore.bubble.value?.buzzes == true) SaleNotifications.copyText(app, effect.text)
+                        is Effect.CopyText -> SaleNotifications.copyText(app, effect.text, effect.kind)
                         else -> Unit
                     }
                 }

@@ -26,13 +26,11 @@ import androidx.core.content.ContextCompat
 import androidx.core.graphics.createBitmap
 import com.monokulo.till.MainActivity
 import com.monokulo.till.R
-import com.monokulo.till.TillApp
-import com.monokulo.till.engine.EngineStore
 import com.monokulo.till.ui.Fixed
 import com.monokulo.till.ui.qrBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import uniffi.till_app.Action
+import uniffi.till_app.CopyKind
 import uniffi.till_app.endedSummary
 import uniffi.till_screens.Face
 import uniffi.till_screens.FaceIcon
@@ -120,15 +118,15 @@ class SaleNotifications(private val context: Context) {
             .build()
 
     /**
-     * The shift's notification as [face] says. [code] is the sale's payment
-     * code, drawn as the large icon, and [address] what "Copy address"
-     * copies, when the bubble's panel knows them. A sale's `alert`, set in
+     * The shift's notification as [face] says: a sale's payment code is
+     * drawn as the large icon, and its address is what "Copy address"
+     * copies. A sale's `alert`, set in
      * the one update as it arrives while Till is away, makes it a heads-up;
      * a post without it only alerts once. The code is encoded off the main thread: with
      * a receipt in it that's a version-25 code at four pixels a module,
      * about 880 kB of pixels.
      */
-    suspend fun ongoing(face: OngoingFace, code: String?, address: String?): Notification = when (face) {
+    suspend fun ongoing(face: OngoingFace): Notification = when (face) {
         is OngoingFace.Watching -> watching(face.title, face.text)
         is OngoingFace.Paid -> live(face.face, face.subText, CHANNEL_SHIFT)
             .setOnlyAlertOnce(true)
@@ -139,7 +137,7 @@ class SaleNotifications(private val context: Context) {
         is OngoingFace.Sale -> {
             val heads = face.alert
             val showCode = showCode(face.orderId)
-            val icon = code?.let { withContext(Dispatchers.Default) { runCatching { qrBitmap(it, scale = 4, margin = 2) }.getOrNull() } }
+            val icon = withContext(Dispatchers.Default) { runCatching { qrBitmap(face.code, scale = 4, margin = 2) }.getOrNull() }
             val builder = live(face.face, face.subText, Shade.channel(face.face, heads))
                 .setOnlyAlertOnce(!heads)
                 .setLargeIcon(icon)
@@ -148,7 +146,7 @@ class SaleNotifications(private val context: Context) {
                 val intent = when (button.action) {
                     NoticeAction.SHOW_CODE -> showCode
                     NoticeAction.FULL_SCREEN -> openApp(face.orderId)
-                    NoticeAction.COPY_ADDRESS -> copy(face.orderId, address)
+                    NoticeAction.COPY_ADDRESS -> copy(face.orderId, face.address)
                 }
                 builder.addAction(0, button.label, intent)
             }
@@ -285,12 +283,11 @@ class SaleNotifications(private val context: Context) {
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
 
-    /** "Copy address": [address] when known here, else the engine copies the sale's ([Action.CopyAddress]). */
-    private fun copy(orderId: String, address: String?): PendingIntent = PendingIntent.getBroadcast(
+    /** "Copy address": the sale's [address], as its ongoing face carries it. */
+    private fun copy(orderId: String, address: String): PendingIntent = PendingIntent.getBroadcast(
         context,
         orderId.hashCode(),
         Intent(context, CopyReceiver::class.java)
-            .putExtra(CopyReceiver.EXTRA_ORDER, orderId)
             .putExtra(CopyReceiver.EXTRA_ADDRESS, address),
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
@@ -333,48 +330,35 @@ class SaleNotifications(private val context: Context) {
         private fun idOf(orderId: String) = 1000 + (orderId.hashCode() and 0x7FFFFF)
 
         /**
-         * Copies [address] (a sale's, for the customer, or the store wallet's
-         * from Settings), saying so where Android doesn't (before 13). Not
-         * marked sensitive: a receiving address is for sharing, and Android's
-         * preview lets the cashier check what was copied.
+         * The engine's [uniffi.till_app.Effect.CopyText], named by what it
+         * copies ([kind]): an address, an XMR amount (the panel's XMR line,
+         * for a wallet that wants it typed), or anything else; said so where
+         * Android doesn't (before 13). Not marked sensitive: a receiving
+         * address is for sharing, and Android's preview lets the cashier
+         * check what was copied.
          */
-        fun copyAddress(context: Context, address: String) {
+        fun copyText(context: Context, text: String, kind: CopyKind) {
+            val (label, said) = when (kind) {
+                CopyKind.ADDRESS -> "Monero address" to "Address copied"
+                CopyKind.AMOUNT -> "XMR amount" to "Amount copied"
+                CopyKind.OTHER -> "Till" to "Copied"
+            }
             val clipboard = context.getSystemService(ClipboardManager::class.java)
-            clipboard.setPrimaryClip(ClipData.newPlainText("Monero address", address))
-            if (Build.VERSION.SDK_INT < 33) Toast.makeText(context, "Address copied", Toast.LENGTH_SHORT).show()
+            clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
+            // Android 13 and later show their own word for a copy.
+            if (Build.VERSION.SDK_INT < 33) Toast.makeText(context, said, Toast.LENGTH_SHORT).show()
         }
-
-        /** Copies a sale's exact XMR amount (the panel's XMR line), for a wallet that wants it typed. */
-        fun copyXmr(context: Context, xmr: String) {
-            val clipboard = context.getSystemService(ClipboardManager::class.java)
-            clipboard.setPrimaryClip(ClipData.newPlainText("XMR amount", xmr))
-            if (Build.VERSION.SDK_INT < 33) Toast.makeText(context, "Amount copied", Toast.LENGTH_SHORT).show()
-        }
-
-        /**
-         * The engine's [uniffi.till_app.Effect.CopyText]: an amount ("0.05552") is
-         * copied as one, anything else as an address.
-         */
-        fun copyText(context: Context, text: String) =
-            if (text.all { it.isDigit() || it == '.' }) copyXmr(context, text) else copyAddress(context, text)
     }
 }
 
 /** The notification's "Copy address". */
 class CopyReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        val address = intent.getStringExtra(EXTRA_ADDRESS)
-        if (address != null) {
-            SaleNotifications.copyAddress(context, address)
-        } else {
-            val order = intent.getStringExtra(EXTRA_ORDER) ?: return
-            (context.applicationContext as TillApp).engine
-            EngineStore.send(Action.CopyAddress(order))
-        }
+        val address = intent.getStringExtra(EXTRA_ADDRESS) ?: return
+        SaleNotifications.copyText(context, address, CopyKind.ADDRESS)
     }
 
     companion object {
         const val EXTRA_ADDRESS = "address"
-        const val EXTRA_ORDER = "order"
     }
 }

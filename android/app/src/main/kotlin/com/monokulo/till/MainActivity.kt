@@ -2,10 +2,7 @@ package com.monokulo.till
 
 import uniffi.till_app.Screen
 import android.Manifest
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -69,7 +66,9 @@ import com.monokulo.till.ui.pointOfSale
 import com.monokulo.till.ui.pos
 import com.monokulo.till.ui.rememberShiftPlace
 import kotlinx.coroutines.launch
+import com.monokulo.till.notify.SaleNotifications
 import uniffi.till_app.Action
+import uniffi.till_app.CopyKind
 import uniffi.till_app.Effect
 import uniffi.till_app.RefundSheetView
 import uniffi.till_app.Update
@@ -253,7 +252,12 @@ class MainActivity : ComponentActivity() {
         val step = view.stepLabel
         when (val page = view.page) {
             is OnboardingPage.Welcome -> WelcomeScreen(page, step) { send(Action.Next) }
-            is OnboardingPage.Scan -> ScanScreen(page, step, onLink = { send(Action.ConnectLink(it)) }, onBack = { send(Action.Back) })
+            is OnboardingPage.Scan -> ScanScreen(
+                page, step,
+                onPaste = { send(Action.PasteConnectLink(it)) },
+                onScan = { send(Action.ScanConnectCode(it)) },
+                onBack = { send(Action.Back) },
+            )
             is OnboardingPage.Confirm -> ConfirmScreen(page, step, onConnect = { send(Action.Connect) }, onCancel = { send(Action.Back) })
             is OnboardingPage.Connected -> ConnectedScreen(
                 page, step,
@@ -264,19 +268,18 @@ class MainActivity : ComponentActivity() {
                 PosSetupActions(
                     onChoose = { send(Action.ChoosePointOfSale(it.pos())) },
                     onNext = { send(Action.Next) },
-                    onSignIn = { send(Action.SignIn(null)) },
                     onChangeLocation = { send(Action.ChangeLocation) },
                     onLookAgain = { send(Action.LookAgain) },
-                    onWithout = { send(Action.WithoutPos) },
+                    onSkip = { send(Action.Skip) },
                     onBack = { send(Action.Back) },
                 ),
             )
             is OnboardingPage.Locations -> LocationsScreen(page, step, onPick = { send(Action.ChooseLocation(it)) }, onBack = { send(Action.Back) })
-            is OnboardingPage.Alerts -> AlertsScreen(page, step, onAllow = ::allowNotifications, onSkip = { send(Action.Next) }, onBack = { send(Action.Back) })
+            is OnboardingPage.Alerts -> AlertsScreen(page, step, onAllow = ::allowNotifications, onSkip = { send(Action.Skip) }, onBack = { send(Action.Back) })
             is OnboardingPage.Float -> FloatScreen(
                 page,
                 onOpenSettings = { send(Action.SetBubble(true)); openOverlaySettings() },
-                onNotificationsOnly = { send(Action.Next); send(Action.SetBubble(false)) },
+                onNotificationsOnly = { send(Action.Skip) },
                 onContinue = { send(Action.Next) },
                 onBack = { send(Action.Back) },
             )
@@ -307,11 +310,10 @@ class MainActivity : ComponentActivity() {
     private fun effect(effect: Effect) {
         when (effect) {
             is Effect.OpenUrl -> openInTab(effect.url)
-            is Effect.CopyText -> copy(effect.text)
             // A payment landed with the app on screen (`docs/motion.md` §6).
             is Effect.Haptic -> window.decorView.confirm()
-            // The service posts the notifications.
-            is Effect.Notify, is Effect.ClearNotification -> Unit
+            // TillService.follow copies, and posts the notifications, whether or not Till is on screen.
+            is Effect.CopyText, is Effect.Notify, is Effect.ClearNotification -> Unit
         }
     }
 
@@ -348,10 +350,9 @@ class MainActivity : ComponentActivity() {
         intent?.getStringExtra(EXTRA_ORDER)?.let { send(Action.OpenSale(it)) }
         if (intent?.getBooleanExtra(EXTRA_SHIFT, false) == true) send(Action.OpenShift)
         when (intent?.action) {
-            Intent.ACTION_VIEW -> {
-                val uri = intent.data ?: return
-                signInReturn(uri)?.let { send(Action.SignInReturned(it)) }
-            }
+            // A point of sale's sign-in coming back, on its redirect or the build's return link (the setups'
+            // `returnUri`): the engine says which, and ignores anything else.
+            Intent.ACTION_VIEW -> intent.data?.let { send(Action.SignInReturned(it.toString())) }
             // A shared connect link: the first word that is a link; the engine says whether it's a store's.
             Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)?.let { text ->
                 text.split(Regex("\\s+")).firstOrNull { it.contains("://") }?.let { send(Action.ConnectLink(it)) }
@@ -359,34 +360,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * A point of sale's sign-in coming back into the app, as the engine knows
-     * it: by the point of sale's return address; null for anything else.
-     *
-     * DEBUG RETURN SCHEME, until the setups carry a return URI: a debug build's
-     * sign-in comes back on the debug scheme (`*_RETURN_URI`), while the engine
-     * matches the address it sent the point of sale to (`*_REDIRECT_URI`), so
-     * the one is rewritten to the other here, its query kept. A release build's
-     * two are the same App Link, and nothing changes.
-     */
-    private fun signInReturn(uri: Uri): String? {
-        for ((returns, redirect) in listOf(
-            BuildConfig.SQUARE_RETURN_URI to BuildConfig.SQUARE_REDIRECT_URI,
-            BuildConfig.CLOVER_RETURN_URI to BuildConfig.CLOVER_REDIRECT_URI,
-        )) {
-            val expected = returns.toUri()
-            if (uri.scheme != expected.scheme || uri.host != expected.host || uri.path.orEmpty() != expected.path.orEmpty()) continue
-            val query = uri.encodedQuery?.let { "?$it" }.orEmpty()
-            return redirect.substringBefore('?') + query
-        }
-        return null
-    }
-
     private fun permissionsMayHaveChanged() = (application as TillApp).permissionsMayHaveChanged()
 
-    private fun copy(text: String) {
-        getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("Till", text))
-    }
+    private fun copy(text: String) = SaleNotifications.copyText(this, text, CopyKind.ADDRESS)
 
     private fun openInTab(url: String) {
         runCatching { CustomTabsIntent.Builder().build().launchUrl(this, url.toUri()) }

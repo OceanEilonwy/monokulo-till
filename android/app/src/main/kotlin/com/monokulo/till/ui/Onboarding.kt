@@ -151,7 +151,7 @@ private fun Steps(vararg steps: String) = Column(
 
 /** Step 2 (OnbStore): the camera looks for the store's connect code, or the link is pasted. */
 @Composable
-fun ScanScreen(page: OnboardingPage.Scan, stepLabel: String?, onLink: (String) -> Unit, onBack: () -> Unit) {
+fun ScanScreen(page: OnboardingPage.Scan, stepLabel: String?, onPaste: (String?) -> Unit, onScan: (String) -> Unit, onBack: () -> Unit) {
     val context = LocalContext.current
     var allowed by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
@@ -167,9 +167,9 @@ fun ScanScreen(page: OnboardingPage.Scan, stepLabel: String?, onLink: (String) -
             )
             OutlineButton("Paste the link", onClick = {
                 val clip = context.getSystemService(android.content.ClipboardManager::class.java).primaryClip
-                val text = clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty().trim()
-                // Nothing to paste is the engine's to say too: an empty link isn't one.
-                onLink(text)
+                val text = clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()?.trim()
+                // Nothing to paste, and text that isn't a connect link, are the engine's to say.
+                onPaste(text?.ifEmpty { null })
             }, Modifier.fillMaxWidth(), icon = MkIcons.Copy)
             StepLabel(stepLabel)
         },
@@ -190,7 +190,7 @@ fun ScanScreen(page: OnboardingPage.Scan, stepLabel: String?, onLink: (String) -
             contentAlignment = Alignment.Center,
         ) {
             if (allowed) {
-                QrScanner(onText = onLink, modifier = Modifier.fillMaxSize())
+                QrScanner(onText = onScan, modifier = Modifier.fillMaxSize())
                 Viewfinder(Modifier.size(200.dp).offset(y = (-26).dp))
                 Row(
                     Modifier.align(Alignment.BottomCenter).padding(12.dp).fillMaxWidth().height(40.dp)
@@ -302,13 +302,12 @@ fun ConnectedScreen(page: OnboardingPage.Connected, stepLabel: String?, onNext: 
 /** What step 4 can do. */
 class PosSetupActions(
     val onChoose: (PosMark) -> Unit,
-    /** The step's button: the sign-in, or Continue and Done once connected. */
+    /** The step's button: the engine signs in, or goes on (Continue, Done) once connected. */
     val onNext: () -> Unit,
-    val onSignIn: () -> Unit,
     val onChangeLocation: () -> Unit,
     val onLookAgain: () -> Unit,
-    /** "Not now: only show other tills' sales". */
-    val onWithout: () -> Unit,
+    /** The way past: "Not now: only show other tills' sales", or "Skip the test" once connected, as the engine decides. */
+    val onSkip: () -> Unit,
     val onBack: () -> Unit,
 )
 
@@ -322,9 +321,8 @@ class PosSetupActions(
 fun PointOfSaleScreen(step: PosStep, stepLabel: String?, a: PosSetupActions) = Page(
     top = { BackBar(a.onBack.takeIf { step.back }) },
     bottom = {
-        val connected = step.card?.account is Account.Connected
-        step.next?.let { next -> PrimaryButton(next.label, if (connected) a.onNext else a.onSignIn, Modifier.fillMaxWidth(), enabled = next.enabled) }
-        step.skip?.let { skip -> LinkButton(skip.label, if (connected) a.onNext else a.onWithout, enabled = skip.enabled, size = 15) }
+        step.next?.let { next -> PrimaryButton(next.label, a.onNext, Modifier.fillMaxWidth(), enabled = next.enabled) }
+        step.skip?.let { skip -> LinkButton(skip.label, a.onSkip, enabled = skip.enabled, size = 15) }
         StepLabel(stepLabel)
     },
 ) {
