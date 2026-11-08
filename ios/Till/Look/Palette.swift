@@ -29,6 +29,13 @@ enum Palette {
     /// An expired code's note: its ground and its text.
     static let expiredGround = Color.adaptive(light: 0xF1E3CF, dark: 0x3D3320)
     static let expiredInk = Color.adaptive(light: 0x7D5E00, dark: 0xE8C267)
+    /// A paid sale's badge and page hero ground (Android's `paidGround`).
+    static let paidGround = Color.adaptive(light: 0xDCEFE2, dark: 0x1E3A28)
+    /// A reversed payment's note: its ground and its text.
+    static let dangerGround = Color.adaptive(light: 0xF6DCD9, dark: 0x3D2422)
+    static let onDangerGround = Color.adaptive(light: 0x6E1A1A, dark: 0xFFD2CE)
+    /// A quiet badge's ground, and an unselected filter chip's (Android's `chip`).
+    static let chip = Color.adaptive(light: 0xE4DFD5, dark: 0x3A3733)
 
     /// The QR code's modules and card, ink on white whatever the theme.
     static let codeInk = Color(hex: 0x1A1917)
