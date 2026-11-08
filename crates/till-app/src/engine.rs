@@ -703,8 +703,21 @@ impl State {
                 self.choose_wake_ups(choice);
             }
             Action::EditOwnBell { picked, typed } => {
-                self.own_picked = picked;
-                self.own_typed = typed;
+                // The row tapped with an address saved: that Bell, at once.
+                let saved = self.model().and_then(|m| m.own_bell);
+                match saved {
+                    Some(bell) if picked && typed.is_none() => {
+                        self.own_picked = false;
+                        self.own_typed = None;
+                        if let Some(p) = &self.parts {
+                            p.wake_ups.choose(WakeUpChoice::OwnBell { bell });
+                        }
+                    }
+                    _ => {
+                        self.own_picked = picked;
+                        self.own_typed = typed;
+                    }
+                }
             }
             Action::ChooseDistributor { name } => {
                 if let Some(p) = &self.parts {

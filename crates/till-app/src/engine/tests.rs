@@ -507,10 +507,28 @@ fn my_own_bell_is_typed_on_the_platform_and_checked_by_the_engine() {
         _ => None,
     });
     engine.send(Action::ChooseWakeUps {
+        choice: WakeUps::OwnBell {
+            address: "https://bell.example.com".into(),
+        },
+    });
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::WakeUps { view }) if view.own_bell.selected => Some(()),
+        _ => None,
+    });
+    engine.send(Action::ChooseWakeUps {
         choice: WakeUps::Timer,
     });
     wait_for(&rx, |heard| match heard {
         Heard::Update(Update::WakeUps { view }) if view.own_field.is_none() => Some(()),
+        _ => None,
+    });
+    // Tapped again, the saved address is chosen at once.
+    engine.send(Action::EditOwnBell {
+        picked: true,
+        typed: None,
+    });
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::WakeUps { view }) if view.own_bell.selected => Some(()),
         _ => None,
     });
 }

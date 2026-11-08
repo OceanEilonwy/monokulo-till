@@ -422,7 +422,8 @@ pub enum Action {
     /// opens, the saved choice stays ticked), and the field as typed so far
     /// (`None` until it's touched). The keyboard is the platform's; the
     /// engine says whether the address is a Bell's. Choosing wake-ups ends
-    /// it.
+    /// it. The row tapped (`picked`, nothing typed) with an address saved
+    /// chooses that Bell at once.
     EditOwnBell {
         picked: bool,
         typed: Option<String>,
