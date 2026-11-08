@@ -11,6 +11,9 @@ import androidx.compose.ui.unit.dp
 import com.monokulo.till.core.PointOfSale
 import com.monokulo.till.ui.LinkedMarks
 import com.monokulo.till.ui.PosChoices
+import uniffi.till_screens.Choice
+import uniffi.till_screens.PosChoice
+import uniffi.till_screens.PosMark
 import org.junit.Rule
 import org.junit.Test
 
@@ -26,7 +29,12 @@ class PosMarksTest {
         compose.setContent {
             Till(dark = true) {
                 Column {
-                    PosChoices(PointOfSale.Square) {}
+                    PosChoices(
+                        listOf(
+                            PosChoice(PosMark.SQUARE, true, Choice("Square", "Square Point of Sale", selected = true, enabled = true)),
+                            PosChoice(PosMark.CLOVER, false, Choice("Clover", "Clover Register", selected = false, enabled = true)),
+                        ),
+                    ) {}
                     LinkedMarks(PointOfSale.Clover)
                 }
             }

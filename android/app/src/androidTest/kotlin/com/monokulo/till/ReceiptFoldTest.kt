@@ -1,5 +1,6 @@
 package com.monokulo.till
 
+import uniffi.till_app.Screen
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.ui.semantics.SemanticsActions
@@ -16,7 +17,6 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
-import com.monokulo.till.OneClockTest.Companion.noActions
 import com.monokulo.till.core.SalePhase
 import com.monokulo.till.ui.CodeScreen
 import com.monokulo.till.ui.LocalReceiptFolds
@@ -62,7 +62,7 @@ class ReceiptFoldTest {
         compose.mainClock.autoAdvance = false
         compose.setContent {
             DeviceConfigurationOverride(DeviceConfigurationOverride.ForcedSize(size)) {
-                Till { SaleScreen(sale, "Front", refunding = false, refundProblem = null, refundSheet = null, actions = noActions, now = now) }
+                Till { SaleScreen(rememberFace(sale, now.longValue), noActions) }
             }
         }
     }
@@ -79,9 +79,9 @@ class ReceiptFoldTest {
                     CompositionLocalProvider(LocalReceiptFolds provides folds) {
                         ModelStage(model) { s ->
                             when (s) {
-                                is Screen.Order -> OrderPage(sale, "Back to the sale", onBack = { model.back(s) }, onShowCode = { model.back(s) })
-                                is Screen.Code -> CodeScreen(sale, onBack = { model.back(s) })
-                                else -> SaleScreen(sale, "Front", refunding = false, refundProblem = null, refundSheet = null, actions = noActions, now = now)
+                                is Screen.Order -> OrderPage(rememberFace(sale), "Back to the sale", onBack = { model.back(s) }, onShowCode = { model.back(s) })
+                                is Screen.Code -> CodeScreen(rememberFace(sale), onBack = { model.back(s) })
+                                else -> SaleScreen(rememberFace(sale, now.longValue), noActions)
                             }
                         }
                     }
@@ -155,7 +155,7 @@ class ReceiptFoldTest {
         compose.mainClock.autoAdvance = false
         compose.setContent {
             DeviceConfigurationOverride(DeviceConfigurationOverride.ForcedSize(DpSize(412.dp, 760.dp))) {
-                Till { SaleScreen(paid, "Front", refunding = false, refundProblem = null, refundSheet = null, actions = noActions, now = now) }
+                Till { SaleScreen(rememberFace(paid, now.longValue), noActions) }
             }
         }
         compose.mainClock.advanceTimeBy(1_000)

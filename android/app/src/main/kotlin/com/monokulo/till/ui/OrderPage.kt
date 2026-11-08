@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LongState
@@ -114,21 +115,72 @@ object OrderText {
 }
 
 /**
- * The whole order, full screen (the design's PanelE), in the app: opened
- * from the sale's order card. [backLabel] says where back goes; "Show the
- * code" ([onShowCode]) goes there too. Android's back is the activity's,
- * which previews the way back to the sale.
+ * The whole order, full screen (the design's PanelE), in the app, as the
+ * engine wrote it ([SaleFace.order]): opened from the sale's order card.
+ * [backLabel] says where back goes; "Show the code" ([onShowCode]) goes
+ * there too. Android's back is the activity's, which previews the way back
+ * to the sale.
  */
 @Composable
-fun OrderPage(sale: TillSale, backLabel: String, onBack: () -> Unit, onShowCode: () -> Unit) {
-    val now = rememberNowSeconds()
+fun OrderPage(sale: SaleFace, backLabel: String, onBack: () -> Unit, onShowCode: () -> Unit) {
     // No ground of its own while it grows out of the sale's card: the sale's is under it, the same colour (decision 185).
     Surface(Modifier.fillMaxSize().groundExcept(Move.OrderGrow, mk.ground), color = Color.Transparent, contentColor = mk.ink) {
         Box(Modifier.fillMaxSize().safeDrawingPadding(), contentAlignment = Alignment.TopCenter) {
             // As wide as the app's other pages ([Page]), centred on a tablet or a wide window.
-            OrderContent(sale, backLabel, onBack, onShowCode, Modifier.widthIn(max = 560.dp).fillMaxSize(), now)
+            Column(Modifier.widthIn(max = 560.dp).fillMaxSize()) {
+                val order = sale.order
+                OrderBar(backLabel, onBack, order?.subtitle)
+                if (order == null) {
+                    // Another till's sale: what was bought stays on that till.
+                    Muted("What was bought stays on the till that rang it up.", Modifier.padding(24.dp).weight(1f), size = 15)
+                } else {
+                    OrderCount(order.items, order.lines)
+                    // The sale's order card's ground grows into this one (M7) and its lines fade in over it.
+                    Box(Modifier.weight(1f).padding(horizontal = 16.dp).fillMaxWidth()) {
+                        val look = GroundLook(mk.card, CardCorner)
+                        val ground = rememberGroundTrack("order/${sale.orderId}")
+                        Box(Modifier.matchParentSize().sharedGround("order/${sale.orderId}", Move.OrderGrow, look, ground))
+                        Column(Modifier.matchParentSize().words(over = Move.OrderGrow, on = ground).clip(CardShape).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp)) {
+                            order.rows.forEach { Line(it.quantity, it.description, it.price) }
+                            order.sums.forEachIndexed { i, sum -> Total(sum.name, sum.value, Modifier.padding(top = if (i == 0) 12.dp else 4.dp, bottom = 4.dp)) }
+                            GrandTotal(order.total)
+                        }
+                    }
+                }
+                Box(Modifier.words(through = OrderGrowOnly)) { ShowCodeBar("${sale.code.amount} · ${sale.code.under}", onShowCode) }
+            }
         }
     }
+}
+
+/** The order's top bar: back, "The order" and whose order it is. */
+@Composable
+private fun OrderBar(backLabel: String, onBack: () -> Unit, subtitle: String?) = Row(
+    Modifier.fillMaxWidth().words(through = OrderGrowOnly).height(64.dp).padding(start = 4.dp, end = 16.dp),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(4.dp),
+) {
+    RoundIconButton(MkIcons.Back, backLabel, onBack, iconSize = 22.dp)
+    Column(Modifier.weight(1f).semantics(mergeDescendants = true) { heading() }) {
+        Text("The order", fontSize = 20.sp, fontWeight = FontWeight.Medium)
+        if (subtitle != null) Text(subtitle, fontSize = 13.sp, color = mk.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** "15 items" and "8 lines" over the list. */
+@Composable
+private fun OrderCount(items: String, lines: String) = Row(
+    Modifier.fillMaxWidth().words(through = OrderGrowOnly).padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 16.dp),
+    verticalAlignment = Alignment.Bottom,
+) {
+    Text(items, style = display(34, -0.6), modifier = Modifier.weight(1f).alignByBaseline())
+    Text(lines, fontSize = 15.sp, color = mk.muted, modifier = Modifier.alignByBaseline())
+}
+
+@Composable
+private fun GrandTotal(total: String) = Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 12.dp).semantics(mergeDescendants = true) {}) {
+    Text("Total", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+    Text(total, fontSize = 18.sp, fontWeight = FontWeight.Bold)
 }
 
 /**
@@ -165,13 +217,7 @@ fun OrderContent(
         // Another till's sale: what was bought stays on that till.
         Muted("What was bought stays on the till that rang it up.", Modifier.padding(24.dp).weight(1f), size = 15)
     } else {
-        Row(
-            Modifier.fillMaxWidth().words(through = OrderGrowOnly).padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 16.dp),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            Text(SaleText.items(receipt), style = display(34, -0.6), modifier = Modifier.weight(1f).alignByBaseline())
-            Text(OrderText.lines(receipt), fontSize = 15.sp, color = mk.muted, modifier = Modifier.alignByBaseline())
-        }
+        OrderCount(SaleText.items(receipt), OrderText.lines(receipt))
         // In the app, the sale's order card's ground grows into this one (M7) and its lines fade in over it; in the panel
         // there's no stage and it's a card.
         Box(Modifier.weight(1f).padding(horizontal = 16.dp).fillMaxWidth()) {
@@ -181,40 +227,41 @@ fun OrderContent(
             OrderList(receipt, Modifier.matchParentSize().words(over = Move.OrderGrow, on = ground).clip(CardShape))
         }
     }
-    Box(Modifier.words(through = OrderGrowOnly)) { ShowCodeBar(sale, now, onShowCode) }
+    Box(Modifier.words(through = OrderGrowOnly)) {
+        val pos = posOf(sale)
+        val seconds = secondsLeft(sale.expiresAt, now.longValue)
+        ShowCodeBar("${SaleText.amount(sale)} · ${CodeText.under(sale, pos, seconds)}", onShowCode)
+    }
 }
 
 /** Every line of the order, its subtotal, extras, tax and total; they scroll. */
 @Composable
 private fun OrderList(receipt: Receipt, modifier: Modifier) {
     Column(modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp)) {
-        receipt.lineItems.forEach { item -> Line(item, receipt.currency) }
+        receipt.lineItems.forEach { item -> Line(OrderText.quantity(item), item.description, SaleText.plain(item.lineTotal, receipt.currency)) }
         Total("Subtotal", SaleText.plain(OrderText.subtotal(receipt), receipt.currency), Modifier.padding(top = 12.dp, bottom = 4.dp))
         OrderText.extras(receipt).forEach { (name, value) -> Total(name, value, Modifier.padding(vertical = 4.dp)) }
         receipt.tax?.taxLines.orEmpty().forEach { tax ->
             Total("Tax ${OrderText.rate(tax.rate)}", SaleText.plain(tax.taxAmount, receipt.currency), Modifier.padding(vertical = 4.dp))
         }
-        Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 12.dp).semantics(mergeDescendants = true) {}) {
-            Text("Total", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            Text(OrderText.total(receipt), fontSize = 18.sp, fontWeight = FontWeight.Bold)
-        }
+        GrandTotal(OrderText.total(receipt))
     }
 }
 
 /** One line of the order: "2 ×", what it is (two lines at most), and its total, which never wraps. */
 @Composable
-private fun Line(item: Receipt.LineItem, currency: String) {
+private fun Line(quantity: String, description: String, price: String) {
     Row(
         Modifier.fillMaxWidth().padding(vertical = 11.dp).semantics(mergeDescendants = true) {},
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         // Never wraps: "0.5 ×" and "12 ×" stay on one line at any font scale.
         Text(
-            OrderText.quantity(item), fontSize = 16.sp, color = mk.muted, maxLines = 1, softWrap = false,
+            quantity, fontSize = 16.sp, color = mk.muted, maxLines = 1, softWrap = false,
             modifier = Modifier.widthIn(min = 36.dp),
         )
-        Text(item.description, fontSize = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-        Text(SaleText.plain(item.lineTotal, currency), fontSize = 16.sp, maxLines = 1, softWrap = false)
+        Text(description, fontSize = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        Text(price, fontSize = 16.sp, maxLines = 1, softWrap = false)
     }
     Box(Modifier.fillMaxWidth().height(1.dp).background(mk.divider))
 }
@@ -227,7 +274,7 @@ private fun Total(name: String, value: String, modifier: Modifier) = Row(modifie
 
 /** The orange bar at the foot: "Show the code", the amount and the time left, and the code's glyph. */
 @Composable
-private fun ShowCodeBar(sale: TillSale, now: LongState, onShowCode: () -> Unit) = Box(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 20.dp)) {
+private fun ShowCodeBar(line: String, onShowCode: () -> Unit) = Box(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 20.dp)) {
     Row(
         Modifier.fillMaxWidth().heightIn(min = 64.dp).clip(RoundedCornerShape(32.dp)).background(mk.accent)
             .clickable(onClick = onShowCode)
@@ -242,10 +289,7 @@ private fun ShowCodeBar(sale: TillSale, now: LongState, onShowCode: () -> Unit) 
     ) {
         Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
             Text("Show the code", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = mk.onAccent)
-            val pos = posOf(sale)
-            Countdown(now, sale.expiresAt, fontSize = 13.sp, color = mk.onAccent, maxLines = 1, overflow = TextOverflow.Ellipsis) {
-                "${SaleText.amount(sale)} · ${CodeText.under(sale, pos, it)}"
-            }
+            Text(line, fontSize = 13.sp, color = mk.onAccent, maxLines = 1, overflow = TextOverflow.Ellipsis, style = LocalTextStyle.current.merge(tabular))
         }
         Box(Modifier.size(48.dp).clip(CircleShape).background(mk.onAccent), contentAlignment = Alignment.Center) {
             Icon(MkIcons.Code, contentDescription = null, tint = Fixed.White, modifier = Modifier.size(22.dp))

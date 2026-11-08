@@ -1,6 +1,9 @@
 //! The parts the screens' records are made of.
 
 use monokulo_client::PointOfSale;
+use till_sales::TillSale;
+
+use crate::sale_text;
 
 /// What a screen is drawn on, where its words differ: iOS has no
 /// UnifiedPush (its wake-ups arrive as alert pushes through the relay), no
@@ -114,6 +117,26 @@ impl Press {
 
     pub fn enabled(self, enabled: bool) -> Press {
         Press { enabled, ..self }
+    }
+}
+
+/// A sale's phase ring: which of the four steps it's at ([`sale_text::step`]),
+/// and, seen or confirming, its payment's confirmations of those the store
+/// asks for. How far the arc goes and how it turns is the platform's drawing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct Ring {
+    pub step: u8,
+    pub confirmations: Option<u32>,
+    pub required: Option<u32>,
+}
+
+/// `sale`'s ring.
+pub fn ring(sale: &TillSale) -> Ring {
+    Ring {
+        step: sale_text::step(sale.phase),
+        confirmations: sale.confirmations,
+        required: sale.confirmations_required,
     }
 }
 

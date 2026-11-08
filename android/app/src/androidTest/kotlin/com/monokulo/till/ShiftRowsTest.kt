@@ -7,8 +7,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import com.monokulo.till.core.PointOfSale
-import com.monokulo.till.OneClockTest.Companion.noActions
-import com.monokulo.till.OneClockTest.Companion.status
 import com.monokulo.till.sales.TillSale
 import com.monokulo.till.ui.Motion
 import com.monokulo.till.ui.ShiftScreen
@@ -25,14 +23,14 @@ class ShiftRowsTest {
     private val now = mutableLongStateOf(1_000)
 
     private fun top(sale: TillSale): Float =
-        compose.onNodeWithText(ShiftList.row(sale, PointOfSale.Square, 0).title, substring = true, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.top
+        compose.onNodeWithText(rowTitle(sale), substring = true, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.top
 
     @Test
     fun aNewSaleAtTheTopSlidesTheOthersDownByOneRow() {
         val a = testSale("a1", expiresAt = 1_600)
         val b = testSale("b2", expiresAt = 1_600)
         var sales by mutableStateOf(listOf(a, b))
-        compose.setContent { Till { ShiftScreen(status, sales, noActions, now) } }
+        compose.setContent { Till { EngineShift(sales, now.longValue, noActions) } }
         compose.waitForIdle()
         val pitch = top(b) - top(a)
         val before = top(a)
@@ -55,7 +53,7 @@ class ShiftRowsTest {
         val a = testSale("a1", expiresAt = 1_600)
         val b = testSale("b2", expiresAt = 1_600)
         var sales by mutableStateOf(listOf(a, b))
-        compose.setContent { Till(Motion.Still) { ShiftScreen(status, sales, noActions, now) } }
+        compose.setContent { Till(Motion.Still) { EngineShift(sales, now.longValue, noActions) } }
         compose.waitForIdle()
         val pitch = top(b) - top(a)
         val before = top(a)

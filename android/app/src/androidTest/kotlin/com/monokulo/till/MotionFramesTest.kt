@@ -1,5 +1,6 @@
 package com.monokulo.till
 
+import uniffi.till_app.Screen
 import android.graphics.Bitmap
 import android.os.Environment
 import androidx.compose.animation.core.SeekableTransitionState
@@ -24,8 +25,6 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.test.platform.app.InstrumentationRegistry
-import com.monokulo.till.OneClockTest.Companion.noActions
-import com.monokulo.till.OneClockTest.Companion.status
 import com.monokulo.till.core.SalePhase
 import com.monokulo.till.ui.CodeScreen
 import androidx.compose.runtime.CompositionLocalProvider
@@ -77,10 +76,10 @@ class MotionFramesTest {
                 CompositionLocalProvider(LocalGroundTracks provides { key -> GroundTrack(key).also { tracks.getOrPut(key) { mutableListOf() } += it } }) {
                 TillStage(state, cameUpByItself = { byItself }) { s ->
                     when (s) {
-                        is Screen.Code -> CodeScreen(shown, onBack = {})
-                        is Screen.Order -> OrderPage(shown, "Back to the sale", onBack = {}, onShowCode = {})
-                        is Screen.Sale -> SaleScreen(shown, "Front", refunding = false, refundProblem = null, refundSheet = null, actions = noActions, now = now)
-                        else -> ShiftScreen(status, sales, noActions, now)
+                        is Screen.Code -> CodeScreen(rememberFace(shown), onBack = {})
+                        is Screen.Order -> OrderPage(rememberFace(shown), "Back to the sale", onBack = {}, onShowCode = {})
+                        is Screen.Sale -> SaleScreen(rememberFace(shown, now.longValue), noActions)
+                        else -> EngineShift(sales, now.longValue, noActions)
                     }
                 }
                 }

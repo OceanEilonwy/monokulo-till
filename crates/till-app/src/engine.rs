@@ -188,6 +188,10 @@ pub(crate) struct State {
     bubble_allowed: bool,
     /// Orbot's proxy, as the platform's last probe found it.
     tor_running: Option<bool>,
+    /// Wake-ups' "My own Bell" picked with no address saved, and its field
+    /// as typed ([`Action::EditOwnBell`]).
+    own_picked: bool,
+    own_typed: Option<String>,
     /// The shift's chip, and whether its tray is folded.
     filter: ShiftFilter,
     folded: bool,
@@ -264,6 +268,8 @@ impl State {
             alerts_allowed: false,
             bubble_allowed: false,
             tor_running: None,
+            own_picked: false,
+            own_typed: None,
             filter: ShiftFilter::All,
             folded: true,
             close_sheet: None,
@@ -538,11 +544,29 @@ impl State {
     fn go(&mut self, screen: Screen) {
         self.problem = None;
         self.by_itself = false;
+        self.unfold_for(&screen);
         // Going to the screen already up changes nothing the stage would land from.
         if screen != self.screen {
             self.resting_on = None;
         }
         self.screen = screen;
+    }
+
+    /// Back on the shift from a sale whose row the folded tray hides: the
+    /// tray opens first, so the row is there for the sale to shrink into on
+    /// the change's first frame (android.md 269, 289).
+    fn unfold_for(&mut self, to: &Screen) {
+        if *to != Screen::Till || !self.folded {
+            return;
+        }
+        let Some(order_id) = till::order_id(&self.screen) else {
+            return;
+        };
+        let Some(p) = &self.parts else { return };
+        let sales = p.runner.state().till.sales;
+        if till_screens::shift::folds(&sales, self.filter, order_id) {
+            self.folded = false;
+        }
     }
 
     fn go_home(&mut self) {
@@ -710,7 +734,28 @@ impl State {
             Action::SetLiveActivity { .. } | Action::SetCodeInIsland { .. } => {}
             Action::Disconnect => self.disconnect(),
             Action::Forget => self.forget(),
-            Action::ChooseWakeUps { choice } => self.choose_wake_ups(choice),
+            Action::ChooseWakeUps { choice } => {
+                self.own_picked = false;
+                self.own_typed = None;
+                self.choose_wake_ups(choice);
+            }
+            Action::EditOwnBell { picked, typed } => {
+                // The row tapped with an address saved: that Bell, at once.
+                let saved = self.model().and_then(|m| m.own_bell);
+                match saved {
+                    Some(bell) if picked && typed.is_none() => {
+                        self.own_picked = false;
+                        self.own_typed = None;
+                        if let Some(p) = &self.parts {
+                            p.wake_ups.choose(WakeUpChoice::OwnBell { bell });
+                        }
+                    }
+                    _ => {
+                        self.own_picked = picked;
+                        self.own_typed = typed;
+                    }
+                }
+            }
             Action::ChooseDistributor { name } => {
                 if let Some(p) = &self.parts {
                     p.wake_ups.choose_distributor(&name);
@@ -1571,8 +1616,8 @@ impl State {
             status: p.wake_ups.status().borrow().clone(),
             monokulo_bell: p.monokulo_bell.clone(),
             own_bell: model.own_bell,
-            own_picked: false,
-            typed: None,
+            own_picked: self.own_picked,
+            typed: self.own_typed.clone(),
             pos: model.point_of_sale,
             distributor_names: Default::default(),
             allow_http: self.config.debug,

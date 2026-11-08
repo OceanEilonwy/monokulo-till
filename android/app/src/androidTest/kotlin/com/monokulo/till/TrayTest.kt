@@ -31,8 +31,6 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.unit.dp
-import com.monokulo.till.OneClockTest.Companion.noActions
-import com.monokulo.till.OneClockTest.Companion.status
 import com.monokulo.till.core.PointOfSale
 import com.monokulo.till.core.SalePhase
 import com.monokulo.till.sales.TillSale
@@ -64,7 +62,7 @@ class TrayTest {
     private fun busy(n: Int) = List(n) { testSale("w${n - it}", expiresAt = 1_600) } +
         listOf(testSale("p1", SalePhase.Paid, paidAt = 900), testSale("e1", SalePhase.Expired, expiresAt = 900))
 
-    private fun title(sale: TillSale) = ShiftList.row(sale, PointOfSale.Square, 0).title
+    private fun title(sale: TillSale) = rowTitle(sale)
 
     private fun shows(sale: TillSale) = compose.onAllNodes(SemanticsMatcher("row ${sale.orderId}") { n ->
         n.config.getOrNull(SemanticsProperties.Text)?.any { it.text == title(sale) } == true
@@ -86,7 +84,7 @@ class TrayTest {
         }, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
 
     private fun show(sales: List<TillSale>, motion: Motion = Motion.Full) {
-        compose.setContent { Till(motion) { ShiftScreen(status, sales, noActions, now) } }
+        compose.setContent { Till(motion) { EngineShift(sales, now.longValue, noActions) } }
         compose.waitForIdle()
     }
 
@@ -96,7 +94,7 @@ class TrayTest {
         show(sales)
         assertEquals(listOf(true, true, true, false), sales.take(4).map(::shows), "three rows, the fourth folded away")
         assertTrue(exists("+1") && folds())
-        assertTrue(shows(sales[4]) && exists(ShiftList.EARLIER), "the paid sale under Earlier")
+        assertTrue(shows(sales[4]) && exists(EARLIER), "the paid sale under Earlier")
         compose.onNodeWithContentDescription("Show 1 more waiting sale").performClick()
         compose.waitForIdle()
         assertTrue(sales.take(4).all(::shows), "open, every live sale is a row")
@@ -123,13 +121,13 @@ class TrayTest {
         show(sales)
         assertTrue(sales.take(2).all(::shows))
         assertTrue(!folds() && !exists("Show fewer"))
-        assertTrue(exists("Waiting for payment, 2 sales") && exists(ShiftList.EARLIER))
+        assertTrue(exists("Waiting for payment, 2 sales") && exists(EARLIER))
     }
 
     @Test
     fun noLiveSaleNoTrayAndNoHeaders() {
         show(busy(0))
-        assertTrue(!exists(ShiftList.TRAY_HEADER, substring = true) && !exists(ShiftList.EARLIER) && !folds())
+        assertTrue(!exists(TRAY_HEADER, substring = true) && !exists(EARLIER) && !folds())
         assertTrue(shows(testSale("p1", SalePhase.Paid, paidAt = 900)), "the list reads as it always has")
     }
 
@@ -148,7 +146,7 @@ class TrayTest {
     fun theFoldRowAndTheHeaderSayWhatTheyAre() {
         show(busy(4))
         compose.onNodeWithContentDescription("Waiting for payment, 4 sales").assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading))
-        compose.onNodeWithText(ShiftList.EARLIER).assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading))
+        compose.onNodeWithText(EARLIER).assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading))
         val fold = compose.onNodeWithContentDescription("Show 1 more waiting sale")
         fold.assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
         fold.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Collapsed"))
@@ -161,7 +159,7 @@ class TrayTest {
     fun theFoldIsKeptAcrossARotation() {
         val restore = StateRestorationTester(compose)
         val sales = busy(4)
-        restore.setContent { Till { ShiftScreen(status, sales, noActions, now) } }
+        restore.setContent { Till { EngineShift(sales, now.longValue, noActions) } }
         compose.onNodeWithContentDescription("Show 1 more waiting sale").performClick()
         compose.waitForIdle()
         restore.emulateSavedInstanceStateRestore()
@@ -174,7 +172,7 @@ class TrayTest {
     fun aSalePaidMovesFromTheTrayToTheTopOfEarlier() {
         val start = busy(3)
         var sales by mutableStateOf(start)
-        compose.setContent { Till { ShiftScreen(status, sales, noActions, now) } }
+        compose.setContent { Till { EngineShift(sales, now.longValue, noActions) } }
         compose.waitForIdle()
         val w2 = start[1]
         val from = top(w2)
@@ -198,14 +196,14 @@ class TrayTest {
     fun theLastLiveSaleGoneTakesTheHeadersWithIt() {
         val start = busy(1)
         var sales by mutableStateOf(start)
-        compose.setContent { Till { ShiftScreen(status, sales, noActions, now) } }
+        compose.setContent { Till { EngineShift(sales, now.longValue, noActions) } }
         compose.waitForIdle()
         assertTrue(exists("Waiting for payment, 1 sale"))
         compose.mainClock.autoAdvance = false
         sales = listOf(testSale("w1", SalePhase.Paid, paidAt = 1_000)) + start.drop(1)
         compose.mainClock.advanceTimeByFrame()
         compose.mainClock.advanceTimeBy(1_000)
-        assertTrue(!exists(ShiftList.TRAY_HEADER, substring = true) && !exists(ShiftList.EARLIER))
+        assertTrue(!exists(TRAY_HEADER, substring = true) && !exists(EARLIER))
     }
 
     /** A new sale on a showing shift lands at the top of the tray; folded, the third row goes into the fold. */
@@ -213,7 +211,7 @@ class TrayTest {
     fun aNewSaleLandsAtTheTopOfTheTray() {
         val start = busy(3)
         var sales by mutableStateOf(start)
-        compose.setContent { Till { ShiftScreen(status, sales, noActions, now) } }
+        compose.setContent { Till { EngineShift(sales, now.longValue, noActions) } }
         compose.waitForIdle()
         val first = top(start[0])
         compose.mainClock.autoAdvance = false

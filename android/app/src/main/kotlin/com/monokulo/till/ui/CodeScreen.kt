@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -48,7 +49,6 @@ import com.monokulo.till.words
 import com.monokulo.till.sharedGround
 import com.monokulo.till.rememberGroundTrack
 import com.monokulo.till.sales.TillSale
-import com.monokulo.till.sales.live
 
 /** The line under a code's amount: what's left of it, or how far the payment has got. */
 object CodeText {
@@ -62,15 +62,17 @@ object CodeText {
 }
 
 /**
- * The code enlarged (the design's CodeB, note s3): the whole screen white
- * whatever the theme, at full brightness and kept on, the code as large as
- * the screen allows. A tap anywhere or the shrink button goes back
- * ([onBack]; Android's back is the activity's, which previews it); so does the sale stopping being live (paid, ended,
- * closed), where the sale's own page says what happened.
+ * The code enlarged (the design's CodeB, note s3), as the engine wrote it
+ * ([SaleFace.code]): the whole screen white whatever the theme, at full
+ * brightness and kept on, the code as large as the screen allows. A tap
+ * anywhere or the shrink button goes back ([onBack]; Android's back is the
+ * activity's, which previews it); the engine goes back too once the sale
+ * stops being live (paid, ended, closed), where the sale's own page says
+ * what happened.
  */
 @Composable
-fun CodeScreen(sale: TillSale, onBack: () -> Unit) {
-    if (!sale.live) LaunchedEffect(sale.orderId) { onBack() }
+fun CodeScreen(sale: SaleFace, onBack: () -> Unit) {
+    val code = sale.code
     KeepScreenOn()
     // Once the white has spread to the screen (a brightness jump mid-grow would flash the whole display, M8), and
     // through a back gesture until it commits: a cancelled one springs back to the code at the brightness it had.
@@ -80,7 +82,6 @@ fun CodeScreen(sale: TillSale, onBack: () -> Unit) {
     val stage = LocalStage.current
     val white by remember(stage) { derivedStateOf { stage == null || stage.shown() >= Nav.HALF_WAY } }
     if (white) DarkBarIcons()
-    val now = rememberNowSeconds()
     // The design's light roles, fixed: this screen is white in both themes.
     val ink = LightTokens.ink
     val muted = LightTokens.muted
@@ -102,9 +103,9 @@ fun CodeScreen(sale: TillSale, onBack: () -> Unit) {
                 // The heading and the foot come in over the white once the sale's words have gone, at their own size.
                 Row(Modifier.fillMaxWidth().words(over = Move.CodeGrow, on = ground).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text(SaleText.amount(sale), style = display(30, -0.5), color = ink)
-                        val pos = posOf(sale)
-                        Countdown(now, sale.expiresAt, fontSize = 15.sp, color = muted) { CodeText.under(sale, pos, it) }
+                        Text(code.amount, style = display(30, -0.5), color = ink)
+                        // The engine writes the time left and draws it again each second (docs/decisions/core.md 37).
+                        Text(code.under, fontSize = 15.sp, color = muted, style = LocalTextStyle.current.merge(tabular))
                     }
                     Box(
                         Modifier.size(48.dp).clip(CircleShape).background(LightTokens.inset).clickable(role = Role.Button, onClick = onBack),
@@ -113,7 +114,7 @@ fun CodeScreen(sale: TillSale, onBack: () -> Unit) {
                 }
                 BoxWithConstraints(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     QrCode(
-                        sale.code.uri,
+                        code.code,
                         "Payment code, tap to shrink",
                         Modifier.size(min(maxWidth, maxHeight)),
                         padding = 12.dp,
@@ -124,7 +125,7 @@ fun CodeScreen(sale: TillSale, onBack: () -> Unit) {
                 }
                 Column(Modifier.words(over = Move.CodeGrow, on = ground), horizontalAlignment = Alignment.CenterHorizontally) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        PhaseRing(sale, 26.dp, track = Fixed.Track, fill = Fixed.Accent, paid = Fixed.Paid)
+                        PhaseRing(code.ring, 26.dp, track = Fixed.Track, fill = Fixed.Accent, paid = Fixed.Paid)
                         Text("Scan with any Monero wallet", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = ink)
                     }
                     Text("Tap anywhere to shrink", fontSize = 13.sp, color = muted, modifier = Modifier.padding(top = 6.dp))

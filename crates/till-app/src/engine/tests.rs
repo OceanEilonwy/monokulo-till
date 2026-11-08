@@ -812,6 +812,59 @@ fn the_islands_switches_are_kept_and_shown_on_iphone_only() {
 }
 
 #[test]
+fn my_own_bell_is_typed_on_the_platform_and_checked_by_the_engine() {
+    let (engine, rx, _) = start(config(None), Arc::new(FakePlatform::default()));
+    screen(&rx, Screen::Welcome);
+    engine.send(Action::EditOwnBell {
+        picked: true,
+        typed: Some("not a bell".into()),
+    });
+    let field = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::WakeUps { view }) => view.own_field.clone(),
+        _ => None,
+    });
+    assert!(!field.use_this.enabled, "not a Bell's address");
+    assert!(field.problem.is_some());
+    engine.send(Action::EditOwnBell {
+        picked: true,
+        typed: Some("https://bell.example.com".into()),
+    });
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::WakeUps { view }) => view
+            .own_field
+            .as_ref()
+            .filter(|f| f.use_this.enabled && f.problem.is_none())
+            .map(|_| ()),
+        _ => None,
+    });
+    engine.send(Action::ChooseWakeUps {
+        choice: WakeUps::OwnBell {
+            address: "https://bell.example.com".into(),
+        },
+    });
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::WakeUps { view }) if view.own_bell.selected => Some(()),
+        _ => None,
+    });
+    engine.send(Action::ChooseWakeUps {
+        choice: WakeUps::Timer,
+    });
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::WakeUps { view }) if view.own_field.is_none() => Some(()),
+        _ => None,
+    });
+    // Tapped again, the saved address is chosen at once.
+    engine.send(Action::EditOwnBell {
+        picked: true,
+        typed: None,
+    });
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::WakeUps { view }) if view.own_bell.selected => Some(()),
+        _ => None,
+    });
+}
+
+#[test]
 fn work_done_for_an_earlier_generation_is_dropped() {
     let (engine, rx, _) = start(config(None), Arc::new(FakePlatform::default()));
     screen(&rx, Screen::Welcome);

@@ -16,14 +16,16 @@ import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.unit.LayoutDirection
-import com.monokulo.till.OneClockTest.Companion.noActions
-import com.monokulo.till.OneClockTest.Companion.status
 import com.monokulo.till.core.PointOfSale
 import com.monokulo.till.core.SalePhase
 import com.monokulo.till.sales.TillSale
 import com.monokulo.till.ui.Motion
 import com.monokulo.till.ui.ShiftScreen
 import com.monokulo.till.ui.TillActions
+import com.monokulo.till.engine.CloseSheet
+import uniffi.till_app.Action
+import uniffi.till_screens.CloseChoice
+import androidx.compose.runtime.mutableStateOf
 import org.junit.Rule
 import org.junit.Test
 import kotlin.test.assertEquals
@@ -42,19 +44,36 @@ class SwipeToCloseTest {
     private val now = mutableLongStateOf(1_000)
     private val opened = mutableListOf<String>()
     private val closed = mutableListOf<Pair<String, CloseChoice>>()
+    private var sales = emptyList<TillSale>()
+
+    /** The close sheet, as the engine keeps it: up on a row's AskClose, down on an answer or a dismissal. */
+    private val sheet = mutableStateOf<CloseSheet?>(null)
     private val actions = TillActions(
-        onSettings = {}, onOpen = { opened += it }, onBack = {}, onEnlarge = {}, onShowOrder = {}, onClose = { id, choice -> closed += id to choice },
-        onRefund = {}, onReopen = {}, onCopy = {}, onCopyXmr = {}, onBackToPos = {}, onRefundDone = {}, onRefundSheetDismissed = {}, onSignIn = {},
-        onForget = {}, onStartShift = {},
+        send = { action ->
+            when (action) {
+                is Action.AskClose -> sheet.value = sales.first { it.orderId == action.orderId }.let { CloseSheet(it.orderId, closeView(it)) }
+                is Action.DismissClose -> sheet.value = null
+                is Action.Close -> {
+                    sheet.value = null
+                    closed += action.orderId to action.choice
+                }
+                is Action.OpenSale -> opened += action.orderId
+                else -> Unit
+            }
+        },
+        onBackToPos = {},
     )
 
-    private fun title(sale: TillSale) = ShiftList.row(sale, PointOfSale.Square, 0).title
+    private fun title(sale: TillSale) = rowTitle(sale)
 
     private fun row(sale: TillSale) = compose.onNodeWithText(title(sale))
 
     private fun show(sales: List<TillSale>, motion: Motion = Motion.Full, direction: LayoutDirection = LayoutDirection.Ltr) {
+        this.sales = sales
         compose.setContent {
-            CompositionLocalProvider(LocalLayoutDirection provides direction) { Till(motion) { ShiftScreen(status, sales, actions, now) } }
+            CompositionLocalProvider(LocalLayoutDirection provides direction) {
+                Till(motion) { EngineShift(sales, now.longValue, actions, close = sheet.value) }
+            }
         }
         compose.waitForIdle()
     }
@@ -103,13 +122,13 @@ class SwipeToCloseTest {
         swipe(sale, to = 0.2f)
         compose.waitForIdle()
         assertTrue(asks(), "the X's sheet is up")
-        for (choice in Closing.choices(sale)) assertTrue(compose.onAllNodes(SemanticsMatcher("answer") { n ->
-            n.config.getOrNull(SemanticsProperties.Text).orEmpty().any { it.text == Closing.title(choice, sale, PointOfSale.Square) }
-        }).fetchSemanticsNodes().isNotEmpty(), "its answer $choice")
+        for (answer in closeView(sale)!!.answers) assertTrue(compose.onAllNodes(SemanticsMatcher("answer") { n ->
+            n.config.getOrNull(SemanticsProperties.Text).orEmpty().any { it.text == answer.title }
+        }).fetchSemanticsNodes().isNotEmpty(), "its answer ${answer.choice}")
         assertEquals(rest, end(sale), 0.5f, "the row is back in its place under the sheet")
         compose.onNodeWithText("Yes: keep the code up").performClick()
         compose.waitForIdle()
-        assertEquals(listOf("w1" to CloseChoice.KeepUp), closed, "the answer goes up as the X's does")
+        assertEquals(listOf("w1" to CloseChoice.KEEP_UP), closed, "the answer goes up as the X's does")
         assertFalse(asks())
         assertEquals(emptyList(), opened, "a swipe opens nothing")
     }
@@ -120,9 +139,9 @@ class SwipeToCloseTest {
         show(listOf(sale))
         swipe(sale, to = 0.2f)
         compose.waitForIdle()
-        compose.onNodeWithText(Closing.title(CloseChoice.RefundIt, sale, PointOfSale.Square)).performClick()
+        compose.onNodeWithText(closeView(sale)!!.answers.first { it.choice == CloseChoice.REFUND_IT }.title).performClick()
         compose.waitForIdle()
-        assertEquals(listOf("w1" to CloseChoice.RefundIt), closed)
+        assertEquals(listOf("w1" to CloseChoice.REFUND_IT), closed)
         assertEquals(listOf("w1"), opened, "the X's refund stays on the sale: from the row, the sale opens")
     }
 

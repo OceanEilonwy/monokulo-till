@@ -13,7 +13,7 @@ use crate::close;
 use crate::pos_text;
 use crate::sale_text;
 use crate::time::{DeviceClock, time};
-use crate::view::{Device, Press, Tone};
+use crate::view::{Device, Press, Ring, Tone};
 
 /// The shift's filter chips.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -104,6 +104,8 @@ pub struct ShiftRow {
     /// The title in muted, as a refunded sale's is: nothing more to do.
     pub quiet: bool,
     pub icon: StateIcon,
+    /// The ring drawn while the icon is [`StateIcon::Ring`].
+    pub ring: Ring,
     pub opens: RowOpens,
 }
 
@@ -421,6 +423,7 @@ pub fn row(
         tone,
         quiet: standing == Standing::Refunded,
         icon,
+        ring: crate::view::ring(sale),
         opens: opens(sale),
     }
 }
@@ -544,6 +547,8 @@ pub enum ShiftEntry {
     TrayHeader {
         label: String,
         said: String,
+        /// How many sales are live, beside the label.
+        count: u32,
     },
     Row {
         order_id: String,
@@ -558,6 +563,8 @@ pub enum ShiftEntry {
         label: String,
         said: String,
         open: bool,
+        /// How many rows the fold hides, or would hide folded.
+        hidden: u32,
     },
     Earlier {
         label: String,
@@ -683,6 +690,7 @@ pub fn shift(
             ShiftItem::TrayHeader { count } => ShiftEntry::TrayHeader {
                 label: TRAY_HEADER.into(),
                 said: tray_header_said(count),
+                count: count as u32,
             },
             ShiftItem::Earlier => ShiftEntry::Earlier {
                 label: EARLIER.into(),
@@ -691,6 +699,7 @@ pub fn shift(
                 label: fold_label(hidden, open),
                 said: fold_said(hidden, open),
                 open,
+                hidden: hidden as u32,
             },
             ShiftItem::Row { sale, ends, tray } => {
                 let live = sale.live();
@@ -1567,7 +1576,8 @@ pub(crate) mod tests {
             view.entries[0],
             ShiftEntry::TrayHeader {
                 label: "Waiting for payment".into(),
-                said: "Waiting for payment, 1 sale".into()
+                said: "Waiting for payment, 1 sale".into(),
+                count: 1,
             }
         );
         let ShiftEntry::Row {
