@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The Monokulo mark (monokulo xtask/src/logo.rs), for the launcher. -->
+<!-- The Monokulo Till mark in one colour, for themed icons and notifications. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-<group android:translateX="54" android:translateY="54"><group android:scaleX="1.48" android:scaleY="1.48"><group android:translateX="-30" android:translateY="-28"><path android:fillColor="#FF000000" android:pathData="M14.25,28 a15.75,15.75 0 1,0 31.5,0 a15.75,15.75 0 1,0 -31.5,0 Z"/><path android:strokeColor="#FF000000" android:strokeWidth="4.5" android:pathData="M12,28 a18,18 0 1,0 36,0 a18,18 0 1,0 -36,0 Z"/></group></group></group>
+<!-- The mark is drawn on a 120 grid; 0.54 keeps its corners inside the 66dp safe zone. -->
+<group android:translateX="54" android:translateY="54"><group android:scaleX="0.54" android:scaleY="0.54"><group android:translateX="-60" android:translateY="-60">
+<path android:pathData="M30,12H90A18,18 0 0 1 108,30V90A18,18 0 0 1 90,108H30A18,18 0 0 1 12,90V30A18,18 0 0 1 30,12ZM33.0,24.5H63.0A11.5,11.5 0 0 1 74.5,36.0V66.0A11.5,11.5 0 0 1 63.0,77.5H33.0A11.5,11.5 0 0 1 21.5,66.0V36.0A11.5,11.5 0 0 1 33.0,24.5ZM83,28H93A3,3 0 0 1 96,31V36A3,3 0 0 1 93,39H83A3,3 0 0 1 80,36V31A3,3 0 0 1 83,28ZM83,45.5H93A3,3 0 0 1 96,48.5V53.5A3,3 0 0 1 93,56.5H83A3,3 0 0 1 80,53.5V48.5A3,3 0 0 1 83,45.5ZM83,63H93A3,3 0 0 1 96,66V71A3,3 0 0 1 93,74H83A3,3 0 0 1 80,71V66A3,3 0 0 1 83,63ZM27.5,88H92.5A3.5,3.5 0 0 1 96,91.5V91.5A3.5,3.5 0 0 1 92.5,95H27.5A3.5,3.5 0 0 1 24,91.5V91.5A3.5,3.5 0 0 1 27.5,88Z" android:fillColor="#FF000000" android:fillType="evenOdd"/>
+<path android:pathData="M33.0,29.5H63.0A6.5,6.5 0 0 1 69.5,36.0V66.0A6.5,6.5 0 0 1 63.0,72.5H33.0A6.5,6.5 0 0 1 26.5,66.0V36.0A6.5,6.5 0 0 1 33.0,29.5ZM43,46H53V56H43Z" android:fillColor="#FF000000" android:fillType="evenOdd"/>
+</group></group></group>
 </vector>

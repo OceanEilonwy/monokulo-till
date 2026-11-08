@@ -4652,3 +4652,14 @@ names the environment. Refines 95, 96 and 132.
      (whole or not at all) is unchanged; arriving it is still whole from
      its first frame (§10 rule 6), and the no-ground fade (296) and the
      carry (299) are as they were.
+314. **The launcher icon is the Monokulo Till mark**: a square card
+     terminal whose screen is the Monokulo lens redrawn on a square, with
+     three keys (the last orange) and a card slot, chosen from the logo
+     concepts (https://claude.ai/artifact/LiP5cRHAYLgrVM4X2YxKbs). The
+     terminal is ink on paper, and paper on the night background
+     (`drawable-night`) so it doesn't vanish on a dark launcher. It's
+     drawn at 0.54 of its 120 grid so its rounded corners stay inside the
+     adaptive icon's 66dp safe zone. The monochrome (themed) icon cuts
+     the screen, keys and slot out of the body. Notifications keep their
+     own small icons (`ic_mark*`), and the logo inside the app
+     (`ui/Mark.kt`) is still Monokulo's.
