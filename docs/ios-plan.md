@@ -328,7 +328,7 @@ trait, with a no-op version on Android) so iOS doesn't need its own fix.
 
 | Phase | Work | Boards | Needs |
 | --- | --- | --- | --- |
-| **I0. Skeleton** | XcodeGen project, `build-core.sh`, the `TillCore` package, an app that starts the engine and shows a raw `Update`; CI job `ios.yml` (§7) | — | Core phase 0 |
+| **I0. Skeleton** (written, checked by CI) | XcodeGen project, `build-core.sh`, the `TillCore` package, an app that starts the engine and shows a raw `Update`; CI job `ios.yml` (§7) | — | Core phase 0 |
 | **I1. Look and parts** | Colour and type tokens, Manrope bundled, Logo, the LoadingMark animation (as specified in docs/motion.md), QR view, glass buttons | Logo, LoadingMark, QR | — |
 | **I2. Onboarding** | Six steps on iPhone, full screen with the rail on iPad; connect by scanning or by universal link; Square sign-in; the test sale; alerts permission | OnbWelcome…OnbReady with PhonePos as step 4, PadOnb1–6, PadOnbRail | Core phases 1–2; the AASA file (§7) |
 | **I3. iPad till, timer only** | The shift in Slide Over as home; stashed; a sale while tucked away raises a time-sensitive local notification; the sale, close sheet, sale pages and enlarged code in the panel; full screen for the customer; paid; settings with Point of sale and Wake-ups | PadShift, PadSale, PadClose, PadDetail, PadCode, PadStashed, PadTucked, PadFront, PadPaid, PadSettings | Core phases 3 and 5 |

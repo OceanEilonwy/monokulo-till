@@ -24,3 +24,9 @@ xcuserdata/
 
 # Rust
 /target/
+
+# The Rust core for iOS, built by ios/Scripts/build-core.sh
+ios/Packages/TillCore/TillFFI.xcframework/
+ios/Packages/TillCore/Sources/TillCore/Generated/
+ios/Packages/TillCore/.build/
+ios/Packages/TillCore/.swiftpm/
