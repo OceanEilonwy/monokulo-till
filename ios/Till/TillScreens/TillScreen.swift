@@ -1,13 +1,21 @@
 import SwiftUI
 import TillCore
+import UIKit
 
 /// The till (phase I3), once setup is done: the screen the engine's
 /// `Screen` names, drawn from its records, with the close and refund
 /// sheets over it while the engine has them up. Laid out for the Slide
-/// Over panel's width; full screen, the column stays in the middle.
+/// Over panel's width; full screen on iPad, the column stays in the
+/// middle. On iPhone the till is full screen (PhoneShift, PhoneSale,
+/// PhoneClose, PhoneCode, Det*): the sale keeps Copy address at its foot
+/// and the enlarged code its own layout.
 struct TillScreen: View {
     let core: Core
     let route: Route
+
+    /// Whether this is an iPhone: an iPad's Slide Over panel is compact
+    /// too, so the size class can't tell them apart.
+    private var phone: Bool { UIDevice.current.userInterfaceIdiom == .phone }
 
     /// The sheets, up while the engine has them up.
     @State private var closeUp = false
@@ -63,7 +71,7 @@ struct TillScreen: View {
                 if sale.code.done {
                     SalePageScreen(orderId: orderId, page: sale.page, send: send)
                 } else {
-                    SaleScreen(orderId: orderId, view: sale.view, send: send)
+                    SaleScreen(orderId: orderId, view: sale.view, send: send, phone: phone)
                 }
             } else {
                 TillLoading()
@@ -73,7 +81,7 @@ struct TillScreen: View {
                 if sale.code.done {
                     SalePageScreen(orderId: orderId, page: sale.page, send: send)
                 } else {
-                    CodeScreen(view: sale.code, send: send)
+                    CodeScreen(view: sale.code, send: send, phone: phone)
                 }
             } else {
                 TillLoading()
