@@ -413,3 +413,30 @@ on from 1; the Android app's own choices are in [android.md](android.md).
 70. **New iOS words await the owner's review**: "This shift", the swipe's
     "Close", "Disconnect this device?", "Open alert settings", "Scan with
     any Monero wallet", "Tap anywhere to shrink" and the section titles.
+
+## The engine's follow-ups for the bubble and onboarding (2026-11-08)
+
+71. **The bubble's panel has its own record, `PanelView`** (built by
+    `till_screens::bubble::panel`): confirmations and how many are needed,
+    the sale's time, the time left apart from the hint, a `PanelHero`
+    (code, paid, refunded, reversed, expired), and the whole order with its
+    count words, so Android no longer works them out from words.
+    PanelTest's words, landing and pulse cases moved to `bubble.rs`; its
+    geometry and motion stay Kotlin.
+72. **The one-second timer (56) also runs while Android's panel is up over
+    other apps**, as `Action::PanelShown` reports; the bubble is down while
+    the till is disconnected (android.md 208).
+73. **The bubble's place is the engine's to keep**, under `Stores.kt`'s
+    `bubble.left` and `bubble.y`, set by `Action::MoveBubble` when a drag
+    lets go: the engine owns and caches that store, so a second writer
+    would leave it stale.
+74. **A copy says what it copies** (`Effect::CopyText`'s `CopyKind`:
+    address, amount or other), and Android's ongoing sale notification
+    carries the code and address.
+75. **Onboarding's Next and Skip are the engine's to decide**, from the
+    till's state, replacing 60: on step 4 Next signs in until a point of
+    sale is connected and then goes on, and Skip is "Not now" until then
+    and "Skip the test" after. Pasting (`PasteConnectLink`), scanning
+    (`ScanConnectCode`) and App Links (`ConnectLink`) each have their own
+    action and problem words ("Nothing to paste", "not a connect link",
+    "not a connect code"). iOS sends them.
