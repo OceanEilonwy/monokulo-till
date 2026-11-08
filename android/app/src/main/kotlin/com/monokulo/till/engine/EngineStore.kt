@@ -10,17 +10,28 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import uniffi.till_app.Action
+import uniffi.till_app.BubbleView
+import uniffi.till_app.RefundSheetView
 import uniffi.till_app.Effect
 import uniffi.till_app.Engine
 import uniffi.till_app.EngineListener
 import uniffi.till_app.Screen
 import uniffi.till_app.Update
+import uniffi.till_screens.CloseView
+import uniffi.till_screens.NotificationView
 import uniffi.till_screens.OnboardingView
 import uniffi.till_screens.SettingsView
+import uniffi.till_screens.ShiftView
 import uniffi.till_screens.WakeUpsView
 
 /** Busy with a network call (buttons wait), and what went wrong last. */
 data class Work(val busy: Boolean = false, val problem: String? = null)
+
+/** How the screen came ([Update.Nav]), and where Back would go from it. */
+data class Nav(val byItself: Boolean = false, val backTarget: Screen? = null)
+
+/** The close sheet over a sale, while one is asked. */
+data class CloseSheet(val orderId: String?, val view: CloseView?)
 
 /**
  * What the engine last published for each slice of the screen, as Tern's
@@ -35,6 +46,13 @@ object EngineStore {
     private val mutableOnboarding = MutableStateFlow<OnboardingView?>(null)
     private val mutableSettings = MutableStateFlow<SettingsView?>(null)
     private val mutableWakeUps = MutableStateFlow<WakeUpsView?>(null)
+    private val mutableNav = MutableStateFlow(Nav())
+    private val mutableShift = MutableStateFlow<ShiftView?>(null)
+    private val mutableSale = MutableStateFlow<Update.Sale?>(null)
+    private val mutableClose = MutableStateFlow(CloseSheet(null, null))
+    private val mutableRefund = MutableStateFlow<RefundSheetView?>(null)
+    private val mutableBubble = MutableStateFlow<BubbleView?>(null)
+    private val mutableNotification = MutableStateFlow<NotificationView?>(null)
     private val mutableEffects = MutableSharedFlow<Effect>(extraBufferCapacity = 16, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
     /** The core's version, once it runs. */
@@ -46,6 +64,14 @@ object EngineStore {
     val onboarding: StateFlow<OnboardingView?> = mutableOnboarding.asStateFlow()
     val settings: StateFlow<SettingsView?> = mutableSettings.asStateFlow()
     val wakeUps: StateFlow<WakeUpsView?> = mutableWakeUps.asStateFlow()
+    val nav: StateFlow<Nav> = mutableNav.asStateFlow()
+    val shift: StateFlow<ShiftView?> = mutableShift.asStateFlow()
+    /** The sale on screen, as each of its screens draws it; kept while it leaves. */
+    val sale: StateFlow<Update.Sale?> = mutableSale.asStateFlow()
+    val close: StateFlow<CloseSheet> = mutableClose.asStateFlow()
+    val refund: StateFlow<RefundSheetView?> = mutableRefund.asStateFlow()
+    val bubble: StateFlow<BubbleView?> = mutableBubble.asStateFlow()
+    val notification: StateFlow<NotificationView?> = mutableNotification.asStateFlow()
     /** What only the platform can do; dropped when nothing collects them in time. */
     val effects: SharedFlow<Effect> = mutableEffects.asSharedFlow()
 
@@ -74,6 +100,13 @@ object EngineStore {
             is Update.Onboarding -> mutableOnboarding.value = update.view
             is Update.Settings -> mutableSettings.value = update.view
             is Update.WakeUps -> mutableWakeUps.value = update.view
+            is Update.Nav -> mutableNav.value = Nav(update.byItself, update.backTarget)
+            is Update.Shift -> mutableShift.value = update.view
+            is Update.Sale -> mutableSale.value = update
+            is Update.CloseSheet -> mutableClose.value = CloseSheet(update.orderId, update.view)
+            is Update.RefundSheet -> mutableRefund.value = update.view
+            is Update.Bubble -> mutableBubble.value = update.view
+            is Update.Notification -> mutableNotification.value = update.view
         }
     }
 

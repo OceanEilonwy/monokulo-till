@@ -36,7 +36,14 @@ pub use background::{BackgroundCheck, background_check};
 pub use faces::NotificationFace;
 use monokulo_client::PointOfSale;
 pub use till_screens::Device;
-use till_screens::{OnboardingView, SettingsView, WakeUpsView};
+use till_screens::bubble::{BubbleLook, BubbleTap};
+use till_screens::order_text::OrderCard;
+use till_screens::shift::ShiftFilter;
+use till_screens::view::Press;
+use till_screens::{
+    CloseView, CodeView, NotificationView, OnboardingView, SalePageView, SaleView, SettingsView,
+    ShiftView, WakeUpsView,
+};
 
 /// The version of the core, for the platform's About screen and logs.
 pub const CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -319,6 +326,30 @@ pub enum Action {
     StartShift,
     /// Watching turned off: every live code comes down.
     StopShift,
+    /// The shift's filter chip tapped.
+    ChooseFilter {
+        filter: ShiftFilter,
+    },
+    /// The shift's tray folded or unfolded.
+    FoldTray {
+        folded: bool,
+    },
+    /// The panel's "Open the shift": every sale's full screen is left for
+    /// now, and the shift comes up.
+    OpenShift,
+    /// The platform's moving stage came to rest on `screen` (Android's
+    /// `FollowScreen`): a new sale rises out of the shift only while it
+    /// rests there (decision 266 of android.md).
+    Landed {
+        screen: Screen,
+    },
+    /// A sale's X or a row's swipe: the close sheet, while the sale has
+    /// answers.
+    AskClose {
+        order_id: String,
+    },
+    /// The close sheet went without an answer.
+    DismissClose,
     OpenSale {
         order_id: String,
     },
@@ -348,7 +379,21 @@ pub enum Action {
     CopyAddress {
         order_id: String,
     },
+    /// The XMR amount tapped: it is copied.
+    CopyAmount {
+        order_id: String,
+    },
     OpenSettings,
+    /// Settings' "Change the point of sale": step 4, back to Settings once
+    /// the new sign-in is done.
+    OpenPointOfSale,
+    /// Read the store again (step 3's "Try again").
+    ReadStore,
+    /// Debug builds: a stand-in point of sale's address (acceptance T6.5).
+    SetBaseUrl {
+        pos: Pos,
+        url: String,
+    },
     SetBubble {
         on: bool,
     },
@@ -414,6 +459,82 @@ pub enum Update {
     /// Settings › Wake-ups, as `till_screens::wake_ups` draws it: Android
     /// draws it inside Settings, iOS on its own screen.
     WakeUps { view: WakeUpsView },
+    /// How the screen in the next [`Update::Screen`] came: `by_itself` when
+    /// the sales put it there (a new sale rising, a code going down), not
+    /// the cashier, so it arrives without growing out of anything (M7);
+    /// and where Back would go from it, for a back gesture's preview
+    /// (`None` where Back shows none). Sent before the screen it describes.
+    Nav {
+        by_itself: bool,
+        back_target: Option<Screen>,
+    },
+    /// The shift, as `till_screens::shift` draws it, once the till is set up.
+    Shift { view: ShiftView },
+    /// The sale on screen ([`Screen::Sale`], `Code` or `Order`): its live
+    /// screen, its page, its enlarged code, and every line of its order.
+    Sale {
+        order_id: String,
+        view: SaleView,
+        page: SalePageView,
+        code: CodeView,
+        order: Option<OrderCard>,
+    },
+    /// The close sheet over a sale, while one is asked.
+    CloseSheet {
+        order_id: Option<String>,
+        view: Option<CloseView>,
+    },
+    /// The refund sheet over a sale the cashier refunds at the point of sale.
+    RefundSheet { view: Option<RefundSheetView> },
+    /// Android's bubble over other apps and its panel.
+    Bubble { view: BubbleView },
+    /// The notifications: Android's ongoing one.
+    Notification { view: NotificationView },
+}
+
+/// The refund sheet (decision 130 of android.md), ready to draw.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct RefundSheetView {
+    pub order_id: String,
+    /// "Refund in Clover".
+    pub title: String,
+    /// What to refund, and where.
+    pub body: String,
+    /// "I've refunded it" asked, and the point of sale doesn't show it yet.
+    pub not_seen: Option<String>,
+    /// "I've refunded it", or "Looking…" while the point of sale is asked.
+    pub refunded: Press,
+    /// "Not yet".
+    pub not_yet: String,
+}
+
+/// Android's bubble and its panel, ready to draw.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct BubbleView {
+    /// The cashier wants it, Android allows it, a shift is on and Till's own
+    /// screen isn't up.
+    pub shown: bool,
+    pub look: BubbleLook,
+    /// The sale the bubble and its panel are about.
+    pub order_id: Option<String>,
+    /// What a screen reader says for the bubble.
+    pub label: String,
+    /// What a tap does with the panel down, and with it up.
+    pub tap: BubbleTap,
+    pub tap_label: String,
+    pub tap_open: BubbleTap,
+    pub tap_open_label: String,
+    /// The panel: the sale, as its live screen shows it.
+    pub panel: Option<SaleView>,
+    /// The panel header's second line: the till's location, or who took it.
+    pub panel_where: Option<String>,
+    /// The sale's code came down while the panel was up: its heading and line.
+    pub ended_heading: Option<String>,
+    pub ended_line: Option<String>,
+    /// A payment landing buzzes the bubble (the app isn't on screen).
+    pub buzzes: bool,
 }
 
 /// A buzz the platform gives.
