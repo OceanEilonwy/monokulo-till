@@ -472,7 +472,8 @@ on from 1; the Android app's own choices are in [android.md](android.md).
     on-device tests pass on an API 36 emulator (two adjusted: one scrolls to
     a fold row a phone screen can't show, one allows edge antialiasing of
     up to 8 levels).
-82. **Emulators with `-gpu host` (the RX 6800 XT through gfxstream) still
-    die with "null ctx" partway through the full on-device suite** on
-    emulator 37.2, though a single capture-heavy class passes; the full
-    suite runs on SwiftShader or a real phone.
+82. **The full on-device suite runs on the GPU with the guest's Vulkan
+    off**: `emulator -avd … -gpu host -feature -Vulkan` (the RX 6800 XT
+    through gfxstream's OpenGL) passed all 257 tests in 14 minutes, where
+    plain `-gpu host` died with "null ctx" after 78 (emulator 37.2), and
+    SwiftShader is several times slower. A real phone over USB works too.
