@@ -32,6 +32,10 @@ pub enum ActivityPhase {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct LiveActivityState {
     pub phase: ActivityPhase,
+    /// The order shown, for the tap's `monokulo-till://sale/{id}`. The app
+    /// sets it; Monokulo's pushes don't carry it, so after one the tap
+    /// opens the app at its shift.
+    pub order_id: Option<String>,
     /// "#1042": the sale's label.
     pub sale: Option<String>,
     /// "24.50": formatted by the device with `currency`, as Monokulo sends
@@ -142,6 +146,7 @@ pub fn live_activity(input: &LiveActivityInput, device: Device) -> Option<LiveAc
     };
     Some(LiveActivityState {
         phase,
+        order_id: shown.map(|sale| sale.order_id.clone()),
         sale: shown.and_then(label),
         amount: shown.map(|sale| sale.amount.clone()),
         currency: shown.map(|sale| sale.currency.clone()),
@@ -200,6 +205,7 @@ mod tests {
             state,
             LiveActivityState {
                 phase: ActivityPhase::Idle,
+                order_id: None,
                 sale: None,
                 amount: None,
                 currency: None,
@@ -224,6 +230,7 @@ mod tests {
             off,
             LiveActivityState {
                 phase: ActivityPhase::Waiting,
+                order_id: Some("o2".into()),
                 sale: Some("#1042".into()),
                 amount: Some("24.50".into()),
                 currency: Some("USD".into()),
@@ -289,6 +296,7 @@ mod tests {
         let state = live_activity(&expired, Device::Iphone).unwrap();
         assert_eq!(state.phase, ActivityPhase::Expired);
         assert_eq!(state.amount.as_deref(), Some("24.50"));
+        assert_eq!(state.order_id.as_deref(), Some("o1"));
         assert_eq!(
             live_activity(
                 &input(vec![sale("o1", SalePhase::Paid, true)]),
