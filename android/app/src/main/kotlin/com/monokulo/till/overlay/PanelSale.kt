@@ -43,8 +43,9 @@ import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.monokulo.till.core.SalePhase
 import com.monokulo.till.ui.Fixed
+import com.monokulo.till.ui.OrderCount
+import com.monokulo.till.ui.OrderRows
 import com.monokulo.till.ui.MkIcons
 import com.monokulo.till.ui.ReceiptRoom
 import com.monokulo.till.ui.RoundIconButton
@@ -53,23 +54,29 @@ import com.monokulo.till.ui.motion
 import kotlin.math.roundToInt
 import uniffi.till_app.BubbleView
 import uniffi.till_screens.OrderCard
-
-/** What a folded panel's hero shows: the paid tick, or where an ended sale's code was, by how it ended. */
-enum class Hero { Paid, Refunded, Reversed, Ended }
+import uniffi.till_screens.OrderPageView
+import uniffi.till_screens.PanelHero
+import uniffi.till_screens.PanelView
+import uniffi.till_screens.Ring
 
 /**
  * The sale the bubble's panel shows, as the panel draws it: the engine's
- * [BubbleView] and its panel's [uniffi.till_screens.SaleView], in the
- * shape the panel's parts take. Every word is the engine's.
+ * [PanelView] (its sale as the live screen shows it, the header, ring,
+ * hero, whole order and ended words) in the shape the panel's parts take.
+ * Every word is the engine's.
  */
 @Immutable
 data class PanelSale(
     val orderId: String,
     val face: PanelFace,
     /** The hero a paid or ended face folds into. */
-    val hero: Hero,
+    val hero: PanelHero,
     /** "Sale #k4Rt", or whom it's for. */
     val title: String,
+    /** "4:07 PM", when the sale was rung up; null when that isn't known. */
+    val created: String?,
+    /** The header's "Front Counter" (or who took it), before "Open the shift". */
+    val where: String,
     val amount: String,
     /** "0.05552 XMR". */
     val xmr: String,
@@ -78,71 +85,52 @@ data class PanelSale(
     val status: String,
     /** "· 14:52 left" while the code counts down; null once a payment is on its way. */
     val left: String?,
-    /** Which of the four steps the ring is at: 1 waiting, 4 paid, 0 ended. */
-    val step: Int,
+    /** The phase ring: its step and the payment's confirmations. */
+    val ring: Ring,
     /** "0.05552 XMR received", once paid. */
     val received: String,
     val endedHeading: String,
     val endedLine: String,
-    /** What was bought, from this till's receipt. */
-    val order: OrderCard?,
+    /** The sale's order card, three lines and "+N more" at most, from this till's receipt. */
+    val card: OrderCard?,
+    /** The whole order, every line: the panel's order page. */
+    val order: OrderPageView?,
     val copyAddress: String,
 ) {
-    /** The ring's phase for the shared ring and bubble, from its step. */
-    val phase: SalePhase
-        get() = when (step) {
-            1 -> SalePhase.Waiting
-            2 -> SalePhase.Seen
-            3 -> SalePhase.Confirming
-            4 -> SalePhase.Paid
-            else -> SalePhase.Expired
-        }
-
     companion object {
-        /**
-         * The panel's sale from the engine's [view]; null when it is about no sale.
-         * A live code's hint ends with its time left ("· 14:52 left"), which the
-         * status row shows beside the status.
-         */
-        fun of(view: BubbleView): PanelSale? {
-            val panel = view.panel ?: return null
-            val ended = view.endedHeading != null
+        /** The panel's sale from the engine's [view]; null when it is about no sale. */
+        fun of(view: BubbleView): PanelSale? = view.panel?.let(::of)
+
+        /** The panel's sale from the engine's [panel]. */
+        fun of(panel: PanelView): PanelSale {
+            val sale = panel.sale
             val face = when {
-                ended -> PanelFace.Ended
-                panel.spent -> PanelFace.Paid
-                else -> PanelFace.Code
+                panel.hero == PanelHero.CODE -> PanelFace.Code
+                panel.hero == PanelHero.PAID && panel.endedHeading == null -> PanelFace.Paid
+                else -> PanelFace.Ended
             }
-            val step = panel.step.toInt()
             return PanelSale(
-                orderId = view.orderId ?: return null,
+                orderId = panel.orderId,
                 face = face,
-                hero = when {
-                    face == PanelFace.Paid -> Hero.Paid
-                    view.endedLine == REFUNDED_LINE -> Hero.Refunded
-                    view.endedHeading?.startsWith(REVERSED_HEADING) == true -> Hero.Reversed
-                    else -> Hero.Ended
-                },
-                title = panel.title,
-                amount = panel.amount,
-                xmr = panel.xmr,
-                code = panel.code,
-                codeSaid = panel.codeSaid,
-                status = panel.status,
-                left = if (face == PanelFace.Code && step == 1 && " · " in panel.hint) "· " + panel.hint.substringAfterLast(" · ") else null,
-                step = step,
-                received = if (face == PanelFace.Paid) panel.hint else "",
-                endedHeading = view.endedHeading.orEmpty(),
-                endedLine = view.endedLine.orEmpty(),
-                order = panel.order?.takeIf { it.lines.isNotEmpty() },
-                copyAddress = panel.copyAddress.label,
+                hero = panel.hero,
+                title = sale.title,
+                created = panel.created,
+                where = panel.whereFrom,
+                amount = sale.amount,
+                xmr = sale.xmr,
+                code = sale.code,
+                codeSaid = sale.codeSaid,
+                status = sale.status,
+                left = panel.timeLeft?.takeIf { face == PanelFace.Code }?.let { "· $it" },
+                ring = sale.ring,
+                received = if (face == PanelFace.Paid) sale.hint else "",
+                endedHeading = panel.endedHeading.orEmpty(),
+                endedLine = panel.endedLine.orEmpty(),
+                card = sale.order?.takeIf { it.lines.isNotEmpty() },
+                order = panel.order,
+                copyAddress = sale.copyAddress.label,
             )
         }
-
-        /** `till_screens::bubble::panel_ended_line` for a refunded sale. */
-        private const val REFUNDED_LINE = "Nothing more to do."
-
-        /** `panel_ended_heading` for a payment reversed. */
-        private const val REVERSED_HEADING = "Payment reversed"
     }
 }
 
@@ -223,12 +211,14 @@ private fun OrderLines(card: OrderCard, size: Int) {
 
 /**
  * The whole order in the panel (the design's PanelE), which has no back
- * gesture, so its two ways back are on screen: the top bar, the lines,
- * which scroll, and the bar at the foot that shows the code again.
+ * gesture, so its two ways back are on screen: the top bar, the count and
+ * the lines, which scroll, as the app's own order page draws them
+ * ([OrderCount], [OrderRows]), and the bar at the foot that shows the code
+ * again.
  */
 @Composable
 internal fun PanelOrderContent(sale: PanelSale, onBack: () -> Unit, modifier: Modifier = Modifier) = Column(modifier) {
-    val card = sale.order
+    val order = sale.order
     Row(
         Modifier.fillMaxWidth().height(64.dp).padding(start = 4.dp, end = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -237,20 +227,18 @@ internal fun PanelOrderContent(sale: PanelSale, onBack: () -> Unit, modifier: Mo
         RoundIconButton(MkIcons.Back, "Back to the code", onBack, iconSize = 22.dp)
         Column(Modifier.weight(1f).semantics(mergeDescendants = true) { heading() }) {
             Text("The order", fontSize = 20.sp, fontWeight = FontWeight.Medium)
-            if (card != null) Text(card.summary, fontSize = 13.sp, color = mk.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (order != null) Text(order.subtitle, fontSize = 13.sp, color = mk.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
-    if (card == null) {
+    if (order == null) {
         Text(
             "What was bought stays on the till that rang it up.", fontSize = 15.sp, color = mk.muted,
             modifier = Modifier.padding(24.dp).weight(1f),
         )
     } else {
-        Box(Modifier.weight(1f).padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().clip(CardShape).background(mk.card)) {
-            Column(
-                Modifier.verticalScroll(rememberScrollState()).padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) { OrderLines(card, 16) }
+        OrderCount(order.items, order.lines)
+        Box(Modifier.weight(1f).padding(horizontal = 16.dp).fillMaxWidth().clip(CardShape).background(mk.card)) {
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp)) { OrderRows(order) }
         }
     }
     Box(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 20.dp)) {
@@ -279,4 +267,3 @@ internal fun PanelOrderContent(sale: PanelSale, onBack: () -> Unit, modifier: Mo
         }
     }
 }
-

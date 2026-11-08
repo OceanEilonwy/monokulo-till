@@ -116,7 +116,7 @@ import androidx.compose.ui.util.lerp
 import androidx.compose.ui.zIndex
 import com.monokulo.till.BubbleLook
 import com.monokulo.till.PaidBuzz
-import com.monokulo.till.core.SalePhase
+import uniffi.till_screens.PanelHero
 import com.monokulo.till.ui.confirm
 import com.monokulo.till.ui.Fixed
 import com.monokulo.till.ui.LensLook
@@ -178,15 +178,6 @@ object Panel {
      */
     fun landed(now: PanelSale?, shown: String?, wasLive: Boolean): Boolean =
         wasLive && now?.orderId == shown && now?.face == PanelFace.Paid
-
-    /**
-     * Whether the bubble pulses: lit for a code still waiting for its money
-     * (Waiting, or part paid), and only the free bubble with the panel down;
-     * the pulse calls the cashier to raise the panel, so once it's up, or
-     * the payment is seen, there's nothing to call for.
-     */
-    fun pulses(look: BubbleLook, phase: SalePhase, panelUp: Boolean): Boolean =
-        look == BubbleLook.Lit && !panelUp && (phase == SalePhase.Waiting || phase == SalePhase.Partial)
 
     /**
      * How fast the panel's collapse starts when the grabber lets it go: the
@@ -310,8 +301,9 @@ class PanelActions(
  * theme's: it sits over another app, on a white disc, or a dark one when
  * the device is in night mode. [confirms] is whether a payment landing on it buzzes:
  * only while Till is away ([PaidBuzz], decision 176). [pulse] is false for the bubble docked above the panel,
- * which has nothing left to call for; [panelUp] is the free bubble's word
- * that a panel is up beside it (a tablet's), which stops its pulse too.
+ * which has nothing left to call for; [pulses] is the engine's word for the
+ * free bubble (`BubbleView.pulses`: a code waits for its money and no panel
+ * is up, as `Action.PanelShown` said).
  * [presence] is the free bubble's window appearing and going, which the
  * circle's shadow follows (decision 191). [label] is what TalkBack says
  * for it ([com.monokulo.till.Bubble.label]); null where it is a picture or another node
@@ -321,15 +313,14 @@ class PanelActions(
 fun BubbleFace(
     look: BubbleLook,
     pulse: Boolean = true,
-    phase: SalePhase = SalePhase.Waiting,
-    panelUp: Boolean = false,
+    pulses: Boolean = true,
     confirms: Boolean = true,
     presence: Presence? = null,
     label: String? = null,
 ) = Box(
     Modifier.padding(if (pulse) BubblePadding else DockedPadding).clearAndSetSemantics { if (label != null) contentDescription = label },
     contentAlignment = Alignment.Center,
-) { Circle(look, pulse, phase, panelUp, confirms, presence) }
+) { Circle(look, pulse && pulses, confirms, presence) }
 
 /** Room round the bubble's circle in its window: the pulse's halo reaches 16 dp out and isn't clipped. */
 val BubblePadding = 16.dp
@@ -393,7 +384,7 @@ private class Rings(private val core: State<Color>, private val inner: State<Col
  * mid-spread turns each ring from where it is.
  */
 @Composable
-private fun Circle(look: BubbleLook, pulse: Boolean, phase: SalePhase, panelUp: Boolean, confirms: Boolean, presence: Presence?) {
+private fun Circle(look: BubbleLook, pulses: Boolean, confirms: Boolean, presence: Presence?) {
     val m = motion
     // The theme follows the device's night mode, and the overlay's windows are themed: so does the bubble.
     val inks = BubbleInks.of(mk.dark)
@@ -424,7 +415,7 @@ private fun Circle(look: BubbleLook, pulse: Boolean, phase: SalePhase, panelUp: 
     // One infinite transition for the bubble's two loops (§10 rule 7), and only while one runs: none idle or paid.
     val pulseTurn = m.pulse
     val chaseTurn = m.chase
-    val pulsing = pulseTurn != null && Panel.pulses(look, phase, panelUp = !pulse || panelUp)
+    val pulsing = pulseTurn != null && pulses && look == BubbleLook.Lit
     val chasing = chaseTurn != null && look == BubbleLook.Lit
     val loops = if (pulsing || chasing) rememberInfiniteTransition(label = "bubble loops") else null
     val halo = if (pulsing && loops != null) loops.animateFloat(0f, 1f, pulseTurn!!, label = "halo") else null
@@ -684,7 +675,7 @@ private fun PanelOrder(faces: Transition<FaceShown>, actions: PanelActions, word
 @Composable
 private fun LateOrderCard(sale: PanelSale, actions: PanelActions, words: Modifier) {
     val m = motion
-    val receipt = sale.order
+    val receipt = sale.card
     // The last receipt shown, kept while its card closes.
     var last by remember { mutableStateOf(receipt) }
     if (receipt != null) last = receipt
@@ -871,10 +862,11 @@ private class HeroLook(val ground: Color, val tint: Color, val icon: ImageVector
 /** Paid as the detail pages show it, the tick on the paid ground; else where the code was, by how the sale ended. */
 @Composable
 private fun heroLook(sale: PanelSale): HeroLook = when (sale.hero) {
-    Hero.Paid -> HeroLook(mk.paidGround, mk.paid, MkIcons.Tick, 0.53f)
-    Hero.Refunded -> HeroLook(mk.chip, mk.ink, MkIcons.Refund, 0.5f)
-    Hero.Reversed -> HeroLook(mk.dangerGround, mk.danger, MkIcons.Warning, 0.5f)
-    Hero.Ended -> HeroLook(mk.warnGround, mk.warn, MkIcons.Clock, 0.5f)
+    PanelHero.PAID -> HeroLook(mk.paidGround, mk.paid, MkIcons.Tick, 0.53f)
+    PanelHero.REFUNDED -> HeroLook(mk.chip, mk.ink, MkIcons.Refund, 0.5f)
+    PanelHero.REVERSED -> HeroLook(mk.dangerGround, mk.danger, MkIcons.Warning, 0.5f)
+    // A live code has no hero; the clock stands in while a code folds away.
+    PanelHero.EXPIRED, PanelHero.CODE -> HeroLook(mk.warnGround, mk.warn, MkIcons.Clock, 0.5f)
 }
 
 /** The hero's icon, which fades in inside the folding surface. */
@@ -950,6 +942,7 @@ private fun Header(sale: PanelSale, where: String, onOpenShift: () -> Unit, modi
             sale.title, fontSize = 16.sp, fontWeight = FontWeight.Bold,
             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
         )
+        sale.created?.let { Text(it, fontSize = 13.sp, color = mk.muted, maxLines = 1) }
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
@@ -974,7 +967,7 @@ private fun StatusRow(sale: PanelSale) = Row(
     horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
 ) {
     val m = motion
-    PhaseRing(sale.phase, 26.dp)
+    PhaseRing(sale.ring, 26.dp)
     AnimatedContent(
         sale.status,
         // Through, not across: "Payment seen" never drawn over "Waiting for payment" (decision 225).
@@ -1148,7 +1141,7 @@ private fun PhoneCode(
                 .clip(CircleShape)
                 .clickable(role = Role.Button, onClickLabel = "Lower to the bubble", onClick = actions.onBubble)
                 .semantics { contentDescription = "Lower to the bubble" },
-        ) { BubbleFace(look, pulse = false, phase = sale.phase, confirms = confirms) }
+        ) { BubbleFace(look, pulse = false, confirms = confirms) }
     }
     // Taps on the panel itself stay there.
     val panel = @Composable { sideBySide: Boolean ->

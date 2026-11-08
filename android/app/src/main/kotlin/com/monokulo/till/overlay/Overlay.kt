@@ -40,9 +40,7 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.monokulo.till.BubbleLook
 import com.monokulo.till.BuildConfig
-import com.monokulo.till.core.SalePhase
 import com.monokulo.till.engine.EngineStore
-import com.monokulo.till.engine.KeystorePlatform
 import com.monokulo.till.ui.LocalMotion
 import com.monokulo.till.ui.TillTheme
 import com.monokulo.till.ui.Motion
@@ -68,6 +66,8 @@ data class OverlayState(
     val page: PanelPage = PanelPage.Code,
     /** Whether a payment landing on the bubble buzzes it: Till isn't on screen, where the buzz is the sale screen's. */
     val buzzes: Boolean = true,
+    /** The free bubble pulses: the engine's word (a code waits for its money and no panel is up). */
+    val pulses: Boolean = false,
     /** What a screen reader says for the bubble. */
     val label: String = "",
     /** What a tap does with the panel down, and with it up, and what a screen reader says for each. */
@@ -104,7 +104,8 @@ class Overlay(
     /** Opens Till full screen on a sale. */
     private val onFullScreen: (String) -> Unit,
 ) {
-    private val place = BubblePlace(context)
+    /** Where the free bubble rests: the engine's to keep (docs/decisions/core.md 73), told by [Action.MoveBubble]. */
+    private val place = BubblePlace()
     private val wm = context.getSystemService(WindowManager::class.java)
     private val owner = WindowOwner()
     private val state = MutableStateFlow(OverlayState())
@@ -130,6 +131,8 @@ class Overlay(
     private var focusLive = false
     /** Whether the overlay was usable at the last look, to log each change. */
     private var wasUsable: Boolean? = null
+    /** What the engine was last told of the panel ([Action.PanelShown]): its one-second timer and the pulse follow it. */
+    private var panelShown = false
 
     /** Whether the person allowed Till to draw over other apps. */
     fun allowed(): Boolean = Settings.canDrawOverlays(context)
@@ -145,14 +148,16 @@ class Overlay(
                 val landed = Panel.landed(sale, previous, focusLive)
                 if (landed) paid()
                 focus = view?.orderId
+                if (view != null) place.follow(view.left, view.y)
                 focusLive = sale?.face == PanelFace.Code
                 // The whole order is about the sale whose code is up: another sale, or this one ending, brings the code back.
                 if (focus != previous || sale?.face != PanelFace.Code || sale.order == null) page.value = PanelPage.Code
                 // Green until the paid moment's collapse lands, which can outlast the engine's own few seconds.
                 val look = if (paid || landed) BubbleLook.Paid else view?.look?.let(::lookOf) ?: BubbleLook.Idle
                 state.value = OverlayState(
-                    look, sale, view?.panelWhere.orEmpty(), if (sale?.face == PanelFace.Code) shown else PanelPage.Code,
+                    look, sale, sale?.where.orEmpty(), if (sale?.face == PanelFace.Code) shown else PanelPage.Code,
                     buzzes = view?.buzzes ?: true,
+                    pulses = view?.pulses ?: false,
                     label = view?.label.orEmpty(),
                     tap = view?.tap ?: BubbleTap.OPEN_APP,
                     tapLabel = view?.tapLabel.orEmpty(),
@@ -184,7 +189,16 @@ class Overlay(
         panel = null
         panelMotion = null
         windows = Windows()
+        tellPanelShown()
         owner.stop()
+    }
+
+    /** Tells the engine whether a panel is up over other apps, once each time that changes. */
+    private fun tellPanelShown() {
+        val up = panel != null
+        if (up == panelShown) return
+        panelShown = up
+        EngineStore.send(Action.PanelShown(up))
     }
 
     /**
@@ -266,6 +280,7 @@ class Overlay(
                 }
             }
         }
+        tellPanelShown()
     }
 
     /** Lowers the panel at the grabber's [velocity] (progress a second). */
@@ -329,8 +344,7 @@ class Overlay(
         lateinit var frame: BubbleFrame
         frame = BubbleFrame(context, wm, params, scope, onTap = ::tapBubble) { left, y ->
             val moved = prefs.bubbleOnLeft != left
-            prefs.bubbleOnLeft = left
-            prefs.bubbleY = y
+            prefs.moved(left, y)
             // Dragged to the other edge with a tablet's panel up: the panel steps aside for it, or back.
             if (moved && windows.wide) panel?.let(::placeFloating)
             frame.doOnPreDraw { locate(frame) }
@@ -360,10 +374,7 @@ class Overlay(
                         scaleX = 0.6f + 0.4f * p
                         scaleY = scaleX
                     },
-                ) { BubbleFace(
-                        s.look, phase = s.sale?.phase ?: SalePhase.Waiting, panelUp = open,
-                        confirms = s.buzzes, presence = presence, label = label,
-                    ) }
+                ) { BubbleFace(s.look, pulses = s.pulses, confirms = s.buzzes, presence = presence, label = label) }
             }.apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS },
         )
         runCatching { wm.addView(frame, params) }.onSuccess {
@@ -434,6 +445,7 @@ class Overlay(
         runCatching { wm.addView(view, params) }.onSuccess {
             panel = view
             panelMotion = motion
+            tellPanelShown()
             // The free bubble goes once a frame shows the docked one where it is, never before (amendment 6).
             view.afterPlaced({ wide || motion.placed }) { if (panel === view) on(WindowEvent.PanelDrawn) }
         }
@@ -478,30 +490,29 @@ private fun View.afterPlaced(placed: () -> Boolean, then: () -> Unit) {
 }
 
 /**
- * Where the free bubble rests, its edge and height: kept in the store and
- * under the keys the Kotlin stores used (`bubble.left`, `bubble.y`), which
- * the engine's model reads but never changes. Only Android places a bubble.
+ * Where the free bubble rests, its edge and height, as the engine last
+ * published it (`BubbleView.left` and `y`): the engine keeps it, under the
+ * Kotlin stores' `bubble.left` and `bubble.y`, and is told of a move once
+ * the drag lets go ([Action.MoveBubble]); meanwhile the place just let go
+ * of stands, so the next frame doesn't jump back.
  */
-private class BubblePlace(context: Context) {
-    private val secrets = KeystorePlatform(context)
+private class BubblePlace {
+    var bubbleOnLeft: Boolean = false
+        private set
+    var bubbleY: Int? = null
+        private set
 
-    private fun get(key: String): String? = runCatching { secrets.secretGet(key)?.decodeToString() }.getOrNull()
-
-    private fun put(key: String, value: String?) {
-        runCatching { if (value == null) secrets.secretRemove(key) else secrets.secretPut(key, value.encodeToByteArray()) }
+    /** The engine's place, as it publishes it. */
+    fun follow(left: Boolean, y: Int?) {
+        bubbleOnLeft = left
+        bubbleY = y
     }
 
-    var bubbleOnLeft: Boolean = get("bubble.left") == "true"
-        set(value) {
-            field = value
-            put("bubble.left", value.toString())
-        }
-
-    var bubbleY: Int? = get("bubble.y")?.toIntOrNull()
-        set(value) {
-            field = value
-            put("bubble.y", value?.toString())
-        }
+    /** A drag let go against the [left] edge (else the right) at height [y]: the engine keeps it. */
+    fun moved(left: Boolean, y: Int) {
+        follow(left, y)
+        EngineStore.send(Action.MoveBubble(left, y))
+    }
 }
 
 /** The lifecycle and saved state Compose needs to run in a window that has no activity. */
