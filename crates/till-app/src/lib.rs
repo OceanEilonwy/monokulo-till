@@ -3,20 +3,40 @@
 //! the [`Effect`]s, and sends back what the cashier did as [`Action`]s.
 //!
 //! One task owns the state. [`Engine::send`] never blocks: actions queue on a
-//! channel, and the task publishes through the [`EngineListener`].
+//! channel, background work comes back to the task as a message (dropped if
+//! the till was connected afresh or forgotten meanwhile), and the task
+//! publishes each [`Update`] only when it changed, through the
+//! [`EngineListener`].
 //!
-//! Phase 0 is the shape only: the traits a platform implements, the engine's
-//! task, and one action. The screens' records are till-screens' (phase 5a),
-//! in [`Update`] already; the engine fills and publishes them in phase 5b.
+//! - [`store`]: the persisted model, in `Stores.kt`'s keys and JSON, kept
+//!   through [`Platform`]'s secrets.
+//! - The engine owns the till: till-sales' `TillRunner` and `LiveStore`,
+//!   the points of sale, and till-bell's `BellWakeUps`, whose push side the
+//!   platform carries through [`PushPlatform`] and the `Push…` actions.
+//! - [`background_check`]: one look for new sales with no engine, for the
+//!   iOS Notification Service Extension and Android's ding path.
 
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
 
-use std::panic::{AssertUnwindSafe, catch_unwind};
+mod background;
+mod engine;
+mod faces;
+mod push;
+mod side;
+pub mod store;
+#[cfg(test)]
+mod testing;
+
 use std::sync::{Arc, OnceLock};
 
+use tokio::sync::mpsc::UnboundedSender;
+
+pub use background::{Check, background_check};
+pub use faces::NotificationFace;
+use monokulo_client::PointOfSale;
+pub use till_screens::Device;
 use till_screens::{OnboardingView, SettingsView, WakeUpsView};
-use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
 /// The version of the core, for the platform's About screen and logs.
 pub const CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -52,6 +72,66 @@ impl From<uniffi::UnexpectedUniFFICallbackError> for SecretError {
     }
 }
 
+/// The device's push subscription for the chosen Bell (till-bell's
+/// `PushSubscriptions` and `Distributors`, decision 19): UnifiedPush on
+/// Android, APNs through the relay on iOS. Calls come from the engine's
+/// tasks and must not block: the platform starts the work and answers
+/// with [`Action::PushEndpoint`], [`Action::PushFailed`],
+/// [`Action::PushUnregistered`], [`Action::PushReceived`] and
+/// [`Action::DistributorsChanged`].
+#[cfg_attr(feature = "uniffi", uniffi::export(with_foreign))]
+pub trait PushPlatform: Send + Sync {
+    /// Subscribe for a Bell whose VAPID public key is `vapid_public_key`
+    /// (base64url); subscribing again with another key replaces it.
+    fn subscribe(&self, vapid_public_key: String);
+    /// End the subscription.
+    fn unsubscribe(&self);
+    /// Which distributor would carry the dings. iOS has one, always found.
+    fn distributors(&self) -> Result<Distributors, PushProblem>;
+    /// The cashier's pick from [`Distributors::Choose`].
+    fn save_distributor(&self, name: String);
+}
+
+/// The distributors on the device, as Wake-ups needs them (decision 91).
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum Distributors {
+    /// The one to use (an Android package name; `apns` on iOS).
+    Found { name: String },
+    /// Nothing on the device can carry dings.
+    None,
+    /// Several and no default: the cashier picks one.
+    Choose { names: Vec<String> },
+}
+
+/// Something on the device failed while asking about distributors.
+#[derive(Debug, thiserror::Error)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
+pub enum PushProblem {
+    #[error("the device's push failed: {reason}")]
+    Device { reason: String },
+}
+
+#[cfg(feature = "uniffi")]
+impl From<uniffi::UnexpectedUniFFICallbackError> for PushProblem {
+    fn from(e: uniffi::UnexpectedUniFFICallbackError) -> Self {
+        PushProblem::Device { reason: e.reason }
+    }
+}
+
+/// Why a push subscription couldn't be made, or ended (till-bell's
+/// `PushFailure`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum PushFailure {
+    NoDistributor,
+    Network,
+    ActionRequired,
+    NoKeys,
+    Lost,
+    Other,
+}
+
 /// Where what the engine publishes goes. Called from the engine's task,
 /// never from the platform's UI thread.
 #[cfg_attr(feature = "uniffi", uniffi::export(with_foreign))]
@@ -62,20 +142,254 @@ pub trait EngineListener: Send + Sync {
     fn on_log(&self, message: String);
 }
 
-/// Where the app keeps things on this device.
-#[derive(Clone, Debug)]
+/// Which Square, as the build names it (Android's `BuildConfig`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct SquareSetup {
+    pub application_id: String,
+    pub sandbox: bool,
+    /// Where Square sends the sign-in back: an App Link into the app.
+    pub redirect_uri: String,
+    /// A stand-in Square, for development; `None` for Square's own.
+    pub base_url: Option<String>,
+}
+
+/// Which Clover, as the build names it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct CloverSetup {
+    pub application_id: String,
+    /// `sandbox`, `north_america`, `europe` or `latin_america`.
+    pub environment: String,
+    pub redirect_uri: String,
+    pub base_url: Option<String>,
+}
+
+/// The app around the engine: where it keeps things, what it is, and what
+/// the build chose.
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct EngineConfig {
-    /// A directory the app (and on iOS its extension) can write to.
+    /// A directory the app (and on iOS its extension) can write to. The
+    /// lock around a point of sale's refresh is a file here.
     pub data_dir: String,
+    pub device: Device,
+    /// This device, for when the merchant didn't name it ("Pixel 8").
+    pub device_name: String,
+    pub app_version: String,
+    /// `android` or `ios`, as Monokulo's apps list shows it.
+    pub platform: String,
+    /// A debug build: cleartext connect links, stand-ins, http Bells.
+    pub debug: bool,
+    /// The device's clock: its offset from UTC now, in seconds, and whether
+    /// it keeps a 24-hour clock ([`Action::ClockChanged`] when they change).
+    pub utc_offset: i32,
+    pub hours_24: bool,
+    pub square: SquareSetup,
+    pub clover: CloverSetup,
+    /// The project's Bell, what "Monokulo Bell" registers with.
+    pub bell_url: String,
+}
+
+/// A point of sale, as the platform names one to the engine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum Pos {
+    Square,
+    Clover,
+}
+
+impl From<Pos> for PointOfSale {
+    fn from(pos: Pos) -> PointOfSale {
+        match pos {
+            Pos::Square => PointOfSale::Square,
+            Pos::Clover => PointOfSale::Clover,
+        }
+    }
+}
+
+/// Settings › Wake-ups' choice, as the platform sends it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum WakeUps {
+    Timer,
+    MonokuloBell,
+    /// The address as typed; one that isn't a Bell's is ignored (the
+    /// screen only offers "Use this Bell" once it is).
+    OwnBell {
+        address: String,
+    },
+}
+
+/// The close sheet's answers (Android: `CloseChoice`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum CloseChoice {
+    /// "No": the till refunds it (or says how, in Clover) and closes it.
+    RefundIt,
+    /// "Not sure": closed for now; it stays in the shift.
+    CloseForNow,
+    /// "Yes": the code stays up.
+    KeepUp,
+}
+
+/// Where the app is (Android: `Screen`). Setup follows the design's six
+/// onboarding steps.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum Screen {
+    /// 1: what Till does.
+    Welcome,
+    /// 2: scan or paste the store's connect code.
+    Scan,
+    /// 3: connect to the server, then check the store it is.
+    Confirm,
+    Connected,
+    /// 4: the point of sale and its sign-in; Square's locations next.
+    PointOfSale,
+    Locations,
+    /// 5: alerts, then (Android) the bubble.
+    Alerts,
+    Float,
+    /// 6: start the shift.
+    Ready,
+    /// The shift: the till's home.
+    Till,
+    /// One sale: its code while it's live, else its page.
+    Sale {
+        order_id: String,
+    },
+    /// A live sale's code enlarged.
+    Code {
+        order_id: String,
+    },
+    /// Every line of a live sale's order.
+    Order {
+        order_id: String,
+    },
+    Settings,
 }
 
 /// What the cashier did, or what the platform saw.
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum Action {
-    /// The app came to the front: publish everything again.
+    /// The app came to the front: publish everything again, read the store,
+    /// look for sales now.
     Opened,
+    /// The app went to the back.
+    Backgrounded,
+    /// The device's time zone or clock style changed.
+    ClockChanged {
+        utc_offset: i32,
+        hours_24: bool,
+    },
+    /// Alerts and (Android) drawing over other apps, as the system allows
+    /// them now.
+    Permissions {
+        alerts: bool,
+        bubble: bool,
+    },
+    /// One step back.
+    Back,
+    /// The screen's way on: Welcome's start, step 3's "Next", step 4's
+    /// "Continue", step 5's.
+    Next,
+    /// A connect link, scanned, pasted or opened as an App Link.
+    ConnectLink {
+        url: String,
+    },
+    /// Step 3: redeem the code.
+    Connect,
+    ChoosePointOfSale {
+        pos: Pos,
+    },
+    /// The chosen point of sale's sign-in, through `application_id` when
+    /// that is a Bell's (decision 96): the page opens as
+    /// [`Effect::OpenUrl`].
+    SignIn {
+        application_id: Option<String>,
+    },
+    /// A point of sale's redirect back into the app.
+    SignInReturned {
+        url: String,
+    },
+    ChooseLocation {
+        location_id: String,
+    },
+    ChangeLocation,
+    /// "Look again" for Clover's Monero payment type.
+    LookAgain,
+    /// "Not now": only other tills' sales.
+    WithoutPos,
+    SignOutOfPos,
+    /// Setup's last step, or watching turned on.
+    StartShift,
+    /// Watching turned off: every live code comes down.
+    StopShift,
+    OpenSale {
+        order_id: String,
+    },
+    Enlarge {
+        order_id: String,
+    },
+    ShowOrder {
+        order_id: String,
+    },
+    Close {
+        order_id: String,
+        choice: CloseChoice,
+    },
+    Refund {
+        order_id: String,
+    },
+    /// The refund sheet's "I've refunded it".
+    ConfirmRefund {
+        order_id: String,
+    },
+    /// "Not yet", Back or the scrim.
+    DismissRefund,
+    /// "Show the code again" on a closed sale.
+    Reopen {
+        order_id: String,
+    },
+    CopyAddress {
+        order_id: String,
+    },
+    OpenSettings,
+    SetBubble {
+        on: bool,
+    },
+    SetTor {
+        on: bool,
+    },
+    Disconnect,
+    /// The store disconnected this device: forget it.
+    Forget,
+    ChooseWakeUps {
+        choice: WakeUps,
+    },
+    ChooseDistributor {
+        name: String,
+    },
+    /// The platform gave an endpoint, with the subscription's keys.
+    PushEndpoint {
+        url: String,
+        p256dh: Option<String>,
+        auth: Option<String>,
+    },
+    PushFailed {
+        failure: PushFailure,
+    },
+    /// The platform ended the subscription.
+    PushUnregistered,
+    /// A push arrived, decrypted or not.
+    PushReceived {
+        content: Vec<u8>,
+        decrypted: bool,
+    },
+    /// An app came or went, which may have been a distributor.
+    DistributorsChanged,
 }
 
 /// A slice of what the screens show, sent only when it changed. Each
@@ -87,14 +401,28 @@ pub enum Action {
 pub enum Update {
     /// The core is running.
     Core { version: String },
-    /// Onboarding's step, as `till_screens::onboarding` draws it.
-    /// Published from phase 5b on, when the engine holds the flow.
+    /// Where the app is.
+    Screen { screen: Screen },
+    /// Busy with a network call (buttons wait), and what went wrong last.
+    Work { busy: bool, problem: Option<String> },
+    /// Android keeps its foreground service while the till runs.
+    Service { running: bool },
+    /// Onboarding's step, as `till_screens::onboarding` draws it, while
+    /// setup is on screen.
     Onboarding { view: OnboardingView },
-    /// Settings, as `till_screens::settings` draws it (phase 5b).
+    /// Settings, as `till_screens::settings` draws it.
     Settings { view: SettingsView },
     /// Settings › Wake-ups, as `till_screens::wake_ups` draws it: Android
-    /// draws it inside Settings, iOS on its own screen (phase 5b).
+    /// draws it inside Settings, iOS on its own screen.
     WakeUps { view: WakeUpsView },
+}
+
+/// A buzz the platform gives.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum Haptic {
+    /// A payment landed while the app is on screen.
+    Paid,
 }
 
 /// Something only the platform can do.
@@ -102,7 +430,22 @@ pub enum Update {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum Effect {
     /// Open `url` in the browser (a point of sale's sign-in page).
-    OpenUrl { url: String },
+    OpenUrl {
+        url: String,
+    },
+    /// Post or replace the notification `face.id`.
+    Notify {
+        face: NotificationFace,
+    },
+    ClearNotification {
+        id: String,
+    },
+    Haptic {
+        haptic: Haptic,
+    },
+    CopyText {
+        text: String,
+    },
 }
 
 /// The Tokio runtime the engine runs on.
@@ -120,38 +463,7 @@ fn runtime() -> &'static tokio::runtime::Runtime {
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct Engine {
-    tx: UnboundedSender<Action>,
-}
-
-/// The engine's state, owned by its task.
-struct State {
-    #[allow(dead_code)] // read from phase 5 on
-    config: EngineConfig,
-    #[allow(dead_code)]
-    platform: Arc<dyn Platform>,
-    listener: Arc<dyn EngineListener>,
-    published: Option<Update>,
-}
-
-impl State {
-    fn handle(&mut self, action: Action) {
-        match action {
-            Action::Opened => {
-                self.published = None;
-                self.publish(Update::Core {
-                    version: CORE_VERSION.to_owned(),
-                });
-            }
-        }
-    }
-
-    /// Sends `update` unless it is what was sent last.
-    fn publish(&mut self, update: Update) {
-        if self.published.as_ref() != Some(&update) {
-            self.listener.on_update(update.clone());
-            self.published = Some(update);
-        }
-    }
+    tx: UnboundedSender<engine::Msg>,
 }
 
 impl Engine {
@@ -159,26 +471,27 @@ impl Engine {
     pub fn start(
         config: EngineConfig,
         platform: Arc<dyn Platform>,
+        push: Arc<dyn PushPlatform>,
         listener: Arc<dyn EngineListener>,
     ) -> Arc<Engine> {
-        let (tx, mut rx) = unbounded_channel();
-        let mut state = State {
+        Engine::start_with(config, platform, push, listener, engine::Options::default())
+    }
+
+    pub(crate) fn start_with(
+        config: EngineConfig,
+        platform: Arc<dyn Platform>,
+        push: Arc<dyn PushPlatform>,
+        listener: Arc<dyn EngineListener>,
+        options: engine::Options,
+    ) -> Arc<Engine> {
+        let tx = engine::spawn(
+            runtime().handle(),
             config,
             platform,
+            push,
             listener,
-            published: None,
-        };
-        runtime().spawn(async move {
-            state.handle(Action::Opened);
-            while let Some(action) = rx.recv().await {
-                let label = format!("{action:?}");
-                if catch_unwind(AssertUnwindSafe(|| state.handle(action))).is_err() {
-                    state
-                        .listener
-                        .on_log(format!("till-core: panicked handling {label}"));
-                }
-            }
-        });
+            options,
+        );
         Arc::new(Engine { tx })
     }
 }
@@ -191,9 +504,10 @@ impl Engine {
     pub fn new(
         config: EngineConfig,
         platform: Arc<dyn Platform>,
+        push: Arc<dyn PushPlatform>,
         listener: Arc<dyn EngineListener>,
     ) -> Arc<Engine> {
-        Engine::start(config, platform, listener)
+        Engine::start(config, platform, push, listener)
     }
 }
 
@@ -201,76 +515,29 @@ impl Engine {
 impl Engine {
     /// Queues `action` for the engine's task. Never blocks.
     pub fn send(&self, action: Action) {
-        // The task only ends with the runtime, so a send can't fail before then.
-        let _ = self.tx.send(action);
+        // The task only ends with the engine, so a send can't fail before then.
+        let _ = self.tx.send(engine::Msg::Action(action));
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Mutex;
-    use std::sync::mpsc::{Receiver, Sender, channel};
-    use std::time::Duration;
-
-    struct Recorder(Mutex<Sender<Update>>);
-
-    impl EngineListener for Recorder {
-        fn on_update(&self, update: Update) {
-            let _ = self.0.lock().unwrap().send(update);
-        }
-        fn on_effect(&self, _: Effect) {}
-        fn on_log(&self, _: String) {}
+impl Engine {
+    /// What `look` sees of the engine's state, once the task gets to it.
+    pub(crate) fn peek<T: Send + 'static>(
+        &self,
+        look: impl FnOnce(&engine::State) -> T + Send + 'static,
+    ) -> T {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let _ = self.tx.send(engine::Msg::Peek(Box::new(move |state| {
+            let _ = tx.send(look(state));
+        })));
+        rx.recv_timeout(std::time::Duration::from_secs(10))
+            .expect("the engine answers")
     }
+}
 
-    struct NoSecrets;
-
-    impl Platform for NoSecrets {
-        fn secret_get(&self, _: String) -> Result<Option<Vec<u8>>, SecretError> {
-            Ok(None)
-        }
-        fn secret_put(&self, _: String, _: Vec<u8>) -> Result<(), SecretError> {
-            Ok(())
-        }
-        fn secret_remove(&self, _: String) -> Result<(), SecretError> {
-            Ok(())
-        }
-        fn format_money(&self, minor: i64, currency: String) -> String {
-            format!("{minor} {currency}")
-        }
-    }
-
-    fn engine() -> (Arc<Engine>, Receiver<Update>) {
-        let (tx, rx) = channel();
-        let engine = Engine::start(
-            EngineConfig {
-                data_dir: "/tmp".into(),
-            },
-            Arc::new(NoSecrets),
-            Arc::new(Recorder(Mutex::new(tx))),
-        );
-        (engine, rx)
-    }
-
-    #[test]
-    fn a_started_engine_publishes_its_version() {
-        let (_engine, rx) = engine();
-        assert_eq!(
-            rx.recv_timeout(Duration::from_secs(5)).unwrap(),
-            Update::Core {
-                version: CORE_VERSION.to_owned()
-            }
-        );
-    }
-
-    #[test]
-    fn opening_the_app_publishes_everything_again() {
-        let (engine, rx) = engine();
-        rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        engine.send(Action::Opened);
-        assert!(matches!(
-            rx.recv_timeout(Duration::from_secs(5)).unwrap(),
-            Update::Core { .. }
-        ));
+impl Drop for Engine {
+    fn drop(&mut self) {
+        let _ = self.tx.send(engine::Msg::Stop);
     }
 }
