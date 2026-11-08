@@ -1,0 +1,27 @@
+[package]
+name = "till-sales"
+version = "0.1.0"
+description = "The till: the shift's sales, where each stands, and the wake-ups that make the till look for new ones"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+# PosSwitchSide is a trait object with async methods, as till-pos's are.
+async-trait.workspace = true
+futures-util.workspace = true
+monokulo-client.workspace = true
+orf-codec.workspace = true
+serde.workspace = true
+# `raw_value`: a saved shift writes its doubles as Kotlin did (Java's
+# `Double.toString`), byte for byte.
+serde_json = { workspace = true, features = ["raw_value"] }
+sha2.workspace = true
+till-pos.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+reqwest.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+wiremock.workspace = true

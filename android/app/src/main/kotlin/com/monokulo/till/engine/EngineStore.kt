@@ -1,0 +1,129 @@
+package com.monokulo.till.engine
+
+import android.util.Log
+import java.util.concurrent.ConcurrentLinkedQueue
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import uniffi.till_app.Action
+import uniffi.till_app.BubbleView
+import uniffi.till_app.RefundSheetView
+import uniffi.till_app.Effect
+import uniffi.till_app.Engine
+import uniffi.till_app.EngineListener
+import uniffi.till_app.Screen
+import uniffi.till_app.Update
+import uniffi.till_screens.CloseView
+import uniffi.till_screens.NotificationView
+import uniffi.till_screens.OnboardingView
+import uniffi.till_screens.SettingsView
+import uniffi.till_screens.ShiftView
+import uniffi.till_screens.WakeUpsView
+
+/** Busy with a network call (buttons wait), and what went wrong last. */
+data class Work(val busy: Boolean = false, val problem: String? = null)
+
+/** How the screen came ([Update.Nav]), and where Back would go from it. */
+data class Nav(val byItself: Boolean = false, val backTarget: Screen? = null)
+
+/** The close sheet over a sale, while one is asked. */
+data class CloseSheet(val orderId: String?, val view: CloseView?)
+
+/**
+ * What the engine last published for each slice of the screen, as Tern's
+ * `Store` holds it: one [StateFlow] per [Update], fed by [Listener]. It holds
+ * no state of its own; Compose draws these and sends [Action]s back.
+ */
+object EngineStore {
+    private val mutableCore = MutableStateFlow<String?>(null)
+    private val mutableScreen = MutableStateFlow<Screen?>(null)
+    private val mutableWork = MutableStateFlow(Work())
+    private val mutableService = MutableStateFlow(false)
+    private val mutableOnboarding = MutableStateFlow<OnboardingView?>(null)
+    private val mutableSettings = MutableStateFlow<SettingsView?>(null)
+    private val mutableWakeUps = MutableStateFlow<WakeUpsView?>(null)
+    private val mutableNav = MutableStateFlow(Nav())
+    private val mutableShift = MutableStateFlow<ShiftView?>(null)
+    private val mutableSale = MutableStateFlow<Update.Sale?>(null)
+    private val mutableClose = MutableStateFlow(CloseSheet(null, null))
+    private val mutableRefund = MutableStateFlow<RefundSheetView?>(null)
+    private val mutableBubble = MutableStateFlow<BubbleView?>(null)
+    private val mutableNotification = MutableStateFlow<NotificationView?>(null)
+    private val mutableEffects = MutableSharedFlow<Effect>(extraBufferCapacity = 16, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+    /** The core's version, once it runs. */
+    val core: StateFlow<String?> = mutableCore.asStateFlow()
+    val screen: StateFlow<Screen?> = mutableScreen.asStateFlow()
+    val work: StateFlow<Work> = mutableWork.asStateFlow()
+    /** The till runs: Android keeps its foreground service meanwhile. */
+    val service: StateFlow<Boolean> = mutableService.asStateFlow()
+    val onboarding: StateFlow<OnboardingView?> = mutableOnboarding.asStateFlow()
+    val settings: StateFlow<SettingsView?> = mutableSettings.asStateFlow()
+    val wakeUps: StateFlow<WakeUpsView?> = mutableWakeUps.asStateFlow()
+    val nav: StateFlow<Nav> = mutableNav.asStateFlow()
+    val shift: StateFlow<ShiftView?> = mutableShift.asStateFlow()
+    /** The sale on screen, as each of its screens draws it; kept while it leaves. */
+    val sale: StateFlow<Update.Sale?> = mutableSale.asStateFlow()
+    val close: StateFlow<CloseSheet> = mutableClose.asStateFlow()
+    val refund: StateFlow<RefundSheetView?> = mutableRefund.asStateFlow()
+    val bubble: StateFlow<BubbleView?> = mutableBubble.asStateFlow()
+    val notification: StateFlow<NotificationView?> = mutableNotification.asStateFlow()
+    /** What only the platform can do; dropped when nothing collects them in time. */
+    val effects: SharedFlow<Effect> = mutableEffects.asSharedFlow()
+
+    @Volatile
+    private var engine: Engine? = null
+    private val early = ConcurrentLinkedQueue<Action>()
+
+    /** Sends [action] to the engine, or keeps it until the engine has started. Never blocks. */
+    fun send(action: Action) {
+        val ready = engine
+        if (ready != null) ready.send(action) else early.add(action)
+    }
+
+    /** The engine has started: what was sent before goes to it now, in order. */
+    fun attach(ready: Engine) {
+        engine = ready
+        while (true) ready.send(early.poll() ?: break)
+    }
+
+    internal fun update(update: Update) {
+        when (update) {
+            is Update.Core -> mutableCore.value = update.version
+            is Update.Screen -> mutableScreen.value = update.screen
+            is Update.Work -> mutableWork.value = Work(update.busy, update.problem)
+            is Update.Service -> mutableService.value = update.running
+            is Update.Onboarding -> mutableOnboarding.value = update.view
+            is Update.Settings -> mutableSettings.value = update.view
+            is Update.WakeUps -> mutableWakeUps.value = update.view
+            is Update.Nav -> mutableNav.value = Nav(update.byItself, update.backTarget)
+            is Update.Shift -> mutableShift.value = update.view
+            is Update.Sale -> mutableSale.value = update
+            is Update.CloseSheet -> mutableClose.value = CloseSheet(update.orderId, update.view)
+            is Update.RefundSheet -> mutableRefund.value = update.view
+            is Update.Bubble -> mutableBubble.value = update.view
+            is Update.Notification -> mutableNotification.value = update.view
+            // The Live Activity is iPhone only; Android never gets one.
+            is Update.LiveActivity -> Unit
+        }
+    }
+
+    internal fun effect(effect: Effect) {
+        mutableEffects.tryEmit(effect)
+    }
+}
+
+/** Where the engine's task publishes: straight into [EngineStore]. */
+object Listener : EngineListener {
+    override fun onUpdate(update: Update) = EngineStore.update(update)
+
+    override fun onEffect(effect: Effect) = EngineStore.effect(effect)
+
+    override fun onLog(message: String) {
+        Log.w("Till", message)
+    }
+}

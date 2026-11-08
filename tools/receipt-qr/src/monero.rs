@@ -12,7 +12,11 @@ pub fn xmr(piconero: u64) -> String {
     let whole = piconero / 1_000_000_000_000;
     let frac = format!("{:012}", piconero % 1_000_000_000_000);
     let frac = frac.trim_end_matches('0');
-    if frac.is_empty() { whole.to_string() } else { format!("{whole}.{frac}") }
+    if frac.is_empty() {
+        whole.to_string()
+    } else {
+        format!("{whole}.{frac}")
+    }
 }
 
 pub fn build(address: &str, piconero: u64) -> String {
@@ -29,6 +33,12 @@ pub fn parse(uri: &str) -> Result<PaymentUri, &'static str> {
     if address.is_empty() {
         return Err("the URI has no address");
     }
-    let tx_amount = query.split('&').find_map(|p| p.strip_prefix("tx_amount=")).map(String::from);
-    Ok(PaymentUri { address: address.to_string(), tx_amount })
+    let tx_amount = query
+        .split('&')
+        .find_map(|p| p.strip_prefix("tx_amount="))
+        .map(String::from);
+    Ok(PaymentUri {
+        address: address.to_string(),
+        tx_amount,
+    })
 }

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The Monokulo Till mark on Monokulo's paper, as Android's launcher icon
+     (android/app/src/main/res/drawable/ic_launcher_foreground.xml), on its
+     120 grid. iOS rounds the corners itself. The asset, from ios/:
+     rsvg-convert -w 1024 -h 1024 Support/AppIcon.svg | magick - -alpha off PNG24:Till/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="-9 -9 138 138">
+  <defs>
+    <clipPath id="screen"><path d="M33.0,29.5H63.0A6.5,6.5 0 0 1 69.5,36.0V66.0A6.5,6.5 0 0 1 63.0,72.5H33.0A6.5,6.5 0 0 1 26.5,66.0V36.0A6.5,6.5 0 0 1 33.0,29.5Z"/></clipPath>
+  </defs>
+  <rect x="-9" y="-9" width="138" height="138" fill="#F4F1EA"/>
+  <path d="M30,12H90A18,18 0 0 1 108,30V90A18,18 0 0 1 90,108H30A18,18 0 0 1 12,90V30A18,18 0 0 1 30,12Z" fill="#1A1917"/>
+  <path d="M83,28H93A3,3 0 0 1 96,31V36A3,3 0 0 1 93,39H83A3,3 0 0 1 80,36V31A3,3 0 0 1 83,28Z" fill="#4A4740"/>
+  <path d="M83,45.5H93A3,3 0 0 1 96,48.5V53.5A3,3 0 0 1 93,56.5H83A3,3 0 0 1 80,53.5V48.5A3,3 0 0 1 83,45.5Z" fill="#4A4740"/>
+  <path d="M83,63H93A3,3 0 0 1 96,66V71A3,3 0 0 1 93,74H83A3,3 0 0 1 80,71V66A3,3 0 0 1 83,63Z" fill="#FF6600"/>
+  <path d="M27.5,88H92.5A3.5,3.5 0 0 1 96,91.5V91.5A3.5,3.5 0 0 1 92.5,95H27.5A3.5,3.5 0 0 1 24,91.5V91.5A3.5,3.5 0 0 1 27.5,88Z" fill="#4A4740"/>
+  <g clip-path="url(#screen)">
+    <path d="M33.0,29.5H63.0A6.5,6.5 0 0 1 69.5,36.0V66.0A6.5,6.5 0 0 1 63.0,72.5H33.0A6.5,6.5 0 0 1 26.5,66.0V36.0A6.5,6.5 0 0 1 33.0,29.5Z" fill="#FF6600"/>
+    <path d="M43,46H53L48,39.5ZM53,46V56L59.5,51ZM53,56H43L48,62.5ZM43,56V46L36.5,51ZM48,39.5L26.5,29.5H69.5ZM59.5,51L69.5,29.5V72.5ZM48,62.5L69.5,72.5H26.5ZM36.5,51L26.5,72.5V29.5Z" fill="#E85D00"/>
+    <path d="M43,46H53V56H43Z" fill="#C24E00"/>
+  </g>
+  <path d="M33,27H63A9,9 0 0 1 72,36V66A9,9 0 0 1 63,75H33A9,9 0 0 1 24,66V36A9,9 0 0 1 33,27Z" fill="none" stroke="#F4F1EA" stroke-width="5"/>
+</svg>

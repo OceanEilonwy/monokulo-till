@@ -57,7 +57,7 @@ fn layout(notice: Option<&str>, error: Option<&str>, body: Markup) -> Markup {
             }
             body { main {
                 h1 { "Square sandbox till" }
-                p.lede { "Rings up sales in Square's sandbox the way a cashier's \"Other: Monero\" tap would, for a Monokular till signed in as the same test seller." }
+                p.lede { "Rings up sales in Square's sandbox the way a cashier's \"Other: Monero\" tap would, for a Till till signed in as the same test seller." }
                 @if let Some(notice) = notice { p.notice role="status" { (notice) } }
                 @if let Some(error) = error { p.error role="alert" { (error) } }
                 (body)

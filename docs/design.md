@@ -1,11 +1,11 @@
-# Monokular: companion app, POS integration and push
+# Till: companion app, POS integration and push
 
-Monokular is the iPhone, iPad and Android app that sits next to a point of
+Till is the iPhone, iPad and Android app that sits next to a point of
 sale (Square first) and shows the customer a Monero payment code when the
 cashier takes a Monero sale. The code can carry the whole receipt, so the
 customer's wallet keeps it with the payment. This document covers what the
 app needs from [monokulo](https://github.com/OceanEilonwy/monokulo), the
-Monokular Bell that wakes tills up, and the design of the app itself. Paths
+Monokulo Bell that wakes tills up, and the design of the app itself. Paths
 under `crates/` in §5 and §8 refer to the monokulo repository; §9 is the
 layout of this one.
 
@@ -14,14 +14,14 @@ layout of this one.
 2. [Connected apps](#2-connected-apps): how a device connects to one store on
    a self-hosted monokulo, and the order API it shares with shop plugins.
 3. [Wake-ups](#3-wake-ups): what makes a till check Square, from a timer or
-   the Monokular Bell.
+   the Monokulo Bell.
 4. [The receipt](#4-the-receipt): built on the till, carried in the code.
 5. [Push](#5-push): a reusable `push` crate, Web Push everywhere,
    UnifiedPush, and a `push-relay` crate for APNs and FCM.
 6. [The Live Activity](#6-the-live-activity).
 7. [Battery and latency](#7-battery-and-latency).
 8. [Monokulo code layout](#8-monokulo-code-layout), settings and migrations.
-9. [The Monokular repository](#9-the-monokular-repository).
+9. [The Till repository](#9-the-till-repository).
 10. [Delivery plan](#10-delivery-plan) and [open questions](#11-open-questions).
 
 Design mockups (iPhone, iPad, Android, web connect pages, onboarding and
@@ -55,7 +55,7 @@ the till reconciles.
 
 ```text
 cashier: rings up in Square POS ─▶ taps "Other: Monero" ─▶ Square closes the sale
-till:    woken by a timer or the Monokular Bell (§3)
+till:    woken by a timer or the Monokulo Bell (§3)
          GET Square payments since its cursor, at its location
          ─▶ a new payment whose Other tender is "Monero"
          GET /v2/orders/{order_id} (line items, for the receipt)
@@ -81,12 +81,12 @@ refund of a sale that never pays.
 | Item | Value |
 | --- | --- |
 | Square application | One, owned by the project. Tills use it unless they're connected to a self-hosted Bell, which brings its own (§3) |
-| Sign-in | OAuth with PKCE on the device: no secret anywhere. Redirect to `https://monokular.monokulo.com/square`, an App Link / universal link, so Square hands the code straight back to the app |
+| Sign-in | OAuth with PKCE on the device: no secret anywhere. Redirect to `https://till.monokulo.com/square`, an App Link / universal link, so Square hands the code straight back to the app |
 | Scopes | `PAYMENTS_READ` (find sales), `ORDERS_READ` (items for the receipt), `MERCHANT_PROFILE_READ` (pick the till's location), `PAYMENTS_WRITE` (refund a sale that never pays) |
 | Tokens | Kept in the Keystore / Keychain, never sent to monokulo. PKCE refresh tokens are single-use and expire (90 days at the time of writing; the spike confirms): the app refreshes on every use and asks for a new sign-in when one lapses |
 | Finding sales | `ListPayments` for the till's location since a saved cursor (`begin_time`, plus payment ids already handled) |
 | Filter | Other tender whose name is the configured one (default "Monero"); status `COMPLETED` |
-| Which till | The till's location, and its own `device_details` when Square gives them; otherwise every Monokular at the location shows the sale |
+| Which till | The till's location, and its own `device_details` when Square gives them; otherwise every Till at the location shows the sale |
 | Two tills, one sale | `idempotency_key` is `sq:` plus a hash of the Square payment id, so every till that finds it gets the same order |
 | Sandbox | Square's sandbox can't run Square POS: verify with $0 Other tenders on a real account |
 
@@ -123,7 +123,7 @@ generated from a pinned Monokulo commit (§9).
 
 | | Shop plugin | Connected app |
 | --- | --- | --- |
-| Names itself | slug + name (`plugins::PluginSlug`, `PluginName`) | The same types and rules: `monokular`, "Monokular" |
+| Names itself | slug + name (`plugins::PluginSlug`, `PluginName`) | The same types and rules: `till`, "Monokulo Till" |
 | Per store | One: connecting a plugin closes the active one | Many, one per device |
 | Starts from | The shop: the browser goes to `/connect/{slug}?site_url=…`, and the shop's host finds the store | The store's dashboard: a single-use connect code |
 | Credentials | The store's secret key (`sk_…`) | The device's own `app_key` (`ak_…`), revocable on its own |
@@ -138,7 +138,7 @@ plugin.
 
 - **Store settings › Connected apps** (a card beside Connections, where the
   store's plugin stays): every connected device, as the app named itself
-  plus the device's name ("Monokular · Front Counter iPad"), last seen, and
+  plus the device's name ("Till · Front Counter iPad"), last seen, and
   Disconnect.
 - **Connect an app**: a device name, then a single-use connect code (QR) and
   the same as a link with a Copy button, for when the dashboard is open on
@@ -162,8 +162,8 @@ https://pay.yourshop.com/apps/connect#token=ct_…
 
 ```http
 POST https://pay.yourshop.com/apps/connect
-Monokulo-Client: monokular/1.0.0
-{ "token": "ct_…", "slug": "monokular", "name": "Monokular",
+Monokulo-Client: till/1.0.0
+{ "token": "ct_…", "slug": "till", "name": "Monokulo Till",
   "device_name": "Front Counter iPad", "platform": "android" }
 → 200 { "app_key": "ak_…" (secret, shown once), "api": "/api/v1",
         "onion_api": "http://….onion/api/v1" (only while the Monokulo has an onion address) }
@@ -235,7 +235,7 @@ The `create-order` form, with the app's key:
 ```http
 POST https://pay.yourshop.com/api/v1/orders
 Authorization: Bearer ak_…
-Monokulo-Client: monokular/1.0.0
+Monokulo-Client: till/1.0.0
 { "amount": "24.50", "currency": "USD",
   "merchant_order_id": "#1042",         (Square's receipt number, or omitted)
   "idempotency_key": "sq:9f2c…" }       (a retry or a second till gets the same order)
@@ -291,7 +291,7 @@ so the sale source never cares why it was woken.
 | Trigger | Where | When |
 | --- | --- | --- |
 | **Timer** | Every platform | Always, during a shift: every 2 s without the Bell, every 30 s with it (as a backstop for a lost ding) |
-| **Ding** from the Monokular Bell | Every platform that registered with one | Within a second or two of the POS's webhook |
+| **Ding** from the Monokulo Bell | Every platform that registered with one | Within a second or two of the POS's webhook |
 | **App opened / brought forward** | Every platform | Immediately |
 
 Every trigger does the same thing: fetch since the cursor, idempotently. A
@@ -320,7 +320,7 @@ code". Tapping opens the app, which builds the receipt and shows the code,
 and starts or updates the Live Activity (§6). If the extension runs out of
 time the alert stays "New sale · Tap to show code" and the app does the rest.
 
-### The Monokular Bell
+### The Monokulo Bell
 
 A small service that turns a POS's webhooks into dings for the right tills.
 It lives in the monokulo repository as the crate and binary `monokulo-bell`
@@ -339,8 +339,8 @@ In short: a POS's payment webhook comes to the Bell, which verifies it
 payment id and drops the body, then sends each till registered at that
 location an encrypted, VAPID-signed Web Push ding that carries no sale data.
 
-In the app: **Settings › Wake-ups**: "Timer only" (default), "Monokular Bell"
-(the build's `-Pmonokular.bell.url`, `bell.monokulo.com` by default), or "My
+In the app: **Settings › Wake-ups**: "Timer only" (default), "Monokulo Bell"
+(the build's `-Ptill.bell.url`, `bell.monokulo.com` by default), or "My
 own Bell" with its address. Built on Android (decisions 90–99 and on): picking
 a Bell reads its `/v1/info` and registers for the till's point of sale and
 environment (one Bell may ring Square's production and sandbox at once): a
@@ -402,7 +402,7 @@ to the store's tills. The Bell's dings (§3) use the same Web Push transport.
 ### Goals
 
 - A **reusable** piece of monokulo: any connected app can ask for pushes;
-  Monokular is only the first user.
+  Till is only the first user.
 - **One transport**: Web Push (RFC 8030), encrypted (RFC 8291, `aes128gcm`)
   and signed (VAPID, RFC 8292), from monokulo and from the Bell.
 - UnifiedPush works with no relay at all; APNs and FCM go through a relay
@@ -563,7 +563,7 @@ Registration, from the app:
 POST /v1/register
 { "platform": "apns" | "apns-liveactivity" | "fcm",
   "token": "<APNs/FCM device or activity token>",
-  "app": "monokular",                   // picks the bundle ID / FCM project
+  "app": "till",                   // picks the bundle ID / FCM project
   "vapid_public_key": "BJ…" }           // the sender: a monokulo or a Bell
 → 201 { "endpoint": "https://relay.monokulo.com/v1/push/ph_7f3k…",
         "expires_at": … }
@@ -633,9 +633,9 @@ listen = "0.0.0.0:8444"        # its own listener (8443 is the engine's), so its
                                # and logs stay apart from the store pages
 public_uri = "https://relay.example.org"
 
-[relay.handles.apps.monokular]
-apns_topic = "com.example.monokular"
-fcm_project_id = "monokular-12345"
+[relay.handles.apps.till]
+apns_topic = "com.example.till"
+fcm_project_id = "till-12345"
 
 [relay.apns]
 team_id = "ABCDE12345"
@@ -701,7 +701,7 @@ go **straight from the sender to the distributor**, with no relay. Without
 one, the app falls back to FCM through the relay (or the UnifiedPush
 embedded FCM distributor pointed at the relay; check that library's gateway
 contract before choosing). On a phone without Google services and without a
-distributor, Monokular keeps its foreground service on the store's SSE
+distributor, Till keeps its foreground service on the store's SSE
 stream and the Square timer during a shift (§7).
 
 ### Push targets in monokulo (`push_targets`)
@@ -799,6 +799,7 @@ through the relay): location label, store name.
 | --- | --- | --- |
 | `phase` | idle / waiting / seen / confirming / paid / expired | Layout and colour |
 | `sale` | "#1042" | Label |
+| `orderId` | "ord_…" | The tap's `monokulo-till://sale/{id}`; set by the app only, so after a push the tap just opens Till |
 | `amount` | "24.50" | Large amount, formatted by the device with `currency` |
 | `currency` | "USD" | With `amount`: no server formats money for the device's locale |
 | `xmr` | "0.1421" | Second line |
@@ -808,7 +809,7 @@ through the relay): location label, store name.
 
 **Show code in island** is a per-device setting, off by default. Turning it
 on explains that the payment address of each sale then passes through the
-Monokular push relay, and that the island's code has no receipt. Off: the
+Till push relay, and that the island's code has no receipt. Off: the
 expanded island shows amount, status and "Tap to show code"; the QR appears
 only in the app.
 
@@ -833,7 +834,7 @@ never end it: the relay sends every state as an `update` (`paid` and
 (monokulo `push.md` 141): monokulo pushes a till's Live Activity nothing of
 another till's, and sends a target's pushes in the order they were queued,
 so overlapping sales show the newest plus "+N more".
-Tapping opens `monokular://sale/{id}`.
+Tapping opens `monokulo-till://sale/{id}`.
 
 The waiting phase needs the app to run, so on iPhone it appears when the
 cashier opens the app or taps the Bell's alert (§3), not on its own.
@@ -943,16 +944,22 @@ recorded as the source, and a disconnected app's key refused.
 
 ---
 
-## 9. The Monokular repository
+## 9. The Till repository
 
 A separate public repository, `monokular`, holding both apps, the
 receipt codec and their shared contract. The apps are native (SwiftUI,
-Jetpack Compose); what they share is the contract, test vectors and
-`orf-codec`.
+Jetpack Compose) over one Rust core.
+
+> **Changed 2026-11-08.** Everything platform-neutral moves into a Rust core
+> shared by both apps, as in Tern and Fob, replacing the native cores
+> (`TillKit`, the Kotlin `core`) below. The crates, the iOS layout and
+> CI are in [ios-plan.md](ios-plan.md); the reasons are in
+> [decisions/core.md](decisions/core.md). The layout below is the original
+> one, kept for its Android modules and `protocol/`.
 
 GitHub description:
 
-> Monokular: iPhone, iPad and Android companion for Monokulo. Take Monero next to your till: it sees Monero sales in your POS (Square first) and shows the customer the payment code, in the Dynamic Island, Slide Over or a floating bubble.
+> Till: iPhone, iPad and Android companion for Monokulo. Take Monero next to your till: it sees Monero sales in your POS (Square first) and shows the customer the payment code, in the Dynamic Island, Slide Over or a floating bubble.
 
 ```text
 monokular/
@@ -973,7 +980,7 @@ monokular/
     square/                     recorded Square payments and orders (Other tenders, refunds)
   ios/
     project.yml                 XcodeGen (no .xcodeproj in git)
-    Packages/MonokularKit/      SwiftPM package, no UIKit; builds and tests on Linux CI too
+    Packages/TillKit/      SwiftPM package, no UIKit; builds and tests on Linux CI too
       Sources/
         Model/                  Store, Sale, SalePhase, Event decoding
         API/                    connect, orders, SSE client, push-target and Bell registration
@@ -983,16 +990,16 @@ monokular/
         Crypto/                 RFC 8291 decrypt (swift-crypto, which is CryptoKit's API off Apple platforms)
         Links/                  connect-code parsing
       Tests/                    runs protocol/vectors and protocol/square
-    Monokular/                  the app
-      App/                      entry point, routing, monokular:// links
+    Till/                  the app
+      App/                      entry point, routing, monokulo-till:// links
       Features/
         Onboarding/  Sale/  Settings/
       Services/                 Keychain (shared group), LiveActivityController, PushRegistration, Scanner
       Resources/                assets, the loading-mark animation, strings
-    MonokularWidgets/           Live Activity (compact, minimal, expanded, lock screen)
-    MonokularNotifications/     Notification Service Extension: decrypt, handle dings (fetch the
+    TillWidgets/           Live Activity (compact, minimal, expanded, lock screen)
+    TillNotifications/     Notification Service Extension: decrypt, handle dings (fetch the
                                 sale, make the order), fill in alerts
-    MonokularUITests/           snapshot tests of every screen for CI screenshots
+    TillUITests/           snapshot tests of every screen for CI screenshots
   android/
     settings.gradle.kts
     core/                       pure Kotlin (JVM): model, API, SSE, RFC 8291 decrypt, connect codes; runs protocol/vectors
@@ -1008,7 +1015,7 @@ monokular/
     architecture.md  release.md
   .github/workflows/
     rust.yml                    orf-codec and orf-codec-ffi: tests; clippy over the workspace
-    core.yml                    MonokularKit on Linux (swift test) + android core (JVM tests)
+    core.yml                    TillKit on Linux (swift test) + android core (JVM tests)
     ios.yml                     macos runner: XcodeGen, build, UI snapshots, development .ipa artifact
     android.yml                 ubuntu: build, unit tests, debug APK artifact
     release.yml                 TestFlight / Play internal track / F-Droid metadata
@@ -1026,9 +1033,10 @@ Choices:
   `protocol/vectors/` from the real Rust code, and both apps' tests read
   them. Changing an event shape breaks the app tests, not a till.
 - **The receipt codec is shared Rust, through UniFFI.** A bit-exact format
-  with a trained zstd dictionary shouldn't be written twice. The rest of the
-  core stays native: a shared Rust core for it isn't worth the build
-  complexity for this amount of logic.
+  with a trained zstd dictionary shouldn't be written twice. ~~The rest of
+  the core stays native: a shared Rust core for it isn't worth the build
+  complexity for this amount of logic.~~ Superseded 2026-11-08: the rest of
+  the core is shared Rust too ([decisions/core.md](decisions/core.md) 1).
 
 ---
 
@@ -1043,13 +1051,13 @@ Choices:
 2. **Connected apps** in monokulo: tables, the Connected apps card, the
    connect page and code, `/apps/connect`, and app keys on the HTTP API
    (`/api/v1`: orders, the store's events, the app's own connection).
-3. **Monokular Android, timer only:** connect, Square sign-in, the payments
+3. **Till Android, timer only:** connect, Square sign-in, the payments
    cursor, making orders, the receipt (`orf-codec-ffi` Kotlin bindings,
    `query::append`, the plain-code fallback), SSE, the foreground service.
    **iPad** follows the same way (Slide Over, timer only).
 4. **`crates/push`** and push targets in monokulo; UnifiedPush end to end
    with ntfy for order updates.
-5. **The Monokular Bell:** Square webhooks (and Clover's, in its second build), registration with the token
+5. **The Monokulo Bell:** Square webhooks (and Clover's, in its second build), registration with the token
    check, dings over Web Push; UnifiedPush dings on Android.
 6. **`push-relay`**: APNs (alert, liveactivity) and FCM, the standalone
    binary and the embedded mount; the official relay and Bell deployed.
@@ -1087,7 +1095,7 @@ relay and Bell, and the Square spike (1) are open.
   copy.
 - The Bell's and the relay's hosts: `bell.monokulo.com` and
   `relay.monokulo.com` are placeholders. The Square sign-in redirect and the
-  App Links are on `monokular.monokulo.com` (this repo's GitHub Pages);
+  App Links are on `till.monokulo.com` (this repo's GitHub Pages);
   connect codes are on each store's own host.
 - App Store review of a crypto-payments companion; Google Play's "display
   over other apps" declaration and its foreground service type for a shift.

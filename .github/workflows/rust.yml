@@ -3,9 +3,9 @@ name: Rust
 on:
   push:
     branches: [main]
-    paths: ["crates/**", "tools/**", "Cargo.toml", "Cargo.lock", ".github/workflows/rust.yml"]
+    paths: ["crates/**", "tools/**", "Cargo.toml", "Cargo.lock", "android/gradle.properties", ".github/workflows/rust.yml"]
   pull_request:
-    paths: ["crates/**", "tools/**", "Cargo.toml", "Cargo.lock", ".github/workflows/rust.yml"]
+    paths: ["crates/**", "tools/**", "Cargo.toml", "Cargo.lock", "android/gradle.properties", ".github/workflows/rust.yml"]
 
 permissions:
   contents: read
@@ -20,19 +20,74 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Toolchain
-        run: rustup toolchain install stable --profile minimal --component clippy && rustup default stable
+        run: rustup toolchain install stable --profile minimal --component clippy,rustfmt && rustup default stable
+      # Compiled dependencies only, pruned, falling back to the last cache
+      # when Cargo.lock changes.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust
+      - name: Format
+        run: cargo fmt --all --check
+      # The Rust core (docs/ios-plan.md §2) and orf-codec. receipt-qr needs a
+      # downloaded corpus to run, so it is only built (by Clippy, below).
+      - name: Test
+        run: cargo test --locked --workspace --exclude receipt-qr
+      # monokulo-client's contract test against Monokulo's OpenAPI document at
+      # the commit the Android app pins (docs/decisions/android.md 53),
+      # generated as the Android job does, sharing its cached checkout. It
+      # needs only Rust: rustup installs the toolchain Monokulo's
+      # rust-toolchain.toml names.
+      - name: Pinned Monokulo commit
+        id: monokulo
+        run: echo "sha=$(sed -n 's/^monokulo.sha=//p' android/gradle.properties)" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v6
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
-          restore-keys: cargo-${{ runner.os }}-
-      # orf-codec's and its bindings' tests (the Monokular Bell is monokulo's
-      # crate monokulo-bell now, tested there); receipt-qr needs a downloaded
-      # corpus to run, so it is only built.
-      - name: Test
-        run: cargo test --locked -p orf-codec -p orf-codec-ffi
+          path: android/build/monokulo-src
+          key: monokulo-src-${{ runner.os }}-${{ steps.monokulo.outputs.sha }}
+          restore-keys: monokulo-src-${{ runner.os }}-
+      - name: Monokulo's OpenAPI document
+        run: mkdir -p target/monokulo && tools/monokulo-openapi/generate.sh "${{ steps.monokulo.outputs.sha }}" "$PWD/target/monokulo/openapi.json" "$PWD/android/build/monokulo-src"
+      - name: The client against Monokulo's OpenAPI document
+        run: MONOKULO_OPENAPI="$PWD/target/monokulo/openapi.json" cargo test --locked -p monokulo-client --test monokulo_contract
+      # The engine builds and tests without its bridge too.
+      - name: Test the engine without UniFFI
+        run: cargo test --locked -p till-app
+      # The screens too: the workspace's test builds them with till-ffi's
+      # features, so with UniFFI's derives on.
+      - name: Test the screens without UniFFI
+        run: cargo test --locked -p till-screens
       - name: Clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      # Only till-app and till-screens (behind their `uniffi` features) and
+      # the two FFI crates may depend on UniFFI; the leaf crates never do
+      # (docs/ios-plan.md §2).
+      - name: The leaf crates don't depend on UniFFI
+        run: |
+          for crate in monokulo-client till-pos till-sales till-bell till-screens till-app; do
+            if cargo tree --locked -p "$crate" -e normal --prefix none | grep -q '^uniffi '; then
+              echo "::error::$crate depends on uniffi"; exit 1
+            fi
+          done
+      # The bindings both apps generate: the library must carry each crate's.
+      - name: Bindings
+        run: |
+          cargo build --locked --release -p till-ffi
+          for language in kotlin swift; do
+            cargo run --locked --release -q -p till-ffi --features bindgen --bin uniffi-bindgen -- \
+              generate --library target/release/libtill_ffi.so --language "$language" --no-format --out-dir "bindings/$language"
+          done
+          test -f bindings/kotlin/uniffi/till_app/till_app.kt
+          test -f bindings/kotlin/uniffi/till_screens/till_screens.kt
+          test -f bindings/kotlin/uniffi/orf_codec_ffi/orf_codec_ffi.kt
+          test -f bindings/swift/till_app.swift
+          test -f bindings/swift/till_screens.swift
+          test -f bindings/swift/orf_codec_ffi.swift
+      # Swift compiles every crate's bindings into one module (TillCore), so
+      # two crates exporting the same type name breaks the iOS build: catch
+      # it here, on Linux, before a macOS runner does.
+      - name: No type is declared by two crates' Swift bindings
+        run: |
+          dupes=$(for f in bindings/swift/*.swift; do
+            grep -oE '^(public |open )?(struct|enum|class|protocol) [A-Za-z0-9_]+' "$f" | awk '{print $NF}' | sort -u
+          done | sort | uniq -d)
+          if [ -n "$dupes" ]; then echo "::error::Declared in more than one crate's bindings: $dupes"; exit 1; fi

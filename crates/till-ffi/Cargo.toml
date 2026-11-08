@@ -1,0 +1,39 @@
+[package]
+name = "till-ffi"
+version = "0.1.0"
+description = "The library the Android and iOS apps load: Till's engine and orf-codec, through UniFFI"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+# cdylib for Android (a .so per ABI), staticlib for iOS (inside an
+# XCFramework). Host release builds keep their symbols: UniFFI's bindgen
+# reads its metadata from them.
+[lib]
+crate-type = ["cdylib", "staticlib"]
+name = "till_ffi"
+
+# Generates the Kotlin and Swift bindings from the built library, one package
+# per crate (uniffi.till_app, uniffi.orf_codec_ffi):
+# cargo run -p till-ffi --features bindgen --bin uniffi-bindgen -- generate --library …
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["bindgen"]
+
+[features]
+bindgen = ["uniffi/cli"]
+
+[dependencies]
+till-app = { workspace = true, features = ["uniffi"] }
+orf-codec-ffi.workspace = true
+uniffi.workspace = true
+
+# Android's certificate checks go through the JVM: the app hands
+# rustls-platform-verifier its context once, through `Tls.init`, before the
+# engine's first request (docs/decisions/core.md 36). The same versions
+# reqwest's rustls feature already brings there.
+[target.'cfg(target_os = "android")'.dependencies]
+jni = { version = "0.22.4", default-features = false }
+rustls-platform-verifier = "0.7.1"

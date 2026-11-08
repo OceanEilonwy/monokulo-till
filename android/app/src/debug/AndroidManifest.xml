@@ -11,8 +11,8 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="monokular-debug" android:host="square" />
-                <data android:scheme="monokular-debug" android:host="clover" />
+                <data android:scheme="monokulo-till-debug" android:host="square" />
+                <data android:scheme="monokulo-till-debug" android:host="clover" />
             </intent-filter>
         </activity>
     </application>

@@ -1,0 +1,800 @@
+//! Till's engine (docs/ios-plan.md §2): everything the app does, with no
+//! toolkit in it. A platform draws the [`Update`]s published here, carries out
+//! the [`Effect`]s, and sends back what the cashier did as [`Action`]s.
+//!
+//! One task owns the state. [`Engine::send`] never blocks: actions queue on a
+//! channel, background work comes back to the task as a message (dropped if
+//! the till was connected afresh or forgotten meanwhile), and the task
+//! publishes each [`Update`] only when it changed, through the
+//! [`EngineListener`].
+//!
+//! - [`store`]: the persisted model, in `Stores.kt`'s keys and JSON, kept
+//!   through [`Platform`]'s secrets.
+//! - The engine owns the till: till-sales' `TillRunner` and `LiveStore`,
+//!   the points of sale, and till-bell's `BellWakeUps`, whose push side the
+//!   platform carries through [`PushPlatform`] and the `Push…` actions.
+//! - [`preview_shift`], [`preview_sale`] and [`preview_close`]: the till's
+//!   screens from a saved shift, with no engine, for previews and tests.
+//! - [`background_check`]: one look for new sales with no engine, for the
+//!   iOS Notification Service Extension and Android's ding path.
+
+#[cfg(feature = "uniffi")]
+uniffi::setup_scaffolding!();
+
+mod background;
+mod engine;
+mod phases;
+mod preview;
+mod push;
+mod relay;
+mod side;
+pub mod store;
+#[cfg(test)]
+mod testing;
+mod web_push;
+
+use std::sync::{Arc, OnceLock};
+
+use tokio::sync::mpsc::UnboundedSender;
+
+pub use background::{BackgroundCheck, background_check, is_relayed_ding};
+use monokulo_client::PointOfSale;
+pub use preview::{TillPreview, preview_close, preview_panel, preview_sale, preview_shift};
+pub use till_screens::Device;
+use till_screens::bubble::{BubbleLook, BubbleTap, PanelView};
+use till_screens::notification::Notice;
+use till_screens::order_text::OrderPageView;
+use till_screens::shift::ShiftFilter;
+use till_screens::view::Press;
+use till_screens::{
+    CloseView, CodeView, LiveActivityState, NotificationView, OnboardingView, SalePageView,
+    SaleView, SettingsView, ShiftView, WakeUpsView,
+};
+
+/// The version of the core, for the platform's About screen and logs.
+pub const CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// What the platform keeps and knows for the engine: secrets (the Android
+/// Keystore, or the iOS Keychain in a group the extension shares), and how
+/// this device writes amounts of money.
+#[cfg_attr(feature = "uniffi", uniffi::export(with_foreign))]
+pub trait Platform: Send + Sync {
+    /// `None` only when there is no such secret. A store that can't tell says
+    /// so with an error: taking that for "none" would replace a saved
+    /// connection with nothing.
+    fn secret_get(&self, key: String) -> Result<Option<Vec<u8>>, SecretError>;
+    fn secret_put(&self, key: String, value: Vec<u8>) -> Result<(), SecretError>;
+    fn secret_remove(&self, key: String) -> Result<(), SecretError>;
+    /// `minor` units of `currency` (ISO 4217) in the device's locale: 2450
+    /// and "USD" is "$24.50" in the US (docs/design.md §6).
+    fn format_money(&self, minor: i64, currency: String) -> String;
+}
+
+/// The platform's secret store couldn't do what was asked, for now at least.
+#[derive(Debug, thiserror::Error)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
+pub enum SecretError {
+    #[error("the secret store is unavailable: {reason}")]
+    Unavailable { reason: String },
+}
+
+#[cfg(feature = "uniffi")]
+impl From<uniffi::UnexpectedUniFFICallbackError> for SecretError {
+    fn from(e: uniffi::UnexpectedUniFFICallbackError) -> Self {
+        SecretError::Unavailable { reason: e.reason }
+    }
+}
+
+/// The device's push subscription for the chosen Bell (till-bell's
+/// `PushSubscriptions` and `Distributors`, decision 19): UnifiedPush on
+/// Android, APNs through the relay on iOS. Calls come from the engine's
+/// tasks and must not block: the platform starts the work and answers
+/// with [`Action::PushEndpoint`], [`Action::PushFailed`],
+/// [`Action::PushUnregistered`], [`Action::PushReceived`] and
+/// [`Action::DistributorsChanged`].
+#[cfg_attr(feature = "uniffi", uniffi::export(with_foreign))]
+pub trait PushPlatform: Send + Sync {
+    /// Subscribe for a Bell whose VAPID public key is `vapid_public_key`
+    /// (base64url); subscribing again with another key replaces it.
+    fn subscribe(&self, vapid_public_key: String);
+    /// End the subscription.
+    fn unsubscribe(&self);
+    /// Which distributor would carry the dings. iOS has one, always found.
+    fn distributors(&self) -> Result<Distributors, PushProblem>;
+    /// The cashier's pick from [`Distributors::Choose`].
+    fn save_distributor(&self, name: String);
+}
+
+/// The distributors on the device, as Wake-ups needs them (decision 91).
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum Distributors {
+    /// The one to use (an Android package name; `apns` on iOS).
+    Found { name: String },
+    /// Nothing on the device can carry dings.
+    None,
+    /// Several and no default: the cashier picks one.
+    Choose { names: Vec<String> },
+}
+
+/// Something on the device failed while asking about distributors.
+#[derive(Debug, thiserror::Error)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
+pub enum PushProblem {
+    #[error("the device's push failed: {reason}")]
+    Device { reason: String },
+}
+
+#[cfg(feature = "uniffi")]
+impl From<uniffi::UnexpectedUniFFICallbackError> for PushProblem {
+    fn from(e: uniffi::UnexpectedUniFFICallbackError) -> Self {
+        PushProblem::Device { reason: e.reason }
+    }
+}
+
+/// Why a push subscription couldn't be made, or ended (till-bell's
+/// `PushFailure`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum PushFailure {
+    NoDistributor,
+    Network,
+    ActionRequired,
+    NoKeys,
+    Lost,
+    Other,
+}
+
+/// Where what the engine publishes goes. Called from the engine's task,
+/// never from the platform's UI thread.
+#[cfg_attr(feature = "uniffi", uniffi::export(with_foreign))]
+pub trait EngineListener: Send + Sync {
+    fn on_update(&self, update: Update);
+    fn on_effect(&self, effect: Effect);
+    /// A line for the system log.
+    fn on_log(&self, message: String);
+}
+
+/// Which Square, as the build names it (Android's `BuildConfig`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct SquareSetup {
+    pub application_id: String,
+    pub sandbox: bool,
+    /// Where Square sends the sign-in back: an App Link into the app. The
+    /// token exchange names it, as Square requires.
+    pub redirect_uri: String,
+    /// A stand-in Square, for development; `None` for Square's own.
+    pub base_url: Option<String>,
+    /// Where the sign-in comes back into the app when that isn't
+    /// `redirect_uri` itself: a debug build's `monokulo-till-debug://` link,
+    /// which the page at `redirect_uri` forwards to. A redirect to either
+    /// is taken (decision 57); `None` takes only `redirect_uri`.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub return_uri: Option<String>,
+}
+
+/// Which Clover, as the build names it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct CloverSetup {
+    pub application_id: String,
+    /// `sandbox`, `north_america`, `europe` or `latin_america`.
+    pub environment: String,
+    pub redirect_uri: String,
+    pub base_url: Option<String>,
+    /// As [`SquareSetup::return_uri`].
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub return_uri: Option<String>,
+}
+
+/// The app around the engine: where it keeps things, what it is, and what
+/// the build chose.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct EngineConfig {
+    /// A directory the app (and on iOS its extension) can write to. The
+    /// lock around a point of sale's refresh is a file here.
+    pub data_dir: String,
+    pub device: Device,
+    /// This device, for when the merchant didn't name it ("Pixel 8").
+    pub device_name: String,
+    pub app_version: String,
+    /// `android` or `ios`, as Monokulo's apps list shows it.
+    pub platform: String,
+    /// A debug build: cleartext connect links, stand-ins, http Bells.
+    pub debug: bool,
+    /// The device's clock: its offset from UTC now, in seconds, and whether
+    /// it keeps a 24-hour clock ([`Action::ClockChanged`] when they change).
+    pub utc_offset: i32,
+    pub hours_24: bool,
+    pub square: SquareSetup,
+    pub clover: CloverSetup,
+    /// The project's Bell, what "Monokulo Bell" registers with.
+    pub bell_url: String,
+    /// iOS: the push relay that turns the device's APNs token into a Web
+    /// Push endpoint for the Bell (design.md §5, "The relay API"). With it
+    /// the engine carries the push side itself: it registers the token
+    /// [`Action::PushToken`] hands over, opens what the relay carries, and
+    /// never calls the [`PushPlatform`] it was given. `None` on Android,
+    /// whose [`PushPlatform`] is UnifiedPush.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub relay_url: Option<String>,
+}
+
+/// A point of sale, as the platform names one to the engine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum Pos {
+    Square,
+    Clover,
+}
+
+impl From<Pos> for PointOfSale {
+    fn from(pos: Pos) -> PointOfSale {
+        match pos {
+            Pos::Square => PointOfSale::Square,
+            Pos::Clover => PointOfSale::Clover,
+        }
+    }
+}
+
+/// Settings › Wake-ups' choice, as the platform sends it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum WakeUps {
+    Timer,
+    MonokuloBell,
+    /// The address as typed; one that isn't a Bell's is ignored (the
+    /// screen only offers "Use this Bell" once it is).
+    OwnBell {
+        address: String,
+    },
+}
+
+/// The close sheet's answers are `till-screens`' own: one type, so the Swift
+/// bindings (one module for every crate) don't declare it twice.
+pub use till_screens::close::CloseChoice;
+
+/// Where the app is (Android: `Screen`). Setup follows the design's six
+/// onboarding steps.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum Screen {
+    /// 1: what Till does.
+    Welcome,
+    /// 2: scan or paste the store's connect code.
+    Scan,
+    /// 3: connect to the server, then check the store it is.
+    Confirm,
+    Connected,
+    /// 4: the point of sale and its sign-in; Square's locations next.
+    PointOfSale,
+    Locations,
+    /// 5: alerts, then (Android) the bubble.
+    Alerts,
+    Float,
+    /// 6: start the shift.
+    Ready,
+    /// The shift: the till's home.
+    Till,
+    /// One sale: its code while it's live, else its page.
+    Sale {
+        order_id: String,
+    },
+    /// A live sale's code enlarged.
+    Code {
+        order_id: String,
+    },
+    /// Every line of a live sale's order.
+    Order {
+        order_id: String,
+    },
+    Settings,
+}
+
+/// What the cashier did, or what the platform saw.
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum Action {
+    /// The app came to the front: publish everything again, read the store,
+    /// look for sales now.
+    Opened,
+    /// The app went to the back.
+    Backgrounded,
+    /// The device's time zone or clock style changed.
+    ClockChanged {
+        utc_offset: i32,
+        hours_24: bool,
+    },
+    /// Alerts and (Android) drawing over other apps, as the system allows
+    /// them now.
+    Permissions {
+        alerts: bool,
+        bubble: bool,
+    },
+    /// One step back.
+    Back,
+    /// The screen's main button: Welcome's start, step 3's "Continue", step
+    /// 4's button under the card (the chosen point of sale's sign-in until
+    /// the till is connected to it, then "Continue", or "Done" from
+    /// Settings), step 5's. The engine decides which from its state, so the
+    /// platform sends `Next` whatever the button says.
+    Next,
+    /// The screen's way past, under its button: step 4's "Not now: only show
+    /// other tills' sales" until connected, then "Skip the test"; step 5's
+    /// "Not now"; Android's "Use notifications only" (the bubble off).
+    Skip,
+    /// A connect link opened as an App Link (or from anywhere else that
+    /// isn't a paste or a scan).
+    ConnectLink {
+        url: String,
+    },
+    /// Step 2's Paste: the clipboard's text, `None` when it held none (step
+    /// 2 then says there's nothing to paste; text that isn't a store's
+    /// link, that it isn't one).
+    PasteConnectLink {
+        text: Option<String>,
+    },
+    /// Step 2's camera read a code: one that isn't a store's connect code is
+    /// said so.
+    ScanConnectCode {
+        text: String,
+    },
+    /// Step 3: redeem the code.
+    Connect,
+    ChoosePointOfSale {
+        pos: Pos,
+    },
+    /// The chosen point of sale's sign-in, through `application_id` when
+    /// that is a Bell's (decision 96): the page opens as
+    /// [`Effect::OpenUrl`].
+    SignIn {
+        application_id: Option<String>,
+    },
+    /// A point of sale's redirect back into the app.
+    SignInReturned {
+        url: String,
+    },
+    ChooseLocation {
+        location_id: String,
+    },
+    ChangeLocation,
+    /// "Look again" for Clover's Monero payment type.
+    LookAgain,
+    /// "Not now": only other tills' sales.
+    WithoutPos,
+    SignOutOfPos,
+    /// Setup's last step, or watching turned on.
+    StartShift,
+    /// Watching turned off: every live code comes down.
+    StopShift,
+    /// The shift's filter chip tapped.
+    ChooseFilter {
+        filter: ShiftFilter,
+    },
+    /// The shift's tray folded or unfolded.
+    FoldTray {
+        folded: bool,
+    },
+    /// The panel's "Open the shift": every sale's full screen is left for
+    /// now, and the shift comes up.
+    OpenShift,
+    /// Android's bubble panel rose (`up`) or went back into the bubble. While
+    /// it is up the panel's countdown is redrawn each second though the app
+    /// is in the back (decision 56), and the free bubble doesn't pulse.
+    PanelShown {
+        up: bool,
+    },
+    /// The bubble was let go against the `left` edge (else the right) at
+    /// height `y`, in pixels: kept, and published in [`BubbleView`].
+    MoveBubble {
+        left: bool,
+        y: i32,
+    },
+    /// The platform's moving stage came to rest on `screen` (Android's
+    /// `FollowScreen`): a new sale rises out of the shift only while it
+    /// rests there (decision 266 of android.md).
+    Landed {
+        screen: Screen,
+    },
+    /// A sale's X or a row's swipe: the close sheet, while the sale has
+    /// answers.
+    AskClose {
+        order_id: String,
+    },
+    /// The close sheet went without an answer.
+    DismissClose,
+    OpenSale {
+        order_id: String,
+    },
+    Enlarge {
+        order_id: String,
+    },
+    ShowOrder {
+        order_id: String,
+    },
+    Close {
+        order_id: String,
+        choice: CloseChoice,
+    },
+    Refund {
+        order_id: String,
+    },
+    /// The refund sheet's "I've refunded it".
+    ConfirmRefund {
+        order_id: String,
+    },
+    /// "Not yet", Back or the scrim.
+    DismissRefund,
+    /// "Show the code again" on a closed sale.
+    Reopen {
+        order_id: String,
+    },
+    CopyAddress {
+        order_id: String,
+    },
+    /// The XMR amount tapped: it is copied.
+    CopyAmount {
+        order_id: String,
+    },
+    OpenSettings,
+    /// Settings' "Change the point of sale": step 4, back to Settings once
+    /// the new sign-in is done.
+    OpenPointOfSale,
+    /// Read the store again (step 3's "Try again").
+    ReadStore,
+    /// Debug builds: a stand-in point of sale's address (acceptance T6.5).
+    SetBaseUrl {
+        pos: Pos,
+        url: String,
+    },
+    SetBubble {
+        on: bool,
+    },
+    SetTor {
+        on: bool,
+    },
+    /// iPhone's Settings › Dynamic Island: the Live Activity each shift.
+    SetLiveActivity {
+        on: bool,
+    },
+    /// iPhone's "Show code in island": the plain payment URI goes through
+    /// the push relay to the island while a sale waits (design.md §6).
+    SetCodeInIsland {
+        on: bool,
+    },
+    /// Whether Orbot's SOCKS proxy answered, as the platform's probe found
+    /// it (decision 10): Android probes as the app comes forward and as
+    /// step 3 and Settings open. A till connects over Tor only once a probe
+    /// said Orbot runs, and Settings says when it doesn't.
+    TorProbed {
+        running: bool,
+    },
+    Disconnect,
+    /// The store disconnected this device: forget it.
+    Forget,
+    ChooseWakeUps {
+        choice: WakeUps,
+    },
+    /// Wake-ups' "My own Bell" while its address is being typed:
+    /// `picked` when the row was tapped with no address saved (its field
+    /// opens, the saved choice stays ticked), and the field as typed so far
+    /// (`None` until it's touched). The keyboard is the platform's; the
+    /// engine says whether the address is a Bell's. Choosing wake-ups ends
+    /// it. The row tapped (`picked`, nothing typed) with an address saved
+    /// chooses that Bell at once.
+    EditOwnBell {
+        picked: bool,
+        typed: Option<String>,
+    },
+    ChooseDistributor {
+        name: String,
+    },
+    /// The platform gave an endpoint, with the subscription's keys.
+    PushEndpoint {
+        url: String,
+        p256dh: Option<String>,
+        auth: Option<String>,
+    },
+    PushFailed {
+        failure: PushFailure,
+    },
+    /// The platform ended the subscription.
+    PushUnregistered,
+    /// A push arrived, decrypted or not.
+    PushReceived {
+        content: Vec<u8>,
+        decrypted: bool,
+    },
+    /// An app came or went, which may have been a distributor.
+    DistributorsChanged,
+    /// iOS's APNs device token, the bytes in hex, each time iOS gives one
+    /// (every launch, from `registerForRemoteNotifications`); `None` when
+    /// iOS couldn't register for remote notifications. With a
+    /// [`EngineConfig::relay_url`] the engine registers it with the relay
+    /// while the Bell is chosen; without, it is ignored. A push the relay
+    /// carried comes as [`Action::PushReceived`] with its `aes128gcm`
+    /// ciphertext and `decrypted` false: the engine opens it.
+    PushToken {
+        token: Option<String>,
+    },
+}
+
+/// A slice of what the screens show, sent only when it changed. Each
+/// screen's record is till-screens', crossing UniFFI as it is.
+// Sent by value across UniFFI, which can't box a variant.
+#[allow(clippy::large_enum_variant)]
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum Update {
+    /// The core is running.
+    Core { version: String },
+    /// Where the app is.
+    Screen { screen: Screen },
+    /// Busy with a network call (buttons wait), and what went wrong last.
+    Work { busy: bool, problem: Option<String> },
+    /// Android keeps its foreground service while the till runs.
+    Service { running: bool },
+    /// Onboarding's step, as `till_screens::onboarding` draws it, while
+    /// setup is on screen.
+    Onboarding { view: OnboardingView },
+    /// Settings, as `till_screens::settings` draws it.
+    Settings { view: SettingsView },
+    /// Settings › Wake-ups, as `till_screens::wake_ups` draws it: Android
+    /// draws it inside Settings, iOS on its own screen.
+    WakeUps { view: WakeUpsView },
+    /// How the screen in the next [`Update::Screen`] came: `by_itself` when
+    /// the sales put it there (a new sale rising, a code going down), not
+    /// the cashier, so it arrives without growing out of anything (M7);
+    /// and where Back would go from it, for a back gesture's preview
+    /// (`None` where Back shows none). Sent before the screen it describes.
+    Nav {
+        by_itself: bool,
+        back_target: Option<Screen>,
+    },
+    /// The shift, as `till_screens::shift` draws it, once the till is set up.
+    Shift { view: ShiftView },
+    /// The sale on screen ([`Screen::Sale`], `Code` or `Order`): its live
+    /// screen, its page, its enlarged code, and its whole order while the
+    /// till has its receipt.
+    Sale {
+        order_id: String,
+        view: SaleView,
+        page: SalePageView,
+        code: CodeView,
+        order: Option<OrderPageView>,
+    },
+    /// The close sheet over a sale, while one is asked.
+    CloseSheet {
+        order_id: Option<String>,
+        view: Option<CloseView>,
+    },
+    /// The refund sheet over a sale the cashier refunds at the point of sale.
+    RefundSheet { view: Option<RefundSheetView> },
+    /// Android's bubble over other apps and its panel.
+    Bubble { view: BubbleView },
+    /// The notifications, as `till_screens::notification` draws them:
+    /// Android's ongoing one, and iOS's alert for a new sale. `alert` (and
+    /// an ongoing sale's `alert`) is set in one update only, as the sale
+    /// arrives while the app isn't in front: post it then. A later update
+    /// without it changes nothing already posted.
+    Notification { view: NotificationView },
+    /// iPhone's Live Activity, as `till_screens::live_activity` draws it
+    /// (decision 40): `None` while there should be none (the switch off in
+    /// Settings, no shift on, setup not done). Never sent on iPad or
+    /// Android.
+    LiveActivity { state: Option<LiveActivityState> },
+}
+
+/// The refund sheet (decision 130 of android.md), ready to draw.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct RefundSheetView {
+    pub order_id: String,
+    /// "Refund in Clover".
+    pub title: String,
+    /// What to refund, and where.
+    pub body: String,
+    /// "I've refunded it" asked, and the point of sale doesn't show it yet.
+    pub not_seen: Option<String>,
+    /// "I've refunded it", or "Looking…" while the point of sale is asked.
+    pub refunded: Press,
+    /// "Not yet".
+    pub not_yet: String,
+}
+
+/// Android's bubble and its panel, ready to draw.
+///
+/// Where the bubble rests (`left`, `y`) is kept by the engine, though only
+/// the platform reads it: an upgraded till has it under `Stores.kt`'s
+/// `bubble.left` and `bubble.y`, in the store the engine owns and caches
+/// (decision 42), which a second writer would leave stale. The platform
+/// sends [`Action::MoveBubble`] once a drag lets go, never per frame.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct BubbleView {
+    /// The cashier wants it, Android allows it, a shift is on, the till is
+    /// running and still connected (the store's 401 takes it down; a failed
+    /// poll doesn't, android.md decision 208), and Till's own screen isn't
+    /// up.
+    pub shown: bool,
+    /// The bubble rests against the screen's left edge (else its right).
+    pub left: bool,
+    /// Its height on screen, in pixels, as last let go; `None` until it has
+    /// been moved (Android puts it a third of the way down).
+    pub y: Option<i32>,
+    pub look: BubbleLook,
+    /// The sale the bubble and its panel are about.
+    pub order_id: Option<String>,
+    /// What a screen reader says for the bubble.
+    pub label: String,
+    /// What a tap does with the panel down, and with it up.
+    pub tap: BubbleTap,
+    pub tap_label: String,
+    pub tap_open: BubbleTap,
+    pub tap_open_label: String,
+    /// The panel: the sale as its live screen shows it, with its header,
+    /// ring, hero, whole order and ended words.
+    pub panel: Option<PanelView>,
+    /// The free bubble pulses: a code waits for its money and the panel is
+    /// down (as [`Action::PanelShown`] last said).
+    pub pulses: bool,
+    /// A payment landing buzzes the bubble (the app isn't on screen).
+    pub buzzes: bool,
+}
+
+/// A buzz the platform gives.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum Haptic {
+    /// A payment landed while the app is on screen.
+    Paid,
+}
+
+/// Something only the platform can do.
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum Effect {
+    /// Open `url` in the browser (a point of sale's sign-in page).
+    OpenUrl {
+        url: String,
+    },
+    /// Android: post a sale's own notification in the ended group (its
+    /// "Paid", or "No payment yet" with how to refund it), replacing one for
+    /// the same `order_id`. `paid` gives it the paid look and the timeout;
+    /// `quiet` posts it without sound or banner, the app being on screen.
+    /// Once two are posted, their summary is [`ended_summary`].
+    Notify {
+        order_id: String,
+        notice: Notice,
+        paid: bool,
+        quiet: bool,
+    },
+    /// The sale `id` left the shift: what was posted about it goes.
+    ClearNotification {
+        id: String,
+    },
+    Haptic {
+        haptic: Haptic,
+    },
+    /// Put `text` on the clipboard; `kind` says what it is, for the
+    /// platform's confirmation ("Address copied") and for marking an
+    /// address sensitive, without reading the text.
+    CopyText {
+        text: String,
+        kind: CopyKind,
+    },
+}
+
+/// What [`Effect::CopyText`] copies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum CopyKind {
+    /// A sale's wallet address ("Copy address").
+    Address,
+    /// A sale's XMR amount, as its figures ("0.05552"; the amount tapped).
+    Amount,
+    Other,
+}
+
+/// The summary of Android's ended group, once it holds `ended`
+/// notifications (two or more): "3 sales ended".
+#[cfg_attr(feature = "uniffi", uniffi::export)]
+pub fn ended_summary(ended: u32) -> Notice {
+    till_screens::notification::ended_summary(ended)
+}
+
+/// The Tokio runtime the engine runs on.
+fn runtime() -> &'static tokio::runtime::Runtime {
+    static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    RT.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .thread_name("till-core")
+            .enable_all()
+            .build()
+            .expect("start the Tokio runtime")
+    })
+}
+
+#[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
+pub struct Engine {
+    tx: UnboundedSender<engine::Msg>,
+}
+
+impl Engine {
+    /// Starts the engine's task. The first [`Update`]s follow at once.
+    pub fn start(
+        config: EngineConfig,
+        platform: Arc<dyn Platform>,
+        push: Arc<dyn PushPlatform>,
+        listener: Arc<dyn EngineListener>,
+    ) -> Arc<Engine> {
+        Engine::start_with(config, platform, push, listener, engine::Options::default())
+    }
+
+    pub(crate) fn start_with(
+        config: EngineConfig,
+        platform: Arc<dyn Platform>,
+        push: Arc<dyn PushPlatform>,
+        listener: Arc<dyn EngineListener>,
+        options: engine::Options,
+    ) -> Arc<Engine> {
+        let tx = engine::spawn(
+            runtime().handle(),
+            config,
+            platform,
+            push,
+            listener,
+            options,
+        );
+        Arc::new(Engine { tx })
+    }
+}
+
+// Apart, because a constructor's attribute can't depend on the feature.
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+impl Engine {
+    #[uniffi::constructor]
+    pub fn new(
+        config: EngineConfig,
+        platform: Arc<dyn Platform>,
+        push: Arc<dyn PushPlatform>,
+        listener: Arc<dyn EngineListener>,
+    ) -> Arc<Engine> {
+        Engine::start(config, platform, push, listener)
+    }
+}
+
+#[cfg_attr(feature = "uniffi", uniffi::export)]
+impl Engine {
+    /// Queues `action` for the engine's task. Never blocks.
+    pub fn send(&self, action: Action) {
+        // The task only ends with the engine, so a send can't fail before then.
+        let _ = self.tx.send(engine::Msg::Action(action));
+    }
+}
+
+#[cfg(test)]
+impl Engine {
+    /// What `look` sees of the engine's state, once the task gets to it.
+    pub(crate) fn peek<T: Send + 'static>(
+        &self,
+        look: impl FnOnce(&engine::State) -> T + Send + 'static,
+    ) -> T {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let _ = self.tx.send(engine::Msg::Peek(Box::new(move |state| {
+            let _ = tx.send(look(state));
+        })));
+        rx.recv_timeout(std::time::Duration::from_secs(10))
+            .expect("the engine answers")
+    }
+}
+
+impl Drop for Engine {
+    fn drop(&mut self) {
+        let _ = self.tx.send(engine::Msg::Stop);
+    }
+}

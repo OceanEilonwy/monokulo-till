@@ -1,0 +1,36 @@
+[package]
+name = "till-app"
+version = "0.1.0"
+description = "Till's engine: everything the app does, with no toolkit in it, for the Android and iOS apps to draw"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+# The bridge for Kotlin and Swift is behind `uniffi`, so the engine builds
+# and tests without it (docs/ios-plan.md §2). till-ffi turns it on.
+[features]
+uniffi = ["dep:uniffi", "till-screens/uniffi"]
+
+[dependencies]
+# PosSwitchSide and till-bell's PosSide are traits with async methods.
+async-trait = "0.1.89"
+# Opening the relay's dings (RFC 8291): the crypto rustls already brings.
+aws-lc-rs = { version = "1.18.2", default-features = false, features = ["aws-lc-sys"] }
+base64.workspace = true
+monokulo-client.workspace = true
+# The client type every request goes through (monokulo_client::tor::http_client).
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+till-bell.workspace = true
+till-pos.workspace = true
+till-sales.workspace = true
+till-screens.workspace = true
+tokio.workspace = true
+uniffi = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+wiremock = "0.6.5"

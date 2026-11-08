@@ -2,12 +2,15 @@
 //! github.com/openreceiptformat/orf-spec at 9f64924) and receipts a till would
 //! make, checked against the ORF 0.1 JSON Schema.
 
-use orf_codec::{decode, decode_text, encode, encode_text, EncodeError, Receipt};
-use serde_json::{json, Value};
+use orf_codec::{EncodeError, Receipt, decode, decode_text, encode, encode_text};
+use serde_json::{Value, json};
 
 fn schema() -> jsonschema::Validator {
     let schema: Value = serde_json::from_str(include_str!("orf/orf-0.1.json")).unwrap();
-    jsonschema::options().should_validate_formats(true).build(&schema).unwrap()
+    jsonschema::options()
+        .should_validate_formats(true)
+        .build(&schema)
+        .unwrap()
 }
 
 fn assert_round_trips(json: &Value) -> usize {
@@ -16,8 +19,14 @@ fn assert_round_trips(json: &Value) -> usize {
     let back = decode(&bytes).expect("decodes");
     assert_eq!(back, receipt);
     let back_json = serde_json::to_value(&back).unwrap();
-    assert!(schema().is_valid(&back_json), "decoded receipt fails the ORF schema: {back_json:#}");
-    assert_eq!(decode_text(&encode_text(&receipt).unwrap()).unwrap(), receipt);
+    assert!(
+        schema().is_valid(&back_json),
+        "decoded receipt fails the ORF schema: {back_json:#}"
+    );
+    assert_eq!(
+        decode_text(&encode_text(&receipt).unwrap()).unwrap(),
+        receipt
+    );
     bytes.len()
 }
 
@@ -77,7 +86,8 @@ fn other_currencies_and_refunds_round_trip() {
     r["currency"] = json!("JPY");
     r["receipt"]["receipt_type"] = json!("refund");
     r["receipt"]["status"] = json!("issued");
-    r["line_items"] = json!([{ "description": "Matcha", "quantity": -1, "unit_price": 980, "line_total": -980 }]);
+    r["line_items"] =
+        json!([{ "description": "Matcha", "quantity": -1, "unit_price": 980, "line_total": -980 }]);
     r["tax"] = json!({ "tax_scheme": "JP_CT", "tax_lines": [{ "rate": 0.1, "base_amount": -980, "tax_amount": -98, "jurisdiction": "JP" }] });
     r["total"] = json!(-1078);
     r["extensions"] = json!({});
@@ -102,7 +112,10 @@ fn what_cant_be_represented_is_refused() {
 
     let mut r = till_receipt();
     r["merchant"]["shoe_size"] = json!(9);
-    assert!(serde_json::from_value::<Receipt>(r).is_err(), "unknown fields are refused, not dropped");
+    assert!(
+        serde_json::from_value::<Receipt>(r).is_err(),
+        "unknown fields are refused, not dropped"
+    );
 }
 
 #[test]

@@ -104,7 +104,17 @@ mod tests {
 
     #[test]
     fn numbers_round_trip_at_every_order() {
-        let values = [0u64, 1, 2, 7, 255, 256, 1_000_000, u32::MAX as u64, u64::MAX - 1];
+        let values = [
+            0u64,
+            1,
+            2,
+            7,
+            255,
+            256,
+            1_000_000,
+            u32::MAX as u64,
+            u64::MAX - 1,
+        ];
         let signed = [0i64, 1, -1, 450, -450, i64::MIN / 2, i64::MAX / 2];
         for k in [0, 1, 8, 20] {
             let mut w = Writer::default();

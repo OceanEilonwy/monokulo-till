@@ -1,0 +1,29 @@
+[package]
+name = "till-bell"
+version = "0.1.0"
+description = "Wake-ups from a Monokulo Bell: its address, its API, and keeping a till registered with it"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+# The platform's push subscriptions and the Bell's client are trait objects,
+# with async methods: UniFFI's foreign async traits take the same shape.
+async-trait.workspace = true
+# A VAPID key is checked to be a P-256 point.
+base64.workspace = true
+monokulo-client.workspace = true
+reqwest = { workspace = true, features = ["rustls", "json"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+# Passes are cancelled the way the Kotlin coroutines were: at their waits,
+# never inside the Bell's answer being kept.
+tokio-util = "0.7.16"
+url = "2.5.8"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+wiremock.workspace = true

@@ -25,7 +25,10 @@ pub fn from_digits(s: &str) -> Result<Vec<u8>, DecodeError> {
     let mut rest = s;
     while !rest.is_empty() {
         let take = rest.len().min(17);
-        let bytes = DIGITS.iter().position(|&d| d == take).ok_or(DecodeError::Digits)?;
+        let bytes = DIGITS
+            .iter()
+            .position(|&d| d == take)
+            .ok_or(DecodeError::Digits)?;
         let n: u64 = rest[..take].parse().map_err(|_| DecodeError::Digits)?;
         if bytes < 8 && n >> (8 * bytes) != 0 {
             return Err(DecodeError::Digits);
@@ -46,7 +49,11 @@ mod tests {
     fn every_length_round_trips() {
         for len in 0..40 {
             let data: Vec<u8> = (0..len).map(|i| (i * 37 + 255) as u8).collect();
-            assert_eq!(from_digits(&to_digits(&data)).unwrap(), data, "length {len}");
+            assert_eq!(
+                from_digits(&to_digits(&data)).unwrap(),
+                data,
+                "length {len}"
+            );
         }
         let max = vec![0xff; 21];
         assert_eq!(from_digits(&to_digits(&max)).unwrap(), max);

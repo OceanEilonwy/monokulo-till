@@ -3,9 +3,9 @@ name: Android
 on:
   push:
     branches: [main]
-    paths: ["android/**", "crates/**", "Cargo.*", "tools/monokulo-openapi/**", ".github/workflows/android.yml"]
+    paths: ["android/**", "crates/**", "Cargo.*", ".github/workflows/android.yml"]
   pull_request:
-    paths: ["android/**", "crates/**", "Cargo.*", "tools/monokulo-openapi/**", ".github/workflows/android.yml"]
+    paths: ["android/**", "crates/**", "Cargo.*", ".github/workflows/android.yml"]
 
 permissions:
   contents: read
@@ -31,36 +31,30 @@ jobs:
       # The AndroidX libraries in use compile against Android 17 (API 37.2).
       - name: Install Android SDK platform and NDK
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.2" "ndk;27.0.12077973" > /dev/null
-      # The receipt module builds orf-codec-ffi from Rust (docs/decisions/android.md 8).
+      # The ffi module builds the Rust core, till-ffi, for each ABI (docs/decisions/core.md 3).
       - name: Rust for Android
         run: |
           rustup toolchain install stable --profile minimal
+          rustup default stable
           rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
-      - uses: actions/cache@v6
+      # Compiled dependencies only, pruned, falling back to the last cache
+      # when Cargo.lock changes; cargo-ndk's binary with them.
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/bin/cargo-ndk
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: android-rust-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
-      # Core's contract test generates Monokulo's OpenAPI document at the
-      # pinned commit (docs/decisions/android.md 53). It needs only Rust:
-      # rustup installs the toolchain Monokulo's rust-toolchain.toml names.
-      - name: Pinned Monokulo commit
-        id: monokulo
-        run: echo "sha=$(sed -n 's/^monokulo.sha=//p' gradle.properties)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v6
-        with:
-          path: android/build/monokulo-src
-          key: monokulo-src-${{ runner.os }}-${{ steps.monokulo.outputs.sha }}
-          restore-keys: monokulo-src-${{ runner.os }}-
+          shared-key: android
       - name: cargo-ndk
         run: command -v cargo-ndk || cargo install cargo-ndk --version 4.1.2 --locked
+      # Pull requests build the Rust core for one ABI with the plain release
+      # profile; main builds every ABI with LTO, as a release does.
       - name: Build, lint and test
-        run: ./gradlew build
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            ./gradlew build -Ptill.rust.abis=arm64-v8a -Ptill.rust.profile=release
+          else
+            ./gradlew build
+          fi
       - uses: actions/upload-artifact@v7
         with:
-          name: monokular-debug-apk
+          name: till-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14

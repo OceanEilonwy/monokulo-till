@@ -23,7 +23,20 @@ Starter Main Dessert Side Kids Combo Meal Add Without No ice With ";
 struct Item(String, u32, u64);
 
 #[derive(Serialize)]
-struct Wire(u8, u64, String, u64, String, Vec<Item>, u64, u64, u64, u64, u64, String);
+struct Wire(
+    u8,
+    u64,
+    String,
+    u64,
+    String,
+    Vec<Item>,
+    u64,
+    u64,
+    u64,
+    u64,
+    u64,
+    String,
+);
 
 /// The packed `r=` value, as it went into the QR code.
 pub fn encode(r: &Receipt, signed: bool) -> String {
@@ -33,7 +46,10 @@ pub fn encode(r: &Receipt, signed: bool) -> String {
         r.store.clone(),
         r.time,
         r.currency.clone(),
-        r.items.iter().map(|i| Item(i.name.clone(), i.qty, i.cents)).collect(),
+        r.items
+            .iter()
+            .map(|i| Item(i.name.clone(), i.qty, i.cents))
+            .collect(),
         r.subtotal(),
         r.tax(),
         r.tip,
@@ -46,7 +62,8 @@ pub fn encode(r: &Receipt, signed: bool) -> String {
     let mut c = flate2::Compress::new(flate2::Compression::best(), false);
     c.set_dictionary(HAND_DICT.as_bytes()).unwrap();
     let mut deflated = Vec::with_capacity(cbor.len() + 64);
-    c.compress_vec(&cbor, &mut deflated, flate2::FlushCompress::Finish).unwrap();
+    c.compress_vec(&cbor, &mut deflated, flate2::FlushCompress::Finish)
+        .unwrap();
     let mut framed = vec![1u8, 2];
     framed.extend_from_slice(&deflated);
     if signed {

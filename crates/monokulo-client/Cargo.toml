@@ -1,0 +1,25 @@
+[package]
+name = "monokulo-client"
+version = "0.1.0"
+description = "Till's client for a store's own Monokulo: connect codes, the connected-apps API, its event stream, and the types the rest of the core shares"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+bytes = "1.11.1"
+futures-util.workspace = true
+# HTTP through rustls with the platform's verifier, so certificate authorities
+# a store's owner installed on the device still count (docs/ios-plan.md §2);
+# `socks` for Tor through Orbot, `stream` for the event stream.
+reqwest = { workspace = true, features = ["rustls", "socks", "stream"] }
+sha2.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["net", "io-util"] }
+wiremock.workspace = true

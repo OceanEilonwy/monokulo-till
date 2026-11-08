@@ -36,8 +36,10 @@ pub const FORMAT: u8 = 1;
 const EPOCH_2025: i64 = 1_735_689_600;
 const CURRENCIES: [&str; 3] = ["USD", "EUR", "GBP"];
 const SEP: char = '\n';
-const DATETIME: &[FormatItem<'static>] = format_description!("[year]-[month]-[day]T[hour]:[minute]:[second]");
-const OFFSET: &[FormatItem<'static>] = format_description!("[offset_hour sign:mandatory]:[offset_minute]");
+const DATETIME: &[FormatItem<'static>] =
+    format_description!("[year]-[month]-[day]T[hour]:[minute]:[second]");
+const OFFSET: &[FormatItem<'static>] =
+    format_description!("[offset_hour sign:mandatory]:[offset_minute]");
 
 /// zstd's compression level. Above 19 makes no difference to receipts, but
 /// costs nothing once the dictionary is prepared.
@@ -82,14 +84,19 @@ impl<'d> Codec<'d> {
     }
 
     pub fn encode(&self, r: &Receipt) -> Result<Vec<u8>, EncodeError> {
-        let mut e = Enc { bits: Writer::default(), text: Vec::new() };
+        let mut e = Enc {
+            bits: Writer::default(),
+            text: Vec::new(),
+        };
         e.receipt(r)?;
         let numbers = e.bits.finish();
         let text = e.text.join(&SEP.to_string());
         let mut out = vec![(FORMAT << 4) | self.dict_id];
         leb128(&mut out, numbers.len());
         out.extend_from_slice(&numbers);
-        out.extend_from_slice(&compress(text.as_bytes(), &self.encoder).map_err(EncodeError::Compress)?);
+        out.extend_from_slice(
+            &compress(text.as_bytes(), &self.encoder).map_err(EncodeError::Compress)?,
+        );
         Ok(out)
     }
 
@@ -103,9 +110,13 @@ impl<'d> Codec<'d> {
         }
         let (len, used) = read_leb128(rest)?;
         let numbers = rest.get(used..used + len).ok_or(DecodeError::Truncated)?;
-        let text = decompress(&rest[used + len..], &self.decoder).map_err(DecodeError::Decompress)?;
+        let text =
+            decompress(&rest[used + len..], &self.decoder).map_err(DecodeError::Decompress)?;
         let text = String::from_utf8(text).map_err(|_| DecodeError::Corrupt("text isn't UTF-8"))?;
-        let mut d = Dec { bits: Reader::new(numbers), text: text.split(SEP) };
+        let mut d = Dec {
+            bits: Reader::new(numbers),
+            text: text.split(SEP),
+        };
         let r = d.receipt()?;
         if d.text.next().is_some() {
             return Err(DecodeError::Corrupt("text left over"));
@@ -164,8 +175,8 @@ fn read_leb128(data: &[u8]) -> Result<(usize, usize), DecodeError> {
 /// Digits after the decimal point in a currency's minor unit (ISO 4217).
 fn exponent(currency: &str) -> u32 {
     match currency {
-        "BIF" | "CLP" | "DJF" | "GNF" | "ISK" | "JPY" | "KMF" | "KRW" | "PYG" | "RWF" | "UGX" | "UYI"
-        | "VND" | "VUV" | "XAF" | "XOF" | "XPF" => 0,
+        "BIF" | "CLP" | "DJF" | "GNF" | "ISK" | "JPY" | "KMF" | "KRW" | "PYG" | "RWF" | "UGX"
+        | "UYI" | "VND" | "VUV" | "XAF" | "XOF" | "XPF" => 0,
         "BHD" | "IQD" | "JOD" | "KWD" | "LYD" | "OMR" | "TND" => 3,
         _ => 2,
     }
@@ -207,7 +218,10 @@ struct Enc {
 }
 
 fn unsupported(field: &str, reason: &'static str) -> EncodeError {
-    EncodeError::Unsupported { field: field.to_string(), reason }
+    EncodeError::Unsupported {
+        field: field.to_string(),
+        reason,
+    }
 }
 
 impl Enc {
@@ -228,7 +242,10 @@ impl Enc {
     }
 
     fn amount(&self, field: &str, x: f64, exp: u32) -> Result<i64, EncodeError> {
-        to_units(x, exp).ok_or_else(|| EncodeError::Amount { field: field.to_string(), value: x })
+        to_units(x, exp).ok_or_else(|| EncodeError::Amount {
+            field: field.to_string(),
+            value: x,
+        })
     }
 
     fn receipt(&mut self, r: &Receipt) -> Result<(), EncodeError> {
@@ -239,7 +256,8 @@ impl Enc {
 
         // Receipt: type, status, time.
         self.bits.put(r.receipt.receipt_type as u64, 2);
-        self.bits.put(r.receipt.status.map_or(0, |s| s as u64 + 1), 2);
+        self.bits
+            .put(r.receipt.status.map_or(0, |s| s as u64 + 1), 2);
         self.timestamp(&r.receipt.issue_timestamp)?;
 
         // Merchant, and the receipt id after its name: the dictionary was
@@ -271,7 +289,10 @@ impl Enc {
         // Line items.
         let items = &r.line_items;
         self.bits.eg(items.len() as u64, 2);
-        let sequential = items.iter().enumerate().all(|(i, it)| it.line_item_id.as_deref() == Some(&(i + 1).to_string()));
+        let sequential = items
+            .iter()
+            .enumerate()
+            .all(|(i, it)| it.line_item_id.as_deref() == Some(&(i + 1).to_string()));
         let ids_mode = if items.iter().all(|it| it.line_item_id.is_none()) {
             0
         } else if sequential {
@@ -304,7 +325,10 @@ impl Enc {
             self.bits.eg_signed(price, 8);
             let total = self.amount(&f("line_total"), it.line_total, exp)?;
             let expected = line_total(qty, price);
-            let net = it.net_amount.map(|n| self.amount(&f("net_amount"), n, exp)).transpose()?;
+            let net = it
+                .net_amount
+                .map(|n| self.amount(&f("net_amount"), n, exp))
+                .transpose()?;
             // Most lines are plain: total = quantity × price, no net amount. One bit.
             let plain = total == expected && net.is_none();
             self.bits.flag(!plain);
@@ -334,9 +358,12 @@ impl Enc {
             self.bits.eg(lines.map_or(0, |l| l.len() as u64 + 1), 0);
             for (i, line) in lines.unwrap_or_default().iter().enumerate() {
                 let f = |name: &str| format!("tax.tax_lines[{i}].{name}");
-                let ppm = to_units(line.rate, 6)
-                    .filter(|p| *p >= 0)
-                    .ok_or_else(|| EncodeError::Amount { field: f("rate"), value: line.rate })?;
+                let ppm = to_units(line.rate, 6).filter(|p| *p >= 0).ok_or_else(|| {
+                    EncodeError::Amount {
+                        field: f("rate"),
+                        value: line.rate,
+                    }
+                })?;
                 self.bits.eg(ppm as u64, 12);
                 let base = match line.base_amount {
                     None => {
@@ -415,7 +442,10 @@ impl Enc {
             .map_err(|_| unsupported(field, "not an RFC 3339 timestamp"))?;
         let zulu = s.ends_with('Z') || s.ends_with('z');
         if format_timestamp(t, zulu) != s {
-            return Err(unsupported(field, "only whole seconds as YYYY-MM-DDTHH:MM:SS with Z or ±HH:MM"));
+            return Err(unsupported(
+                field,
+                "only whole seconds as YYYY-MM-DDTHH:MM:SS with Z or ±HH:MM",
+            ));
         }
         // Minutes since 2025, then the seconds only when there are any.
         let since = t.unix_timestamp() - EPOCH_2025;
@@ -443,8 +473,13 @@ impl Enc {
         Ok(())
     }
 
-    fn tax_ids(&mut self, field: &str, ids: &Option<Vec<TaxIdentifier>>) -> Result<(), EncodeError> {
-        self.bits.eg(ids.as_ref().map_or(0, |v| v.len() as u64 + 1), 0);
+    fn tax_ids(
+        &mut self,
+        field: &str,
+        ids: &Option<Vec<TaxIdentifier>>,
+    ) -> Result<(), EncodeError> {
+        self.bits
+            .eg(ids.as_ref().map_or(0, |v| v.len() as u64 + 1), 0);
         for (i, id) in ids.iter().flatten().enumerate() {
             self.opt_text(&format!("{field}[{i}].scheme"), &id.scheme)?;
             self.opt_text(&format!("{field}[{i}].value"), &id.value)?;
@@ -455,7 +490,10 @@ impl Enc {
 
 /// The tip amount in minor units, when `extensions.tip.amount` is an exact
 /// amount, and whatever remains of the extensions without it.
-fn split_tip(ext: Option<&Map<String, Value>>, exp: u32) -> (Option<i64>, Option<Map<String, Value>>) {
+fn split_tip(
+    ext: Option<&Map<String, Value>>,
+    exp: u32,
+) -> (Option<i64>, Option<Map<String, Value>>) {
     let Some(ext) = ext else { return (None, None) };
     let mut rest = ext.clone();
     // Only a JSON float: an integer written as 2 would come back as 2.0.
@@ -466,7 +504,10 @@ fn split_tip(ext: Option<&Map<String, Value>>, exp: u32) -> (Option<i64>, Option
         .and_then(Value::as_f64)
         .and_then(|a| to_units(a, exp));
     if tip.is_some() {
-        let t = rest.get_mut("tip").and_then(Value::as_object_mut).expect("checked above");
+        let t = rest
+            .get_mut("tip")
+            .and_then(Value::as_object_mut)
+            .expect("checked above");
         t.remove("amount");
         if t.is_empty() {
             rest.remove("tip");
@@ -493,11 +534,18 @@ struct Dec<'a> {
 
 impl Dec<'_> {
     fn text(&mut self) -> Result<String, DecodeError> {
-        self.text.next().map(str::to_string).ok_or(DecodeError::Corrupt("text missing"))
+        self.text
+            .next()
+            .map(str::to_string)
+            .ok_or(DecodeError::Corrupt("text missing"))
     }
 
     fn opt_text(&mut self) -> Result<Option<String>, DecodeError> {
-        Ok(if self.bits.flag()? { Some(self.text()?) } else { None })
+        Ok(if self.bits.flag()? {
+            Some(self.text()?)
+        } else {
+            None
+        })
     }
 
     fn receipt(&mut self) -> Result<Receipt, DecodeError> {
@@ -530,7 +578,11 @@ impl Dec<'_> {
         let money = |n: i64| from_units(n, exp);
 
         let customer = if self.bits.flag()? {
-            Some(Customer { customer_id: self.opt_text()?, legal_name: self.opt_text()?, tax_identifiers: self.tax_ids()? })
+            Some(Customer {
+                customer_id: self.opt_text()?,
+                legal_name: self.opt_text()?,
+                tax_identifiers: self.tax_ids()?,
+            })
         } else {
             None
         };
@@ -560,7 +612,11 @@ impl Dec<'_> {
             let (total, net_amount) = if !self.bits.flag()? {
                 (line_total(qty, price), None)
             } else {
-                let total = if self.bits.flag()? { self.bits.eg_signed(8)? } else { line_total(qty, price) };
+                let total = if self.bits.flag()? {
+                    self.bits.eg_signed(8)?
+                } else {
+                    line_total(qty, price)
+                };
                 let net = match self.bits.get(2)? {
                     0 => None,
                     1 => Some(money(total)),
@@ -597,7 +653,11 @@ impl Dec<'_> {
                             (b, Some(money(b)))
                         }
                     };
-                    let amount = if self.bits.flag()? { self.bits.eg_signed(6)? } else { tax_amount(base, ppm) };
+                    let amount = if self.bits.flag()? {
+                        self.bits.eg_signed(6)?
+                    } else {
+                        tax_amount(base, ppm)
+                    };
                     sum_tax += amount;
                     lines.push(TaxLine {
                         rate: from_units(ppm, 6),
@@ -608,7 +668,10 @@ impl Dec<'_> {
                 }
                 Some(lines)
             };
-            Some(Tax { tax_scheme, tax_lines })
+            Some(Tax {
+                tax_scheme,
+                tax_lines,
+            })
         } else {
             None
         };
@@ -633,7 +696,11 @@ impl Dec<'_> {
             None
         };
 
-        let tip = if self.bits.flag()? { Some(self.bits.eg_signed(9)?) } else { None };
+        let tip = if self.bits.flag()? {
+            Some(self.bits.eg_signed(9)?)
+        } else {
+            None
+        };
         let mut extensions = match self.bits.get(2)? {
             0 => None,
             1 => Some(Map::new()),
@@ -644,18 +711,37 @@ impl Dec<'_> {
         };
         if let Some(t) = tip {
             let ext = extensions.get_or_insert_with(Map::new);
-            let entry = ext.entry("tip").or_insert_with(|| Value::Object(Map::new()));
-            let obj = entry.as_object_mut().ok_or(DecodeError::Corrupt("tip isn't an object"))?;
+            let entry = ext
+                .entry("tip")
+                .or_insert_with(|| Value::Object(Map::new()));
+            let obj = entry
+                .as_object_mut()
+                .ok_or(DecodeError::Corrupt("tip isn't an object"))?;
             let amount = Number::from_f64(money(t)).ok_or(DecodeError::Corrupt("tip amount"))?;
             obj.insert("amount".into(), Value::Number(amount));
         }
 
-        let total = if self.bits.flag()? { self.bits.eg_signed(10)? } else { sum_totals + sum_tax + tip.unwrap_or(0) };
+        let total = if self.bits.flag()? {
+            self.bits.eg_signed(10)?
+        } else {
+            sum_totals + sum_tax + tip.unwrap_or(0)
+        };
 
         Ok(Receipt {
             orf_version: "0.1.0".into(),
-            receipt: ReceiptInfo { receipt_id, issue_timestamp, receipt_type, status },
-            merchant: Merchant { merchant_id, legal_name, display_name, country_code, tax_identifiers },
+            receipt: ReceiptInfo {
+                receipt_id,
+                issue_timestamp,
+                receipt_type,
+                status,
+            },
+            merchant: Merchant {
+                merchant_id,
+                legal_name,
+                display_name,
+                country_code,
+                tax_identifiers,
+            },
             customer,
             line_items,
             tax,
@@ -669,13 +755,24 @@ impl Dec<'_> {
 
     fn timestamp(&mut self) -> Result<String, DecodeError> {
         let minutes = self.bits.eg_signed(20)?;
-        let extra = if self.bits.flag()? { self.bits.get(6)? as i64 } else { 0 };
+        let extra = if self.bits.flag()? {
+            self.bits.get(6)? as i64
+        } else {
+            0
+        };
         if extra >= 60 {
             return Err(DecodeError::Corrupt("seconds"));
         }
-        let secs = minutes.checked_mul(60).and_then(|m| m.checked_add(extra + EPOCH_2025)).ok_or(DecodeError::Corrupt("timestamp"))?;
+        let secs = minutes
+            .checked_mul(60)
+            .and_then(|m| m.checked_add(extra + EPOCH_2025))
+            .ok_or(DecodeError::Corrupt("timestamp"))?;
         let zero = self.bits.flag()?;
-        let (minutes, zulu) = if zero { (0, self.bits.flag()?) } else { (self.bits.eg_signed(5)?, false) };
+        let (minutes, zulu) = if zero {
+            (0, self.bits.flag()?)
+        } else {
+            (self.bits.eg_signed(5)?, false)
+        };
         let offset = i32::try_from(minutes * 60)
             .ok()
             .and_then(|s| UtcOffset::from_whole_seconds(s).ok())
@@ -690,7 +787,11 @@ impl Dec<'_> {
         (0..n)
             .map(|_| {
                 let v = self.bits.get(5)?;
-                if v < 26 { Ok((b'A' + v as u8) as char) } else { Err(DecodeError::Corrupt("letter")) }
+                if v < 26 {
+                    Ok((b'A' + v as u8) as char)
+                } else {
+                    Err(DecodeError::Corrupt("letter"))
+                }
             })
             .collect()
     }
@@ -701,7 +802,12 @@ impl Dec<'_> {
             return Ok(None);
         }
         (0..count - 1)
-            .map(|_| Ok(TaxIdentifier { scheme: self.opt_text()?, value: self.opt_text()? }))
+            .map(|_| {
+                Ok(TaxIdentifier {
+                    scheme: self.opt_text()?,
+                    value: self.opt_text()?,
+                })
+            })
             .collect::<Result<Vec<_>, _>>()
             .map(Some)
     }

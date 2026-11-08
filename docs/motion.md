@@ -2,7 +2,7 @@
 
 How the till moves, and why. Written by the lead designer for the motion
 round (branch `motion`, base `f274ad7`), after reading every screen in
-`android/app/src/main/kotlin/app/monokular/` and running the build on a
+`android/app/src/main/kotlin/com/monokulo/till/` and running the build on a
 Pixel 9 Pro and a Pixel Tablet emulator: onboarding, the shift, a live
 sale, the enlarged code, the close sheet, the order page, paid, ended, the
 bubble and panel over another app, the tablet's floating panel, a phone on
@@ -126,7 +126,7 @@ Square (another app)
        └─ the panel: the bubble, opened. Phone: hangs from the top edge with the
           bubble docked at its top corner; tablet: a card beside the bubble
             └─ the order: the panel's order line, opened to fill the panel
-Monokular (the app), in front of everything
+Till (the app), in front of everything
   └─ the shift: the list; every sale is a row
        └─ a sale: its row, opened. Live: the code; otherwise its page
             ├─ the code, enlarged: the code card, grown to the screen
@@ -527,7 +527,7 @@ jitter.** `ui/Till.kt` (`StatusPill`), `Faces.kt` (`StatusRow`),
 
 **M13. `ui/Motion.kt` and one reduced-motion switch.** Section 2's
 presets; `Motion.reduced` as a `CompositionLocal` provided in
-`MonokularTheme` from a `ContentObserver` on
+`TillTheme` from a `ContentObserver` on
 `Settings.Global.ANIMATOR_DURATION_SCALE` (so a change takes effect
 without restarting the app, and the three composables that each call
 `Settings.Global.getFloat` on first composition today (`LoadingMark`,
@@ -640,8 +640,8 @@ the host idle and compared before to after on the same instance.
 
 | What | How | Flows |
 | --- | --- | --- |
-| Frame timing | `adb shell dumpsys gfxinfo app.monokular.debug reset`, run the flow ten times, `dumpsys gfxinfo app.monokular.debug framestats`: janky frames %, 90th/95th/99th percentile | panel raise and lower ×10; code enlarge and shrink ×10; shift to sale and back ×10; a paid moment ×3; a new sale arriving on the shift with five rows ×5 |
-| Memory | `dumpsys meminfo app.monokular.debug` after each flow, at rest 10 s later: PSS total, Graphics, Java heap | the same flows; the overlay windows up and down |
+| Frame timing | `adb shell dumpsys gfxinfo com.monokulo.till.debug reset`, run the flow ten times, `dumpsys gfxinfo com.monokulo.till.debug framestats`: janky frames %, 90th/95th/99th percentile | panel raise and lower ×10; code enlarge and shrink ×10; shift to sale and back ×10; a paid moment ×3; a new sale arriving on the shift with five rows ×5 |
+| Memory | `dumpsys meminfo com.monokulo.till.debug` after each flow, at rest 10 s later: PSS total, Graphics, Java heap | the same flows; the overlay windows up and down |
 | APK size | `app-release.apk` (minified) and the debug APK, bytes | before and after |
 | Recomposition | Layout Inspector's recomposition counts on `PanelCard`, `QrCode`, `PhaseRing`, `SaleRow`, `StatusPill` during each flow; the target is zero per frame of animation | the same flows |
 | Allocation | Android Studio's allocation tracker over one panel raise and one enlarge: no allocations inside draw lambdas | two flows |
@@ -760,7 +760,7 @@ why, each against the section or item it amends. Decisions 154 to 156 in
    second instance (§2, §7, M13).** `Motion.Still` is the same class with
    `snap()` for the spatial presets, the 120 ms tween for `fade`, and
    `pulse` and `glints` null, so a loop can't be started by mistake
-   (`rememberInfiniteTransition` needs a spec to run). `MonokularTheme`
+   (`rememberInfiniteTransition` needs a spec to run). `TillTheme`
    provides `LocalMotion` from `rememberMotion()`, one Binder read per
    window and a `ContentObserver` after; `reducedMotion()` is gone.
 3. **`Motion.Dwell.paid` is `Motion.Dwell.PAID_MS` (§2, M9)**, the repo's
@@ -1194,9 +1194,9 @@ shows:
 
 | Bubble | Says |
 | --- | --- |
-| Waiting | "Monokular, $12.00 waiting for payment", then "Monokular, $12.00 seen on the network", "Monokular, $12.00 confirming", as the step changes |
-| Paid | "Monokular, $12.00 paid" |
-| Idle | "Monokular, nothing waiting" |
+| Waiting | "Till, $12.00 waiting for payment", then "Till, $12.00 seen on the network", "Till, $12.00 confirming", as the step changes |
+| Paid | "Till, $12.00 paid" |
+| Idle | "Till, nothing waiting" |
 
 **Tests.** Waiting draws the arc, Idle and Paid draw none (a pixel test
 at three points of the turn); Paid draws the green core, then the rim,

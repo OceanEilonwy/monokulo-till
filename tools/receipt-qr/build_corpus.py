@@ -100,7 +100,7 @@ def wikidata_names():
             query = f"""SELECT DISTINCT ?l WHERE {{
               ?i wdt:P279* wd:{qid} . ?i rdfs:label ?l . FILTER(lang(?l) = "en") }} LIMIT {limit}"""
             url = "https://query.wikidata.org/sparql?" + urllib.parse.urlencode({"query": query, "format": "json"})
-            req = urllib.request.Request(url, headers={"User-Agent": "monokular-receipt-qr/0.1 (corpus build)"})
+            req = urllib.request.Request(url, headers={"User-Agent": "till-receipt-qr/0.1 (corpus build)"})
             try:
                 with urllib.request.urlopen(req, timeout=120) as r:
                     # Some labels hold raw control characters, which strict JSON refuses.

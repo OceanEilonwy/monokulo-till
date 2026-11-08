@@ -1,0 +1,36 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["TEAMID.com.monokulo.till"],
+        "components": [
+          {
+            "/": "/square/debug*",
+            "exclude": true,
+            "comment": "Android debug builds' sign-in pages stay web pages. The app IDs' team prefix is filled in from the APPLE_TEAM_ID repository variable when Pages deploys (pages.yml, docs/release.md)."
+          },
+          {
+            "/": "/clover/debug*",
+            "exclude": true,
+            "comment": "Android debug builds' sign-in pages stay web pages."
+          },
+          {
+            "/": "/connect*",
+            "comment": "Open in Till: the store's connect link, percent-encoded in the fragment."
+          },
+          {
+            "/": "/square*",
+            "comment": "Square's sign-in coming back."
+          },
+          {
+            "/": "/clover*",
+            "comment": "Clover's sign-in coming back."
+          }
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": ["TEAMID.com.monokulo.till"]
+  }
+}

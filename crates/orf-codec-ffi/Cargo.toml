@@ -7,22 +7,13 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+# A plain Rust library now: till-ffi links it into the one library the
+# apps load, and generates its bindings (docs/ios-plan.md §2).
 [lib]
-crate-type = ["cdylib", "lib"]
 name = "orf_codec_ffi"
-
-# Generates the Kotlin and Swift bindings from the built library:
-# cargo run -p orf-codec-ffi --features bindgen --bin uniffi-bindgen -- generate --library …
-[[bin]]
-name = "uniffi-bindgen"
-path = "src/bin/uniffi-bindgen.rs"
-required-features = ["bindgen"]
-
-[features]
-bindgen = ["uniffi/cli"]
 
 [dependencies]
 orf-codec = { path = "../orf-codec" }
 serde_json = "1"
 thiserror = "2"
-uniffi = "=0.32.2"
+uniffi.workspace = true

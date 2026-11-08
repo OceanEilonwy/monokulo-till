@@ -1,0 +1,243 @@
+name: iOS release
+
+# Till for iPhone and iPad onto TestFlight (docs/ios-plan.md §5 I7, §7;
+# docs/release.md): the whole core (device and simulator), the app archived
+# for devices with Xcode's automatic signing through an App Store Connect API
+# key, so Apple's cloud-managed distribution certificate signs it and no p12
+# is kept here, then exported and uploaded by xcodebuild, without fastlane.
+# The build number is this workflow's run number; the version is
+# project.yml's MARKETING_VERSION, which a v* tag must match.
+#
+# Needs, in the "testflight" environment: the secrets ASC_KEY_ID,
+# ASC_ISSUER_ID and ASC_KEY_P8 (the .p8 file's text as it is), and the
+# repository variable APPLE_TEAM_ID (docs/release.md).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-ios
+  cancel-in-progress: false
+
+defaults:
+  run:
+    # -eo pipefail, so a failing xcodebuild fails its step through tee.
+    shell: bash
+
+jobs:
+  testflight:
+    runs-on: xcode-27
+    timeout-minutes: 90
+    environment:
+      name: testflight
+      url: https://appstoreconnect.apple.com/apps
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      BUILD_NUMBER: ${{ github.run_number }}
+    steps:
+      # Before anything costs macOS minutes: every secret and the variable,
+      # each in the shape Apple gives it.
+      - name: Secrets
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          missing=0
+          need() {
+            if [ -z "$2" ]; then
+              echo "::error::$1 is missing: add it as $3 (docs/release.md)"
+              missing=1
+            elif ! printf '%s' "$2" | grep -Eq "$4"; then
+              echo "::error::$1 doesn't look like $5 (docs/release.md)"
+              missing=1
+            fi
+          }
+          need ASC_KEY_ID "$ASC_KEY_ID" "a secret of the testflight environment" '^[A-Z0-9]{10}$' "an App Store Connect key ID (10 letters and digits)"
+          need ASC_ISSUER_ID "$ASC_ISSUER_ID" "a secret of the testflight environment" '^[0-9a-f-]{36}$' "an App Store Connect issuer ID (a UUID)"
+          need ASC_KEY_P8 "$ASC_KEY_P8" "a secret of the testflight environment" 'BEGIN PRIVATE KEY' "the text of an AuthKey_….p8 file"
+          need APPLE_TEAM_ID "$APPLE_TEAM_ID" "a repository variable (Settings › Secrets and variables › Actions › Variables)" '^[A-Z0-9]{10}$' "an Apple Developer team ID (10 letters and digits)"
+          [ "$missing" = 0 ] || exit 1
+          echo "LOGS=$RUNNER_TEMP/logs" >> "$GITHUB_ENV"
+          # The name xcodebuild's -authenticationKeyPath expects.
+          mkdir -p "$RUNNER_TEMP/private_keys" "$RUNNER_TEMP/logs"
+          key="$RUNNER_TEMP/private_keys/AuthKey_$ASC_KEY_ID.p8"
+          printf '%s\n' "$ASC_KEY_P8" > "$key"
+          chmod 600 "$key"
+          echo "ASC_KEY_PATH=$key" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v7
+      # As ios.yml: the newest Xcode 27 the runner has.
+      - name: Xcode 27
+        run: |
+          xcode="$(ls -d /Applications/Xcode_27*.app 2>/dev/null | sort -V | tail -n 1)"
+          if [ -n "$xcode" ]; then
+            sudo xcode-select -s "$xcode/Contents/Developer"
+          fi
+          if ! xcodebuild -version | grep -q '^Xcode 27'; then
+            echo "::error::This runner image has no Xcode 27"
+            exit 1
+          fi
+          xcodebuild -version
+      # A keychain of this run's own, unlocked, for the development identity
+      # Xcode makes to sign the archive; the distribution certificate stays
+      # in Apple's cloud.
+      - name: Keychain
+        run: |
+          keychain="$RUNNER_TEMP/till-signing.keychain-db"
+          password="$(uuidgen)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 7200 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s "$keychain"
+          echo "KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+      - name: Rust for iOS
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ios-release
+      - name: XcodeGen
+        run: brew install xcodegen && xcodegen --version
+      # Both slices: the device's for the archive, the simulator's so the
+      # XCFramework is the same one a developer builds.
+      - name: The core as TillFFI.xcframework, with its Swift bindings
+        run: ios/Scripts/build-core.sh
+      - name: Generate Till.xcodeproj
+        working-directory: ios
+        run: xcodegen generate
+      - name: Version
+        working-directory: ios
+        run: |
+          version="$(xcodebuild -project Till.xcodeproj -target Till -configuration Release -showBuildSettings -json \
+            | python3 -c 'import json, sys; print(json.load(sys.stdin)[0]["buildSettings"]["MARKETING_VERSION"])')"
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::The tag $GITHUB_REF_NAME doesn't match project.yml's MARKETING_VERSION $version: tag v$version, or change the version first"
+            exit 1
+          fi
+          echo "MARKETING_VERSION=$version" >> "$GITHUB_ENV"
+          echo "### Till $version ($BUILD_NUMBER)" >> "$GITHUB_STEP_SUMMARY"
+      # Xcode registers the App IDs, enables the capabilities the
+      # entitlements ask for and makes the profiles itself
+      # (-allowProvisioningUpdates), as the API key's team allows.
+      - name: Archive
+        working-directory: ios
+        run: |
+          xcodebuild archive \
+            -project Till.xcodeproj -scheme Till -configuration Release \
+            -destination generic/platform=iOS \
+            -archivePath "$RUNNER_TEMP/Till.xcarchive" \
+            -resultBundlePath "$RUNNER_TEMP/Archive.xcresult" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            TILL_TEAM_ID="$APPLE_TEAM_ID" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            2>&1 | tee "$LOGS/archive.log"
+      # ExportOptions.plist with this team, and a copy that exports an .ipa
+      # here instead of uploading.
+      - name: Export options
+        run: |
+          cp ios/ExportOptions.plist "$RUNNER_TEMP/Upload.plist"
+          /usr/libexec/PlistBuddy -c "Add :teamID string $APPLE_TEAM_ID" "$RUNNER_TEMP/Upload.plist"
+          cp "$RUNNER_TEMP/Upload.plist" "$RUNNER_TEMP/Check.plist"
+          /usr/libexec/PlistBuddy -c "Set :destination export" "$RUNNER_TEMP/Check.plist"
+      # The archive is signed for development, with aps-environment
+      # "development" as the entitlements file says; exporting for App Store
+      # Connect re-signs every bundle with its App Store profile, which turns
+      # it to "production". This checks that, and the versions, in the
+      # signed .ipa before anything reaches TestFlight.
+      - name: Export and check the signed bundles
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/Till.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/Check.plist" \
+            -exportPath "$RUNNER_TEMP/ipa" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            2>&1 | tee "$LOGS/export.log"
+          rm -rf "$RUNNER_TEMP/payload"
+          unzip -q "$RUNNER_TEMP"/ipa/*.ipa -d "$RUNNER_TEMP/payload"
+          status=0
+          while IFS= read -r bundle; do
+            codesign -d --entitlements - --xml "$bundle" > "$RUNNER_TEMP/entitlements.plist" 2>/dev/null
+            python3 - "$bundle" "$RUNNER_TEMP/entitlements.plist" <<'EOF' || status=1
+          import os, plistlib, sys
+          bundle, path = sys.argv[1], sys.argv[2]
+          name = os.path.basename(bundle)
+          info = plistlib.load(open(os.path.join(bundle, "Info.plist"), "rb"))
+          data = open(path, "rb").read()
+          ents = plistlib.loads(data) if data.strip() else {}
+          print(f"{name} {info['CFBundleIdentifier']} {info['CFBundleShortVersionString']} ({info['CFBundleVersion']})")
+          for key in sorted(ents):
+              print(f"  {key}: {ents[key]}")
+          bad = []
+          if ents.get("aps-environment", "production") != "production":
+              bad.append(f"aps-environment is {ents['aps-environment']}, not production")
+          if info["CFBundleVersion"] != os.environ["BUILD_NUMBER"]:
+              bad.append(f"build {info['CFBundleVersion']}, not {os.environ['BUILD_NUMBER']}")
+          if info["CFBundleShortVersionString"] != os.environ["MARKETING_VERSION"]:
+              bad.append(f"version {info['CFBundleShortVersionString']}, not {os.environ['MARKETING_VERSION']}")
+          for problem in bad:
+              print(f"::error::{name}: {problem}")
+          sys.exit(1 if bad else 0)
+          EOF
+          done < <(find "$RUNNER_TEMP/payload/Payload" -name '*.app' -o -name '*.appex')
+          exit "$status"
+      - name: Upload to TestFlight
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/Till.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/Upload.plist" \
+            -exportPath "$RUNNER_TEMP/upload" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            2>&1 | tee "$LOGS/upload.log"
+          echo "Uploaded; TestFlight shows it once App Store Connect has processed it (docs/release.md)." >> "$GITHUB_STEP_SUMMARY"
+      # The symbols go to App Store Connect with the upload; these are for
+      # symbolicating anything else.
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: till-ios-dsyms-${{ github.run_number }}
+          path: ${{ runner.temp }}/Till.xcarchive/dSYMs
+          retention-days: 90
+          if-no-files-found: ignore
+      - name: Gather the logs
+        if: failure()
+        run: |
+          LOGS="$RUNNER_TEMP/logs"
+          mkdir -p "$LOGS"
+          # xcodebuild's distribution logs, which say why signing or the
+          # upload failed, are left in the temporary folder.
+          find "${TMPDIR:-/tmp}" -maxdepth 2 -name '*.xcdistributionlogs' -exec cp -R {} "$LOGS/" \; 2>/dev/null || true
+          for dir in ipa upload; do
+            [ -d "$RUNNER_TEMP/$dir" ] && find "$RUNNER_TEMP/$dir" \( -name '*.plist' -o -name '*.log' \) -exec cp {} "$LOGS/" \;
+          done
+          [ -d "$RUNNER_TEMP/Archive.xcresult" ] && cp -R "$RUNNER_TEMP/Archive.xcresult" "$LOGS/"
+          true
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: till-ios-release-logs-${{ github.run_number }}
+          path: ${{ runner.temp }}/logs
+          retention-days: 14
+          if-no-files-found: ignore
+      - name: Clean up the key and keychain
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/private_keys"
+          if [ -n "${KEYCHAIN:-}" ]; then
+            security delete-keychain "$KEYCHAIN" || true
+          fi

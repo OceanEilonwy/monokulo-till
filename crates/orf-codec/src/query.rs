@@ -44,10 +44,12 @@ pub fn append(uri: &str, receipt: &Receipt) -> Result<String, EncodeError> {
 pub fn find(uri: &str) -> Option<&str> {
     let query = uri.split_once('?')?.1;
     let query = query.split_once('#').map_or(query, |(q, _)| q);
-    query.split('&').find_map(|pair| match pair.split_once('=') {
-        Some((PARAM, value)) => Some(value),
-        _ => None,
-    })
+    query
+        .split('&')
+        .find_map(|pair| match pair.split_once('=') {
+            Some((PARAM, value)) => Some(value),
+            _ => None,
+        })
 }
 
 /// The receipt in `uri`'s `orf` parameter: `None` when there isn't one, an
@@ -81,8 +83,14 @@ mod tests {
             ("pay:abc?", format!("pay:abc?{param}")),
             ("pay:abc?amount=1", format!("pay:abc?amount=1&{param}")),
             ("pay:abc?amount=1&", format!("pay:abc?amount=1&{param}")),
-            ("https://x.test/p?a=1#top", format!("https://x.test/p?a=1&{param}#top")),
-            ("https://x.test/p#top", format!("https://x.test/p?{param}#top")),
+            (
+                "https://x.test/p?a=1#top",
+                format!("https://x.test/p?a=1&{param}#top"),
+            ),
+            (
+                "https://x.test/p#top",
+                format!("https://x.test/p?{param}#top"),
+            ),
         ] {
             let got = append(uri, &r).unwrap();
             assert_eq!(got, want, "{uri}");
@@ -92,7 +100,10 @@ mod tests {
 
     #[test]
     fn a_uri_with_a_receipt_already_is_refused() {
-        assert!(matches!(append("pay:abc?orf=123", &receipt()), Err(EncodeError::HasReceipt)));
+        assert!(matches!(
+            append("pay:abc?orf=123", &receipt()),
+            Err(EncodeError::HasReceipt)
+        ));
     }
 
     #[test]

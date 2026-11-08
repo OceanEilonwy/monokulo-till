@@ -19,7 +19,7 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
-        android:name=".MonokularApp"
+        android:name=".TillApp"
         android:allowBackup="false"
         android:enableOnBackInvokedCallback="true"
         tools:targetApi="33"
@@ -29,7 +29,7 @@
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Monokular">
+        android:theme="@style/Theme.Till">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -44,8 +44,8 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="monokular.monokulo.com" android:path="/square" />
-                <data android:scheme="https" android:host="monokular.monokulo.com" android:path="/clover" />
+                <data android:scheme="https" android:host="till.monokulo.com" android:path="/square" />
+                <data android:scheme="https" android:host="till.monokulo.com" android:path="/clover" />
             </intent-filter>
             <!-- A connect link shared from a browser or a message. -->
             <intent-filter>
@@ -68,6 +68,17 @@
         <receiver
             android:name=".notify.CopyReceiver"
             android:exported="false" />
+
+        <!-- The Bell's dings, through a UnifiedPush distributor (docs/design.md §3, §5), handed to the engine.
+             The connector's own manifest brings the distributor <queries>, its receiver
+             and WAKE_LOCK; this is the one part the app declares itself. -->
+        <service
+            android:name=".engine.WakePushService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="org.unifiedpush.android.connector.PUSH_EVENT" />
+            </intent-filter>
+        </service>
 
         <!-- Watches the POS during a shift (docs/design.md §3). -->
         <service

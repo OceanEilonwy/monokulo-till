@@ -1,5 +1,9 @@
 # Decisions: the Android app, first build
 
+> The app was called Monokular until 2026-11-08, when it became Till
+> ("Monokulo Till" in full). This record keeps the names it was written
+> with; see [decisions/core.md](core.md) 22 for the new ones.
+
 Made while building the Android app and its server side overnight on
 2026-10-22, without the owner to ask. Each says what was chosen, why, and
 what else was possible, so any of them can be reversed knowingly.

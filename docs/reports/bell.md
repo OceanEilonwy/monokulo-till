@@ -1,5 +1,9 @@
 # The Monokular Bell: report
 
+> The app was called Monokular until 2026-11-08, when it became Till
+> ("Monokulo Till" in full). This record keeps the names it was written
+> with; see [decisions/core.md](../decisions/core.md) 22 for the new ones.
+
 The project report for the push system and the Bell, written 2026-10-27
 for the owner's review, is monokulo's
 [`docs/reports/bell-and-relay.md`](https://github.com/OceanEilonwy/monokulo/blob/push-relay/docs/reports/bell-and-relay.md)

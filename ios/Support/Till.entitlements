@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	Universal links on till.monokulo.com ("Open in Till" connect links and the
+	points of sale's redirects), and the same domain for
+	ASWebAuthenticationSession's https callback. The site's
+	.well-known/apple-app-site-association names the app (site/).
+	-->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:till.monokulo.com</string>
+		<string>webcredentials:till.monokulo.com</string>
+	</array>
+	<!--
+	A new sale's alert while Till is tucked off the edge (PadTucked) is
+	time-sensitive, so it shows through Focus.
+	-->
+	<key>com.apple.developer.usernotifications.time-sensitive</key>
+	<true/>
+	<!--
+	APNs, for the Bell's dings through the push relay (phase I5). Release
+	signing makes it production.
+	-->
+	<key>aps-environment</key>
+	<string>development</string>
+	<!--
+	Shared with the Notification Service Extension (docs/ios-plan.md §5): the
+	App Group's container holds the core's files (the sign-in refresh's lock),
+	and the Keychain group its secrets. The group is the first and only
+	keychain-access-groups entry, so items go there without naming it.
+	-->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.monokulo.till</string>
+	</array>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)com.monokulo.till.shared</string>
+	</array>
+</dict>
+</plist>
