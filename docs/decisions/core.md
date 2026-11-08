@@ -291,3 +291,23 @@ on from 1; the Android app's own choices are in [android.md](android.md).
     `code_in_island` need new keys; the alert words are stand-ins until the
     engine calls `till-screens`' `notification`; Tor's Orbot probe isn't
     wired (connecting sets `tor = false`).
+
+## iOS phases I0 and I1 (2026-11-08)
+
+48. **CI builds the iOS app on GitHub's `xcode-27` image** (macOS 27,
+    arm64, Xcode 27.2 on the first run); `macos-26`'s newest Xcode is 26.6.
+    The tests run on the newest iPhone and iPad simulators with an iOS 27
+    runtime.
+49. **Every crate's Swift bindings compile into one module, `TillCore`**, so
+    no two crates may export a type of the same name; `rust.yml` checks it
+    on Linux (`till-app`'s `Check` became `BackgroundCheck`, and its
+    `CloseChoice` is `till-screens`' own). The static library is linked
+    once, into the app, and reaches the tests through the app's
+    `@_exported import TillCore`.
+50. **The iOS look ports Android's**: the colours of ios-plan §4, dark mode
+    from Android's dark tokens, Manrope 800 loaded from the bundled font
+    (its licence ships with it) without `UIAppFonts`, the mark and loading
+    mark from `Mark.kt`'s path data and its 17 glint delays, and the QR at
+    correction level M in ink `#1A1917` on white, cropped to its modules.
+51. **The glass button keeps its 44 pt minimum outside the button**, so it
+    doesn't widen a large button's own tap area.
