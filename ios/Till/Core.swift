@@ -130,7 +130,10 @@ final class Core {
         switch effect {
         case .openUrl(let url):
             guard let page = URL(string: url) else { return }
-            signIn.start(page, fallback: config.square.redirectUri) { [weak self] returned in
+            // A page naming no redirect ends at the chosen point of sale's.
+            let chosen = chosenPos(step: posStep, settings: settings?.pointOfSale)
+            let fallback = redirectUri(chosen, square: config.square.redirectUri, clover: config.clover.redirectUri)
+            signIn.start(page, fallback: fallback) { [weak self] returned in
                 guard let returned else { return }
                 self?.send(.signInReturned(url: returned.absoluteString))
             }
@@ -143,6 +146,13 @@ final class Core {
         default:
             break
         }
+    }
+
+    /// Step 4, while setup shows it; the onboarding view kept from before
+    /// says nothing once the till's screens are up.
+    private var posStep: PosStep? {
+        guard route == .onboarding, case .pointOfSale(let view) = onboarding?.page else { return nil }
+        return view
     }
 
     private static let keptUpdates = 50
