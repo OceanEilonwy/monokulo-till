@@ -3,9 +3,9 @@ name: Rust
 on:
   push:
     branches: [main]
-    paths: ["crates/**", "tools/**", "Cargo.toml", "Cargo.lock", ".github/workflows/rust.yml"]
+    paths: ["crates/**", "tools/**", "Cargo.toml", "Cargo.lock", "android/gradle.properties", ".github/workflows/rust.yml"]
   pull_request:
-    paths: ["crates/**", "tools/**", "Cargo.toml", "Cargo.lock", ".github/workflows/rust.yml"]
+    paths: ["crates/**", "tools/**", "Cargo.toml", "Cargo.lock", "android/gradle.properties", ".github/workflows/rust.yml"]
 
 permissions:
   contents: read
@@ -35,6 +35,23 @@ jobs:
       # downloaded corpus to run, so it is only built (by Clippy, below).
       - name: Test
         run: cargo test --locked --workspace --exclude receipt-qr
+      # monokulo-client's contract test against Monokulo's OpenAPI document at
+      # the commit the Android app pins (docs/decisions/android.md 53),
+      # generated as the Android job does, sharing its cached checkout. It
+      # needs only Rust: rustup installs the toolchain Monokulo's
+      # rust-toolchain.toml names.
+      - name: Pinned Monokulo commit
+        id: monokulo
+        run: echo "sha=$(sed -n 's/^monokulo.sha=//p' android/gradle.properties)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v6
+        with:
+          path: android/build/monokulo-src
+          key: monokulo-src-${{ runner.os }}-${{ steps.monokulo.outputs.sha }}
+          restore-keys: monokulo-src-${{ runner.os }}-
+      - name: Monokulo's OpenAPI document
+        run: mkdir -p target/monokulo && tools/monokulo-openapi/generate.sh "${{ steps.monokulo.outputs.sha }}" "$PWD/target/monokulo/openapi.json" "$PWD/android/build/monokulo-src"
+      - name: The client against Monokulo's OpenAPI document
+        run: MONOKULO_OPENAPI="$PWD/target/monokulo/openapi.json" cargo test --locked -p monokulo-client --test monokulo_contract
       # The engine builds and tests without its bridge too.
       - name: Test the engine without UniFFI
         run: cargo test --locked -p monokular-app
