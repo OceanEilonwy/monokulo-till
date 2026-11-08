@@ -671,6 +671,14 @@ impl State {
                 self.keep(|m| m.bubble_on = on);
             }
             Action::SetTor { on } => self.set_tor(on),
+            // The island is the iPhone's alone: elsewhere they stay off.
+            Action::SetLiveActivity { on } if self.config.device == Device::Iphone => {
+                self.keep(|m| m.live_activity = on);
+            }
+            Action::SetCodeInIsland { on } if self.config.device == Device::Iphone => {
+                self.keep(|m| m.code_in_island = on);
+            }
+            Action::SetLiveActivity { .. } | Action::SetCodeInIsland { .. } => {}
             Action::Disconnect => self.disconnect(),
             Action::Forget => self.forget(),
             Action::ChooseWakeUps { choice } => self.choose_wake_ups(choice),
@@ -1497,9 +1505,19 @@ impl State {
             // Orbot's probe stays on the platform (decision 10).
             tor_running: self.tor_running,
             wake_ups: self.wake_ups_input(p),
-            live_activity: false,
-            code_in_island: false,
+            live_activity: self.live_activity_on(&model),
+            code_in_island: self.code_in_island_on(&model),
         }
+    }
+
+    /// Settings › Dynamic Island's switches, as they hold on this device:
+    /// off but on iPhone, whatever is kept.
+    fn live_activity_on(&self, model: &crate::store::Model) -> bool {
+        self.config.device == Device::Iphone && model.live_activity
+    }
+
+    fn code_in_island_on(&self, model: &crate::store::Model) -> bool {
+        self.config.device == Device::Iphone && model.code_in_island
     }
 
     fn onboarding_input(&self, p: &Parts) -> Option<OnboardingInput> {

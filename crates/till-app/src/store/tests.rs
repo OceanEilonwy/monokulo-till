@@ -298,6 +298,45 @@ fn defaults_are_kept_as_the_setters_keep_them() {
     assert_eq!(platform.get("clover.handled").as_deref(), Some("[]"));
 }
 
+/// The keys only the iOS app writes, each as it writes it and none the
+/// default: Settings › Dynamic Island's two switches.
+const IOS: &[(&str, &str)] = &[("island.activity", "false"), ("island.code", "true")];
+
+#[test]
+fn the_islands_switches_read_and_write_back_and_are_absent_on_android() {
+    let android = store(&FakePlatform::with(KOTLIN)).load().unwrap();
+    assert!(
+        android.live_activity,
+        "absent is on; the engine reads it on iPhone only"
+    );
+    assert!(!android.code_in_island, "absent is off");
+
+    let ios = FakePlatform::with(IOS);
+    let model = store(&ios).load().unwrap();
+    assert!(!model.live_activity);
+    assert!(model.code_in_island);
+    let rust = Arc::new(FakePlatform::default());
+    store(&rust).save(&Model::default(), &model).unwrap();
+    assert_eq!(rust.all(), ios.all(), "byte for byte, and no key more");
+
+    let back = Model {
+        live_activity: true,
+        code_in_island: false,
+        ..model.clone()
+    };
+    store(&rust).save(&model, &back).unwrap();
+    assert_eq!(rust.get("island.activity").as_deref(), Some("true"));
+    assert_eq!(rust.get("island.code"), None, "off is nothing");
+
+    let kept = Kept::load(store(&ios), quiet()).unwrap();
+    kept.forget_all().unwrap();
+    assert_eq!(
+        ios.all(),
+        FakePlatform::with(IOS).all(),
+        "the switches stay"
+    );
+}
+
 #[test]
 fn forgetting_everything_forgets_what_stores_kt_forgot() {
     let platform = FakePlatform::with(KOTLIN);

@@ -82,6 +82,13 @@ pub mod keys {
     pub const CLOVER_MERCHANT: &str = "clover.merchant";
     /// The shift's sales, `till_sales::shift_json`; absent when none.
     pub const SHIFT_SALES: &str = "shift.sales";
+    /// iPhone's Settings › Dynamic Island, which `Stores.kt` never had: the
+    /// Live Activity each shift, `true` or `false`, absent is on (decision
+    /// 40); never on but on iPhone, so absent on Android is off.
+    pub const LIVE_ACTIVITY: &str = "island.activity";
+    /// "Show code in island": `true`, or absent (off by default, design.md
+    /// §6).
+    pub const CODE_IN_ISLAND: &str = "island.code";
 
     /// `PosTokens`' JSON: `square.tokens` (a name from before Clover) or
     /// `clover.tokens`.
@@ -375,6 +382,8 @@ impl Store {
             square_base_url: self.get(keys::DEBUG_SQUARE_BASE)?,
             clover_base_url: self.get(keys::DEBUG_CLOVER_BASE)?,
             clover_merchant: self.read(keys::CLOVER_MERCHANT)?,
+            live_activity: self.switch(keys::LIVE_ACTIVITY)?,
+            code_in_island: self.flag(keys::CODE_IN_ISLAND)?,
         })
     }
 
@@ -444,12 +453,18 @@ impl Store {
         if old.clover_merchant != new.clover_merchant {
             self.write(keys::CLOVER_MERCHANT, new.clover_merchant.as_ref())?;
         }
+        if old.live_activity != new.live_activity {
+            self.put_switch(keys::LIVE_ACTIVITY, new.live_activity)?;
+        }
+        if old.code_in_island != new.code_in_island {
+            self.put_flag(keys::CODE_IN_ISLAND, new.code_in_island)?;
+        }
         Ok(())
     }
 
     /// Forgets the store and everything about this till's point of sale
-    /// (`Stores.forgetAll`): the shift switch, the bubble and the debug
-    /// stand-ins stay. `model` is what was kept, for the Clover merchant
+    /// (`Stores.forgetAll`): the shift switch, the bubble, the island's
+    /// switches and the debug stand-ins stay. `model` is what was kept, for the Clover merchant
     /// whose tender id goes too.
     pub fn forget_all(&self, model: &Model) -> Result<Model, SecretError> {
         let forgotten = Model {
@@ -459,6 +474,8 @@ impl Store {
             bubble_y: model.bubble_y,
             square_base_url: model.square_base_url.clone(),
             clover_base_url: model.clover_base_url.clone(),
+            live_activity: model.live_activity,
+            code_in_island: model.code_in_island,
             ..Model::default()
         };
         self.save(model, &forgotten)?;
@@ -515,10 +532,15 @@ pub struct Model {
     pub clover_base_url: Option<String>,
     /// The Clover merchant this till is at (decision 127).
     pub clover_merchant: Option<CloverMerchant>,
+    /// iPhone's Settings › Dynamic Island: the Live Activity each shift (on
+    /// unless turned off), and the code in it (off unless turned on).
+    pub live_activity: bool,
+    pub code_in_island: bool,
 }
 
 impl Default for Model {
-    /// A till nothing was kept for: watching on, the bubble wanted.
+    /// A till nothing was kept for: watching on, the bubble and the Live
+    /// Activity wanted.
     fn default() -> Model {
         Model {
             connection: None,
@@ -540,6 +562,8 @@ impl Default for Model {
             square_base_url: None,
             clover_base_url: None,
             clover_merchant: None,
+            live_activity: true,
+            code_in_island: false,
         }
     }
 }

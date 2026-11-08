@@ -544,6 +544,40 @@ fn choosing_wake_ups_keeps_the_choice_in_stores_kts_key() {
     );
 }
 
+/// Settings' island section, as the engine publishes it.
+fn island(rx: &Receiver<Heard>) -> Option<till_screens::settings::IslandSection> {
+    wait_for(rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => Some(view.island.clone()),
+        _ => None,
+    })
+}
+
+/// Decision 47: Settings › Dynamic Island's switches are kept in keys of
+/// their own on iPhone, and shown as kept.
+#[test]
+fn the_islands_switches_are_kept_and_shown_on_iphone_only() {
+    let platform = Arc::new(FakePlatform::default());
+    let (engine, rx, _) = start(config(None), platform.clone());
+    let shown = island(&rx).expect("an iPhone has the island section");
+    assert!(shown.live_activity && !shown.code_in_island, "the defaults");
+    engine.send(Action::SetCodeInIsland { on: true });
+    let shown = island(&rx).unwrap();
+    assert!(shown.code_in_island);
+    assert_eq!(platform.get("island.code").as_deref(), Some("true"));
+    engine.send(Action::SetLiveActivity { on: false });
+    assert!(!island(&rx).unwrap().live_activity);
+    assert_eq!(platform.get("island.activity").as_deref(), Some("false"));
+
+    let android = Arc::new(FakePlatform::default());
+    let mut config = config(None);
+    config.device = Device::Android;
+    let (engine, rx, _) = start(config, android.clone());
+    assert_eq!(island(&rx), None);
+    engine.send(Action::SetCodeInIsland { on: true });
+    engine.peek(|_| ());
+    assert_eq!(android.get("island.code"), None, "nothing kept on Android");
+}
+
 #[test]
 fn work_done_for_an_earlier_generation_is_dropped() {
     let (engine, rx, _) = start(config(None), Arc::new(FakePlatform::default()));

@@ -410,6 +410,15 @@ pub enum Action {
     SetTor {
         on: bool,
     },
+    /// iPhone's Settings › Dynamic Island: the Live Activity each shift.
+    SetLiveActivity {
+        on: bool,
+    },
+    /// iPhone's "Show code in island": the plain payment URI goes through
+    /// the push relay to the island while a sale waits (design.md §6).
+    SetCodeInIsland {
+        on: bool,
+    },
     /// Whether Orbot's SOCKS proxy answered, as the platform's probe found
     /// it (decision 10): Android probes as the app comes forward and as
     /// step 3 and Settings open. A till connects over Tor only once a probe
