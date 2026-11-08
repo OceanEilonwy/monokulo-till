@@ -11,3 +11,15 @@ publish = false
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
+bytes = "1.11.1"
+futures-util ={ version = "0.3.34", default-features = false, features = ["std"] }
+# HTTP through rustls with the platform's verifier, so certificate authorities
+# a store's owner installed on the device still count (docs/ios-plan.md §2);
+# `socks` for Tor through Orbot, `stream` for the event stream.
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "socks", "stream"] }
+sha2 = "0.11.1"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["net", "io-util"] }
+wiremock = "0.6.5"
