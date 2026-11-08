@@ -115,6 +115,10 @@ impl Side {
         }
     }
 
+    pub fn shift_kept(&self) -> &Arc<ShiftKept> {
+        &self.shift
+    }
+
     pub fn tokens(&self, pos: PointOfSale) -> Arc<dyn TokenStore> {
         Arc::new(PosTokenStore::new(self.store().clone(), pos, self.logger()))
     }

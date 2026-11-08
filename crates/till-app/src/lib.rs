@@ -13,10 +13,13 @@
 //! - The engine owns the till: till-sales' `TillRunner` and `LiveStore`,
 //!   the points of sale, and till-bell's `BellWakeUps`, whose push side the
 //!   platform carries through [`PushPlatform`] and the `Push…` actions.
+//! - [`background_check`]: one look for new sales with no engine, for the
+//!   iOS Notification Service Extension and Android's ding path.
 
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
 
+mod background;
 mod engine;
 mod faces;
 mod push;
@@ -29,6 +32,7 @@ use std::sync::{Arc, OnceLock};
 
 use tokio::sync::mpsc::UnboundedSender;
 
+pub use background::{Check, background_check};
 pub use faces::NotificationFace;
 use monokulo_client::PointOfSale;
 pub use till_screens::Device;
