@@ -52,3 +52,72 @@ on from 1; the Android app's own choices are in [android.md](android.md).
 7. **iOS and iPadOS 27 is the minimum** (the owner's decision: a
    cutting-edge product), with no code for older versions
    ([ios-plan.md §5](../ios-plan.md#5-the-ios-app)).
+
+## Phase 1: the Monokulo client (2026-11-08)
+
+8. **The event stream is read by `monokulo-client`'s own small SSE
+   parser** (`sse.rs`), a `Stream` that ends at its first error; the caller
+   reconnects, as `TillRunner` did. `reqwest-eventsource` reconnects by
+   itself and pins reqwest 0.12. Sixty seconds without a byte ends the
+   stream, standing in for OkHttp's read timeout.
+9. **Money is written by the platform, through `MoneyFormat`.** `amounts`
+   keeps only ISO 4217 exponents and decimal-to-minor parsing (half to
+   even). Six of AmountsTest's nine tests assert the JVM locale's symbols
+   and go with the Android side of `format_money`; three are ported.
+10. **The Orbot probe stays on the platform, behind `TorProbe`.** The core
+    keeps the onion rule and the `socks5h` proxy choice
+    (`tor::http_client`).
+11. **The contract test reads `MONOKULO_OPENAPI`, and passes unchecked
+    without it**, so `cargo test` works offline. `rust.yml` generates the
+    document at `monokulo.sha`, sharing the Android job's cache.
+12. **`MonokuloError` gives the cases `MonokuloException` told apart by
+    status 0 or 403 their own variants**; `status()` keeps the old numbers.
+    The `url` crate drops an explicit default port and normalises `..` in
+    connect links, where `java.net.URI` kept them.
+
+## Phase 2: the points of sale (2026-11-08)
+
+13. **Refreshes take a `TokenLock`** (docs/ios-plan.md §5): this process's
+    mutex, then the lock once a refresh looks due, then the stored sign-in
+    read again, refreshed only if still due, saved, and the lock released.
+    A new sign-in is saved under it too. The lock is waited for on a
+    blocking thread; one acquired after its caller gave up is released at
+    once. Android uses `NoTokenLock`.
+14. **`PosError` keeps Kotlin's split**: `Answered` is `PosException`,
+    whose words the till shows as they are; `Unreachable` and `Unreadable`
+    are the other exceptions, shown after "Couldn't reach the POS: ".
+15. **Receipt arithmetic is exact, in integers**, with no decimal crate;
+    doubles come from parsing the decimal text, as `BigDecimal.toDouble()`
+    gave. Square's receipt is an `Option` (an unreadable order time loses
+    the receipt, not the customer's name), and a line of quantity 0 falls
+    back to the list price where Kotlin divided by zero.
+16. **Times are written as Java's `Instant.toString()` wrote them, and
+    query components %20-encoded as OkHttp did**, so saved cursors and
+    requests stay byte for byte the same. The fixtures are copied into
+    `crates/pos/tests/fixtures`, to outlive the Kotlin tests.
+17. **Open for phase 5:** `TokenStore::load` returns an `Option`, as the
+    Kotlin did, so a Keychain failure reads as signed out. Rule 1's lesson
+    from Tern says it should be a `Result`; it changes when the engine's
+    store is written. reqwest's `rustls` feature brings `aws-lc-rs`, which
+    has yet to be cross-compiled for Android and iOS (`ring` is the
+    fallback).
+
+## Phase 4: the Bell's wake-ups (2026-11-08)
+
+18. **A pass is cancelled at its waits, never while the Bell's answer is
+    being kept.** Coroutine cancellation and `NonCancellable` become a
+    `CancellationToken` checked at a pass's waits; a registration's POST or
+    DELETE always finishes.
+19. **The platform's push side is traits in `bell`** (`PushSubscriptions`,
+    `Distributors`, `PosSide`), with `PushFeed` holding what the callbacks
+    mean. An iOS device has one distributor, APNs, so the choosing and
+    departure logic (decision 118 of android.md) never runs there; the
+    statuses and words that name "the UnifiedPush app" need iOS words in
+    phase 5. Its `watch` and `broadcast` receivers can't cross UniFFI, so
+    the engine wraps them in callbacks.
+20. **A failure on the device is a `DeviceError` result**, retried as
+    "something on this device failed" (android.md 120). `WakeUpStore`
+    can't fail: the engine keeps the model in memory and saves it itself.
+21. **`BellWakeUps`' scenarios run for both Square and Clover on tokio's
+    paused clock**, and check every status change through a test-only
+    history: stricter than the Kotlin's conflating `StateFlow`.
