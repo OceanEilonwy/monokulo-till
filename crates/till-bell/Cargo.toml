@@ -10,11 +10,11 @@ publish = false
 [dependencies]
 # The platform's push subscriptions and the Bell's client are trait objects,
 # with async methods: UniFFI's foreign async traits take the same shape.
-async-trait = "0.1.89"
+async-trait.workspace = true
 # A VAPID key is checked to be a P-256 point.
-base64 = "0.22.1"
+base64.workspace = true
 monokulo-client.workspace = true
-reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "json"] }
+reqwest = { workspace = true, features = ["rustls", "json"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -26,4 +26,4 @@ url = "2.5.8"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
-wiremock = "0.6.5"
+wiremock.workspace = true
