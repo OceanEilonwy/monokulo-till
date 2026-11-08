@@ -489,3 +489,25 @@ on from 1; the Android app's own choices are in [android.md](android.md).
     Clover's environment at `north_america` (Android has a build setting,
     android.md 137), and the debug build has no Clover stand-in redirect
     like Android's `/clover/debug/`.
+
+## iOS phase I7: the TestFlight pipeline (2026-11-08)
+
+84. **iOS signing is automatic and cloud-managed, through an App Store
+    Connect Team API key with the Admin role**; no distribution p12 is kept
+    (replacing the plan's `IOS_DIST_P12_*`). `release-ios.yml` archives,
+    exports locally to check every bundle's `aps-environment` is
+    `production` and its version and build, then exports again with
+    upload. The entitlements file keeps `development`; the App Store
+    export re-signs it as production. The build number is
+    `github.run_number`; a `v*` tag must equal `MARKETING_VERSION`.
+85. **Secrets and variables**: `ASC_KEY_ID`, `ASC_ISSUER_ID` and `ASC_KEY_P8`
+    (the raw `.p8` text) in the `testflight` environment, and
+    `APPLE_TEAM_ID` as a repository variable, since the team ID is public in
+    the AASA, which `pages.yml` now fills from it (and publishes
+    `.well-known`, which `upload-pages-artifact` had been leaving out).
+    Pages still deploys without it, with a warning. The one-time Apple
+    steps are in `docs/release.md`.
+86. **The iOS app icon is the Android launcher mark**, rendered from
+    `ios/Support/AppIcon.svg`; `ITSAppUsesNonExemptEncryption` is left to
+    the owner's export-compliance answer. TestFlight builds use APNs
+    production, so the relay's APNs key must send to production.
