@@ -304,7 +304,7 @@ ios/
   dynamic framework embedded in the app.
 - **The extension's memory limit is about 24 MB.** `background_check` runs
   on a current-thread tokio runtime, with no engine or listener. Measure it
-  in phase I5.
+  on a device (I5 is written; see "What I5 needs").
 - **Entitlements**: App Groups and a shared Keychain access group (app plus
   extension), Push Notifications, Time Sensitive Notifications, and
   Associated Domains (`applinks:till.monokulo.com` for connect links
@@ -333,9 +333,38 @@ trait, with a no-op version on Android) so iOS doesn't need its own fix.
 | **I2. Onboarding** (written, checked by CI) | Six steps on iPhone, full screen with the rail on iPad; connect by scanning or by universal link; Square sign-in; the test sale; alerts permission | OnbWelcome…OnbReady with PhonePos as step 4, PadOnb1–6, PadOnbRail | Core phases 1–2; the AASA file (§7) |
 | **I3. iPad till, timer only** (written, checked by CI) | The shift in Slide Over as home; stashed; a sale while tucked away raises a time-sensitive local notification; the sale, close sheet, sale pages and enlarged code in the panel; full screen for the customer; paid; settings with Point of sale and Wake-ups | PadShift, PadSale, PadClose, PadDetail, PadCode, PadStashed, PadTucked, PadFront, PadPaid, PadSettings | Core phases 3 and 5 |
 | **I4. iPhone and the Live Activity** (written, checked by CI) | The shift, sale, close sheet, sale pages and enlarged code on iPhone; the Live Activity started each shift (idle, waiting, seen, confirming, paid, expired, as in design.md §6); full-screen code; unpaid with "Refund the Square sale"; Settings › Dynamic Island, including "Show code in island" (off by default) | Main, PhoneOrder, PhoneOrderQR, PhoneShift, PhoneSale, PhoneClose, PhoneCode, Det*, PhonePaid, PhoneSettings, PhoneWakeUps | I3 |
-| **I5. Wake-ups over APNs** | Register the Live Activity's push token and the APNs device token with Monokulo push targets and the Bell, through the relay; the Notification Service Extension handles dings with `background_check` and rewrites the alert as "Monero sale · $24.50 · Tap to show code" | — | Core phase 4; a deployed relay and Bell with APNs keys (design.md §10 item 6) |
+| **I5. Wake-ups over APNs** (written, checked by CI) | The APNs device token registered through the relay and given to the Bell (the engine does the HTTP and keeps the Web Push keys); the Notification Service Extension opens a ding with the core, looks with `background_check` and rewrites the alert in the core's words; the App Group and shared Keychain. Not yet: the Live Activity's push token with Monokulo's push targets (below) | — | Core phase 4; a deployed relay and Bell with APNs keys (design.md §10 item 6) |
 | **I6. Clover on iOS** (written, checked by CI) | The choice of point of sale in onboarding and Settings, and the Clover refund guide. The logic is already in the core; this phase is screens only | Till on Clover canvas | I3 |
-| **I7. Release** | TestFlight from CI; App Store metadata; review notes for a crypto-payments companion (design.md §11) | — | Apple Developer account |
+| **I7. Release** (written; runs once the secrets are set, docs/release.md) | TestFlight from CI; App Store metadata; review notes for a crypto-payments companion (design.md §11) | — | Apple Developer account |
+
+**What I5 needs to work end to end.** CI builds the extension and runs the
+Swift and Rust tests; nothing has rung a real device yet. That needs:
+
+- **The relay**, standalone or embedded (design.md §5, "Running the
+  relay"), serving the app `till` (`handles.apps.till.apns_topic =
+  "com.monokulo.till"`) with the team's APNs key (`apns.team_id`,
+  `apns.key_id`, `MONOKULO_RELAY_APNS_KEY`), at the address the app is
+  built with: `TillShared.relayUrl` in `ios/Till/TillShared.swift`,
+  `https://relay.monokulo.com`, passed to the engine as
+  `EngineConfig.relay_url`. A development build's token is APNs's
+  sandbox's (`aps-environment` is `development`), so the relay it
+  registers with must send to `api.sandbox.push.apple.com`
+  (`apns.endpoint`).
+- **The Bell** with that point of sale's webhooks, at `TillShared.bellUrl`
+  (`https://bell.monokulo.com`) or the cashier's own.
+- **A signed build on a device**: the App ID with Push Notifications, Time
+  Sensitive Notifications, the App Group `group.com.monokulo.till` and the
+  Keychain group, for the app and `com.monokulo.till.notifications`
+  (phase I7's signing). The simulator can't receive the relay's pushes.
+- **Measuring the extension's memory** against its ~24 MB on a device,
+  during a look that refreshes a Square sign-in.
+- **The Live Activity's pushes** need more than the relay: the core has no
+  client for Monokulo's push targets (`GET /api/v1/push-targets` and its
+  `register-push-target` form, design.md §5), so `Core.registerLiveActivityPushToken`
+  (phase I4's hook) only keeps the token. Registering it with the relay
+  (platform `apns-liveactivity`) and Monokulo (kind `live-activity`) is
+  the next step, as is giving Monokulo an `encrypted` target for the paid
+  and expired alerts.
 
 iPad comes before iPhone for the same reason as on Android (design.md §10):
 iPad works with a timer alone, while iPhone without the Bell only finds a

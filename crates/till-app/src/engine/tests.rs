@@ -50,6 +50,7 @@ fn config(square: Option<&MockServer>) -> EngineConfig {
             return_uri: None,
         },
         bell_url: "https://bell.monokulo.com".into(),
+        relay_url: None,
     }
 }
 
@@ -1083,4 +1084,118 @@ fn the_till_and_the_sales_screens_map_to_places_and_back() {
         assert_eq!(of_place(place(&s)), Some(s));
     }
     assert_eq!(of_place(place(&Screen::Settings)), None);
+}
+
+/// Waits up to 10 s for `server` to have a request that `pick` takes.
+async fn request_to(
+    server: &MockServer,
+    pick: impl Fn(&wiremock::Request) -> bool,
+) -> wiremock::Request {
+    for _ in 0..200 {
+        let requests = server.received_requests().await.unwrap();
+        if let Some(found) = requests.into_iter().find(|r| pick(r)) {
+            return found;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("no such request within 10 s");
+}
+
+/// iOS (design.md §5): the engine registers the APNs token with the relay
+/// for the Bell's VAPID key, gives the Bell the relay's endpoint with this
+/// device's keys, and opens a ding the relay carries, which wakes the
+/// shift.
+#[tokio::test(flavor = "multi_thread")]
+async fn on_ios_the_apns_token_goes_through_the_relay_to_the_bell_and_a_relayed_ding_wakes_the_shift()
+ {
+    const APNS: &str = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
+    const VAPID: &str =
+        "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM";
+    let (monokulo, square) = (monokulo().await, square().await);
+    let bell = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/info"))
+        .respond_with(json(&format!(
+            r#"{{"points_of_sale":{{"square":{{"production":{{"application_id":"sq0idp-till"}}}}}},"vapid_public_key":"{VAPID}","version":"0.3.0"}}"#,
+        )))
+        .mount(&bell)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/register"))
+        .respond_with(ResponseTemplate::new(201).set_body_raw(
+            r#"{"registration_id":"br_1","point_of_sale":"square","environment":"production","application_id":"sq0idp-till"}"#,
+            "application/json",
+        ))
+        .mount(&bell)
+        .await;
+    let relay = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/register"))
+        .respond_with(ResponseTemplate::new(201).set_body_raw(
+            r#"{"endpoint":"https://relay.example/v1/push/ph_1","expires_at":1893456000}"#,
+            "application/json",
+        ))
+        .mount(&relay)
+        .await;
+    let platform = signed_in_till(&monokulo);
+    let mut config = config(Some(&square));
+    config.relay_url = Some(relay.uri());
+    let (engine, _rx, _) = start(config, platform.clone());
+    engine.send(Action::PushToken {
+        token: Some(APNS.into()),
+    });
+    engine.send(Action::ChooseWakeUps {
+        choice: WakeUps::OwnBell {
+            address: bell.uri(),
+        },
+    });
+
+    let registered = request_to(&relay, |_| true).await;
+    let sent: serde_json::Value = serde_json::from_slice(&registered.body).unwrap();
+    assert_eq!(
+        sent,
+        serde_json::json!({"platform": "apns", "token": APNS, "app": "till", "vapid_public_key": VAPID})
+    );
+    let rung = request_to(&bell, |r| r.method.as_str() == "POST").await;
+    let sent: serde_json::Value = serde_json::from_slice(&rung.body).unwrap();
+    let subscription = &sent["subscription"];
+    assert_eq!(
+        subscription["endpoint"],
+        "https://relay.example/v1/push/ph_1"
+    );
+    let keys = crate::web_push::PushKeys::load(&crate::store::Store::new(platform.clone()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(subscription["keys"]["p256dh"], keys.p256dh().unwrap());
+    assert_eq!(subscription["keys"]["auth"], keys.auth());
+
+    // With the Bell connected the timer is 30 s, so a look within a second
+    // of the ding is the ding's.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let looks = || async {
+        square
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .filter(|r| r.url.path() == "/v2/payments")
+            .count()
+    };
+    let before = looks().await;
+    let ding = crate::web_push::tests::encrypt(
+        &keys.p256dh().unwrap(),
+        &keys.auth(),
+        br#"{"wake":"square"}"#,
+    );
+    engine.send(Action::PushReceived {
+        content: ding,
+        decrypted: false,
+    });
+    for _ in 0..20 {
+        if looks().await > before {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("the ding didn't wake the shift");
 }

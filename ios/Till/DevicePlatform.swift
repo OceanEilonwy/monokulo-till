@@ -6,6 +6,16 @@ import TillCore
 /// written in the device's locale. A Keychain failure is an error, never
 /// "no such secret" (docs/decisions/core.md 1, 17): taking it for none
 /// would replace a saved connection with nothing.
+///
+/// Compiled into the app and its Notification Service Extension, which
+/// read and write the same items (docs/ios-plan.md §5): they are added to
+/// the shared access group `$(AppIdentifierPrefix)com.monokulo.till.shared`,
+/// the first entry of both targets' `keychain-access-groups` and so where
+/// an item goes when its query names no group, and a query without a group
+/// searches every group the process may read. They are readable after the
+/// first unlock, so the extension can use them while the device is locked,
+/// and on this device only: a backup restored elsewhere must not carry a
+/// point of sale's single-use refresh token to a second till.
 final class DevicePlatform: Platform, @unchecked Sendable {
     private let service: String
 

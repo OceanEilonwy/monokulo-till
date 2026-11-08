@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	The Notification Service Extension shares the app's App Group (the core's
+	files, the sign-in refresh's lock) and Keychain group (its secrets), as
+	Till.entitlements says, and alerts time-sensitively as the app does.
+	-->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.monokulo.till</string>
+	</array>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)com.monokulo.till.shared</string>
+	</array>
+	<key>com.apple.developer.usernotifications.time-sensitive</key>
+	<true/>
+</dict>
+</plist>

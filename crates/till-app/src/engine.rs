@@ -34,6 +34,7 @@ mod till;
 
 use crate::phases::{Change, Money, Phases};
 use crate::push::PlatformPush;
+use crate::relay::{DeviceToken, RelayPush};
 use crate::side::Side;
 use crate::store::{Kept, Log, PendingSignIn, Store, WakeUpsKept};
 use crate::{
@@ -129,6 +130,8 @@ struct Parts {
     wake_ups: Arc<BellWakeUps>,
     monokulo_bell: BellAddress,
     push: Arc<PlatformPush>,
+    /// iOS: the push side over the relay, with a relay in the config.
+    relay: Option<Arc<RelayPush>>,
     runner: TillRunner,
 }
 
@@ -158,6 +161,8 @@ pub(crate) struct State {
     config: Arc<EngineConfig>,
     platform: Arc<dyn Platform>,
     push_platform: Arc<dyn PushPlatform>,
+    /// iOS's APNs token as last heard, for each push side made.
+    push_token: DeviceToken,
     listener: Arc<dyn EngineListener>,
     clock: Arc<dyn Clock>,
     http: Option<reqwest::Client>,
@@ -245,6 +250,7 @@ impl State {
             config: Arc::new(config),
             platform,
             push_platform,
+            push_token: DeviceToken::NotYet,
             listener,
             clock: options.clock.unwrap_or_else(|| Arc::new(SystemClock)),
             http: options.http,
@@ -417,7 +423,7 @@ impl State {
             http.clone(),
             self.clock.clone(),
         )?);
-        let monokulo = MonokuloApi::new(http, side.identity(), self.clock.clone());
+        let monokulo = MonokuloApi::new(http.clone(), side.identity(), self.clock.clone());
         let monokulo_bell = BellAddress::parse(&self.config.bell_url, self.config.debug)
             .ok_or_else(|| {
                 format!(
@@ -440,7 +446,21 @@ impl State {
                 }),
             ))
         };
-        let push = Arc::new(PlatformPush::new(self.push_platform.clone()));
+        let relay = self.config.relay_url.as_deref().map(|url| {
+            RelayPush::new(
+                url,
+                self.platform.clone(),
+                http.clone(),
+                self.tx.clone(),
+                self.runtime.clone(),
+                self.push_token.clone(),
+            )
+        });
+        let push_platform: Arc<dyn PushPlatform> = match &relay {
+            Some(relay) => relay.clone(),
+            None => self.push_platform.clone(),
+        };
+        let push = Arc::new(PlatformPush::new(push_platform));
         let bells = Arc::new(BellApi::new().map_err(|e| e.to_string())?);
         let wake_ups = Arc::new(BellWakeUps::new(
             push.clone(),
@@ -464,6 +484,7 @@ impl State {
             wake_ups,
             monokulo_bell,
             push,
+            relay,
             runner,
         })
     }
@@ -779,6 +800,15 @@ impl State {
                 }
             }
             Action::PushReceived { content, decrypted } => self.push_received(&content, decrypted),
+            Action::PushToken { token } => {
+                self.push_token = match token {
+                    Some(token) => DeviceToken::Have(token),
+                    None => DeviceToken::Failed,
+                };
+                if let Some(relay) = self.parts.as_ref().and_then(|p| p.relay.as_ref()) {
+                    relay.token(self.push_token.clone());
+                }
+            }
             Action::DistributorsChanged => {
                 if let Some(p) = &self.parts {
                     p.push.distributors_changed();
@@ -1516,11 +1546,31 @@ impl State {
 
     /// A push: Wake-ups hears it, and a ding wakes the running shift
     /// (outside one it goes nowhere, decision 93).
+    ///
+    /// One the relay carried comes still encrypted, and is opened here. It
+    /// reaches the app only after iOS's Notification Service Extension has
+    /// looked for the sale and kept what it found, so the kept shift is read
+    /// again before the look the ding wakes, which would find nothing new.
     fn push_received(&mut self, content: &[u8], decrypted: bool) {
         let Some(p) = &self.parts else { return };
+        let opened = match &p.relay {
+            Some(relay) if !decrypted => relay.open(content),
+            _ => None,
+        };
+        let relayed = opened.is_some();
+        let (content, decrypted) = match &opened {
+            Some(plain) => (plain.as_slice(), true),
+            None => (content, decrypted),
+        };
         let pos = p.side.model().point_of_sale;
         p.push.feed.message(content, decrypted, pos);
-        if is_ding(content, decrypted, pos) {
+        if !is_ding(content, decrypted, pos) {
+            return;
+        }
+        if relayed {
+            self.reload_shift();
+        }
+        if let Some(p) = &self.parts {
             p.runner.ding();
         }
     }

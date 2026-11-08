@@ -38,6 +38,7 @@ fn config(square: &MockServer) -> EngineConfig {
             return_uri: None,
         },
         bell_url: "https://bell.monokulo.com".into(),
+        relay_url: None,
     }
 }
 
@@ -213,4 +214,37 @@ async fn the_deadline_ends_the_look_and_what_wasnt_done_waits_for_the_next() {
     );
     assert_eq!(platform.get("shift.sales"), None);
     assert_eq!(platform.get("square.handled").as_deref(), Some("[]"));
+}
+
+/// The Notification Service Extension's question: a ding the relay carried,
+/// opened with the keys the engine made when it registered.
+#[tokio::test]
+async fn a_relayed_ding_opens_with_the_kept_keys_for_the_tills_point_of_sale() {
+    use crate::store::Store;
+    use crate::web_push::PushKeys;
+    use crate::web_push::tests::encrypt;
+
+    let monokulo = monokulo().await;
+    let platform = signed_in_till(&monokulo);
+    let encrypted = |plaintext: &[u8]| {
+        let keys = PushKeys::load_or_make(&Store::new(platform.clone()))
+            .unwrap()
+            .unwrap();
+        encrypt(&keys.p256dh().unwrap(), &keys.auth(), plaintext)
+    };
+    let ding = encrypted(br#"{"wake":"square"}"#);
+    assert!(is_relayed_ding(platform.clone(), ding.clone()));
+    assert!(
+        !is_relayed_ding(platform.clone(), encrypted(br#"{"wake":"clover"}"#)),
+        "a ding for another point of sale"
+    );
+    assert!(!is_relayed_ding(
+        platform.clone(),
+        encrypted(br#"{"sale":"paid"}"#)
+    ));
+    assert!(!is_relayed_ding(platform.clone(), b"not a push".to_vec()));
+    assert!(
+        !is_relayed_ding(signed_in_till(&monokulo), ding),
+        "another device's keys"
+    );
 }

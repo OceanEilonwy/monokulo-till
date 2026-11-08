@@ -89,6 +89,10 @@ pub mod keys {
     /// "Show code in island": `true`, or absent (off by default, design.md
     /// §6).
     pub const CODE_IN_ISLAND: &str = "island.code";
+    /// iOS's Web Push keys for the relay's dings, which `Stores.kt` never
+    /// had: `{"private":…,"auth":…}`, base64url (`web_push`). They survive
+    /// `forget_all`, as the device's own.
+    pub const PUSH_KEYS: &str = "push.keys";
 
     /// `PosTokens`' JSON: `square.tokens` (a name from before Clover) or
     /// `clover.tokens`.

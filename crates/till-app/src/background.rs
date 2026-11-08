@@ -91,6 +91,23 @@ pub fn background_check(
     ))
 }
 
+/// Whether `content`, the `aes128gcm` ciphertext an APNs alert from the
+/// relay carries (beside `aps`, base64url, under `aes128gcm`), is a ding
+/// for this till: it opens with the Web Push keys the engine keeps and
+/// reads as `{"wake":"<the till's point of sale>"}` (till-bell's
+/// `is_ding`). The iOS Notification Service Extension asks this before
+/// [`background_check`]. Reads the kept state; no network.
+#[cfg_attr(feature = "uniffi", uniffi::export)]
+pub fn is_relayed_ding(platform: Arc<dyn Platform>, content: Vec<u8>) -> bool {
+    let Ok(model) = Store::new(platform.clone()).load() else {
+        return false;
+    };
+    let Some(plain) = crate::web_push::open(platform, &content) else {
+        return false;
+    };
+    till_bell::is_ding(&plain, true, model.point_of_sale)
+}
+
 /// [`background_check`] on the runtime it is awaited on.
 pub(crate) async fn check(
     config: EngineConfig,

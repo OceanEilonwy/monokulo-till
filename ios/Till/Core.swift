@@ -39,7 +39,7 @@ final class Core {
     /// Taps on a new sale's alert, which open the sale.
     private var taps: NotificationTaps?
     /// The iPhone's Live Activity (`Update.liveActivity`). Its push token
-    /// reaches `liveActivity.onPushToken`, for phase I5.
+    /// goes to `registerLiveActivityPushToken` (phase I5).
     let liveActivity = LiveActivityController()
 
     init(secrets: Platform = DevicePlatform(), push: PushPlatform = ApnsPush()) {
@@ -47,10 +47,20 @@ final class Core {
         signIn = SignInSession()
         let listener = Listener(core: self)
         engine = Engine(config: config, platform: secrets, push: push, listener: listener)
-        let taps = NotificationTaps { [weak self] orderId in
-            self?.send(.openSale(orderId: orderId))
-        }
+        let taps = NotificationTaps(
+            open: { [weak self] orderId in
+                self?.send(.openSale(orderId: orderId))
+            },
+            relayed: { [weak self] ciphertext in
+                // A Bell's ding the relay carried while Till is in front:
+                // the core opens it, and a ding wakes the shift.
+                self?.send(.pushReceived(content: ciphertext, decrypted: false))
+            }
+        )
         self.taps = taps
+        liveActivity.onPushToken = { [weak self] token in
+            self?.registerLiveActivityPushToken(token)
+        }
         UNUserNotificationCenter.current().delegate = taps
     }
 
@@ -175,42 +185,14 @@ final class Core {
     private static let keptUpdates = 50
 
     /// What the engine needs to know about this device and build
-    /// (`EngineConfig`, docs/ios-plan.md §2). Where it keeps its files: the
-    /// app's own Application Support for now; the App Group's container once
-    /// the extension shares it (I5).
+    /// (`EngineConfig`): the extension's own, but for this device's name
+    /// (`TillShared.config`), so both keep their files in the App Group's
+    /// container and push through the relay.
     private static func config() -> EngineConfig {
-        let directory = (try? FileManager.default.url(
-            for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
-        )) ?? FileManager.default.temporaryDirectory
         let device = UIDevice.current
-        #if DEBUG
-        let debug = true
-        #else
-        let debug = false
-        #endif
-        let format = DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: .current) ?? ""
-        return EngineConfig(
-            dataDir: directory.path,
+        return TillShared.config(
             device: device.userInterfaceIdiom == .pad ? .ipad : .iphone,
-            deviceName: device.name,
-            appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0",
-            platform: "ios",
-            debug: debug,
-            utcOffset: Int32(TimeZone.current.secondsFromGMT()),
-            hours24: !format.contains("a"),
-            square: SquareSetup(
-                applicationId: Build.squareApplicationId,
-                sandbox: false,
-                redirectUri: "https://till.monokulo.com/square",
-                baseUrl: nil
-            ),
-            clover: CloverSetup(
-                applicationId: Build.cloverApplicationId,
-                environment: "north_america",
-                redirectUri: "https://till.monokulo.com/clover",
-                baseUrl: nil
-            ),
-            bellUrl: "https://bell.monokulo.com"
+            deviceName: device.name
         )
     }
 }

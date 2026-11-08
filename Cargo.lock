@@ -2349,6 +2349,8 @@ name = "till-app"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "aws-lc-rs",
+ "base64 0.22.1",
  "monokulo-client",
  "reqwest",
  "serde",

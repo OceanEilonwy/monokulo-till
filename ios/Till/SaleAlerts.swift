@@ -6,8 +6,9 @@ import UserNotifications
 /// and 64): a local notification, time-sensitive so it shows through
 /// Focus, in the engine's words. Tapping it opens the sale.
 enum SaleAlerts {
-    /// Where the alert keeps its sale, for the tap.
-    static let orderKey = "orderId"
+    /// Where the alert keeps its sale, for the tap: the same key the
+    /// Notification Service Extension writes.
+    static let orderKey = TillShared.orderKey
 
     /// What `alert` posts.
     static func content(_ alert: SaleAlert) -> UNMutableNotificationContent {
@@ -40,12 +41,19 @@ enum SaleAlerts {
 }
 
 /// The notification centre's delegate: a tapped alert opens its sale, and
-/// one arriving while Till is in front still shows.
+/// one arriving while Till is in front still shows, but for a push the
+/// relay carried (a Bell's ding), which goes to the core instead: Till in
+/// front shows the sale itself.
 final class NotificationTaps: NSObject, UNUserNotificationCenterDelegate, @unchecked Sendable {
     private let open: @MainActor @Sendable (String) -> Void
+    private let relayed: @MainActor @Sendable (Data) -> Void
 
-    init(open: @escaping @MainActor @Sendable (String) -> Void) {
+    init(
+        open: @escaping @MainActor @Sendable (String) -> Void,
+        relayed: @escaping @MainActor @Sendable (Data) -> Void
+    ) {
         self.open = open
+        self.relayed = relayed
     }
 
     func userNotificationCenter(
@@ -60,6 +68,10 @@ final class NotificationTaps: NSObject, UNUserNotificationCenterDelegate, @unche
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        [.banner, .list, .sound]
+        if let ciphertext = RelayedPush.ciphertext(notification.request.content.userInfo) {
+            await relayed(ciphertext)
+            return []
+        }
+        return [.banner, .list, .sound]
     }
 }
