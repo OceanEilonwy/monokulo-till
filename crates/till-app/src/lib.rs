@@ -413,6 +413,16 @@ pub enum Action {
     ChooseWakeUps {
         choice: WakeUps,
     },
+    /// Wake-ups' "My own Bell" while its address is being typed:
+    /// `picked` when the row was tapped with no address saved (its field
+    /// opens, the saved choice stays ticked), and the field as typed so far
+    /// (`None` until it's touched). The keyboard is the platform's; the
+    /// engine says whether the address is a Bell's. Choosing wake-ups ends
+    /// it.
+    EditOwnBell {
+        picked: bool,
+        typed: Option<String>,
+    },
     ChooseDistributor {
         name: String,
     },

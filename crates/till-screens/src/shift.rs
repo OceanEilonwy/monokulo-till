@@ -13,7 +13,7 @@ use crate::close;
 use crate::pos_text;
 use crate::sale_text;
 use crate::time::{DeviceClock, time};
-use crate::view::{Device, Press, Tone};
+use crate::view::{Device, Press, Ring, Tone};
 
 /// The shift's filter chips.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -104,6 +104,8 @@ pub struct ShiftRow {
     /// The title in muted, as a refunded sale's is: nothing more to do.
     pub quiet: bool,
     pub icon: StateIcon,
+    /// The ring drawn while the icon is [`StateIcon::Ring`].
+    pub ring: Ring,
     pub opens: RowOpens,
 }
 
@@ -421,6 +423,7 @@ pub fn row(
         tone,
         quiet: standing == Standing::Refunded,
         icon,
+        ring: crate::view::ring(sale),
         opens: opens(sale),
     }
 }

@@ -481,6 +481,41 @@ fn choosing_wake_ups_keeps_the_choice_in_stores_kts_key() {
 }
 
 #[test]
+fn my_own_bell_is_typed_on_the_platform_and_checked_by_the_engine() {
+    let (engine, rx, _) = start(config(None), Arc::new(FakePlatform::default()));
+    screen(&rx, Screen::Welcome);
+    engine.send(Action::EditOwnBell {
+        picked: true,
+        typed: Some("not a bell".into()),
+    });
+    let field = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::WakeUps { view }) => view.own_field.clone(),
+        _ => None,
+    });
+    assert!(!field.use_this.enabled, "not a Bell's address");
+    assert!(field.problem.is_some());
+    engine.send(Action::EditOwnBell {
+        picked: true,
+        typed: Some("https://bell.example.com".into()),
+    });
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::WakeUps { view }) => view
+            .own_field
+            .as_ref()
+            .filter(|f| f.use_this.enabled && f.problem.is_none())
+            .map(|_| ()),
+        _ => None,
+    });
+    engine.send(Action::ChooseWakeUps {
+        choice: WakeUps::Timer,
+    });
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::WakeUps { view }) if view.own_field.is_none() => Some(()),
+        _ => None,
+    });
+}
+
+#[test]
 fn work_done_for_an_earlier_generation_is_dropped() {
     let (engine, rx, _) = start(config(None), Arc::new(FakePlatform::default()));
     screen(&rx, Screen::Welcome);

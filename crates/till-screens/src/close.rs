@@ -7,6 +7,7 @@ use monokulo_client::{MoneyFormat, PointOfSale, SalePhase};
 use till_sales::{Standing, TillSale};
 
 use crate::time::DeviceClock;
+use crate::view::{Ring, ring};
 use crate::{pos_text, sale_text};
 
 /// The close sheet's three answers.
@@ -198,6 +199,8 @@ pub struct CloseView {
     pub question: String,
     pub subtitle: String,
     pub answers: Vec<CloseAnswer>,
+    /// The ring on "Yes".
+    pub ring: Ring,
     /// "Yes" counts the code down: draw it again in a second.
     pub ticks: bool,
 }
@@ -220,6 +223,7 @@ pub fn close(input: &CloseInput, clock: DeviceClock, money: &dyn MoneyFormat) ->
         question: QUESTION.into(),
         subtitle: subtitle(sale, pos, money),
         ticks: !answers.is_empty() && sale.phase.counts_down(),
+        ring: ring(sale),
         answers,
     }
 }
