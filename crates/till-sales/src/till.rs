@@ -743,25 +743,11 @@ fn with_pos_problem(s: &TillState, e: &PosError) -> TillState {
 /// so the sale stays unhandled and the next check asks again with the same
 /// idempotency key.
 fn creation_problem(e: &MonokuloError) -> String {
-    if monokulo_answered(e) {
+    if e.answered() {
         problems::say(e)
     } else {
         format!("Couldn't make the payment code: {e}")
     }
-}
-
-/// Whether `e` is one the Kotlin client threw as a `MonokuloException`:
-/// Monokulo's answer, or the client's own words about it. A network
-/// failure, an unreadable answer and a bad address were other exceptions.
-pub(crate) fn monokulo_answered(e: &MonokuloError) -> bool {
-    matches!(
-        e,
-        MonokuloError::Refused { .. }
-            | MonokuloError::NotAllowed(_)
-            | MonokuloError::NoApi
-            | MonokuloError::StreamClosed
-            | MonokuloError::StreamSilent(_)
-    )
 }
 
 /// Whether the POS shows `found` refunded; false when it couldn't be asked.

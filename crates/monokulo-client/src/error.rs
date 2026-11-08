@@ -75,4 +75,47 @@ impl MonokuloError {
             _ => None,
         }
     }
+
+    /// Whether Monokulo was answering: its refusal, or this client's own
+    /// words about what it answered or how its event stream ended. These
+    /// are what the Kotlin client threw as a `MonokuloException`, which the
+    /// till shows as they are (through `problems::say`). A network failure,
+    /// an unreadable answer and a bad address were other exceptions, shown
+    /// after "Couldn't reach the store: ".
+    pub fn answered(&self) -> bool {
+        match self {
+            MonokuloError::Refused { .. }
+            | MonokuloError::NotAllowed(_)
+            | MonokuloError::NoApi
+            | MonokuloError::StreamClosed
+            | MonokuloError::StreamSilent(_) => true,
+            MonokuloError::NotAnAddress(_)
+            | MonokuloError::Unreadable(_)
+            | MonokuloError::Network(_) => false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn monokulo_answered_what_kotlin_threw_as_a_monokulo_exception() {
+        let refused = MonokuloError::Refused {
+            status: 422,
+            detail: "That code has expired.".into(),
+            problem: Some("invalid-connect-code".into()),
+            retry_after: None,
+        };
+        assert!(refused.answered());
+        assert!(MonokuloError::NotAllowed("refund").answered());
+        assert!(MonokuloError::NoApi.answered());
+        assert!(MonokuloError::StreamClosed.answered());
+        assert!(MonokuloError::StreamSilent(60).answered());
+
+        assert!(!MonokuloError::NotAnAddress("ftp://shop".into()).answered());
+        let unreadable = serde_json::from_str::<u8>("{").unwrap_err();
+        assert!(!MonokuloError::Unreadable(unreadable).answered());
+    }
 }
