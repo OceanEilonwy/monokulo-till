@@ -6,6 +6,10 @@ import SwiftUI
 struct TillApp: App {
     @State private var core = Core()
 
+    init() {
+        Manrope.register()
+    }
+
     var body: some Scene {
         WindowGroup {
             CoreView(core: core)
