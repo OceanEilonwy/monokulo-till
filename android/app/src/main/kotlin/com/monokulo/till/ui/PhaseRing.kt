@@ -18,9 +18,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.monokulo.till.SaleText
-import com.monokulo.till.core.SalePhase
-import com.monokulo.till.sales.TillSale
 import uniffi.till_screens.Ring
 
 /**
@@ -44,26 +41,8 @@ fun ringSpins(step: Int): Boolean = step == 2 || step == 3
 /** Whether the arc is the paid green: from the moment the payment is seen. Orange means waiting for money. */
 fun ringGreen(step: Int): Boolean = ringSpins(step) || step == 4
 
-/** [ringFill] by a phase, as [SaleText.step] counts it. */
-fun ringFill(phase: SalePhase, confirmations: Int? = null, required: Int? = null): Float = ringFill(SaleText.step(phase), confirmations, required)
-
-fun ringSpins(phase: SalePhase): Boolean = ringSpins(SaleText.step(phase))
-
-fun ringGreen(phase: SalePhase): Boolean = ringGreen(SaleText.step(phase))
-
 /** How much of the ring a seen payment with no confirmation yet fills. */
 const val SEEN_FILL = 0.12f
-
-/** [sale]'s ring: its phase, and its payment's confirmations when Monokulo said. */
-@Composable
-fun PhaseRing(
-    sale: TillSale,
-    size: Dp,
-    modifier: Modifier = Modifier,
-    track: Color = mk.chip,
-    fill: Color = mk.accent,
-    paid: Color = mk.paid,
-) = PhaseRing(SaleText.step(sale.phase), size, modifier, track, fill, paid, sale.confirmations, sale.confirmationsRequired)
 
 /**
  * A ring as the engine drew it: its step, and its payment's confirmations. Inline, so the ring's own scope takes

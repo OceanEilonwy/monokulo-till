@@ -73,12 +73,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import androidx.compose.ui.unit.sp
-import com.monokulo.till.PosText
 import com.monokulo.till.Move
-import com.monokulo.till.SaleText
-import com.monokulo.till.core.PointOfSale
-import com.monokulo.till.receipt.Receipt
-import com.monokulo.till.sales.TillSale
 import com.monokulo.till.LocalFace
 import com.monokulo.till.faceSurface
 import com.monokulo.till.wholeOn
@@ -118,17 +113,14 @@ import uniffi.till_screens.SaleView
 import uniffi.till_screens.StateIcon
 import uniffi.till_screens.Tone
 import uniffi.till_screens.OrderCard as OrderCardView
+import uniffi.till_screens.PosMark
 
 /**
- * The till's point of sale, for every word on its screens that names it
- * ([PosText]): provided where the app's and the bubble's screens are set, null
- * for a till that runs without one.
+ * The till's point of sale, whose mark the shift's header shows: provided
+ * where the app's screens are set, null for a till that runs without one.
+ * (Every word that names it is the engine's.)
  */
-val LocalPointOfSale = compositionLocalOf<PointOfSale?> { null }
-
-/** The point of sale that names [sale]'s words: the one that took it, else the till's ([PosText.of]). */
-@Composable
-fun posOf(sale: TillSale): PointOfSale? = PosText.of(sale, LocalPointOfSale.current)
+val LocalPointOfSale = compositionLocalOf<PosMark?> { null }
 
 /** Seconds from [now] until [expiresAt], Unix seconds both; 0 once it's passed. */
 fun secondsLeft(expiresAt: Long, now: Long): Long = (expiresAt - now).coerceAtLeast(0)
@@ -593,31 +585,6 @@ private fun Buttons(sale: SaleFace, actions: TillActions) = Row(Modifier.fillMax
 fun OrderCard(card: OrderCardView, room: ReceiptRoom, onOpen: (() -> Unit)? = null, shared: String? = null) = OrderCard(
     OrderWords(card.summary, card.lines.map { it.label to it.price }, card.more, card.foot, card.total), room, onOpen.takeIf { card.more != null }, shared,
 )
-
-/**
- * What was bought, from this till's own receipt (decision 63). Folded, one
- * row says whose receipt it is, how many items and the total; unfolded, each
- * line and its price, the tax and the total follow under it. The row folds
- * and unfolds it, its chevron turning as the card's height follows on
- * [Motion.settle], read in layout. It opens by itself only when the page
- * with it open needs no scrolling ([room]); a tap is the cashier's and wins
- * while the page is up. On the sale ([onOpen] set) a long order shows three
- * lines and "+N more", and the lines open the whole order (decision 66); a
- * detail page lists every line. [pos] names the receipt ("Clover order …").
- * On the sale, [shared] is the key it grows into the order page by (M7).
- */
-@Composable
-fun OrderCard(receipt: Receipt, pos: PointOfSale?, room: ReceiptRoom, onOpen: (() -> Unit)? = null, shared: String? = null) {
-    val (lines, more) = if (onOpen != null) SaleText.shownLines(receipt) else receipt.lineItems to 0
-    val words = OrderWords(
-        SaleText.receiptSummary(receipt, pos),
-        lines.map { SaleText.line(it) to SaleText.plain(it.lineTotal, receipt.currency) },
-        "+$more more".takeIf { more > 0 },
-        SaleText.tax(receipt) ?: "Total",
-        SaleText.total(receipt),
-    )
-    OrderCard(words, room, onOpen.takeIf { more > 0 }, shared)
-}
 
 /** An order card's words: its folded row, its lines and their prices, "+N more", its foot and its total. */
 @Immutable

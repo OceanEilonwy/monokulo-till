@@ -34,7 +34,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import com.monokulo.till.core.PointOfSale
 import com.monokulo.till.engine.CloseSheet
 import com.monokulo.till.engine.Nav
 import com.monokulo.till.engine.TorProbe
@@ -62,7 +61,6 @@ import com.monokulo.till.ui.TillTheme
 import com.monokulo.till.ui.WelcomeScreen
 import com.monokulo.till.ui.confirm
 import com.monokulo.till.ui.mk
-import com.monokulo.till.ui.pointOfSale
 import com.monokulo.till.ui.pos
 import com.monokulo.till.ui.rememberShiftPlace
 import kotlinx.coroutines.launch
@@ -77,6 +75,7 @@ import uniffi.till_screens.OnboardingView
 import uniffi.till_screens.PosSection
 import uniffi.till_screens.SettingsView
 import uniffi.till_screens.ShiftView
+import uniffi.till_screens.PosMark
 
 /**
  * The app's one activity: it draws what the engine publishes (through
@@ -421,8 +420,8 @@ private fun OnboardingPage.isFor(screen: Screen): Boolean = when (this) {
 }
 
 /** The till's point of sale, as Settings names it: the one signed in to, else the one chosen. */
-private fun tillPointOfSale(settings: SettingsView?): PointOfSale? = when (val p = settings?.pointOfSale) {
-    is PosSection.SignedIn -> p.mark.pointOfSale()
-    is PosSection.Choosing -> p.choices.firstOrNull { it.choice.selected }?.mark?.pointOfSale()
+private fun tillPointOfSale(settings: SettingsView?): PosMark? = when (val p = settings?.pointOfSale) {
+    is PosSection.SignedIn -> p.mark
+    is PosSection.Choosing -> p.choices.firstOrNull { it.choice.selected }?.mark
     null -> null
 }

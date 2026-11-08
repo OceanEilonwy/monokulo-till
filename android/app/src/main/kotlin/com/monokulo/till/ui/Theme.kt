@@ -168,7 +168,7 @@ fun display(size: Int, tracking: Double = -0.4) = TextStyle(
 
 /**
  * Figures that all take the same width ("tnum"): set wherever a countdown
- * ([com.monokulo.till.SaleText.clock]) ticks, so its digits change without the
+ * (the engine's countdown) ticks, so its digits change without the
  * words around them shifting.
  */
 val tabular = TextStyle(fontFeatureSettings = "tnum")

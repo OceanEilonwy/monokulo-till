@@ -58,8 +58,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.monokulo.till.overlay.BubbleFace
-import com.monokulo.till.BubbleLook
-import com.monokulo.till.core.PointOfSale
 import uniffi.till_screens.Account
 import uniffi.till_screens.Fact
 import uniffi.till_screens.OnboardingPage
@@ -68,18 +66,13 @@ import uniffi.till_screens.PosChoice
 import uniffi.till_screens.PosMark
 import uniffi.till_screens.PosStep
 import uniffi.till_screens.SampleAlert
+import uniffi.till_screens.BubbleLook
 
 /** Text with `**bold**` runs, as the design bolds the names of things to tap. */
 fun rich(text: String): AnnotatedString = buildAnnotatedString {
     text.split("**").forEachIndexed { i, part ->
         if (i % 2 == 1) withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(part) } else append(part)
     }
-}
-
-/** Kotlin's point of sale for a [PosMark], whose art [PosTile] and [PosMark] draw. */
-fun PosMark.pointOfSale(): PointOfSale = when (this) {
-    PosMark.SQUARE -> PointOfSale.Square
-    PosMark.CLOVER -> PointOfSale.Clover
 }
 
 /** "Step 4 of 6", as the engine numbers the step. */
@@ -342,7 +335,7 @@ fun PosChoices(choices: List<PosChoice>, onChoose: (PosMark) -> Unit) = Group(
     rows = choices.map { pos ->
         {
             val choice = pos.choice
-            ChoiceRow(choice.label, choice.selected, { if (choice.enabled) onChoose(pos.mark) }, choice.detail) { PosTile(pos.mark.pointOfSale()) }
+            ChoiceRow(choice.label, choice.selected, { if (choice.enabled) onChoose(pos.mark) }, choice.detail) { PosTile(pos.mark) }
         }
     },
 )
@@ -353,7 +346,7 @@ private fun CardTop(card: PosCard) = Column(
     Modifier.padding(start = 20.dp, end = 20.dp, top = 24.dp),
     verticalArrangement = Arrangement.spacedBy(10.dp),
 ) {
-    LinkedMarks(card.mark.pointOfSale())
+    LinkedMarks(card.mark)
     Heading(card.heading, size = 24)
     Lead(card.lead, size = 17)
 }
@@ -534,11 +527,11 @@ fun FloatScreen(page: OnboardingPage.Float, onOpenSettings: () -> Unit, onNotifi
         horizontalArrangement = Arrangement.SpaceAround,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            BubbleFace(BubbleLook.Idle, pulse = false)
+            BubbleFace(BubbleLook.IDLE, pulse = false)
             Text("No sale", fontSize = 13.sp, color = Fixed.Muted)
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            BubbleFace(BubbleLook.Lit, pulse = true)
+            BubbleFace(BubbleLook.LIT, pulse = true)
             Text("New sale", fontSize = 13.sp, color = Fixed.Muted)
         }
     }
@@ -631,5 +624,5 @@ private fun PhoneTop(bubble: Boolean, modifier: Modifier) = Box(
             }
         }
     }
-    if (bubble) Box(Modifier.align(Alignment.TopEnd).padding(top = 64.dp)) { BubbleFace(BubbleLook.Idle, pulse = false) }
+    if (bubble) Box(Modifier.align(Alignment.TopEnd).padding(top = 64.dp)) { BubbleFace(BubbleLook.IDLE, pulse = false) }
 }

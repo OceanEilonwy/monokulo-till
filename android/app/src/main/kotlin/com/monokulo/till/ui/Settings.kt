@@ -227,7 +227,7 @@ private fun PosRow(mark: PosMark, name: String) = Row(
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(12.dp),
 ) {
-    PosTile(mark.pointOfSale())
+    PosTile(mark)
     Text(name, fontSize = 17.sp)
 }
 

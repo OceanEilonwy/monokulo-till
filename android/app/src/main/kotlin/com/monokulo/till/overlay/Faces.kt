@@ -114,8 +114,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.util.lerp
 import androidx.compose.ui.zIndex
-import com.monokulo.till.BubbleLook
-import com.monokulo.till.PaidBuzz
 import uniffi.till_screens.PanelHero
 import com.monokulo.till.ui.confirm
 import com.monokulo.till.ui.Fixed
@@ -136,6 +134,7 @@ import com.monokulo.till.ui.mk
 import com.monokulo.till.ui.motion
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import uniffi.till_screens.BubbleLook
 
 /** Which of the panel's two faces is up: the code, or the whole order (the design's PanelE). */
 sealed interface PanelPage {
@@ -300,7 +299,7 @@ class PanelActions(
  * whole ink. Its colours are the design's own ([BubbleInks]), not the
  * theme's: it sits over another app, on a white disc, or a dark one when
  * the device is in night mode. [confirms] is whether a payment landing on it buzzes:
- * only while Till is away ([PaidBuzz], decision 176). [pulse] is false for the bubble docked above the panel,
+ * only while Till is away (the engine's `BubbleView.buzzes`, decision 176). [pulse] is false for the bubble docked above the panel,
  * which has nothing left to call for; [pulses] is the engine's word for the
  * free bubble (`BubbleView.pulses`: a code waits for its money and no panel
  * is up, as `Action.PanelShown` said).
@@ -357,9 +356,9 @@ internal fun haloRadius(disc: Float, padding: Float, p: Float): Float = disc / 2
 
 /** The lens's look for each of the bubble's. */
 private fun lensOf(look: BubbleLook): LensLook = when (look) {
-    BubbleLook.Idle -> LensLook.Grey
-    BubbleLook.Lit -> LensLook.Orange
-    BubbleLook.Paid -> LensLook.Green
+    BubbleLook.IDLE -> LensLook.Grey
+    BubbleLook.LIT -> LensLook.Orange
+    BubbleLook.PAID -> LensLook.Green
 }
 
 /** The lens's four rings' animated colours, as a look the mark reads in its draw. */
@@ -389,14 +388,14 @@ private fun Circle(look: BubbleLook, pulses: Boolean, confirms: Boolean, presenc
     // The theme follows the device's night mode, and the overlay's windows are themed: so does the bubble.
     val inks = BubbleInks.of(mk.dark)
     val t = updateTransition(look, label = "bubble")
-    val alpha = t.animateFloat({ m.fade.fraction }, label = "alpha") { if (it == BubbleLook.Idle) 0.55f else 1f }
-    val ground = t.animateColor({ m.fade.spec() }, label = "ground") { if (it == BubbleLook.Idle) inks.disc.copy(alpha = 0.9f) else inks.disc }
+    val alpha = t.animateFloat({ m.fade.fraction }, label = "alpha") { if (it == BubbleLook.IDLE) 0.55f else 1f }
+    val ground = t.animateColor({ m.fade.spec() }, label = "ground") { if (it == BubbleLook.IDLE) inks.disc.copy(alpha = 0.9f) else inks.disc }
     val border = t.animateColor({ m.fade.spec() }, label = "border") {
         when (it) {
-            BubbleLook.Idle -> inks.idle
+            BubbleLook.IDLE -> inks.idle
             // With no chase (Still) the waiting border is whole ink, the arc not drawn.
-            BubbleLook.Lit -> if (m.chase == null) inks.ink else inks.track
-            BubbleLook.Paid -> inks.ink
+            BubbleLook.LIT -> if (m.chase == null) inks.ink else inks.track
+            BubbleLook.PAID -> inks.ink
         }
     }
     val core = t.animateColor({ m.spread[0].spec() }, label = "core") { lensOf(it)[0] }
@@ -406,17 +405,17 @@ private fun Circle(look: BubbleLook, pulses: Boolean, confirms: Boolean, presenc
     val lens = remember(core, inner, middle, rim) { Rings(core, inner, middle, rim) }
     // The arc's ink follows a night-mode switch over the fade, as the track under it does.
     val arcInk = animateColorAsState(inks.ink, m.fade.spec(), label = "arc ink")
-    val arcAlpha = t.animateFloat({ m.fade.fraction }, label = "arc") { if (it == BubbleLook.Lit && m.chase != null) 1f else 0f }
+    val arcAlpha = t.animateFloat({ m.fade.fraction }, label = "arc") { if (it == BubbleLook.LIT && m.chase != null) 1f else 0f }
     // The tick is drawn in along its path and leaves by fading whole: its trim only grows, rewound once it is invisible.
-    val tick = t.animateFloat({ (if (targetState == BubbleLook.Paid) m.tick else m.untick).fraction }, label = "tick") {
-        if (it == BubbleLook.Paid) 1f else 0f
+    val tick = t.animateFloat({ (if (targetState == BubbleLook.PAID) m.tick else m.untick).fraction }, label = "tick") {
+        if (it == BubbleLook.PAID) 1f else 0f
     }
-    val tickAlpha = t.animateFloat({ m.fadeQuick.fraction }, label = "tick alpha") { if (it == BubbleLook.Paid) 1f else 0f }
+    val tickAlpha = t.animateFloat({ m.fadeQuick.fraction }, label = "tick alpha") { if (it == BubbleLook.PAID) 1f else 0f }
     // One infinite transition for the bubble's two loops (§10 rule 7), and only while one runs: none idle or paid.
     val pulseTurn = m.pulse
     val chaseTurn = m.chase
-    val pulsing = pulseTurn != null && pulses && look == BubbleLook.Lit
-    val chasing = chaseTurn != null && look == BubbleLook.Lit
+    val pulsing = pulseTurn != null && pulses && look == BubbleLook.LIT
+    val chasing = chaseTurn != null && look == BubbleLook.LIT
     val loops = if (pulsing || chasing) rememberInfiniteTransition(label = "bubble loops") else null
     val halo = if (pulsing && loops != null) loops.animateFloat(0f, 1f, pulseTurn!!, label = "halo") else null
     val chase = if (chasing && loops != null) loops.animateFloat(0f, 360f, chaseTurn!!, label = "chase") else null
@@ -462,7 +461,7 @@ private fun Confirm(look: BubbleLook) {
     val view = LocalView.current
     val last = remember { arrayOf(look) }
     LaunchedEffect(look) {
-        if (look == BubbleLook.Paid && last[0] != BubbleLook.Paid) view.confirm()
+        if (look == BubbleLook.PAID && last[0] != BubbleLook.PAID) view.confirm()
         last[0] = look
     }
 }

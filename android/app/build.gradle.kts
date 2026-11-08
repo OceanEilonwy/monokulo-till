@@ -81,8 +81,6 @@ android {
 }
 
 dependencies {
-    implementation(project(":sales"))
-    implementation(project(":push"))
     // The Rust core and its bindings (docs/ios-plan.md §2).
     implementation(project(":ffi"))
     implementation(libs.unifiedpush.connector)
@@ -102,13 +100,13 @@ dependencies {
     implementation(libs.camerax.lifecycle)
     implementation(libs.camerax.view)
     implementation(libs.zxing.core)
-    implementation(libs.okhttp)
     debugImplementation(libs.compose.ui.tooling)
     // Compose UI tests on the emulator (decision 152): the test activity comes with the manifest artifact.
     debugImplementation(libs.compose.ui.test.manifest)
     testImplementation(libs.kotlin.test.junit)
     testImplementation(libs.junit)
-    testImplementation(libs.okhttp.mockwebserver)
+    // The on-device tests' saved-shift fixtures, until they are written without the Kotlin sale.
+    androidTestImplementation(project(":sales"))
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.kotlin.test.junit)
     androidTestImplementation(libs.compose.ui.test.junit4)

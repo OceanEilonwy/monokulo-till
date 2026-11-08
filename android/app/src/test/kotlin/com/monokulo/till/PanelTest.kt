@@ -180,23 +180,14 @@ class PanelTest {
     private fun want(w: Windows, usable: Boolean, open: Boolean, wide: Boolean = false) = Handoff.next(w, WindowEvent.Want(usable, open, wide))
 
     @Test
-    fun `a failed poll or a dropped stream leaves the overlay up, and a raise is never closed for it`() {
-        val running = RunnerState(running = true, live = true)
-        assertTrue(Handoff.usable(running, appVisible = false, wanted = true, allowed = true))
-        // What the runner's state is after a stream or poll fails that isn't the store's 401 (TillRunner.follow).
-        val failed = running.copy(live = false, streamProblem = "Monokulo didn't answer in time")
-        assertTrue(Handoff.usable(failed, appVisible = false, wanted = true, allowed = true), "a slow connection doesn't lower the panel")
-        assertFalse(Handoff.usable(running.copy(live = false, disconnected = true), appVisible = false, wanted = true, allowed = true), "the store's 401 does")
-        assertFalse(Handoff.usable(running, appVisible = true, wanted = true, allowed = true), "Till on screen lowers it at once")
-        assertFalse(Handoff.usable(running.copy(running = false), appVisible = false, wanted = true, allowed = true))
-        assertFalse(Handoff.usable(running, appVisible = false, wanted = false, allowed = true))
-        assertFalse(Handoff.usable(running, appVisible = false, wanted = true, allowed = false))
+    fun `a raised panel is never closed when the engine says the bubble is still up`() {
+        // Whether it is up is the engine's (`till_screens::bubble::shown`): a stream or poll that fails leaves it up.
         // A tablet's panel raised and growing: the failure's new state asks for the same windows, so the raise runs on.
         for (wide in listOf(true, false)) {
             var w = want(Windows(), usable = true, open = false, wide = wide).windows
             w = want(w, usable = true, open = true, wide = wide).windows
             w = Handoff.next(w, WindowEvent.PanelDrawn).also { assertTrue(WindowAct.OpenPanel in it.acts) }.windows
-            val again = want(w, Handoff.usable(failed, appVisible = false, wanted = true, allowed = true), open = true, wide = wide)
+            val again = want(w, usable = true, open = true, wide = wide)
             assertTrue(again.acts.isEmpty(), "wide=$wide: no close, no reopen, so the raise is never retargeted")
             assertEquals(w, again.windows)
         }

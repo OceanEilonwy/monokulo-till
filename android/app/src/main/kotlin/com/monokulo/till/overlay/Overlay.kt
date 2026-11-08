@@ -38,7 +38,6 @@ import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
-import com.monokulo.till.BubbleLook
 import com.monokulo.till.BuildConfig
 import com.monokulo.till.engine.EngineStore
 import com.monokulo.till.ui.LocalMotion
@@ -54,11 +53,11 @@ import kotlin.math.hypot
 import kotlin.math.roundToInt
 import uniffi.till_app.Action
 import uniffi.till_screens.BubbleTap
-import uniffi.till_screens.BubbleLook as EngineLook
+import uniffi.till_screens.BubbleLook
 
 /** What the overlay's windows show: the engine's bubble ([uniffi.till_app.BubbleView]), and the panel's page. */
 data class OverlayState(
-    val look: BubbleLook = BubbleLook.Idle,
+    val look: BubbleLook = BubbleLook.IDLE,
     /** The sale the bubble and the panel are about: the one waiting, or the one that just finished. */
     val sale: PanelSale? = null,
     /** The header's "Front Counter" (or "From Back till"), before "Open the shift". */
@@ -76,13 +75,6 @@ data class OverlayState(
     val tapOpen: BubbleTap = BubbleTap.OPEN_APP,
     val tapOpenLabel: String = "",
 )
-
-/** The bubble's look, as the engine says it. */
-internal fun lookOf(look: EngineLook): BubbleLook = when (look) {
-    EngineLook.IDLE -> BubbleLook.Idle
-    EngineLook.LIT -> BubbleLook.Lit
-    EngineLook.PAID -> BubbleLook.Paid
-}
 
 /**
  * The bubble over other apps and the panel it opens (`docs/design.md` §9
@@ -153,7 +145,7 @@ class Overlay(
                 // The whole order is about the sale whose code is up: another sale, or this one ending, brings the code back.
                 if (focus != previous || sale?.face != PanelFace.Code || sale.order == null) page.value = PanelPage.Code
                 // Green until the paid moment's collapse lands, which can outlast the engine's own few seconds.
-                val look = if (paid || landed) BubbleLook.Paid else view?.look?.let(::lookOf) ?: BubbleLook.Idle
+                val look = if (paid || landed) BubbleLook.PAID else view?.look ?: BubbleLook.IDLE
                 state.value = OverlayState(
                     look, sale, sale?.where.orEmpty(), if (sale?.face == PanelFace.Code) shown else PanelPage.Code,
                     buzzes = view?.buzzes ?: true,
@@ -215,7 +207,7 @@ class Overlay(
             moment, event,
             panelUp = windows.panel == Life.Up,
             // Another sale's code is up once the engine's paid seconds are over: the bubble is lit for it.
-            nextWaiting = EngineStore.bubble.value?.look == EngineLook.LIT,
+            nextWaiting = EngineStore.bubble.value?.look == BubbleLook.LIT,
         )
         moment = step.moment
         if (event == PaidEvent.Paid) {
@@ -296,7 +288,7 @@ class Overlay(
             BubbleTap.OPEN_APP -> {
                 // Never left wanting a panel that can't show: the next tap after a sale arrives opens it.
                 panelOpen.value = false
-                // Once on screen, Till's own visibility takes the overlay down (Handoff.usable).
+                // Once on screen, Till's own visibility takes the overlay down (the engine's BubbleView.shown).
                 onOpenApp()
             }
             BubbleTap.OPEN_PANEL -> panelOpen.value = true

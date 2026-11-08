@@ -40,26 +40,12 @@ import com.monokulo.till.LocalStage
 import com.monokulo.till.Nav
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
-import com.monokulo.till.SaleText
-import com.monokulo.till.core.PointOfSale
 import com.monokulo.till.up
 import com.monokulo.till.GroundLook
 import androidx.compose.runtime.remember
 import com.monokulo.till.words
 import com.monokulo.till.sharedGround
 import com.monokulo.till.rememberGroundTrack
-import com.monokulo.till.sales.TillSale
-
-/** The line under a code's amount: what's left of it, or how far the payment has got. */
-object CodeText {
-    /** "14:52 left" while the code counts down (waiting, or part paid); null once a payment is on its way. */
-    fun left(sale: TillSale, secondsLeft: Long): String? =
-        if (sale.phase.countsDown) "${SaleText.clock(secondsLeft)} left" else null
-
-    /** "0.05552 XMR · 14:52 left", or "0.05552 XMR · Seen on the network" once seen, at a till on [till]. */
-    fun under(sale: TillSale, till: PointOfSale?, secondsLeft: Long): String =
-        "${SaleText.xmr(sale)} · ${left(sale, secondsLeft) ?: SaleText.status(sale, till)}"
-}
 
 /**
  * The code enlarged (the design's CodeB, note s3), as the engine wrote it

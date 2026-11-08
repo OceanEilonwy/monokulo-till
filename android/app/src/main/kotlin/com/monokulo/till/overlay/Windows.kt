@@ -1,6 +1,5 @@
 package com.monokulo.till.overlay
 
-import com.monokulo.till.RunnerState
 
 /**
  * Where an overlay window is in its life: [Up] while it's wanted (arriving
@@ -89,17 +88,6 @@ data class WindowStep(val windows: Windows, val acts: List<WindowAct>, val close
  * screen) is swapped without motion. Pure, so the order is tested on the JVM.
  */
 object Handoff {
-    /**
-     * Whether the overlay is up at all: the cashier wants the bubble, the
-     * till is running and still connected, Till itself isn't on
-     * screen, and drawing over other apps is allowed. A stream or poll
-     * that fails leaves [RunnerState.running] and [RunnerState.disconnected]
-     * as they were (only the store's 401 disconnects the till), so a slow
-     * connection never lowers a raised panel (decision 208).
-     */
-    fun usable(runner: RunnerState, appVisible: Boolean, wanted: Boolean, allowed: Boolean): Boolean =
-        wanted && runner.running && !runner.disconnected && !appVisible && allowed
-
     fun next(w: Windows, event: WindowEvent): WindowStep {
         val acts = mutableListOf<WindowAct>()
         var bubble = w.bubble
