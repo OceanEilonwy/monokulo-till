@@ -799,6 +799,7 @@ through the relay): location label, store name.
 | --- | --- | --- |
 | `phase` | idle / waiting / seen / confirming / paid / expired | Layout and colour |
 | `sale` | "#1042" | Label |
+| `orderId` | "ord_…" | The tap's `monokulo-till://sale/{id}`; set by the app only, so after a push the tap just opens Till |
 | `amount` | "24.50" | Large amount, formatted by the device with `currency` |
 | `currency` | "USD" | With `amount`: no server formats money for the device's locale |
 | `xmr` | "0.1421" | Second line |

@@ -19,6 +19,8 @@ requests. Rebuild the core after changing anything under `crates/`.
 | --- | --- |
 | `Packages/TillCore` | SwiftPM package: the core's XCFramework, its generated Swift bindings and small Swift helpers |
 | `Till` | the app |
+| `TillWidgets` | the Live Activity's widget extension, which doesn't link the core |
+| `Shared` | the Live Activity's attributes, compiled into the app and the widget |
 | `Support` | the app's Info.plist (its URL scheme) and entitlements (Associated Domains) |
 | `TillTests` | tests of the Swift side (the behaviour is tested in Rust) |
 | `Scripts` | building the core |
