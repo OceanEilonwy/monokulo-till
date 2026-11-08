@@ -533,3 +533,30 @@ on from 1; the Android app's own choices are in [android.md](android.md).
     content state. iPhone is told apart from Slide Over by device idiom.
     "Show code in island" asks first in an alert and is disabled while the
     Live Activity is off.
+
+## iOS phase I5: wake-ups over APNs (2026-11-08)
+
+90. **With `EngineConfig.relay_url` set (iOS), the engine carries the push
+    side itself**: iOS hands over the APNs token (`Action::PushToken`, hex),
+    and the engine registers it with the relay (`POST {relay}/v1/register`,
+    platform `apns`, app `till`), keeps the device's Web Push keys under
+    `push.keys` (surviving `forget_all`), and decrypts RFC 8291 dings
+    itself (aws-lc-rs, already in the tree through rustls). Android leaves
+    it unset and keeps its `PushPlatform`.
+91. **The Notification Service Extension opens a relayed ding with the core
+    (`is_relayed_ding`), looks for the sale with `background_check` for up
+    to 25 of its 30 s, and rewrites the alert in the core's words**; when
+    time runs out the relay's own alert stands. A ding that found no sale
+    is delivered passive and silent (hiding it entirely needs Apple's
+    notification-filtering entitlement). In front, a relayed ding shows no
+    banner; the core re-reads the kept shift first, since the extension
+    may already have saved the sale.
+92. **The app and the extension share the App Group container (the engine's
+    `data_dir`, where the token lock lives) and the Keychain group
+    `com.monokulo.till.shared`**, with items `AfterFirstUnlockThisDeviceOnly`:
+    readable while locked, and never carried to another device by a backup
+    with a single-use Square refresh token.
+93. **The Live Activity's push token is kept but not yet registered**: the
+    core has no client for Monokulo's push targets, so Live Activity
+    updates while Till is in the background wait for one. The relay URL is
+    `https://relay.monokulo.com`, a placeholder until it's deployed.
