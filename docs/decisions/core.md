@@ -511,3 +511,25 @@ on from 1; the Android app's own choices are in [android.md](android.md).
     `ios/Support/AppIcon.svg`; `ITSAppUsesNonExemptEncryption` is left to
     the owner's export-compliance answer. TestFlight builds use APNs
     production, so the relay's APNs key must send to production.
+
+## iOS phase I4: iPhone and the Live Activity (2026-11-08)
+
+87. **`LiveActivityState` carries `order_id`** so a tap opens
+    `monokulo-till://sale/{id}`; Monokulo's pushes don't send it, so after a
+    push the tap only brings Till forward. The content state's JSON uses
+    the relay's keys (`paymentURI`, `expiresAt` in Unix seconds); an
+    unknown or missing field falls back to idle, 0 or none. It goes stale
+    at `expiresAt` only while waiting, seen or confirming.
+88. **One Live Activity at a time**: one left by an earlier run is reused,
+    none ends them all, and changes run in the engine's order; starting
+    while Till is in the background fails, so it retries on `Opened`. Its
+    static attributes (store name, location) are read when it starts. The
+    widget extension doesn't link the core: the attributes live in
+    `ios/Shared/TillActivity.swift`, compiled into both.
+89. **The widget writes its own words, which await the owner's review**:
+    "New sale · #1042 · +N more", "Tap to show code" or "Tap to enlarge",
+    "1/2" while confirming, "Paid · sale #1042", and "refund in Square",
+    which is wrong for a Clover till and wants the point of sale in the
+    content state. iPhone is told apart from Slide Over by device idiom.
+    "Show code in island" asks first in an alert and is disabled while the
+    Live Activity is off.
