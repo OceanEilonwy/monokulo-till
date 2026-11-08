@@ -69,9 +69,9 @@ class PanelGlyphsOnDeviceTest {
                 motion.raise.Attach()
                 Box(Modifier.fillMaxSize().background(mk.danger).testTag("window")) {
                     if (tablet) {
-                        FloatingPanel(sale, "Front Counter", PanelPage.Code, actions, motion)
+                        FloatingPanel(panelOf(sale), "Front Counter", PanelPage.Code, actions, motion)
                     } else {
-                        PhonePanel(sale, "Front Counter", BubbleLook.Lit, PanelPage.Code, actions, motion)
+                        PhonePanel(panelOf(sale), "Front Counter", BubbleLook.Lit, PanelPage.Code, actions, motion)
                     }
                 }
             }

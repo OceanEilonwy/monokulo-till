@@ -1,6 +1,5 @@
 package com.monokulo.till
 
-import com.monokulo.till.core.PointOfSale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.TransformOrigin
@@ -18,35 +17,52 @@ import com.monokulo.till.overlay.PanelFace
 import com.monokulo.till.overlay.WindowAct
 import com.monokulo.till.overlay.WindowEvent
 import com.monokulo.till.overlay.Windows
-import com.monokulo.till.receipt.PaymentCode
-import com.monokulo.till.sales.FoundSale
-import com.monokulo.till.sales.TillSale
+import com.monokulo.till.overlay.Hero
+import com.monokulo.till.overlay.PanelSale
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import uniffi.till_app.BubbleView
+import uniffi.till_screens.BubbleTap
+import uniffi.till_screens.OrderCard
+import uniffi.till_screens.Press
+import uniffi.till_screens.SaleView
+import uniffi.till_screens.BubbleLook as EngineLook
 
 class PanelTest {
-    private fun sale(
-        phase: SalePhase = SalePhase.Waiting,
-        found: Boolean = true,
-        device: String? = "Back till",
-        refundedAt: Long? = null,
+    /**
+     * The engine's bubble about one sale, its panel's words as
+     * `till_screens::sale` and `bubble` write them: [hint] is the sale's,
+     * [ended] its ended heading and line.
+     */
+    private fun bubble(
         id: String = "o1",
-    ) = TillSale(
+        step: Int = 1,
+        spent: Boolean = false,
+        hint: String = "Scan with any Monero wallet · 14:52 left",
+        ended: Pair<String, String>? = null,
+        order: OrderCard? = null,
+    ) = BubbleView(
+        shown = true,
+        look = if (spent) EngineLook.PAID else EngineLook.LIT,
         orderId = id,
-        amount = "79.21",
-        currency = "USD",
-        reference = "k4Rt",
-        code = PaymentCode("monero:4abc", hasReceipt = false),
-        phase = phase,
-        expiresAt = 0,
-        xmr = "0.31684",
-        address = "4abc",
-        found = if (found) FoundSale("p1", 7921, "USD", "k4Rt", "ord", "2026-10-22T23:07:00Z", null) else null,
-        deviceName = if (found) null else device,
-        refundedAt = refundedAt,
+        label = "Till, \$79.21 waiting for payment",
+        tap = BubbleTap.OPEN_PANEL,
+        tapLabel = "Show the sale",
+        tapOpen = BubbleTap.LOWER_PANEL,
+        tapOpenLabel = "Lower to the bubble",
+        panel = SaleView(
+            title = "Sale #k4Rt", titleLine = "Front Counter · this till", amount = "\$79.21", xmr = "0.31684 XMR",
+            code = "monero:4abc", codeSaid = "Payment code for \$79.21", spent = spent, status = "Waiting for payment",
+            hint = hint, step = step.toUByte(), order = order, copyAddress = Press("Copy address", true), address = "4abc",
+            backToPos = null, closes = true, ticks = step == 1,
+        ),
+        panelWhere = "Front Counter",
+        endedHeading = ended?.first,
+        endedLine = ended?.second,
+        buzzes = true,
     )
 
     @Test
@@ -85,36 +101,23 @@ class PanelTest {
     }
 
     @Test
-    fun `the header says where the sale is from`() {
-        assertEquals("Front Counter", Panel.where(sale(), "Front Counter"))
-        assertEquals("This till", Panel.where(sale(), null))
-        assertEquals("From Back till", Panel.where(sale(found = false), "Front Counter"))
-        assertEquals("From another till", Panel.where(sale(found = false, device = null), "Front Counter"))
-    }
-
-    @Test
-    fun `a sale that ends while the panel is up sends the cashier to refund it`() {
-        assertEquals("Code expired · not paid", Panel.endedHeading(sale(SalePhase.Expired), PointOfSale.Square))
-        assertEquals("Cancelled · not paid", Panel.endedHeading(sale(SalePhase.Cancelled), PointOfSale.Square))
-        assertEquals("Payment reversed · don't hand it over", Panel.endedHeading(sale(SalePhase.DoubleSpend), PointOfSale.Square))
-        assertEquals("Payment reversed · don't hand it over", Panel.endedHeading(sale(SalePhase.DoubleSpend, found = false), PointOfSale.Square))
-        assertEquals("Open the shift to refund it in Square.", Panel.endedLine(sale(SalePhase.Expired), PointOfSale.Square))
-        assertEquals("Refund it in Square on Back till.", Panel.endedLine(sale(SalePhase.Expired, found = false), PointOfSale.Square))
-        assertEquals("Refund it in Square on the till that took it.", Panel.endedLine(sale(SalePhase.Expired, found = false, device = null), PointOfSale.Square))
-        assertEquals("Refunded in Square", Panel.endedHeading(sale(SalePhase.DoubleSpend, refundedAt = 9), PointOfSale.Square))
-        assertEquals("Nothing more to do.", Panel.endedLine(sale(SalePhase.Expired, refundedAt = 9), PointOfSale.Square))
-    }
-
-    @Test
     fun `the sale on the panel shows paid before the next one waiting comes up`() {
-        val waiting = listOf(sale(id = "1044"), sale(id = "1043"))
-        assertEquals("1044", Bubble.focus(waiting, null, justPaid = false), "the newest is up")
-        val paid = listOf(sale(SalePhase.Paid, id = "1044"), sale(id = "1043"))
+        val paid = PanelSale.of(bubble(id = "1044", step = 4, spent = true, hint = "0.31684 XMR received"))
         assertTrue(Panel.landed(paid, "1044", wasLive = true), "it was live a moment ago, now paid")
-        assertEquals("1044", Bubble.focus(paid, "1044", justPaid = true), "held, paid, for a few seconds")
-        assertEquals("1043", Bubble.focus(paid, "1044", justPaid = false), "then the next one waiting")
         assertFalse(Panel.landed(paid, "1044", wasLive = false), "already paid at the last look: not news")
-        assertFalse(Panel.landed(paid, "1043", wasLive = true), "another sale, still waiting")
+        assertFalse(Panel.landed(PanelSale.of(bubble(id = "1043")), "1044", wasLive = true), "another sale, still waiting")
+        assertFalse(Panel.landed(null, "1044", wasLive = true), "no sale at all")
+    }
+
+    @Test
+    fun `the panel's status row counts down only while the code waits for its money`() {
+        val waiting = PanelSale.of(bubble())!!
+        assertEquals("· 14:52 left", waiting.left)
+        assertEquals("· 1:05 left", PanelSale.of(bubble(hint = "Ask the customer to pay the rest to the same code · 1:05 left"))!!.left)
+        assertNull(PanelSale.of(bubble(step = 3, hint = "The customer can go: it's being confirmed"))!!.left, "a payment on its way")
+        val paid = PanelSale.of(bubble(step = 4, spent = true, hint = "0.31684 XMR received"))!!
+        assertNull(paid.left)
+        assertEquals("0.31684 XMR received", paid.received)
     }
 
     @Test
@@ -330,11 +333,19 @@ class PanelTest {
 
     @Test
     fun `the panel shows the code while live, the tick once paid, and where the code was once it ended`() {
-        assertEquals(PanelFace.Code, Panel.face(sale(SalePhase.Waiting)))
-        assertEquals(PanelFace.Code, Panel.face(sale(SalePhase.Confirming)))
-        assertEquals(PanelFace.Paid, Panel.face(sale(SalePhase.Paid)))
-        assertEquals(PanelFace.Ended, Panel.face(sale(SalePhase.Expired)))
-        assertEquals(PanelFace.Ended, Panel.face(sale(SalePhase.DoubleSpend)))
-        assertEquals(PanelFace.Ended, Panel.face(sale(SalePhase.Expired, refundedAt = 9)))
+        fun face(b: BubbleView) = PanelSale.of(b)!!.face
+        assertEquals(PanelFace.Code, face(bubble(step = 1)))
+        assertEquals(PanelFace.Code, face(bubble(step = 3)))
+        assertEquals(PanelFace.Paid, face(bubble(step = 4, spent = true)))
+        val expired = bubble(step = 0, ended = "Code expired · not paid" to "Open the shift to refund it in Square.")
+        assertEquals(PanelFace.Ended, face(expired))
+        assertEquals(Hero.Ended, PanelSale.of(expired)!!.hero)
+        val reversed = bubble(step = 0, ended = "Payment reversed · don't hand it over" to "Open the shift to refund it in Square.")
+        assertEquals(PanelFace.Ended, face(reversed))
+        assertEquals(Hero.Reversed, PanelSale.of(reversed)!!.hero)
+        val refunded = bubble(step = 0, ended = "Refunded in Square" to "Nothing more to do.")
+        assertEquals(Hero.Refunded, PanelSale.of(refunded)!!.hero)
+        assertEquals(Hero.Paid, PanelSale.of(bubble(step = 4, spent = true))!!.hero)
+        assertNull(PanelSale.of(bubble().copy(panel = null)), "no sale: no panel")
     }
 }

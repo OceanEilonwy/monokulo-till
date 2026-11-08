@@ -55,7 +55,7 @@ class PhoneOrderOnDeviceTest {
                 backdrop = mk.danger
                 ground = mk.ground
                 Box(Modifier.fillMaxSize().background(backdrop).testTag("window")) {
-                    PhonePanel(sale, "Front Counter", BubbleLook.Lit, page, actions, raised)
+                    PhonePanel(panelOf(sale), "Front Counter", BubbleLook.Lit, page, actions, raised)
                 }
             }
         }

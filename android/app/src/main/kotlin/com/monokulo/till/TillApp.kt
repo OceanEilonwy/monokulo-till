@@ -29,7 +29,6 @@ import com.monokulo.till.push.BellWakeUps
 import com.monokulo.till.push.PosSide
 import com.monokulo.till.push.PosSignIn
 import com.monokulo.till.push.UnifiedPushSubscriptions
-import com.monokulo.till.push.WakePushService
 import com.monokulo.till.push.WakeUps
 import com.monokulo.till.sales.CloverApi
 import com.monokulo.till.sales.CloverAuth
@@ -54,7 +53,7 @@ import java.util.concurrent.TimeUnit
  * holds everything the app does, and the [engineStore] of what it last
  * published, which the activity, the service and the overlay draw.
  */
-class TillApp : Application(), WakePushService.Host {
+class TillApp : Application() {
     /** The Kotlin graph the service, the overlay and the ding path still run on, until they move to the engine. */
     val graph by lazy { Graph(this) }
 
@@ -70,6 +69,8 @@ class TillApp : Application(), WakePushService.Host {
         Tls.init(this)
         engine = Engine(engineConfig(this), KeystorePlatform(this), UnifiedPushPlatform(this, EngineStore::send), Listener)
         EngineStore.attach(engine)
+        // The engine's Android side: the till's service, its notices and the bubble.
+        TillService.follow(this)
         permissionsMayHaveChanged()
         // The time zone or the clock's style changing: every time the screens write is written again.
         val clock = object : BroadcastReceiver() {
@@ -91,9 +92,6 @@ class TillApp : Application(), WakePushService.Host {
     fun clockMayHaveChanged() {
         EngineStore.send(Action.ClockChanged(utcOffsetSeconds(), DateFormat.is24HourFormat(this)))
     }
-
-    // The connector's service hands the Bell's dings to the graph (decision 93).
-    override val pushSubscriptions get() = graph.push
 }
 
 /** The app's long-lived parts. */

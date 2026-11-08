@@ -61,7 +61,7 @@ class PanelFaceOnDeviceTest {
         compose.setContent {
             TillTheme {
                 CompositionLocalProvider(LocalMotion provides Motion.Full) {
-                    SalePanel(shown, "Front Counter", wide, actions, Presence(1f))
+                    SalePanel(panelOf(shown), "Front Counter", wide, actions, Presence(1f))
                 }
             }
         }
