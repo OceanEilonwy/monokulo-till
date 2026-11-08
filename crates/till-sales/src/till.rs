@@ -658,11 +658,8 @@ impl Till {
         // events may have moved it on (paid, even): keep what they said, and
         // when, else the order's own. Read and replaced in the one change, so
         // a close or a refund stamped meanwhile on another thread isn't lost.
-        let created_at = found
-            .created_at
-            .parse::<jiff::Timestamp>()
-            .map(|at| at.as_second())
-            .unwrap_or_else(|_| self.clock.now());
+        let created_at =
+            till_pos::time::unix_seconds(&found.created_at).unwrap_or_else(|| self.clock.now());
         let (receipt, customer_name) = match read {
             Some(read) => (read.receipt, read.customer_name),
             None => (None, None),
@@ -721,12 +718,13 @@ impl Till {
 /// `e` shown, unless the sign-in has already ended and `e` only says so
 /// again: the words that said why it ended ("Clover's sign-in has ended")
 /// stay until the cashier signs in, rather than the next check's bare
-/// "Sign in to Clover." A failure that isn't the POS's answer
-/// (decision 14) is shown after "Couldn't reach the POS: ".
+/// "Sign in to Clover." A failure that isn't the POS's answer or the
+/// till's own refusal (decision 14) is shown after "Couldn't reach the
+/// POS: ".
 fn with_pos_problem(s: &TillState, e: &PosError) -> TillState {
     match e {
         PosError::Answered { .. } if s.sign_in_again && e.sign_in_again() => s.clone(),
-        PosError::Answered { .. } => TillState {
+        PosError::Answered { .. } | PosError::NotAsked(_) => TillState {
             problem: Some(e.to_string()),
             sign_in_again: e.sign_in_again(),
             ..s.clone()
@@ -743,25 +741,11 @@ fn with_pos_problem(s: &TillState, e: &PosError) -> TillState {
 /// so the sale stays unhandled and the next check asks again with the same
 /// idempotency key.
 fn creation_problem(e: &MonokuloError) -> String {
-    if monokulo_answered(e) {
+    if e.answered() {
         problems::say(e)
     } else {
         format!("Couldn't make the payment code: {e}")
     }
-}
-
-/// Whether `e` is one the Kotlin client threw as a `MonokuloException`:
-/// Monokulo's answer, or the client's own words about it. A network
-/// failure, an unreadable answer and a bad address were other exceptions.
-pub(crate) fn monokulo_answered(e: &MonokuloError) -> bool {
-    matches!(
-        e,
-        MonokuloError::Refused { .. }
-            | MonokuloError::NotAllowed(_)
-            | MonokuloError::NoApi
-            | MonokuloError::StreamClosed
-            | MonokuloError::StreamSilent(_)
-    )
 }
 
 /// Whether the POS shows `found` refunded; false when it couldn't be asked.

@@ -101,15 +101,25 @@ pub struct FoundSale {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     /// The point of sale that took it, so a shift's saved sales keep naming
-    /// it after the till changes point of sale. A sale saved before Clover
-    /// joined reads as Square's. Written as Kotlin named the enum's
-    /// constants: `"Square"`, `"Clover"`.
-    #[serde(default = "square", with = "kotlin_name")]
+    /// it after the till changes point of sale. Square, the Kotlin
+    /// property's default, is left out, as kotlinx.serialization left it
+    /// out, and a sale without one (saved before Clover joined) reads as
+    /// Square's. Written as Kotlin named the enum's constants: `"Square"`,
+    /// `"Clover"`.
+    #[serde(
+        default = "square",
+        skip_serializing_if = "is_square",
+        with = "kotlin_name"
+    )]
     pub point_of_sale: PointOfSale,
 }
 
 fn square() -> PointOfSale {
     PointOfSale::Square
+}
+
+fn is_square(pos: &PointOfSale) -> bool {
+    *pos == PointOfSale::Square
 }
 
 /// A [`PointOfSale`] as kotlinx.serialization wrote the Kotlin enum: by its
@@ -191,6 +201,11 @@ mod tests {
             "saved before Clover"
         );
         assert_eq!(sale.device_id, None);
+        assert_eq!(
+            serde_json::to_string(&sale).unwrap(),
+            saved,
+            "Square, the default, left out as Kotlin left it out"
+        );
         let clover = FoundSale {
             point_of_sale: PointOfSale::Clover,
             title: Some("Table 4".into()),

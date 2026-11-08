@@ -6,8 +6,6 @@ use monokulo_client::{AppConnection, Connection, MonokuloApi, Store, problems};
 use tokio::runtime::Handle;
 use tokio::sync::watch;
 
-use crate::till::monokulo_answered;
-
 /// The store and this device as last read from Monokulo, this session.
 /// Held in memory and never saved (decision 50 in
 /// docs/decisions/android.md): shown as "last seen" while the next read is
@@ -108,7 +106,7 @@ impl LiveStore {
                     });
                 }
                 Err(e) => {
-                    let problem = if monokulo_answered(&e) {
+                    let problem = if e.answered() {
                         if e.status() == 401 {
                             on_disconnected();
                         }

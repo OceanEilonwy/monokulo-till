@@ -76,11 +76,7 @@ impl SaleSource for NoSource {
 #[async_trait]
 impl RefundByTill for NoSource {
     async fn refund(&self, _: &FoundSale) -> Result<(), PosError> {
-        Err(PosError::answered(
-            PointOfSale::Square,
-            0,
-            "Sign in to Square first",
-        ))
+        Err(PosError::NotAsked("Sign in to Square first".into()))
     }
 }
 
@@ -653,7 +649,12 @@ mod tests {
         };
         let refused = refunds.refund(&sale).await.unwrap_err();
         assert_eq!(refused.to_string(), "Sign in to Square first");
-        assert!(matches!(refused, PosError::Answered { .. }), "{refused:?}");
+        assert!(matches!(refused, PosError::NotAsked(_)), "{refused:?}");
+        assert_eq!(
+            refused.pos(),
+            None,
+            "a bare PosException, no SquareException"
+        );
         assert_eq!(
             NoSource.point_of_sale(),
             PointOfSale::Square,

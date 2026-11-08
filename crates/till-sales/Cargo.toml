@@ -9,21 +9,19 @@ publish = false
 
 [dependencies]
 # PosSwitchSide is a trait object with async methods, as till-pos's are.
-async-trait = "0.1.89"
-futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
-# A point of sale's RFC 3339 times, read as Unix seconds.
-jiff = "0.2.16"
+async-trait.workspace = true
+futures-util.workspace = true
 monokulo-client.workspace = true
 orf-codec.workspace = true
 serde.workspace = true
 # `raw_value`: a saved shift writes its doubles as Kotlin did (Java's
 # `Double.toString`), byte for byte.
 serde_json = { workspace = true, features = ["raw_value"] }
-sha2 = "0.10.9"
+sha2.workspace = true
 till-pos.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
-reqwest = { version = "0.13.4", default-features = false }
+reqwest.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
-wiremock = "0.6.5"
+wiremock.workspace = true
