@@ -434,18 +434,32 @@ async fn an_upgraded_till_runs_its_shift_makes_orders_and_tells_the_platform() {
         r#"[{"orderId":"ord_0","amount":"5.00","currency":"USD","code":{"uri":"monero:8Cy","hasReceipt":false},"phase":"Waiting","expiresAt":1893456000,"xmr":"0.03","address":"8Cy"}]"#,
     );
     let (engine, rx, _) = start(config(Some(&square)), platform.clone());
+    // In the back: the new sale is alerted.
+    engine.send(Action::Backgrounded);
     screen(&rx, Screen::Till);
     wait_for(&rx, |heard| match heard {
         Heard::Update(Update::Service { running: true }) => Some(()),
         _ => None,
     });
-    let face = wait_for(&rx, |heard| match heard {
-        Heard::Effect(Effect::Notify { face }) => Some(face.clone()),
+    // The shift lists the kept sale and the new one, at the till's place,
+    // published with the alert.
+    let mut shift = None;
+    let alert = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Shift { view }) if rows(view) == 2 => {
+            shift = Some(view.clone());
+            None
+        }
+        Heard::Update(Update::Notification { view }) => view.alert.clone(),
         _ => None,
     });
-    assert_eq!(face.id, "ord_1");
-    assert_eq!(face.title, "Monero sale");
-    assert_eq!(face.text, "$13.88 · Tap to show code");
+    let shift = shift.expect("the shift with both sales");
+    assert_eq!(shift.top.place.as_deref(), Some("Front counter"));
+    assert_eq!(alert.order_id, "ord_1");
+    assert_eq!(alert.title, "New Monero sale · $13.88");
+    assert_eq!(
+        alert.body,
+        "Front counter. Tap here to show the payment code."
+    );
     assert!(
         platform
             .get("shift.sales")
@@ -457,21 +471,23 @@ async fn an_upgraded_till_runs_its_shift_makes_orders_and_tells_the_platform() {
         Some(r#"["pay_monero"]"#)
     );
 
-    // The shift lists the kept sale and the new one, at the till's place.
-    let shift = wait_for(&rx, |heard| match heard {
-        Heard::Update(Update::Shift { view }) if rows(view) == 2 => Some(view.clone()),
-        _ => None,
-    });
-    assert_eq!(shift.top.place.as_deref(), Some("Front counter"));
-
     engine.send(Action::CopyAddress {
         order_id: "ord_1".into(),
     });
+    let mut after = None;
     let copied = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Notification { view }) => {
+            after = Some(view.clone());
+            None
+        }
         Heard::Effect(Effect::CopyText { text }) => Some(text.clone()),
         _ => None,
     });
     assert_eq!(copied, "8Bx");
+    // The next change goes without the alert: it was posted once.
+    if let Some(after) = after {
+        assert_eq!(after.alert, None, "alerted once");
+    }
 
     // The close sheet's "No": the till refunds it in Square and closes it.
     engine.send(Action::Close {
@@ -507,6 +523,83 @@ async fn an_upgraded_till_runs_its_shift_makes_orders_and_tells_the_platform() {
         _ => None,
     });
     assert_eq!(platform.get("shift.on").as_deref(), Some("false"));
+}
+
+/// The Live Activity's state as the engine publishes it next.
+fn live_activity(rx: &Receiver<Heard>) -> Option<till_screens::LiveActivityState> {
+    wait_for(rx, |heard| match heard {
+        Heard::Update(Update::LiveActivity { state }) => Some(state.clone()),
+        _ => None,
+    })
+}
+
+/// Decision 40: on iPhone the Live Activity follows the till's own sales,
+/// carries the code only with "Show code in island" on, and goes with the
+/// switch.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_live_activity_follows_the_tills_own_sale_and_the_islands_switches() {
+    use till_screens::live_activity::ActivityPhase;
+    let monokulo = monokulo().await;
+    let square = square().await;
+    let (engine, rx, _) = start(config(Some(&square)), signed_in_till(&monokulo));
+    let waiting = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::LiveActivity { state: Some(state) })
+            if state.phase == ActivityPhase::Waiting =>
+        {
+            Some(state.clone())
+        }
+        _ => None,
+    });
+    assert_eq!(waiting.sale.as_deref(), Some("#bP9m"));
+    assert_eq!(waiting.amount.as_deref(), Some("13.88"));
+    assert_eq!(waiting.waiting_count, 1);
+    assert_eq!(waiting.payment_uri, None, "the code stays in the app");
+
+    engine.send(Action::SetCodeInIsland { on: true });
+    let with_code = live_activity(&rx).unwrap();
+    assert_eq!(
+        with_code.payment_uri.as_deref(),
+        Some("monero:8Bx?tx_amount=0.08")
+    );
+    engine.send(Action::SetLiveActivity { on: false });
+    assert_eq!(live_activity(&rx), None, "no activity with the switch off");
+}
+
+/// Android's ongoing notification alerts a sale that arrives while the app
+/// is in the back, in one update, and has no Live Activity.
+#[tokio::test(flavor = "multi_thread")]
+async fn androids_ongoing_notification_alerts_a_new_sale_once() {
+    let monokulo = monokulo().await;
+    let square = square().await;
+    let android = EngineConfig {
+        device: Device::Android,
+        ..config(Some(&square))
+    };
+    let (engine, rx, _) = start(android, signed_in_till(&monokulo));
+    engine.send(Action::Backgrounded);
+    let (face, alert) = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::LiveActivity { .. }) => panic!("a Live Activity on Android"),
+        Heard::Update(Update::Notification { view }) => match &view.ongoing {
+            Some(till_screens::notification::OngoingFace::Sale { face, alert, .. }) => {
+                Some((face.clone(), *alert))
+            }
+            _ => None,
+        },
+        _ => None,
+    });
+    assert!(alert, "a heads-up as it arrives");
+    assert_eq!(face.title, "New Monero sale · Front counter");
+    let next = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Notification { view }) => Some(view.clone()),
+        _ => None,
+    });
+    assert!(
+        matches!(
+            next.ongoing,
+            Some(till_screens::notification::OngoingFace::Sale { alert: false, .. })
+        ),
+        "{next:?}"
+    );
 }
 
 #[test]
