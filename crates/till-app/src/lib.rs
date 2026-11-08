@@ -8,9 +8,16 @@
 //! Phase 0 is the shape only: the traits a platform implements, the engine's
 //! task, and one action. The screens' records are till-screens' (phase 5a),
 //! in [`Update`] already; the engine fills and publishes them in phase 5b.
+//!
+//! - [`store`]: the persisted model, in `Stores.kt`'s keys and JSON, kept
+//!   through [`Platform`]'s secrets.
 
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
+
+pub mod store;
+#[cfg(test)]
+mod testing;
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, OnceLock};

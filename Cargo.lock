@@ -2407,11 +2407,19 @@ dependencies = [
 name = "till-app"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "monokulo-client",
+ "reqwest",
+ "serde",
+ "serde_json",
  "thiserror",
+ "till-bell",
+ "till-pos",
+ "till-sales",
  "till-screens",
  "tokio",
  "uniffi",
+ "wiremock",
 ]
 
 [[package]]
