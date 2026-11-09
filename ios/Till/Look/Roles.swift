@@ -43,7 +43,7 @@ enum Roles {
         case .clock: .warn
         case .warning: .danger
         case .tick: .paid
-        case .ring, .refund, .close: .chip
+        case .ring, .refund, .close, .cash: .chip
         }
     }
 
@@ -56,6 +56,7 @@ enum Roles {
         case .tick: "checkmark"
         case .refund: "arrow.uturn.backward"
         case .close: "xmark"
+        case .cash: "banknote"
         }
     }
 
@@ -65,7 +66,7 @@ enum Roles {
         case .clock: Palette.expiredInk
         case .warning: Palette.danger
         case .tick: Palette.paid
-        case .ring, .refund, .close: quiet ? Palette.secondary : Palette.ink
+        case .ring, .refund, .close, .cash: quiet ? Palette.secondary : Palette.ink
         }
     }
 }

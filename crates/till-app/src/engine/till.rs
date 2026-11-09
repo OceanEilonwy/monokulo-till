@@ -340,6 +340,10 @@ impl State {
             folded: self.folded,
             counters: self.counters(),
             counter: self.counter.clone(),
+            // iOS says whether Till may alert; Android's switch is its own.
+            alerts: self.config.device.is_ios().then_some(self.alerts_allowed),
+            bell: *p.wake_ups.choice().borrow() != till_bell::WakeUpChoice::TimerOnly,
+            show_sales: model.show_sales,
         };
         shift::shift(
             &input,

@@ -7,7 +7,8 @@
 //! the buttons and whether they can be pressed, the store's facts, the
 //! point of sale's card, and every sentence that names the point of sale.
 //! The headings and leads written once ("Connect a store", "Hear every new
-//! sale", the dashboard's steps) stay in the platform's screens.
+//! sale", the dashboard's steps) are here too, for iOS (core.md decision
+//! 130); Android keeps its own copies of them for now.
 
 use monokulo_client::{MoneyFormat, PointOfSale, amounts};
 use till_pos::square::SquareLocation;
@@ -170,6 +171,74 @@ pub struct OnboardingView {
     /// Welcome.
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub progress: Option<StepProgress>,
+    /// The page's heading, on every page ("Which point of sale do you
+    /// use?"), and its lead (core.md decision 130). Android keeps its own
+    /// for the pages whose record has none.
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub heading: String,
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub lead: String,
+    /// The label over the page's card: "This device will take payments
+    /// for", "Locations", "Point of sale".
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub section: String,
+    /// Under the card, where the page's record has no footnote of its own:
+    /// what Till can do with a store, before connecting.
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub footnote: String,
+    /// The page's own button where its record has none: "Get started",
+    /// "Start Till".
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub start: Option<Press>,
+    /// After connecting: "Wrong store: disconnect".
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub disconnect: Option<Press>,
+    /// Welcome's three features.
+    #[cfg_attr(feature = "uniffi", uniffi(default = []))]
+    pub features: Vec<Feature>,
+    /// Step 2's words around the camera.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub scan: Option<ScanWords>,
+}
+
+/// Which of Welcome's features, for its symbol.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum FeatureMark {
+    /// "Sees Monero sales".
+    Sales,
+    /// "Shows a payment code".
+    Code,
+    /// "Confirms the money arrived".
+    Confirmed,
+}
+
+/// One of Welcome's features.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct Feature {
+    pub mark: FeatureMark,
+    pub title: String,
+    pub text: String,
+}
+
+/// Step 2's words around the camera (board OnbStore).
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct ScanWords {
+    /// The dashboard's numbered steps, `**bold**` for what to tap.
+    pub steps: Vec<String>,
+    /// "Dashboard open on this iPad? Tap **Copy the connect link** there,
+    /// then paste it here."
+    pub paste_hint: String,
+    /// "Paste the link".
+    pub paste: String,
+    /// Over the camera while it looks: "Looking for a connect code…".
+    pub looking: String,
+    /// In place of the camera until it's allowed.
+    pub camera_ask: String,
+    /// "Allow the camera".
+    pub allow_camera: String,
 }
 
 /// How far through setup, as a bar draws it: step `value` of `total`.
@@ -396,6 +465,10 @@ pub struct PosStep {
     /// O3's status bar.
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub status: Option<TestStatus>,
+    /// O3's line over its heading: "Connected to The Bean Room · Front
+    /// Counter".
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub connected: Option<String>,
 }
 
 /// The chosen point of sale's card: its sign-in, its location or merchant,
@@ -427,6 +500,9 @@ pub struct PosCard {
     pub test_sale: Option<TestSale>,
     /// Clover: how a sale never paid is refunded.
     pub footnote: Option<String>,
+    /// "Connected", beside who, once signed in.
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub connected: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -626,7 +702,16 @@ pub fn onboarding(
         ),
     };
     let phase = phase(&input.step);
+    let words = words(&page, device);
     OnboardingView {
+        heading: words.heading,
+        lead: words.lead,
+        section: words.section,
+        footnote: words.footnote,
+        start: words.start,
+        disconnect: words.disconnect,
+        features: words.features,
+        scan: words.scan,
         // iOS has its rail and its bar instead (decision 121).
         step_label: number
             .filter(|_| labelled && device == Device::Android)
@@ -655,6 +740,130 @@ fn phase(step: &Step) -> Option<Phase> {
         Step::ShowSales { .. } => Phase::ShowSales,
         Step::Ready { .. } => Phase::Ready,
     })
+}
+
+/// The words a page's record doesn't carry (core.md decision 130).
+#[derive(Default)]
+struct Words {
+    heading: String,
+    lead: String,
+    section: String,
+    footnote: String,
+    start: Option<Press>,
+    disconnect: Option<Press>,
+    features: Vec<Feature>,
+    scan: Option<ScanWords>,
+}
+
+fn words(page: &OnboardingPage, device: Device) -> Words {
+    let said = |heading: &str, lead: &str| Words {
+        heading: heading.into(),
+        lead: lead.into(),
+        ..Words::default()
+    };
+    match page {
+        OnboardingPage::Welcome { feature } => Words {
+            start: Some(Press::new("Get started")),
+            features: vec![
+                Feature {
+                    mark: FeatureMark::Sales,
+                    title: "Sees Monero sales".into(),
+                    text: feature.clone(),
+                },
+                Feature {
+                    mark: FeatureMark::Code,
+                    title: "Shows a payment code".into(),
+                    text: "Turn the screen round and the customer scans with their wallet.".into(),
+                },
+                Feature {
+                    mark: FeatureMark::Confirmed,
+                    title: "Confirms the money arrived".into(),
+                    text: "Till tells you when the payment lands, and flags any that don't.".into(),
+                },
+            ],
+            ..said(
+                "Monokulo Till",
+                "Take Monero at your till. Till sees each new sale and shows your customer a payment code.",
+            )
+        },
+        OnboardingPage::Scan { .. } => Words {
+            scan: Some(ScanWords {
+                steps: vec![
+                    "In your Monokulo dashboard, open the store's **Settings › Connections**"
+                        .into(),
+                    "Under **Apps**, choose **Connect an app**, then **Show the code**".into(),
+                    "Point this camera at the code it shows".into(),
+                ],
+                paste_hint: format!(
+                    "Dashboard open on {}? Tap **Copy the connect link** there, then paste it here.",
+                    pos_text::this_device(device)
+                ),
+                paste: "Paste the link".into(),
+                looking: "Looking for a connect code…".into(),
+                camera_ask: "Allow the camera to scan the code, or paste the link below.".into(),
+                allow_camera: "Allow the camera".into(),
+            }),
+            ..said(
+                "Connect a store",
+                "Till connects from your Monokulo dashboard, wherever you host it.",
+            )
+        },
+        OnboardingPage::Confirm { .. } => Words {
+            section: "This device will take payments for".into(),
+            footnote: CAN_DO.into(),
+            ..said("Connect to this store?", "")
+        },
+        OnboardingPage::Connected { title, .. } => Words {
+            section: "This device takes payments for".into(),
+            disconnect: Some(Press::new("Wrong store: disconnect")),
+            ..said(title, "")
+        },
+        OnboardingPage::PointOfSale { view } => {
+            let name = view.card.as_ref().map(|card| match card.mark {
+                PosMark::Square => PointOfSale::Square,
+                PosMark::Clover => PointOfSale::Clover,
+            });
+            match (view.stage, name) {
+                (Some(PosStage::Choose), _) => said(
+                    "Which point of sale do you use?",
+                    "Till signs in to it to see each Monero sale the moment you ring it up.",
+                ),
+                (Some(PosStage::SignIn), Some(pos)) => said(
+                    &pos_text::sign_in(Some(pos)),
+                    &format!(
+                        "{}'s own page opens. Sign in as the business owner and allow Till.",
+                        pos.display_name()
+                    ),
+                ),
+                (Some(PosStage::TestSale), Some(pos)) => said(
+                    "Try a test sale",
+                    &format!(
+                        "This checks that {} tells Till about Monero sales. It takes about a minute.",
+                        pos.display_name()
+                    ),
+                ),
+                _ => Words {
+                    section: pos_text::POINT_OF_SALE.into(),
+                    ..said(pos_text::CONNECT_HEADING, "")
+                },
+            }
+        }
+        OnboardingPage::Locations { lead, .. } => Words {
+            section: "Locations".into(),
+            ..said("Which location is this till at?", lead)
+        },
+        OnboardingPage::Alerts { .. } => said(
+            "Hear every new sale",
+            "When Till is in the background, an alert tells you a customer is ready to pay.",
+        ),
+        OnboardingPage::Float { heading, lead, .. } => said(heading, lead),
+        OnboardingPage::Ready { heading, lead, .. } => Words {
+            start: Some(Press::new("Start Till")),
+            ..said(heading, lead)
+        },
+        OnboardingPage::Counter { view } => said(&view.heading, &view.lead),
+        OnboardingPage::ShowSales { view } => said(&view.heading, &view.lead),
+    }
 }
 
 fn counter_step(c: &CounterSetup, pos: Option<PointOfSale>, device: Device) -> CounterStep {
@@ -836,7 +1045,31 @@ fn pos_step(s: &PosSetup, device: Device) -> PosStep {
         skip,
         stage,
         status,
+        connected: (stage == Some(PosStage::TestSale))
+            .then(|| connected_line(s))
+            .flatten(),
     }
+}
+
+/// O3's line: "Connected to The Bean Room · Front Counter", the location
+/// said once when it's the business's name.
+fn connected_line(s: &PosSetup) -> Option<String> {
+    let (who, place) = match s.chosen? {
+        PointOfSale::Square => {
+            let location = s.location.as_ref()?;
+            (
+                location
+                    .business_name
+                    .clone()
+                    .unwrap_or_else(|| location.name.clone()),
+                Some(location.name.clone()),
+            )
+        }
+        PointOfSale::Clover => (s.merchant.clone()?, None),
+    };
+    let mut parts = vec![format!("Connected to {who}")];
+    parts.extend(place.filter(|place| !place.is_empty() && *place != who));
+    Some(parts.join(" · "))
 }
 
 fn pos_card(pos: PointOfSale, s: &PosSetup) -> PosCard {
@@ -910,6 +1143,7 @@ fn pos_card(pos: PointOfSale, s: &PosSetup) -> PosCard {
         look_again: add_by_hand.then(|| Press::new(pos_text::LOOK_AGAIN).enabled(!s.busy)),
         test_sale,
         footnote: (pos == PointOfSale::Clover).then(|| pos_text::CLOVER_REFUND_NOTE.into()),
+        connected: "Connected".into(),
     }
 }
 
@@ -1057,19 +1291,94 @@ mod tests {
 
     #[test]
     fn welcome_names_every_point_of_sale_and_is_step_1_of_6() {
+        let view = show(Step::Welcome, None, Device::Android);
+        assert_eq!(view.step_label.as_deref(), Some("Step 1 of 6"));
+        assert_eq!((view.rail, view.progress), (vec![], None));
         assert_eq!(
-            show(Step::Welcome, None, Device::Android),
-            OnboardingView {
-                step_label: Some("Step 1 of 6".into()),
-                rail: vec![],
-                progress: None,
-                page: OnboardingPage::Welcome {
-                    feature:
-                        "Ring up in Square or Clover as usual and choose Monero as the payment."
-                            .into()
-                },
+            view.page,
+            OnboardingPage::Welcome {
+                feature: "Ring up in Square or Clover as usual and choose Monero as the payment."
+                    .into()
             }
         );
+        // Decision 130: the words written once are the engine's too.
+        assert_eq!(view.heading, "Monokulo Till");
+        assert_eq!(
+            view.lead,
+            "Take Monero at your till. Till sees each new sale and shows your customer a payment code."
+        );
+        assert_eq!(view.start, Some(Press::new("Get started")));
+        assert_eq!(
+            view.features
+                .iter()
+                .map(|f| (f.mark, f.title.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                (FeatureMark::Sales, "Sees Monero sales"),
+                (FeatureMark::Code, "Shows a payment code"),
+                (FeatureMark::Confirmed, "Confirms the money arrived"),
+            ]
+        );
+        assert_eq!(
+            view.features[0].text,
+            "Ring up in Square or Clover as usual and choose Monero as the payment."
+        );
+    }
+
+    /// Decision 130: every page's heading, and the words around its card.
+    #[test]
+    fn each_page_carries_its_heading_lead_and_section() {
+        let scan = show(Step::Scan { problem: None }, None, Device::Ipad);
+        assert_eq!(scan.heading, "Connect a store");
+        let words = scan.scan.unwrap();
+        assert_eq!(
+            words.paste_hint,
+            "Dashboard open on this iPad? Tap **Copy the connect link** there, then paste it here."
+        );
+        assert_eq!(words.steps.len(), 3);
+        let confirm = show(
+            Step::Confirm {
+                host: "shop.example".into(),
+                encrypted: true,
+                device_name: "Front iPad".into(),
+                busy: false,
+                problem: None,
+            },
+            None,
+            Device::Ipad,
+        );
+        assert_eq!(
+            (
+                confirm.heading.as_str(),
+                confirm.section.as_str(),
+                confirm.footnote.as_str()
+            ),
+            (
+                "Connect to this store?",
+                "This device will take payments for",
+                CAN_DO
+            )
+        );
+        let locations = show(Step::Locations { locations: vec![] }, None, Device::Ipad);
+        assert_eq!(locations.heading, "Which location is this till at?");
+        assert_eq!(locations.section, "Locations");
+        let alerts = show(
+            Step::Alerts {
+                place: None,
+                currency: "USD".into(),
+                allowed: false,
+            },
+            None,
+            Device::Ipad,
+        );
+        assert_eq!(alerts.heading, "Hear every new sale");
+        let ready = ready(
+            Device::Ipad,
+            Some(PointOfSale::Square),
+            Some("Front Counter"),
+        );
+        assert_eq!(ready.heading, "You're ready");
+        assert_eq!(ready.start, Some(Press::new("Start Till")));
     }
 
     #[test]
@@ -1289,6 +1598,7 @@ mod tests {
                 look_again: None,
                 test_sale: None,
                 footnote: None,
+                connected: "Connected".into(),
             })
         );
         let busy = pos_step_of(
@@ -1543,21 +1853,26 @@ mod tests {
 
     #[test]
     fn androids_bubble_step_floats_over_square_or_other_apps() {
+        let view = show(
+            Step::Float { allowed: false },
+            Some(PointOfSale::Clover),
+            Device::Android,
+        );
         assert_eq!(
-            show(Step::Float { allowed: false }, Some(PointOfSale::Clover), Device::Android),
-            OnboardingView {
-                step_label: None,
-                rail: vec![],
-                progress: None,
-                page: OnboardingPage::Float {
-                    heading: "Float over other apps".into(),
-                    lead: "Till puts a small bubble over other apps. It's faded while there's nothing to do and lights up when a Monero sale comes in. Tap it to show the code.".into(),
-                    allowed: false,
-                    next: Press::new("Open settings"),
-                    notifications_only: Some(Press::new("Use notifications only")),
-                },
+            (view.step_label, view.rail, view.progress),
+            (None, vec![], None)
+        );
+        assert_eq!(
+            view.page,
+            OnboardingPage::Float {
+                heading: "Float over other apps".into(),
+                lead: "Till puts a small bubble over other apps. It's faded while there's nothing to do and lights up when a Monero sale comes in. Tap it to show the code.".into(),
+                allowed: false,
+                next: Press::new("Open settings"),
+                notifications_only: Some(Press::new("Use notifications only")),
             }
         );
+        assert_eq!(view.heading, "Float over other apps");
         let OnboardingPage::Float {
             heading,
             next,
@@ -1791,6 +2106,73 @@ mod tests {
         );
         assert_eq!(settings.stage, None, "Settings shows choice and card");
         assert!(settings.card.is_some());
+    }
+
+    /// Decision 130: O1–O3's headings and leads, as the boards word them,
+    /// and O3's connected line.
+    #[test]
+    fn step_4s_stages_carry_their_headings_and_leads() {
+        let words = |s: PosSetup| {
+            let chosen = s.chosen;
+            let view = show(Step::PointOfSale(s), chosen, Device::Ipad);
+            (view.heading, view.lead, view.section)
+        };
+        assert_eq!(
+            words(PosSetup {
+                confirmed: false,
+                ..setup(Some(PointOfSale::Square))
+            }),
+            (
+                "Which point of sale do you use?".into(),
+                "Till signs in to it to see each Monero sale the moment you ring it up.".into(),
+                String::new()
+            )
+        );
+        assert_eq!(
+            words(setup(Some(PointOfSale::Clover))),
+            (
+                "Sign in to Clover".into(),
+                "Clover's own page opens. Sign in as the business owner and allow Till.".into(),
+                String::new()
+            )
+        );
+        assert_eq!(
+            words(square_connected()),
+            (
+                "Try a test sale".into(),
+                "This checks that Square tells Till about Monero sales. It takes about a minute."
+                    .into(),
+                String::new()
+            )
+        );
+        assert_eq!(
+            words(PosSetup {
+                setup: false,
+                ..setup(Some(PointOfSale::Square))
+            }),
+            (
+                "Connect your point of sale".into(),
+                String::new(),
+                "Point of sale".into()
+            )
+        );
+        assert_eq!(
+            pos_step_of(square_connected(), Device::Ipad)
+                .connected
+                .as_deref(),
+            Some("Connected to The Bean Room Ltd · Front Counter")
+        );
+        assert_eq!(
+            pos_step_of(clover_connected(CloverTender::Ready), Device::Ipad)
+                .connected
+                .as_deref(),
+            Some("Connected to The Bean Room")
+        );
+        assert_eq!(
+            pos_step_of(setup(Some(PointOfSale::Square)), Device::Ipad).connected,
+            None,
+            "only O3 has it"
+        );
     }
 
     #[test]

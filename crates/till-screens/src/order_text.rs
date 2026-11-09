@@ -184,6 +184,12 @@ pub struct OrderPageView {
     pub total: String,
     /// The top bar's way back, "Back to the sale" (core.md decision 107).
     pub back: String,
+    /// The page's title, "The order", and "Total" before [`Self::total`]
+    /// (core.md decision 130).
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub title: String,
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub total_label: String,
 }
 
 /// The whole order's way back to its sale.
@@ -234,6 +240,8 @@ pub fn order_page(
         sums,
         total: total(receipt),
         back: BACK_TO_THE_SALE.into(),
+        title: "The order".into(),
+        total_label: "Total".into(),
     })
 }
 

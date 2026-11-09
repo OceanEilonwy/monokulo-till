@@ -110,35 +110,19 @@ struct PipSale: Equatable, Sendable {
     }
 }
 
-/// A cash sale offered in Monero, from the shift's cash section (core.md
-/// decision 116): its order id is `cash:` and the payment's id until it's
-/// taken.
+/// A cash sale offered in Monero, as the engine publishes it for the
+/// window (`ShiftView.offeredCash`, core.md decision 128): this counter's
+/// newest not kept as cash, whatever the list's filter or counter shows.
 struct PipCashOffer: Equatable, Sendable {
     let orderId: String
     /// "Sam · $24.50".
     let title: String
+    /// The strip's second line: "Cash · paying in Monero?".
+    let line: String
 
-    /// The section's header, which the strip's second line says.
-    static let line = "Cash · paying in Monero?"
-
-    /// The first of this counter's cash sales offered in Monero on the
-    /// shift, if any. The engine draws them under their own header (an
-    /// `Earlier` entry); kept-as-cash sales aren't offered, and another
-    /// counter's never shows in the window (decision 5).
-    static func first(in entries: [ShiftEntry]) -> PipCashOffer? {
-        var inCash = false
-        for entry in entries {
-            if case .row(let orderId, let row, _, _, _) = entry {
-                if inCash && orderId.hasPrefix("cash:") && !row.otherCounter {
-                    return PipCashOffer(orderId: orderId, title: row.title)
-                }
-            } else if case .earlier(let label) = entry {
-                inCash = label == line
-            } else {
-                inCash = false
-            }
-        }
-        return nil
+    /// The engine's offered cash sale, if any.
+    static func of(_ offered: OfferedCash?) -> PipCashOffer? {
+        offered.map { PipCashOffer(orderId: $0.orderId, title: $0.title, line: $0.line) }
     }
 }
 

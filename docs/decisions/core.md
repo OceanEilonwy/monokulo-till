@@ -916,6 +916,81 @@ and 8, and what the engine adds for it.
      123 says, but not posted while the window is up, as the window
      shows the sale itself: the claim counts it as told.
 
+## The iPad redesign's last gaps (2026-11-09)
+
+What was still decided in Swift after phase 3: the cash glyph, the
+floating window's cash sale, copy written in the app, and the progress
+label while a payment confirms.
+
+126. **Cash sales have their own glyph.** `StateIcon::Cash` (the
+     banknote) is a cash sale offered in Monero, kept as cash or paid in
+     real cash, on its row and its page's hero, in place of the clock and
+     the X they borrowed. `ShiftRow.cash` says a sale was rung up as cash
+     whatever it became, so a cash sale paid in Monero keeps its green
+     tick and iOS marks its amount with a small banknote, as Square's
+     books call it cash. This is the one exception to decision 111's
+     "no new variants of enums the apps switch over": a glyph is what
+     the enum is for, and both apps were changed with it (Android draws
+     a banknote of its own in the row's badge).
+127. **The empty till's words come from the till's state.** iOS's idle
+     panel says "Ready for the next sale" (Android keeps "No sale right
+     now") with how a sale is rung up and reaches the cashier: "Ring it
+     up in Square and choose Monero. An alert brings you straight to the
+     code." with alerts (the default), "The floating window shows the
+     code." with the floating window, "The code appears here." side by
+     side and on iPhone. `ShiftView.status` carries its chips
+     (`StatusChip`: kind, words and tone): "Watching Square",
+     "Reconnecting…" or "Not watching"; "Alerts on" or "Alerts off" in
+     warning where the platform says whether Till may alert (iOS); and
+     "Instant with the Bell" while a Bell wakes the till. The Swift chips
+     read the top row's tone, which decision 119 had made plain, so they
+     never said Watching; that's gone with them. `ShiftView.ready` (iPad,
+     a shift with sales) is E2 beside the list: the heading and "The
+     last one was paid 4 minutes ago. Ring up the next in Square and
+     choose Monero.", from the newest paid sale ("just now", "a minute
+     ago", minutes within the hour, then "at 9:41 AM"), no line while a
+     sale waits, and the shift ticks while the minutes move. Android
+     draws the chips as one muted line in its idle panel; it has no
+     column for E2.
+128. **The floating window's cash sale is published.** `ShiftView
+     .offered_cash` is this counter's newest cash sale offered in Monero
+     and not kept as cash, with its title and the strip's line. It's
+     worked out over every sale, not the list: the old way, matching the
+     cash section's header and a `cash:` order id in the shift's entries,
+     lost the sale while another filter or counter was chosen and broke
+     with any change to the header. This replaces decision 125's last
+     sentence but one. Android has no floating window and doesn't draw it.
+129. **The progress line counts confirmations.** `PaymentProgress.line`
+     is the one line under the bar, never wrapped: the thirds' words and
+     count ("Seen on the network · 1 of 3"), and while confirming, where
+     the store says how many confirmations it needs, how many it has
+     ("Confirming · 4 of 10 confirmations", held at the most needed, as
+     the row's "Confirming · 4 of 10" is). The bar stays in thirds;
+     `said` reads the same. iOS shrinks the line a little before cutting
+     it short.
+130. **iOS takes the words written once from the engine too.** This ends
+     decision 26's split on iOS: the onboarding pages' headings and leads
+     (`OnboardingView.heading`, `lead`; O1 "Which point of sale do you
+     use?", O2 "Sign in to Square" with "Square's own page opens…", O3
+     "Try a test sale" and O3's connected line, `PosStep.connected`),
+     the label over a page's card (`section`), Welcome's features and
+     "Get started", step 2's words around the camera (`ScanWords`),
+     Confirm's footnote, "Wrong store: disconnect" and "Start Till";
+     Settings' title and section titles, Disconnect's words, the Dynamic
+     Island's switches and question, "Show their sales in the list";
+     the sale's "Close the sale", "Customer view", "Share" and what the
+     share sheet calls it, "Order", the customer's "Scan with any Monero
+     wallet", the order page's title and "Total", Paid's "Back to
+     Square", and "This shift". Android keeps its own copies for now; the
+     fields are there when it wants them. Left in Swift: the system's
+     verbs (Done, Cancel, Back, Change, Close on a swipe, Settings on the
+     gear), what only a screen reader hears where the engine has no such
+     line, the mock notification's "Till" and "now", and the floating
+     window's frame words ("Watching", "Paid · $24.50", the countdown),
+     which it shares with the Live Activity widget: that draws Monokulo's
+     pushes, which carry no words, so the vocabulary stays with the
+     widget's code.
+
 ## Receipts on every till, and the sale the extension made (2026-11-09)
 
 The owner's iPad showed a sale rung up on the Square sandbox (an order

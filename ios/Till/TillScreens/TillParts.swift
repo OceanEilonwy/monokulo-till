@@ -92,9 +92,12 @@ struct PaymentProgress: View {
                 .accessibilityLabel("Payment")
                 .accessibilityValue(said ?? status)
             VStack(alignment: .leading, spacing: 2) {
+                // One line, never wrapped: shrunk a little, then cut short.
                 Text(status)
                     .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
                     .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                 if let hint, !hint.isEmpty {
                     Text(hint)
                         .font(.subheadline)
@@ -184,13 +187,9 @@ struct NoteCard: View {
 }
 
 /// The engine's payment progress (`SaleView.progress`) as the bar draws
-/// it: its words with the count beside them ("Seen on the network · 1 of
-/// 3"), and how full.
+/// it: how full, in thirds. Its words are the engine's one line
+/// ("Confirming · 4 of 10 confirmations", core.md decision 129).
 enum EngineProgress {
-    static func status(label: String, count: String) -> String {
-        count.isEmpty ? label : "\(label) · \(count)"
-    }
-
     static func fraction(value: UInt8, total: UInt8) -> Double {
         guard total > 0 else { return 0 }
         return min(1, Double(value) / Double(total))

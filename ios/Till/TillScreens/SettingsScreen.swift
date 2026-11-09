@@ -10,7 +10,7 @@ import UIKit
 /// snaps back), how a new sale shows up (iPad), Wake-ups (its own page,
 /// pushed here, as `Screen` has none), the Dynamic Island on iPhone, the
 /// debug builds' stand-ins, and Disconnect. Section titles and
-/// Disconnect's footnote are written once here (decision 26).
+/// Disconnect's words are the engine's too (core.md decision 130).
 struct SettingsScreen: View {
     let view: SettingsView
     let wakeUps: WakeUpsView?
@@ -23,9 +23,9 @@ struct SettingsScreen: View {
         NavigationStack {
             List {
                 if let store = view.store {
-                    StoreSettings(store: store, send: send)
+                    StoreSettings(store: store, title: view.storeTitle, send: send)
                 }
-                PosSettings(section: view.pointOfSale, send: send)
+                PosSettings(section: view.pointOfSale, title: view.posTitle, send: send)
                 if let counters = view.counters {
                     CountersSettings(section: counters, send: send)
                 }
@@ -41,7 +41,7 @@ struct SettingsScreen: View {
                     IslandSettings(island: island, send: send)
                 }
                 if !view.standIns.isEmpty {
-                    Section("Developer (debug builds)") {
+                    Section(view.developerTitle) {
                         ForEach(Array(view.standIns.enumerated()), id: \.offset) { _, standIn in
                             StandInField(standIn: standIn) { url in
                                 send(.setBaseUrl(pos: pos(standIn.pointOfSale), url: url))
@@ -50,32 +50,32 @@ struct SettingsScreen: View {
                     }
                 }
                 Section {
-                    Button("Disconnect this device", role: .destructive) { askDisconnect = true }
+                    Button(view.disconnect, role: .destructive) { askDisconnect = true }
                         .foregroundStyle(Palette.danger)
                 } footer: {
-                    Text("Removes Till from the store's Apps: its key stops working at once. Payments already made aren't affected.")
+                    Text(view.disconnectFootnote)
                 }
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .readableWidth(640)
             .background(Palette.ground)
-            .navigationTitle("Settings")
+            .navigationTitle(view.title)
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { send(.back) }
                 }
             }
-            .confirmationDialog("Disconnect this device?", isPresented: $askDisconnect, titleVisibility: .visible) {
-                Button("Disconnect", role: .destructive) { send(.disconnect) }
+            .confirmationDialog(view.disconnectAsk, isPresented: $askDisconnect, titleVisibility: .visible) {
+                Button(view.disconnectConfirm, role: .destructive) { send(.disconnect) }
             }
         }
         .tint(Palette.link)
     }
 
-    /// Alerts as iOS allows them: the engine's status row where it gives
-    /// one (`alertsStatus`), else from its switch's state.
+    /// Alerts as iOS allows them: the engine's status row, which it gives
+    /// on iOS (`alertsStatus`).
     @ViewBuilder
     private var alertsSection: some View {
         if let status = view.alertsStatus {
@@ -85,20 +85,9 @@ struct SettingsScreen: View {
                     Button(status.openSettings) { openAlertSettings() }
                 }
             } header: {
-                Text("Alerts")
+                Text(view.alertsTitle)
             } footer: {
                 Text(status.footnote)
-            }
-        } else {
-            Section {
-                AlertsRow(on: view.alerts.on)
-                if !view.alerts.on {
-                    Button("Open Notification Settings") { openAlertSettings() }
-                }
-            } header: {
-                Text("Alerts")
-            } footer: {
-                Text(view.alerts.footnote)
             }
         }
     }
@@ -107,9 +96,9 @@ struct SettingsScreen: View {
     private var wakeUpsSection: some View {
         switch view.wakeUps {
         case .row(let row):
-            Section("Wake-ups") {
+            Section(view.wakeUpsTitle) {
                 NavigationLink {
-                    WakeUpsScreen(view: wakeUps, send: send)
+                    WakeUpsScreen(view: wakeUps, title: view.wakeUpsTitle, send: send)
                 } label: {
                     LabeledContent(row.label, value: row.value)
                 }
@@ -124,24 +113,6 @@ struct SettingsScreen: View {
     private func openAlertSettings() {
         if let settings = URL(string: UIApplication.openNotificationSettingsURLString) {
             openURL(settings)
-        }
-    }
-}
-
-/// Whether iOS lets Till alert: "On", or "Off" in the warn colour with its
-/// glyph, so it doesn't rest on colour alone.
-struct AlertsRow: View {
-    let on: Bool
-
-    var body: some View {
-        LabeledContent("New sale alerts") {
-            if on {
-                Text("On")
-            } else {
-                Label("Off", systemImage: "exclamationmark.triangle")
-                    .labelStyle(.titleAndIcon)
-                    .foregroundStyle(Palette.expiredInk)
-            }
         }
     }
 }
@@ -185,22 +156,20 @@ struct CountersSettings: View {
             Button(section.findAgain.label) { send(.findDevice) }
                 .disabled(!section.findAgain.enabled)
         } header: {
-            Text("Alert for")
+            Text(section.title)
         } footer: {
             Text(section.footnote)
         }
         Section {
-            SwitchRow(label: CountersSettings.showOthers, on: section.showOthers) {
+            SwitchRow(label: section.showOthersLabel, on: section.showOthers) {
                 send(.setShowOtherCounters(on: $0))
             }
         } header: {
-            Text("Other counters")
+            Text(section.othersTitle)
         } footer: {
             Text(section.showOthersFootnote)
         }
     }
-
-    static let showOthers = "Show their sales in the list"
 }
 
 /// Settings › Cash in Square (CashSettings, K4): cash sales treated as
@@ -214,7 +183,7 @@ struct CashSettings: View {
             ChoiceRow(choice: section.asMonero) { send(.setCashAsMonero(on: true)) }
             ChoiceRow(choice: section.offer) { send(.setCashAsMonero(on: false)) }
         } header: {
-            Text("Cash in Square")
+            Text(section.title)
         } footer: {
             Text(section.footnotes.joined(separator: "\n\n"))
         }
@@ -233,7 +202,7 @@ struct ShowSalesSettings: View {
                 ChoiceRow(choice: choice.choice) { send(.chooseShowSales(mode: choice.mode)) }
             }
         } header: {
-            Text("How sales show up")
+            Text(section.title)
         } footer: {
             if let how = section.sideBySide {
                 Text(how)
@@ -245,7 +214,7 @@ struct ShowSalesSettings: View {
 /// Settings › Dynamic Island, on iPhone (PhoneSettings): the Live Activity
 /// each shift, and "Show code in island", off by default, which first says
 /// that each sale's payment address then goes through the push relay
-/// (design.md §6). The words are the board's.
+/// (design.md §6). The words are the board's, from the engine.
 struct IslandSettings: View {
     let island: IslandSection
     let send: Send
@@ -254,9 +223,9 @@ struct IslandSettings: View {
 
     var body: some View {
         Section {
-            SwitchRow(label: "Live Activity", on: island.liveActivity) { send(.setLiveActivity(on: $0)) }
+            SwitchRow(label: island.liveActivityLabel, on: island.liveActivity) { send(.setLiveActivity(on: $0)) }
             // Turned on, it asks first, and springs back until the engine hears yes.
-            SwitchRow(label: "Show code in island", on: island.codeInIsland, snapsBack: !island.codeInIsland) { on in
+            SwitchRow(label: island.codeLabel, on: island.codeInIsland, snapsBack: !island.codeInIsland) { on in
                 if on {
                     askCode = true
                 } else {
@@ -265,26 +234,24 @@ struct IslandSettings: View {
             }
             .disabled(!island.liveActivity)
         } header: {
-            Text("Dynamic Island")
+            Text(island.title)
         } footer: {
-            Text(IslandSettings.footnote)
+            Text(island.footnote)
         }
-        .alert("Show the code in the island?", isPresented: $askCode) {
-            Button("Show code") { send(.setCodeInIsland(on: true)) }
+        .alert(island.askTitle, isPresented: $askCode) {
+            Button(island.askConfirm) { send(.setCodeInIsland(on: true)) }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text(IslandSettings.ask)
+            Text(island.ask)
         }
     }
-
-    static let footnote = "Showing the code in the island sends each sale's payment address through the Till push service, which otherwise only sees amount and status. Live Activities end after 8 hours: start Till again each shift."
-
-    static let ask = "Each sale's payment address will pass through the Till push service. The island's code has no receipt: the customer's wallet won't show what was bought."
 }
 
 /// The store, its wallet and this device.
 struct StoreSettings: View {
     let store: StoreSection
+    /// "Store".
+    let title: String
     let send: Send
 
     var body: some View {
@@ -339,7 +306,7 @@ struct StoreSettings: View {
                 }
             }
         } header: {
-            Text("Store")
+            Text(title)
         }
     }
 }
@@ -363,6 +330,8 @@ struct FactLine: View {
 /// one's sign-in.
 struct PosSettings: View {
     let section: PosSection
+    /// "Point of sale".
+    let title: String
     let send: Send
 
     var body: some View {
@@ -395,7 +364,7 @@ struct PosSettings: View {
                 Button(signOut, role: .destructive) { send(.signOutOfPos) }
                     .foregroundStyle(Palette.danger)
             } header: {
-                Text("Point of sale")
+                Text(title)
             } footer: {
                 if !footnotes.isEmpty {
                     Text(footnotes.joined(separator: "\n\n"))
@@ -411,7 +380,7 @@ struct PosSettings: View {
                     Button(signIn) { send(.signIn(applicationId: nil)) }
                 }
             } header: {
-                Text("Point of sale")
+                Text(title)
             } footer: {
                 Text(footnote)
             }
@@ -447,6 +416,8 @@ struct StandInField: View {
 /// the engine's `WakeUpsView`.
 struct WakeUpsScreen: View {
     let view: WakeUpsView?
+    /// "Wake-ups", from Settings.
+    let title: String
     let send: Send
 
     var body: some View {
@@ -458,7 +429,7 @@ struct WakeUpsScreen: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Palette.ground)
-        .navigationTitle("Wake-ups")
+        .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -503,7 +474,7 @@ struct WakeUpsSections: View {
                 if let last = status.lastWakeUp {
                     FactLine(fact: last)
                 }
-                statusAction(status.action)
+                statusAction(status.action, openAlertSettings: status.openAlertSettings)
             } footer: {
                 Text(status.footnote + "\n\n" + status.privacy)
             }
@@ -545,10 +516,10 @@ struct WakeUpsSections: View {
     }
 
     @ViewBuilder
-    private func statusAction(_ action: StatusAction?) -> some View {
+    private func statusAction(_ action: StatusAction?, openAlertSettings: String) -> some View {
         switch action {
         case .some(.openAlertSettings):
-            Button("Open alert settings") {
+            Button(openAlertSettings) {
                 if let settings = URL(string: UIApplication.openNotificationSettingsURLString) {
                     openURL(settings)
                 }

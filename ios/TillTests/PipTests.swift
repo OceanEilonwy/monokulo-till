@@ -27,7 +27,7 @@ struct PipTests {
         )
     }
 
-    private let offer = PipCashOffer(orderId: "cash:p9", title: "Ana · $9.00")
+    private let offer = PipCashOffer(orderId: "cash:p9", title: "Ana · $9.00", line: "Cash · paying in Monero?")
 
     @Test func watchingIsTheStripWithTheLocation() {
         let idle = State(phase: .idle, waitingCount: 0)
@@ -94,23 +94,10 @@ struct PipTests {
         #expect(PipPicture.of(nil, cash: offer, place: "Bar", locale: us) == .watching(place: "Bar"))
     }
 
-    @Test func theCashOfferIsTheFirstOfThisCountersInTheCashSection() {
-        let ring = Ring(step: 0, confirmations: nil, required: nil, fill: 0, spins: false, green: false)
-        func row(_ title: String, other: Bool = false) -> ShiftRow {
-            ShiftRow(title: title, sub: "Cash", tone: .link, quiet: false, icon: .ring, ring: ring, opens: .details, otherCounter: other)
-        }
-        let entries: [ShiftEntry] = [
-            .trayHeader(label: "Waiting for payment", said: "1 waiting", count: 1),
-            .row(orderId: "o1", row: row("Sam · $24.50"), ends: .only, tray: true, closes: true),
-            .earlier(label: PipCashOffer.line),
-            .row(orderId: "cash:p1", row: row("Bar · $3.00", other: true), ends: .first, tray: false, closes: false),
-            .row(orderId: "cash:p2", row: row("Ana · $9.00"), ends: .last, tray: false, closes: false),
-            .earlier(label: "Earlier"),
-            .row(orderId: "cash:p3", row: row("Kept · $1.00"), ends: .only, tray: false, closes: false),
-        ]
-        #expect(PipCashOffer.first(in: entries) == PipCashOffer(orderId: "cash:p2", title: "Ana · $9.00"))
-        #expect(PipCashOffer.first(in: Array(entries.prefix(4))) == nil, "another counter's never shows")
-        #expect(PipCashOffer.first(in: Array(entries.suffix(2))) == nil, "a kept sale isn't offered")
+    @Test func theCashOfferIsTheOneTheEnginePublishes() {
+        let offered = OfferedCash(orderId: "cash:p2", title: "Ana · $9.00", line: "Cash · paying in Monero?")
+        #expect(PipCashOffer.of(offered) == PipCashOffer(orderId: "cash:p2", title: "Ana · $9.00", line: "Cash · paying in Monero?"))
+        #expect(PipCashOffer.of(nil) == nil)
     }
 
     @Test func theStripIsThreeToOneAndTheSaleASquare() {

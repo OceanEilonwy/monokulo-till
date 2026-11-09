@@ -78,7 +78,7 @@ struct SalePageScreen: View {
                         Button {
                             backToSquare()
                         } label: {
-                            Label("Back to Square", systemImage: "chevron.left")
+                            Label(page.backTo, systemImage: "chevron.left")
                         }
                         .buttonStyle(.primary)
                         .accessibilityHint("Opens Square Point of Sale")

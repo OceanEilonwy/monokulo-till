@@ -13,6 +13,7 @@ use crate::close;
 use crate::counters::{CounterChoice, CounterMenu, Counters};
 use crate::pos_text;
 use crate::sale_text;
+use crate::settings::ShowSales;
 use crate::time::{DeviceClock, time};
 use crate::view::{Device, PosMark, Press, Ring, Tone, mark};
 
@@ -61,6 +62,9 @@ pub enum StateIcon {
     Tick,
     Refund,
     Close,
+    /// A cash sale offered in Monero, kept as cash or paid in real cash:
+    /// the banknote (core.md decision 126).
+    Cash,
 }
 
 /// Which of its corners a shift row rounds: the rows make one card,
@@ -128,6 +132,10 @@ pub struct ShiftRow {
     /// The sale never alerts here: another counter's.
     #[cfg_attr(feature = "uniffi", uniffi(default = false))]
     pub other_counter: bool,
+    /// Rung up as cash at the point of sale, whether or not it's been
+    /// taken in Monero since (core.md decision 126).
+    #[cfg_attr(feature = "uniffi", uniffi(default = false))]
+    pub cash: bool,
 }
 
 /// How many live sales the folded tray shows before its fold row.
@@ -418,17 +426,17 @@ pub fn row(
         Standing::CashOffer { kept: false } => (
             sale_text::status(sale, till) + &at(Some(sale.created_at).filter(|&t| t > 0)),
             Tone::Link,
-            StateIcon::Clock,
+            StateIcon::Cash,
         ),
         Standing::CashOffer { kept: true } => (
             sale_text::status(sale, till) + &at(sale.kept_as_cash_at),
             Tone::Muted,
-            StateIcon::Close,
+            StateIcon::Cash,
         ),
         Standing::PaidInCash => (
             sale_text::status(sale, till) + &at(sale.paid_in_cash_at),
             Tone::Muted,
-            StateIcon::Close,
+            StateIcon::Cash,
         ),
         Standing::Closed => (
             format!("Closed · not paid · {}", pos_text::refund_it_in(till)),
@@ -485,6 +493,7 @@ pub fn row(
         amount,
         device: None,
         other_counter: false,
+        cash: sale.cash(),
     }
 }
 
@@ -519,18 +528,174 @@ pub fn empty(filter: ShiftFilter) -> &'static str {
 }
 
 /// The empty shift's hint while it watches, by the till's point of sale:
-/// Android names the bubble; iOS, which has none, the code alone.
-pub fn waiting_hint(pos: Option<PointOfSale>, device: Device) -> &'static str {
+/// Android names the bubble; iOS says how to ring a sale up and how it
+/// reaches the cashier, as `show` says on iPad (board EmptyFirst, core.md
+/// decision 127).
+pub fn waiting_hint(pos: Option<PointOfSale>, device: Device, show: ShowSales) -> String {
     if !device.is_ios() {
-        return pos_text::waiting_hint(pos);
+        return pos_text::waiting_hint(pos).into();
     }
+    let Some(pos) = pos else {
+        return "When another till rings up a Monero sale, its code appears here.".into();
+    };
+    let then = match (device, show) {
+        (Device::Ipad, ShowSales::Alert) => "An alert brings you straight to the code.",
+        (Device::Ipad, ShowSales::FloatingWindow) => "The floating window shows the code.",
+        _ => "The code appears here.",
+    };
+    format!("{} {then}", ring_it_up(pos, "Ring it up"))
+}
+
+/// "Ring it up in Square and choose Monero.", led by `lead`.
+fn ring_it_up(pos: PointOfSale, lead: &str) -> String {
     match pos {
-        Some(PointOfSale::Square) => "The code appears here when you tap Monero in Square.",
-        Some(PointOfSale::Clover) => {
-            "The code appears here when you choose Monero on the Clover device."
-        }
-        None => "The code appears here when another till rings up a Monero sale.",
+        PointOfSale::Square => format!("{lead} in Square and choose Monero."),
+        PointOfSale::Clover => format!("{lead} on the Clover device and choose Monero."),
     }
+}
+
+/// The empty till's heading on iOS, and E2's beside a shift with sales.
+pub const READY: &str = "Ready for the next sale";
+
+/// Over the shift's summary.
+pub const SUMMARY_LABEL: &str = "This shift";
+
+/// E2's line beside a shift with sales: when the last sale was paid, and
+/// how to ring up the next ("The last one was paid 4 minutes ago. Ring up
+/// the next in Square and choose Monero."). `None` while a sale waits,
+/// whose code is the next thing to show, and without a point of sale.
+pub fn ready_line(
+    sales: &[TillSale],
+    pos: Option<PointOfSale>,
+    clock: DeviceClock,
+) -> Option<String> {
+    if sales.iter().any(is_live) {
+        return None;
+    }
+    let next = ring_it_up(pos?, "Ring up the next");
+    let last = sales
+        .iter()
+        .filter(|sale| sale.phase == SalePhase::Paid)
+        .filter_map(|sale| sale.paid_at)
+        .max();
+    Some(match last {
+        Some(paid_at) => format!("The last one was paid {}. {next}", ago(paid_at, clock)),
+        None => next,
+    })
+}
+
+/// "just now", "4 minutes ago" within the hour, then "at 9:41 AM".
+fn ago(at: i64, clock: DeviceClock) -> String {
+    let minutes = (clock.now - at).max(0) / 60;
+    match minutes {
+        0 => "just now".into(),
+        1 => "a minute ago".into(),
+        2..60 => format!("{minutes} minutes ago"),
+        _ => format!("at {}", time(at, clock)),
+    }
+}
+
+/// What one of the empty till's status chips is about (board EmptyFirst).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum StatusChipKind {
+    /// "Watching Square", with the watching glyph.
+    Watching,
+    /// "Not watching", "Reconnecting…".
+    NotWatching,
+    AlertsOn,
+    /// "Alerts off", in warning.
+    AlertsOff,
+    /// "Instant with the Bell".
+    Bell,
+}
+
+/// One of the empty till's status chips, from the till's real state.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct StatusChip {
+    pub kind: StatusChipKind,
+    pub text: String,
+    pub tone: Tone,
+}
+
+/// The chips: whether Till watches (naming its point of sale), whether
+/// alerts are allowed where the platform says, and whether a Bell wakes
+/// the till.
+pub fn status_chips(input: &ShiftInput) -> Vec<StatusChip> {
+    let chip = |kind, text: &str, tone| StatusChip {
+        kind,
+        text: text.into(),
+        tone,
+    };
+    let mut chips = vec![if input.running && input.live {
+        let text = match input.till {
+            Some(pos) => format!("Watching {}", pos.display_name()),
+            None => "Watching".into(),
+        };
+        chip(StatusChipKind::Watching, &text, Tone::Plain)
+    } else if input.running {
+        chip(StatusChipKind::NotWatching, "Reconnecting…", Tone::Muted)
+    } else {
+        chip(StatusChipKind::NotWatching, "Not watching", Tone::Muted)
+    }];
+    match input.alerts {
+        Some(true) => chips.push(chip(StatusChipKind::AlertsOn, "Alerts on", Tone::Plain)),
+        Some(false) => chips.push(chip(StatusChipKind::AlertsOff, "Alerts off", Tone::Warn)),
+        None => {}
+    }
+    if input.bell {
+        chips.push(chip(
+            StatusChipKind::Bell,
+            "Instant with the Bell",
+            Tone::Plain,
+        ));
+    }
+    chips
+}
+
+/// E2, beside a shift that has sales (iPad): the heading and its line.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct ShiftReady {
+    /// "Ready for the next sale".
+    pub title: String,
+    /// "The last one was paid 4 minutes ago. Ring up the next in Square
+    /// and choose Monero."
+    pub line: Option<String>,
+}
+
+/// The cash sale the floating window offers in Monero (K1, core.md
+/// decision 128).
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct OfferedCash {
+    pub order_id: String,
+    /// "Sam · $9.00".
+    pub title: String,
+    /// "Cash · paying in Monero?".
+    pub line: String,
+}
+
+/// The newest of `sales` offered in Monero and not kept as cash that
+/// alerts on this counter, whatever the list's filter or counter shows.
+pub fn offered_cash(
+    sales: &[TillSale],
+    counters: &Counters,
+    money: &dyn MoneyFormat,
+) -> Option<OfferedCash> {
+    let sale = sales
+        .iter()
+        .find(|sale| is_offered(sale) && !counters.quiet(sale))?;
+    Some(OfferedCash {
+        order_id: sale.order_id.clone(),
+        title: format!(
+            "{} · {}",
+            sale_text::heading(sale),
+            sale_text::amount(sale, money)
+        ),
+        line: CASH_HEADER.into(),
+    })
 }
 
 /// What the shift shows.
@@ -567,6 +732,13 @@ pub struct ShiftInput {
     /// Whose sales the list shows; `None` until the cashier chooses, when
     /// [`Counters::default_choice`] does.
     pub counter: Option<CounterChoice>,
+    /// Whether the platform lets Till alert, where it says (iOS); `None`
+    /// shows no alerts chip.
+    pub alerts: Option<bool>,
+    /// A Bell wakes the till.
+    pub bell: bool,
+    /// How a new sale shows up (iPad).
+    pub show_sales: ShowSales,
 }
 
 /// The top row's state word, in the colour the dot had.
@@ -675,6 +847,21 @@ pub struct ShiftView {
     /// as the point of sale's books say cash (core.md decision 117).
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub cash_in_monero: Option<String>,
+    /// "This shift", over [`Self::summary`].
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub summary_label: String,
+    /// The empty till's status chips: "Watching Square", "Alerts on",
+    /// "Instant with the Bell" (core.md decision 127).
+    #[cfg_attr(feature = "uniffi", uniffi(default = []))]
+    pub status: Vec<StatusChip>,
+    /// iPad, while a shift with sales is on: E2's heading and line, beside
+    /// the list where no sale is open.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub ready: Option<ShiftReady>,
+    /// The cash sale the floating window offers in Monero (core.md
+    /// decision 128).
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub offered_cash: Option<OfferedCash>,
 }
 
 /// "2 cash sales paid in Monero · $32.90", summed per currency; `None`
@@ -759,6 +946,10 @@ pub fn shift(
             ticks: false,
             counters: None,
             cash_in_monero: None,
+            summary_label: SUMMARY_LABEL.into(),
+            status: Vec::new(),
+            ready: None,
+            offered_cash: None,
         };
     }
     let all = &input.sales;
@@ -778,14 +969,16 @@ pub fn shift(
     };
     let sales = &shown;
     let idle = (!input.running || sales.is_empty()).then(|| ShiftIdle {
-        title: if input.running {
-            "No sale right now"
-        } else {
+        title: if !input.running {
             "Not watching for sales"
+        } else if device.is_ios() {
+            READY
+        } else {
+            "No sale right now"
         }
         .into(),
         hint: if input.running {
-            waiting_hint(input.till, device).into()
+            waiting_hint(input.till, device, input.show_sales)
         } else {
             pos_text::start_hint(input.till)
         },
@@ -848,6 +1041,15 @@ pub fn shift(
             }
         })
         .collect();
+    let ready = (device == Device::Ipad && input.running && !sales.is_empty()).then(|| {
+        let line = ready_line(sales, input.till, clock);
+        // "4 minutes ago" moves on by itself.
+        ticks |= line.as_deref().is_some_and(|line| line.contains(" ago."));
+        ShiftReady {
+            title: READY.into(),
+            line,
+        }
+    });
     ShiftView {
         top,
         disconnected: None,
@@ -867,6 +1069,10 @@ pub fn shift(
         ticks,
         cash_in_monero: cash_in_monero(sales, money),
         counters,
+        summary_label: SUMMARY_LABEL.into(),
+        status: status_chips(input),
+        ready,
+        offered_cash: offered_cash(all, &input.counters, money),
     }
 }
 
@@ -1671,6 +1877,9 @@ pub(crate) mod tests {
             folded: true,
             counters: Counters::default(),
             counter: None,
+            alerts: None,
+            bell: false,
+            show_sales: ShowSales::Alert,
         }
     }
 
@@ -1766,10 +1975,32 @@ pub(crate) mod tests {
         assert_eq!(idle.start, None);
         assert!(android.chips.is_empty());
         assert_eq!(android.empty, None);
+        // iOS: E1's heading, and how the sale reaches the cashier.
         let ipad = shift(&input(vec![]), Device::Ipad, la(at()), &money);
+        let idle = ipad.idle.unwrap();
+        assert_eq!(idle.title, "Ready for the next sale");
         assert_eq!(
-            ipad.idle.unwrap().hint,
-            "The code appears here when you tap Monero in Square."
+            idle.hint,
+            "Ring it up in Square and choose Monero. An alert brings you straight to the code."
+        );
+        let floating = ShiftInput {
+            show_sales: ShowSales::FloatingWindow,
+            till: Some(PointOfSale::Clover),
+            ..input(vec![])
+        };
+        assert_eq!(
+            shift(&floating, Device::Ipad, la(at()), &money)
+                .idle
+                .unwrap()
+                .hint,
+            "Ring it up on the Clover device and choose Monero. The floating window shows the code."
+        );
+        assert_eq!(
+            shift(&input(vec![]), Device::Iphone, la(at()), &money)
+                .idle
+                .unwrap()
+                .hint,
+            "Ring it up in Square and choose Monero. The code appears here."
         );
         let stopped = ShiftInput {
             running: false,
@@ -1849,6 +2080,189 @@ pub(crate) mod tests {
         sale
     }
 
+    /// Decision 128: the floating window's cash sale is the engine's to
+    /// say, whatever the list shows, and never another counter's.
+    #[test]
+    fn the_offered_cash_sale_is_published_for_the_floating_window() {
+        use crate::counters::CounterDevice;
+        let offered = |id: &str, device: &str| {
+            let mut sale = TillSale {
+                offered: true,
+                order_id: format!("cash:{id}"),
+                ..cash(sale_of(id).build())
+            };
+            sale.found.as_mut().unwrap().device_id = Some(device.into());
+            sale
+        };
+        let kept = TillSale {
+            kept_as_cash_at: Some(at()),
+            ..offered("k", "dev_front")
+        };
+        let sales = vec![
+            sale_of("live").build(),
+            kept,
+            offered("bar", "dev_bar"),
+            offered("front", "dev_front"),
+        ];
+        let counters = Counters {
+            device: Some(CounterDevice {
+                id: "dev_front".into(),
+                name: Some("Front iPad".into()),
+            }),
+            every_device: false,
+            show_others: true,
+        };
+        let paid_only = ShiftInput {
+            counters: counters.clone(),
+            filter: ShiftFilter::Paid,
+            ..input(sales.clone())
+        };
+        let view = shift(&paid_only, Device::Ipad, la(at()), &money);
+        assert_eq!(
+            view.offered_cash,
+            Some(OfferedCash {
+                order_id: "cash:front".into(),
+                title: "Sale #front · $8.40".into(),
+                line: "Cash · paying in Monero?".into(),
+            }),
+            "not the kept one, nor the bar's, whatever the filter"
+        );
+        let every = Counters {
+            every_device: true,
+            ..counters
+        };
+        assert_eq!(
+            offered_cash(&sales, &every, &money).unwrap().order_id,
+            "cash:bar",
+            "every device's sales alert here: the newest"
+        );
+        assert_eq!(offered_cash(&sales[..2], &every, &money), None);
+    }
+
+    /// Decision 127: the empty till's chips come from the till's state.
+    #[test]
+    fn the_empty_tills_chips_say_what_the_till_is_doing() {
+        let texts = |input: &ShiftInput| {
+            shift(input, Device::Ipad, la(at()), &money)
+                .status
+                .into_iter()
+                .map(|chip| (chip.kind, chip.text, chip.tone))
+                .collect::<Vec<_>>()
+        };
+        let all_on = ShiftInput {
+            alerts: Some(true),
+            bell: true,
+            ..input(vec![])
+        };
+        assert_eq!(
+            texts(&all_on),
+            [
+                (
+                    StatusChipKind::Watching,
+                    "Watching Square".to_owned(),
+                    Tone::Plain
+                ),
+                (
+                    StatusChipKind::AlertsOn,
+                    "Alerts on".to_owned(),
+                    Tone::Plain
+                ),
+                (
+                    StatusChipKind::Bell,
+                    "Instant with the Bell".to_owned(),
+                    Tone::Plain
+                ),
+            ]
+        );
+        let off = ShiftInput {
+            running: false,
+            alerts: Some(false),
+            ..input(vec![])
+        };
+        assert_eq!(
+            texts(&off),
+            [
+                (
+                    StatusChipKind::NotWatching,
+                    "Not watching".to_owned(),
+                    Tone::Muted
+                ),
+                (
+                    StatusChipKind::AlertsOff,
+                    "Alerts off".to_owned(),
+                    Tone::Warn
+                ),
+            ]
+        );
+        let reconnecting = ShiftInput {
+            live: false,
+            ..input(vec![])
+        };
+        assert_eq!(
+            texts(&reconnecting),
+            [(
+                StatusChipKind::NotWatching,
+                "Reconnecting…".to_owned(),
+                Tone::Muted
+            )],
+            "no alerts chip where the platform doesn't say"
+        );
+    }
+
+    /// E2: beside a shift with sales, when the last one was paid and how
+    /// to ring up the next.
+    #[test]
+    fn ready_says_when_the_last_sale_was_paid() {
+        let paid = |id: &str, ago: i64| TillSale {
+            phase: SalePhase::Paid,
+            paid_at: Some(at() - ago),
+            ..sale_of(id).build()
+        };
+        let ready = |sales: Vec<TillSale>| shift(&input(sales), Device::Ipad, la(at()), &money);
+        let view = ready(vec![paid("a", 250), paid("b", 2000)]);
+        assert_eq!(
+            view.ready,
+            Some(ShiftReady {
+                title: "Ready for the next sale".into(),
+                line: Some(
+                    "The last one was paid 4 minutes ago. Ring up the next in Square and choose Monero."
+                        .into()
+                ),
+            })
+        );
+        assert!(view.ticks, "the minutes move on");
+        assert_eq!(
+            ready(vec![paid("a", 30)]).ready.unwrap().line.as_deref(),
+            Some("The last one was paid just now. Ring up the next in Square and choose Monero.")
+        );
+        let earlier = ready(vec![paid("a", 7200)]);
+        assert_eq!(
+            earlier.ready.unwrap().line.as_deref(),
+            Some("The last one was paid at 1:58 PM. Ring up the next in Square and choose Monero.")
+        );
+        assert!(!earlier.ticks);
+        assert_eq!(
+            ready(vec![sale_of("live").build(), paid("a", 30)])
+                .ready
+                .unwrap()
+                .line,
+            None,
+            "a sale waiting is the next thing to show"
+        );
+        assert_eq!(ready(vec![]).ready, None, "E1 is the idle panel");
+        assert_eq!(
+            shift(
+                &input(vec![paid("a", 30)]),
+                Device::Iphone,
+                la(at()),
+                &money
+            )
+            .ready,
+            None,
+            "iPhone has no column beside the list"
+        );
+    }
+
     #[test]
     fn the_customers_name_leads_a_row_and_the_sale_number_moves_under_it() {
         let named = TillSale {
@@ -1904,16 +2318,21 @@ pub(crate) mod tests {
         );
         assert_eq!(
             triple(&offered, SQUARE, 0),
-            t("Cash in Square · 3:48 PM", Tone::Link, StateIcon::Clock)
+            t("Cash in Square · 3:48 PM", Tone::Link, StateIcon::Cash)
         );
         assert_eq!(
             triple(&kept, SQUARE, 0),
             t(
                 "Cash · kept as cash · 3:58 PM",
                 Tone::Muted,
-                StateIcon::Close
+                StateIcon::Cash
             )
         );
+        // Decision 126: every cash sale's row says so, paid in Monero too.
+        for sale in [&offered, &kept, &paid] {
+            assert!(row(sale, SQUARE, 0, la(at()), &money).cash);
+        }
+        assert!(!row(&sale_of("x").build(), SQUARE, 0, la(at()), &money).cash);
         assert_eq!(
             triple(&paid, SQUARE, 0),
             t(
