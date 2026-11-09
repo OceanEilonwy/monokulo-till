@@ -1,0 +1,35 @@
+[package]
+name = "till-ledger"
+version = "0.1.0"
+description = "The till's ledger: sales as facts in an encrypted journal, merged into per-sale projections shared by the app and the iOS extension"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+getrandom = "0.3.4"
+# The trading day starts at 04:00 local (§9), in the device's time zone.
+jiff = "0.2.16"
+monokulo-client.workspace = true
+orf-codec.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+till-pos.workspace = true
+
+# SQLCipher, bundled (docs/ledger.md §4, §11). On Apple platforms it uses
+# CommonCrypto, so nothing more is linked than the Security framework;
+# elsewhere (Android, Linux CI) it builds and links its own OpenSSL, so no
+# system OpenSSL is needed. Never system SQLite: `Ledger::open` refuses a
+# library without `PRAGMA cipher_version`.
+[target.'cfg(target_vendor = "apple")'.dependencies]
+rusqlite = { version = "0.41.1", features = ["bundled-sqlcipher"] }
+
+[target.'cfg(not(target_vendor = "apple"))'.dependencies]
+rusqlite = { version = "0.41.1", features = ["bundled-sqlcipher-vendored-openssl"] }
+
+[dev-dependencies]
+proptest = "1.12.0"
+tempfile = "3.27.0"
