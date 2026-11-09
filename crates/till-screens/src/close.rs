@@ -189,6 +189,9 @@ pub struct CloseAnswer {
     pub choice: CloseChoice,
     pub title: String,
     pub detail: String,
+    /// Where the cashier lands after it ([`outcome`]): the platform moves
+    /// its stage from where the sheet was asked, the engine moves the screen.
+    pub then: CloseThen,
 }
 
 /// The close sheet, ready to draw. No answers: the sale has no X (paid,
@@ -217,6 +220,7 @@ pub fn close(input: &CloseInput, clock: DeviceClock, money: &dyn MoneyFormat) ->
             choice,
             title: title(choice, sale, pos),
             detail: detail(choice, sale, pos, input.source, seconds),
+            then: outcome(choice).then,
         })
         .collect();
     CloseView {
@@ -350,6 +354,11 @@ mod tests {
                 ),
                 ("Yes: keep the code up", "14:52 left to pay."),
             ]
+        );
+        assert_eq!(
+            view.answers.iter().map(|a| a.then).collect::<Vec<_>>(),
+            [CloseThen::Sale, CloseThen::Shift, CloseThen::Stay],
+            "each answer says where it lands, so the platform's stage moves from the right place"
         );
         assert!(view.ticks);
     }

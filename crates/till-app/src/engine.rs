@@ -19,6 +19,7 @@ use till_pos::square::SquareLocation;
 use till_pos::{Pkce, PosError};
 use till_sales::{LiveStore, PosSwitch, Standing, TillRunner, TillSale};
 use till_screens::bubble::PaidMoment;
+use till_screens::close::{self, CloseThen};
 use till_screens::onboarding::{CloverTender, OnboardingInput, PosSetup, ScanProblem, Step};
 use till_screens::settings::{PosState, SettingsInput, StoreNow};
 use till_screens::shift::ShiftFilter;
@@ -1364,20 +1365,27 @@ impl State {
         }
     }
 
-    /// The close sheet's answer, while the sale's code is still up.
+    /// The close sheet's answer, while the sale's code is still up: what it
+    /// does ([`close::outcome`]), and where the cashier lands, from the sale
+    /// or from the shift's row alike (decision 96).
     fn close(&mut self, order_id: String, choice: CloseChoice) {
-        if !self.sale(&order_id).is_some_and(|sale| sale.live()) {
+        if !close::applies(self.sale(&order_id).as_ref()) {
             return;
         }
-        match choice {
-            CloseChoice::RefundIt => self.refund(order_id, true),
-            CloseChoice::CloseForNow => {
-                if let Some(p) = &self.parts {
-                    p.runner.close(&order_id);
-                }
-                self.leave(order_id);
-            }
-            CloseChoice::KeepUp => {}
+        let outcome = close::outcome(choice);
+        if outcome.refund {
+            self.refund(order_id.clone(), outcome.close);
+        } else if outcome.close
+            && let Some(p) = &self.parts
+        {
+            p.runner.close(&order_id);
+        }
+        match outcome.then {
+            // The refund shows on the sale's page, which asks for the
+            // cashier's word when the point of sale refunds it.
+            CloseThen::Sale => self.open(order_id),
+            CloseThen::Shift => self.leave(order_id),
+            CloseThen::Stay => {}
         }
     }
 

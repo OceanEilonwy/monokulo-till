@@ -131,7 +131,7 @@ class SwipeToCloseTest {
     }
 
     @Test
-    fun refundingFromTheRowOpensTheSaleWhereTheRefundShows() {
+    fun refundingFromTheRowSendsTheAnswerAlone() {
         val sale = testSale("w1", expiresAt = 1_900)
         show(listOf(sale))
         swipe(sale, to = 0.2f)
@@ -139,7 +139,7 @@ class SwipeToCloseTest {
         compose.onNodeWithText(closeView(sale)!!.answers.first { it.choice == CloseChoice.REFUND_IT }.title).performClick()
         compose.waitForIdle()
         assertEquals(listOf("w1" to CloseChoice.REFUND_IT), closed)
-        assertEquals(listOf("w1"), opened, "the X's refund stays on the sale: from the row, the sale opens")
+        assertEquals(emptyList(), opened, "the engine opens the sale on the answer (docs/decisions/core.md 96)")
     }
 
     @Test

@@ -1036,6 +1036,33 @@ fn arrival(rx: &Receiver<Heard>, wanted: Screen) -> bool {
     by_itself
 }
 
+/// Decision 96: the close sheet's answer lands where `close::outcome` says,
+/// whoever asked it. "No: refund it" from the shift's row opens the sale,
+/// whose page shows the refund; the platform sends the answer alone.
+#[tokio::test(flavor = "multi_thread")]
+async fn refunding_from_the_shifts_row_opens_the_sale_where_the_refund_shows() {
+    let monokulo = monokulo().await;
+    let square = square().await;
+    let (engine, rx, _) = start(config(Some(&square)), signed_in_till(&monokulo));
+    let sale = Screen::Sale {
+        order_id: "ord_1".into(),
+    };
+    screen(&rx, sale.clone());
+    engine.send(Action::Back);
+    screen(&rx, Screen::Till);
+    engine.send(Action::AskClose {
+        order_id: "ord_1".into(),
+    });
+    engine.send(Action::Close {
+        order_id: "ord_1".into(),
+        choice: CloseChoice::RefundIt,
+    });
+    assert!(
+        !arrival(&rx, sale),
+        "the cashier's answer put it there, not the sales"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_new_sale_rises_out_of_the_resting_shift_by_itself_with_its_screens() {
     let monokulo = monokulo().await;

@@ -586,3 +586,12 @@ on from 1; the Android app's own choices are in [android.md](android.md).
     to the dwell's end, with no collapse then. `bubble::landed` is gone:
     the engine's own paid change, checked against the bubble's focus,
     replaces it. Android keeps only the collapse's animation.
+96. **The engine follows `close::outcome` for every close-sheet answer**,
+    wherever the sheet was asked. "No: refund it" refunds the sale and
+    opens it (`CloseThen::Sale`), "Not sure" closes it and leaves it for
+    the shift, "Yes" does nothing. Android's shift used to send
+    `OpenSale` itself after "No" from a row, and iOS didn't, so the two
+    differed. Now both send `Action::Close` alone and land in the same
+    place. `CloseAnswer.then` tells the platform where an answer lands, so
+    Android's stage can grow the sale out of its row without its own copy
+    of the rule.

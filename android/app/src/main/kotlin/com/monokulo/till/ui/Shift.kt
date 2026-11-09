@@ -139,7 +139,7 @@ import com.monokulo.till.sharedSurface
 import com.monokulo.till.words
 import com.monokulo.till.engine.CloseSheet
 import uniffi.till_app.Action
-import uniffi.till_screens.CloseChoice
+import uniffi.till_screens.CloseThen
 import uniffi.till_screens.Ground
 import uniffi.till_screens.Ring
 import uniffi.till_screens.RowEnds
@@ -296,19 +296,16 @@ fun ShiftScreen(
         }
     }
     // The sale page's X's sheet, the same answers doing the same (decisions 62, 70). Paid or ended meanwhile, the
-    // engine takes it down. "No: refund it" stays on the sale there, so here it opens the sale, whose page shows the
-    // refund and asks for the cashier's word when the point of sale refunds it.
+    // engine takes it down. Where each answer lands is the engine's (docs/decisions/core.md 96): "No: refund it" opens
+    // the sale, whose page shows the refund, so the sale grows out of its row here.
     val asked = close?.view
     val id = close?.orderId
     if (asked != null && id != null) {
         CloseSheet(
             asked,
             onChoice = { choice ->
+                if (asked.answers.firstOrNull { it.choice == choice }?.then == CloseThen.SALE) place.leave(list, id)
                 actions.send(Action.Close(id, choice))
-                if (choice == CloseChoice.REFUND_IT) {
-                    place.leave(list, id)
-                    actions.send(Action.OpenSale(id))
-                }
             },
             onDismiss = { actions.send(Action.DismissClose) },
         )
