@@ -4,8 +4,9 @@ import TillCore
 /// Setting up the till (the Onb*, PadOnb* and PhonePos boards), drawn from
 /// the engine's `OnboardingView`: every word that state chooses is the
 /// core's, and the headings and leads written once are here, as on Android
-/// (docs/decisions/core.md 26). On iPhone each step is a page of its own; on
-/// iPad, where the view carries a rail, the step rail stands beside the page.
+/// (docs/decisions/core.md 26). On iPhone each step is a page of its own,
+/// under a thin bar of how far setup has come; on iPad, where the view
+/// carries a rail, the step rail stands beside the page.
 /// It sits in a navigation stack so Back is the system's toolbar button and
 /// nothing of Till's goes under iPadOS's window controls; each page scrolls
 /// across its whole width, its content held to a readable column.
@@ -42,39 +43,67 @@ struct OnboardingScreen: View {
 
     @ViewBuilder
     private var page: some View {
-        let label = onboarding.stepLabel
+        steps
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if let progress = onboarding.progress {
+                    SetupProgress(progress: progress)
+                }
+            }
+    }
+
+    /// The step's page.
+    @ViewBuilder
+    private var steps: some View {
         switch onboarding.page {
         case .welcome(let feature):
-            WelcomePage(feature: feature, stepLabel: label, send: send)
+            WelcomePage(feature: feature, send: send)
         case .scan(let problem):
-            ScanPage(problem: problem, stepLabel: label, send: send)
+            ScanPage(problem: problem, send: send)
         case .confirm(let host, let encrypted, let facts, let connect, let cancel, let problem):
             ConfirmPage(
                 host: host, encrypted: encrypted, facts: facts, connect: connect, cancel: cancel,
-                problem: problem, stepLabel: label, send: send
+                problem: problem, send: send
             )
         case .connected(let title, let host, let encrypted, let problem, let facts, let next, let retry, let footnote):
             ConnectedPage(
                 title: title, host: host, encrypted: encrypted, problem: problem, facts: facts,
-                next: next, retry: retry, footnote: footnote, stepLabel: label, send: send
+                next: next, retry: retry, footnote: footnote, send: send
             )
         case .pointOfSale(let view):
-            PointOfSalePage(step: view, stepLabel: label, send: send)
+            PointOfSalePage(step: view, send: send)
         case .locations(let lead, let locations, let none):
-            LocationsPage(lead: lead, locations: locations, none: none, stepLabel: label, send: send)
+            LocationsPage(lead: lead, locations: locations, none: none, send: send)
+        case .counter(let view):
+            CounterPage(view: view, send: send)
         case .alerts(let sale, let paid, let next, let notNow):
-            AlertsPage(sale: sale, paid: paid, next: next, notNow: notNow, stepLabel: label, send: send)
+            AlertsPage(sale: sale, paid: paid, next: next, notNow: notNow, send: send)
         case .float(let heading, let lead, _, let next, let notificationsOnly):
             FloatPage(heading: heading, lead: lead, next: next, notificationsOnly: notificationsOnly, send: send)
+        case .showSales(let view):
+            ShowSalesPage(view: view, send: send)
         case .ready(let heading, let lead, let checks):
             ReadyPage(heading: heading, lead: lead, checks: checks, send: send)
-        // C4 and O4 (docs/decisions/core.md 113, 120): their heading, lead
-        // and Continue until their own pages are drawn.
-        case .counter(let view):
-            FloatPage(heading: view.heading, lead: view.lead, next: view.next, notificationsOnly: nil, send: send)
-        case .showSales(let view):
-            FloatPage(heading: view.heading, lead: view.lead, next: view.next, notificationsOnly: nil, send: send)
         }
+    }
+}
+
+/// iPhone's thin bar of how far setup has come (decision 11), under the
+/// toolbar; none on Welcome. It says no "Step N of M".
+struct SetupProgress: View {
+    let progress: StepProgress
+
+    var body: some View {
+        ProgressView(value: SetupProgress.fraction(progress))
+            .tint(Palette.progress)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 6)
+            .background(Palette.ground)
+            .accessibilityLabel("Setting up")
+    }
+
+    nonisolated static func fraction(_ progress: StepProgress) -> Double {
+        guard progress.total > 0 else { return 0 }
+        return min(1, Double(progress.value) / Double(progress.total))
     }
 }
 

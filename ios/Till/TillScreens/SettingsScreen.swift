@@ -4,11 +4,13 @@ import UIKit
 
 /// Settings (D4; a sheet over the till with Done), drawn from the engine's
 /// `SettingsView` as an inset grouped list: the store and its wallet (which
-/// Share hands on), the point of sale, alerts as a status row with Open
-/// Notification Settings (iOS decides; never a switch that snaps back),
-/// Wake-ups (its own page, pushed here, as `Screen` has none), the Dynamic
-/// Island on iPhone, the debug builds' stand-ins, and Disconnect. Section
-/// titles and Disconnect's footnote are written once here (decision 26).
+/// Share hands on), the point of sale, which device's sales alert and
+/// whether other counters' show (C5), cash sales (K4), alerts as a status
+/// row with Open Notification Settings (iOS decides; never a switch that
+/// snaps back), how a new sale shows up (iPad), Wake-ups (its own page,
+/// pushed here, as `Screen` has none), the Dynamic Island on iPhone, the
+/// debug builds' stand-ins, and Disconnect. Section titles and
+/// Disconnect's footnote are written once here (decision 26).
 struct SettingsScreen: View {
     let view: SettingsView
     let wakeUps: WakeUpsView?
@@ -24,15 +26,15 @@ struct SettingsScreen: View {
                     StoreSettings(store: store, send: send)
                 }
                 PosSettings(section: view.pointOfSale, send: send)
-                Section {
-                    AlertsRow(on: view.alerts.on)
-                    if !view.alerts.on {
-                        Button("Open Notification Settings") { openAlertSettings() }
-                    }
-                } header: {
-                    Text("Alerts")
-                } footer: {
-                    Text(view.alerts.footnote)
+                if let counters = view.counters {
+                    CountersSettings(section: counters, send: send)
+                }
+                if let cash = view.cash {
+                    CashSettings(section: cash, send: send)
+                }
+                alertsSection
+                if let showSales = view.showSales {
+                    ShowSalesSettings(section: showSales, send: send)
                 }
                 wakeUpsSection
                 if let island = view.island {
@@ -70,6 +72,35 @@ struct SettingsScreen: View {
             }
         }
         .tint(Palette.link)
+    }
+
+    /// Alerts as iOS allows them: the engine's status row where it gives
+    /// one (`alertsStatus`), else from its switch's state.
+    @ViewBuilder
+    private var alertsSection: some View {
+        if let status = view.alertsStatus {
+            Section {
+                AlertsStatusRow(row: status.row)
+                if AlertsStatusRow.off(status.row) {
+                    Button(status.openSettings) { openAlertSettings() }
+                }
+            } header: {
+                Text("Alerts")
+            } footer: {
+                Text(status.footnote)
+            }
+        } else {
+            Section {
+                AlertsRow(on: view.alerts.on)
+                if !view.alerts.on {
+                    Button("Open Notification Settings") { openAlertSettings() }
+                }
+            } header: {
+                Text("Alerts")
+            } footer: {
+                Text(view.alerts.footnote)
+            }
+        }
     }
 
     @ViewBuilder
@@ -110,6 +141,102 @@ struct AlertsRow: View {
                 Label("Off", systemImage: "exclamationmark.triangle")
                     .labelStyle(.titleAndIcon)
                     .foregroundStyle(Palette.expiredInk)
+            }
+        }
+    }
+}
+
+/// The engine's alerts row ("New sales and payments · On"): off, in the
+/// warn colour with its glyph, so it doesn't rest on colour alone.
+struct AlertsStatusRow: View {
+    let row: Fact
+
+    var body: some View {
+        LabeledContent(row.label) {
+            if AlertsStatusRow.off(row) {
+                Label(row.value, systemImage: "exclamationmark.triangle")
+                    .labelStyle(.titleAndIcon)
+                    .foregroundStyle(toneColor(row.tone))
+            } else {
+                Text(row.value)
+            }
+        }
+    }
+
+    /// The engine warns: alerts are off.
+    static func off(_ row: Fact) -> Bool {
+        row.tone == .warn
+    }
+}
+
+/// Settings › Alert for and Other counters (CounterSettings, C5): this
+/// device or every device at the location, finding this device again with
+/// a test sale, and whether other counters' sales show in the list.
+struct CountersSettings: View {
+    let section: CountersSection
+    let send: Send
+
+    var body: some View {
+        Section {
+            if let this = section.thisDevice {
+                ChoiceRow(choice: this) { send(.setAlertFor(everyDevice: false)) }
+            }
+            ChoiceRow(choice: section.everyDevice) { send(.setAlertFor(everyDevice: true)) }
+            Button(section.findAgain.label) { send(.findDevice) }
+                .disabled(!section.findAgain.enabled)
+        } header: {
+            Text("Alert for")
+        } footer: {
+            Text(section.footnote)
+        }
+        Section {
+            SwitchRow(label: CountersSettings.showOthers, on: section.showOthers) {
+                send(.setShowOtherCounters(on: $0))
+            }
+        } header: {
+            Text("Other counters")
+        } footer: {
+            Text(section.showOthersFootnote)
+        }
+    }
+
+    static let showOthers = "Show their sales in the list"
+}
+
+/// Settings › Cash in Square (CashSettings, K4): cash sales treated as
+/// Monero, or only offered.
+struct CashSettings: View {
+    let section: CashSection
+    let send: Send
+
+    var body: some View {
+        Section {
+            ChoiceRow(choice: section.asMonero) { send(.setCashAsMonero(on: true)) }
+            ChoiceRow(choice: section.offer) { send(.setCashAsMonero(on: false)) }
+        } header: {
+            Text("Cash in Square")
+        } footer: {
+            Text(section.footnotes.joined(separator: "\n\n"))
+        }
+    }
+}
+
+/// Settings › How sales show up, on iPad: an alert, a floating window, or
+/// side by side, with how to arrange side by side while it's chosen.
+struct ShowSalesSettings: View {
+    let section: ShowSalesSection
+    let send: Send
+
+    var body: some View {
+        Section {
+            ForEach(Array(section.choices.enumerated()), id: \.offset) { _, choice in
+                ChoiceRow(choice: choice.choice) { send(.chooseShowSales(mode: choice.mode)) }
+            }
+        } header: {
+            Text("How sales show up")
+        } footer: {
+            if let how = section.sideBySide {
+                Text(how)
             }
         }
     }
@@ -434,9 +561,11 @@ struct WakeUpsSections: View {
     }
 }
 
-/// A radio row: its label and line, ticked when chosen.
+/// A radio row: its label and line, ticked when chosen. `padded` on a
+/// card of Till's own, where no list pads it, so the padding taps too.
 struct ChoiceRow: View {
     let choice: Choice
+    var padded = false
     let action: @MainActor () -> Void
 
     var body: some View {
@@ -462,6 +591,9 @@ struct ChoiceRow: View {
                         .accessibilityHidden(true)
                 }
             }
+            .padding(.horizontal, padded ? 16 : 0)
+            .padding(.vertical, padded ? 10 : 0)
+            .frame(minHeight: padded ? 60 : nil)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

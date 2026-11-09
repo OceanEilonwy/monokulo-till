@@ -3,23 +3,21 @@ import TillCore
 
 /// A step's page (the Onb* boards): an optional Back in the system's
 /// toolbar, the step's content scrolling across the whole width (held to a
-/// readable column), and only its buttons and step label held at the
-/// bottom, in the safe area's inset, so the scrolling text never hides
-/// under them.
+/// readable column), and only its buttons held at the bottom, in the safe
+/// area's inset, so the scrolling text never hides under them. No "Step N
+/// of M" anywhere (docs/ipad-redesign.md, decision 11): iPad's rail and
+/// iPhone's thin bar show the step.
 struct StepPage<Content: View, Bottom: View>: View {
     private let back: (@MainActor () -> Void)?
-    private let stepLabel: String?
     private let content: Content
     private let bottom: Bottom
 
     init(
         back: (@MainActor () -> Void)? = nil,
-        stepLabel: String?,
         @ViewBuilder content: () -> Content,
         @ViewBuilder bottom: () -> Bottom
     ) {
         self.back = back
-        self.stepLabel = stepLabel
         self.content = content()
         self.bottom = bottom()
     }
@@ -36,11 +34,6 @@ struct StepPage<Content: View, Bottom: View>: View {
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 10) {
                 bottom
-                if let stepLabel {
-                    Text(stepLabel)
-                        .font(.footnote)
-                        .foregroundStyle(Palette.secondary)
-                }
             }
             .frame(maxWidth: onboardingColumn)
             .padding(.horizontal, 20)
@@ -259,15 +252,29 @@ struct FactCard: View {
     }
 }
 
-/// The step's one primary action, as the core words it.
+/// The step's one primary action, as the core words it. While the work it
+/// started runs (`Press.busy`), the button shows the progress in itself.
 struct PrimaryPress: View {
     let press: Press
     let action: @MainActor () -> Void
 
     var body: some View {
-        Button(press.label) { action() }
-            .buttonStyle(.primary)
-            .disabled(!press.enabled)
+        Button {
+            action()
+        } label: {
+            HStack(spacing: 10) {
+                if press.busy {
+                    ProgressView()
+                        .tint(Palette.onAccent)
+                        .accessibilityHidden(true)
+                }
+                Text(press.label)
+                    .lineLimit(1)
+            }
+        }
+        .buttonStyle(.primary)
+        .disabled(!press.enabled)
+        .accessibilityValue(press.busy ? "In progress" : "")
     }
 }
 

@@ -275,7 +275,10 @@ struct SaleDetail: View {
     var body: some View {
         if let sale = core.sale, sale.orderId == orderId {
             if sale.code.done {
-                SalePageScreen(orderId: orderId, page: sale.page, celebrate: celebrate, send: send)
+                SalePageScreen(
+                    orderId: orderId, page: sale.page, paid: SalePageScreen.isPaid(sale.view),
+                    celebrate: celebrate, send: send
+                )
             } else {
                 SaleScreen(orderId: orderId, view: sale.view, send: send)
             }
