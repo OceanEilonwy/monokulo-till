@@ -26,17 +26,28 @@ enum SaleAlerts {
         userInfo[orderKey] as? String
     }
 
-    /// Posts `alert` now, replacing any already posted for its sale.
+    /// Posts `alert` now, replacing any already posted for its sale: the
+    /// app's own (its identifier is the sale's id) and one the extension
+    /// rewrote (`TillShared.deliveredAlerts`). The core posts one alert per
+    /// sale (docs/decisions/core.md 123); this keeps it one if it ever didn't.
     static func post(_ alert: SaleAlert) async {
+        let center = UNUserNotificationCenter.current()
+        let earlier = await TillShared.deliveredAlerts(for: alert.orderId)
+        center.removeDeliveredNotifications(withIdentifiers: earlier)
         let request = UNNotificationRequest(identifier: alert.orderId, content: content(alert), trigger: nil)
-        try? await UNUserNotificationCenter.current().add(request)
+        try? await center.add(request)
     }
 
-    /// The sale left the shift: its alert goes (`Effect.clearNotification`).
+    /// The sale left the shift: its alert goes (`Effect.clearNotification`),
+    /// the extension's too.
     static func clear(_ id: String) {
         let center = UNUserNotificationCenter.current()
         center.removeDeliveredNotifications(withIdentifiers: [id])
         center.removePendingNotificationRequests(withIdentifiers: [id])
+        Task {
+            let rewritten = await TillShared.deliveredAlerts(for: id)
+            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: rewritten)
+        }
     }
 }
 

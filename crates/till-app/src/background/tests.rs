@@ -148,8 +148,11 @@ async fn on_android_a_look_answers_the_ongoing_notification_alerting_about_the_n
     };
     assert_eq!(order_id, "ord_1");
     assert!(alert);
-    assert_eq!(face.title, "New Monero sale · Front counter");
-    assert_eq!(face.public_text, "$13.88 · waiting for payment");
+    assert_eq!(face.title, "Sale #bP9m · $13.88");
+    assert_eq!(
+        face.public_text,
+        "Monero sale. Tap to show the customer the code."
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -247,4 +250,69 @@ async fn a_relayed_ding_opens_with_the_kept_keys_for_the_tills_point_of_sale() {
         !is_relayed_ding(signed_in_till(&monokulo), ding),
         "another device's keys"
     );
+}
+
+/// The double alert on the iPad (core.md decision 123): Square's webhooks
+/// for one payment (`payment.created`, then `payment.updated`) make the
+/// Bell ding twice, and iOS runs the extension for each push, at once.
+/// Both looks find the payment before either has kept it; only one alerts.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_looks_at_once_for_two_dings_of_one_payment_alert_once() {
+    let (monokulo, square) = (monokulo().await, square(Duration::from_millis(300)).await);
+    let platform = signed_in_till(&monokulo);
+    let (first, second) = tokio::join!(
+        look(config(&square), platform.clone(), 10_000),
+        look(config(&square), platform.clone(), 10_000),
+    );
+    assert!(first.finished && second.finished);
+    let alerts: Vec<_> = first.alerts.iter().chain(&second.alerts).collect();
+    assert_eq!(alerts.len(), 1, "{first:?} {second:?}");
+    assert_eq!(alerts[0].order_id, "ord_1");
+    assert_eq!(
+        platform.get("alerts.posted").as_deref(),
+        Some(r#"["ord_1"]"#)
+    );
+}
+
+/// A sale the app has alerted already (its record shared with the
+/// extension) isn't alerted by the extension's look.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_look_never_alerts_a_sale_the_app_alerted() {
+    let (monokulo, square) = (monokulo().await, square(Duration::ZERO).await);
+    let platform = signed_in_till(&monokulo);
+    platform.set("alerts.posted", r#"["ord_1"]"#);
+    let check = look(config(&square), platform.clone(), 10_000).await;
+    assert!(check.finished);
+    assert!(check.alerts.is_empty(), "{check:?}");
+    assert!(
+        platform
+            .get("shift.sales")
+            .unwrap()
+            .contains(r#""orderId":"ord_1""#),
+        "the sale is still kept"
+    );
+}
+
+/// Issue 1 in the extension: this counter's sale, kept as another till's
+/// (Monokulo announced it first), alerts once the look finds it on this
+/// counter's device.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_look_alerts_this_counters_sale_another_till_announced_first() {
+    let (monokulo, square) = (monokulo().await, square(Duration::ZERO).await);
+    let platform = signed_in_till(&monokulo);
+    // Kept as another till's, quiet while this till has a device. The
+    // stand-in's payment names no device, which makes it this counter's.
+    platform.set(
+        "shift.sales",
+        r#"[{"orderId":"ord_1","amount":"13.88","currency":"USD","reference":"bP9m","code":{"uri":"monero:8Bx?tx_amount=0.08","hasReceipt":false},"phase":"Waiting","expiresAt":1893456000,"xmr":"0.08","address":"8Bx","deviceName":"Bar iPad"}]"#,
+    );
+    platform.set(
+        "counter.device",
+        r#"{"id":"dev_front","name":"Front iPad","learnedAt":1761148000}"#,
+    );
+    let check = look(config(&square), platform.clone(), 10_000).await;
+    assert_eq!(check.alerts.len(), 1, "{check:?}");
+    assert_eq!(check.alerts[0].order_id, "ord_1");
+    let again = look(config(&square), platform, 10_000).await;
+    assert!(again.alerts.is_empty());
 }

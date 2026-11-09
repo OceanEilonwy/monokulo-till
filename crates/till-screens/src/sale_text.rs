@@ -30,9 +30,8 @@ pub fn title(sale: &TillSale) -> String {
 /// How staff tell the sale apart (core.md decision 118): whom it's for when
 /// the POS's order names them ([`TillSale::customer_name`]), else
 /// [`title`]. It leads the shift's rows, the sale's page, the alert and the
-/// Live Activity; the sale number moves to the line under it. Android's
-/// lock-screen text ([`crate::notification::Face::public_text`]) never has
-/// it.
+/// Live Activity, and Android's notifications, their lock-screen text
+/// included (decision 124); the sale number moves to the line under it.
 pub fn heading(sale: &TillSale) -> String {
     customer(sale).map_or_else(|| title(sale), Into::into)
 }

@@ -4668,3 +4668,16 @@ names the environment. Refines 95, 96 and 132.
      the screen, keys and slot out of the body. Notifications keep their
      own small icons (`ic_mark*`), and the logo inside the app
      (`ui/Mark.kt`) is still Monokulo's.
+
+## App: names in the notifications (2026-11-09)
+
+315. **The notifications name the customer, the lock screen's version
+     too** (core.md decision 124, reversing 78's public version). A new
+     sale's ongoing notification is "Sam · $24.50" with "Monero sale. Tap
+     to show Sam the code." on the lock screen and in the shade, and what
+     was bought only on the private version's second line. The words are
+     the engine's, so `SaleNotifications` is unchanged: it already posts
+     the face's title, text and public text, and its one ongoing
+     notification (`ONGOING_ID`) and each sale's own notice (by the order
+     id) replace rather than add, so a sale's heads-up comes once (core.md
+     123 says when).

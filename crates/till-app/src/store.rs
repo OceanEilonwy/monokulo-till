@@ -109,6 +109,11 @@ pub mod keys {
     /// How a new sale shows up (core.md decision 120): `alert`, `pip` or
     /// `side`; absent is `alert`.
     pub const SHOW_SALES: &str = "sales.show";
+    /// The sales whose new-sale alert this till has posted, by the app or
+    /// iOS's extension (core.md decision 123): a JSON array of order ids,
+    /// oldest first, the newest 500 kept. It survives `forget_all`: an
+    /// order id is never another sale's.
+    pub const ALERTED: &str = "alerts.posted";
 
     /// `PosTokens`' JSON: `square.tokens` (a name from before Clover) or
     /// `clover.tokens`.

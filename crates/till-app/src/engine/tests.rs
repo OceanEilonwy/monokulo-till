@@ -733,7 +733,7 @@ async fn androids_ongoing_notification_alerts_a_new_sale_once() {
         _ => None,
     });
     assert!(alert, "a heads-up as it arrives");
-    assert_eq!(face.title, "New Monero sale · Front counter");
+    assert_eq!(face.title, "Sale #bP9m · $13.88");
     let next = wait_for(&rx, |heard| match heard {
         Heard::Update(Update::Notification { view }) => Some(view.clone()),
         _ => None,
@@ -1803,4 +1803,51 @@ async fn with_cash_offered_a_cash_sale_waits_quietly_and_take_it_in_monero_opens
             .any(|r| r.url.path() == "/v2/refunds"),
         "a cash sale is never refunded in Square"
     );
+}
+
+/// Issue 1 of the iPad test (core.md decision 123): this counter's sale,
+/// announced first by another till (so kept as another till's, quiet),
+/// alerts once this till's own Square finds it on this counter's device,
+/// and once only.
+#[tokio::test(flavor = "multi_thread")]
+async fn this_counters_sale_another_till_announced_first_alerts_when_found_here() {
+    let monokulo = monokulo().await;
+    let square = square_with_device("dev_front", "Front iPad", r#""source_type":"EXTERNAL""#).await;
+    let platform = signed_in_till(&monokulo);
+    platform.set(
+        "counter.device",
+        r#"{"id":"dev_front","name":"Front iPad","learnedAt":1761148000}"#,
+    );
+    // Monokulo's event for it came first: no `found`, another till's.
+    platform.set(
+        "shift.sales",
+        r#"[{"orderId":"ord_1","amount":"13.88","currency":"USD","reference":"bP9m","code":{"uri":"monero:8Bx?tx_amount=0.08","hasReceipt":false},"phase":"Waiting","expiresAt":1893456000,"xmr":"0.08","address":"8Bx","deviceName":"Bar iPad"}]"#,
+    );
+    let (engine, rx, _) = start(config(Some(&square)), platform.clone());
+    engine.send(Action::Backgrounded);
+    let alert = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Notification { view }) => view.alert.clone(),
+        _ => None,
+    });
+    assert_eq!(alert.order_id, "ord_1");
+    assert_eq!(alert.title, "Sam · $13.88");
+    assert_eq!(
+        platform.get("alerts.posted").as_deref(),
+        Some(r#"["ord_1"]"#)
+    );
+    // Looks go on (a ding wakes one); the sale is never alerted again.
+    engine.send(Action::PushReceived {
+        content: br#"{"wake":"square"}"#.to_vec(),
+        decrypted: true,
+    });
+    engine.send(Action::CopyAmount {
+        order_id: "ord_1".into(),
+    });
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Notification { view }) if view.alert.is_some() => {
+            panic!("alerted twice: {view:?}")
+        }
+        Heard::Effect(Effect::CopyText { .. }) => Some(()),
+        _ => None,
+    });
 }

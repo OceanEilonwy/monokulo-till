@@ -170,9 +170,10 @@ final class Core {
                 attributes: TillActivityAttributes(store: settings?.store?.name, place: shift?.top.place)
             )
         case .notification(let view):
-            // Set in one update only, as the sale arrives with Till in the
-            // back. While the floating window is up, it shows the sale
-            // instead (decision 2).
+            // Set in one update only, once the engine has claimed the
+            // sale's alert (core.md 123), as it arrives with Till in the
+            // back. While the floating window is up it shows the sale
+            // instead, and the claim counts it as told (core.md 125).
             if let alert = view.alert, !(pip?.isActive ?? false) {
                 Task { await SaleAlerts.post(alert) }
             }
