@@ -19,6 +19,7 @@ use till_pos::{SaleSource, TokenLock, TokenStore};
 use till_sales::{LiveStore, PosSwitchSide, RunnerSide, ShiftStore};
 
 use crate::EngineConfig;
+use crate::alerted::Alerted;
 use crate::store::{Kept, Model, PosCursor, PosTokenStore, ShiftKept, Store, Tenders};
 
 /// The app's long-lived parts that the leaf crates call back into.
@@ -30,6 +31,7 @@ pub(crate) struct Side {
     lock: Arc<dyn TokenLock>,
     clover_environment: CloverEnvironment,
     shift: Arc<ShiftKept>,
+    alerted: Alerted,
     live: OnceLock<Weak<LiveStore>>,
     wake_ups: OnceLock<Weak<BellWakeUps>>,
 }
@@ -59,6 +61,7 @@ impl Side {
                 PathBuf::from(&config.data_dir).join("sign-in.lock"),
             )),
             shift: Arc::new(ShiftKept::new(kept.store().clone(), log)),
+            alerted: Alerted::new(kept.store().clone(), &config.data_dir),
             config,
             kept,
             http,
@@ -113,6 +116,11 @@ impl Side {
             platform: self.config.platform.clone(),
             device_name: self.config.device_name.chars().take(40).collect(),
         }
+    }
+
+    /// The sales alerted here (core.md decision 123).
+    pub fn alerted(&self) -> &Alerted {
+        &self.alerted
     }
 
     pub fn shift_kept(&self) -> &Arc<ShiftKept> {
@@ -423,14 +431,15 @@ impl PosSide for Side {
 /// The lock around a point of sale's refresh (decision 13): an exclusive
 /// `flock` on a file in the data directory, which the iOS app and its
 /// notification extension share. On Android only one process holds the
-/// sign-in, so it never waits there, and costs a file.
-struct FileLock {
+/// sign-in, so it never waits there, and costs a file. The alerts' record
+/// takes one of its own (`alerted`, core.md decision 123).
+pub(crate) struct FileLock {
     path: PathBuf,
     held: Mutex<Option<File>>,
 }
 
 impl FileLock {
-    fn new(path: PathBuf) -> FileLock {
+    pub(crate) fn new(path: PathBuf) -> FileLock {
         FileLock {
             path,
             held: Mutex::new(None),

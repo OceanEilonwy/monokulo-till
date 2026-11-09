@@ -844,3 +844,55 @@ and copy, tones and progress.
      sales and payments · On", or "Off" in warning, with "Open Notification
      Settings" and its footnote (review finding I15). Android keeps its
      switch.
+
+## Alerts once per sale, and names on Android (2026-11-09)
+
+Three problems from the owner's iPad test: a missed alert, a double one,
+and Android's notifications without the customer's name.
+
+123. **One new-sale alert per sale per till, kept in a shared record.**
+     Whether a sale alerts was worked out three ways that never agreed:
+     the engine alerted a sale `Phases` saw arrive Waiting, the background
+     look (iOS's Notification Service Extension) one missing from the
+     shift it read at its start, and iOS gave the two alerts different
+     identifiers (the app's is the order id; the extension's is the
+     push's own, which it can't change), so neither replaced the other.
+     Square sends `payment.created` and then `payment.updated` for one
+     payment, the Bell dings for each, and iOS runs the extension once
+     per push, side by side: both looks list the payment before either
+     has made its order and kept the shift, so both alert. That is the
+     likeliest cause of the double the owner saw (a test reproduces it
+     against the old rule); the app's own timer or a ding it handles
+     racing an extension run is the same race. Now every path claims the
+     alert first (`alerted::Alerted`): the order ids already alerted are
+     kept under `alerts.posted` (the newest 500, through the platform's
+     secrets, so in the Keychain group the extension shares, and kept
+     across restarts and `forget_all`), and a claim reads, checks and
+     writes it under an exclusive `flock` on `alerts.lock` in the data
+     directory, as the sign-in's refresh does (decision 13). Only a
+     claimed sale is alerted. The engine claims every live sale that
+     isn't another counter's (`phases::NewSales`) whether or not it posts
+     anything: one seen on screen counts as told. Its first look still
+     only learns, claiming without an alert what the till started with.
+     The background look claims what is new to the shift or was quiet in
+     it. A second extension run that loses the claim shows the relay's
+     own words, passive and silent, as for a ding that found no sale:
+     iOS must show something, and hiding it needs Apple's filtering
+     entitlement. The app's own alert replaces, and its clear removes,
+     any extension alert that keeps the same sale (`TillShared
+     .deliveredAlerts`). This also closes 113's edge: a sale another till
+     announced first is kept quiet and unclaimed, so it alerts once this
+     till's own point of sale finds it on this counter's device, and only
+     then; found here first, Monokulo's event for it changes nothing.
+124. **Android's notifications name the customer, on the lock screen
+     too.** This reverses 118's "Android's notifications keep the sale's
+     number, as they show on the lock screen", and with it android.md
+     decision 78's public version: the owner accepts that a customer's
+     name shows on the lock screen, as it already does in iOS's alert,
+     because the name is how staff tell orders apart. A new sale's face
+     says what iOS's alert says ("Sam · $24.50", "Monero sale. Tap to
+     show Sam the code.", the sale's number leading with no name), with
+     the sale's number and the place as its sub-text; seen and confirming
+     faces have the name as their sub-text, and "Paid · Sam" and the
+     ended notices lead with it. What was bought still never leaves the
+     private version.

@@ -37,7 +37,7 @@ use tokio::sync::watch;
 
 mod till;
 
-use crate::phases::{Change, Money, Phases};
+use crate::phases::{Change, Money, NewSales, Phases};
 use crate::push::PlatformPush;
 use crate::relay::{DeviceToken, RelayPush};
 use crate::side::Side;
@@ -261,6 +261,8 @@ pub(crate) struct State {
     utc_offset: i32,
     hours_24: bool,
     phases: Phases,
+    /// Which sales are due their alert (core.md decision 123).
+    new_sales: NewSales,
     published: Published,
 }
 
@@ -329,6 +331,7 @@ impl State {
             panel_up: false,
             ticking: false,
             phases: Phases::default(),
+            new_sales: NewSales::default(),
             published: Published::default(),
         }
     }
@@ -564,6 +567,7 @@ impl State {
         let rx = p.runner.subscribe();
         self.watch(rx);
         self.phases = Phases::default();
+        self.new_sales = NewSales::default();
     }
 
     fn model(&self) -> Option<crate::store::Model> {
@@ -1850,17 +1854,22 @@ impl State {
         // Another counter's sales never alert, buzz or take the island
         // here (core.md decision 113).
         let counters = self.counters();
+        // One alert per sale per till, kept across restarts and shared with
+        // iOS's extension (decision 123); one seen on screen counts as told.
+        let due = self
+            .new_sales
+            .next(&state.sales, |sale| counters.quiet(sale), p.side.alerted());
+        if !self.visible
+            && let Some(newest) = due.into_iter().next()
+        {
+            self.alert_for = Some(newest);
+        }
         for (order_id, change) in self.phases.next(&state.sales) {
             let sale = state.sale(&order_id);
             if sale.is_some_and(|sale| counters.quiet(sale)) && change != Change::Gone {
                 continue;
             }
             match (change, sale) {
-                (Change::New, Some(sale)) if sale.live() => {
-                    if !self.visible {
-                        self.alert_for = Some(order_id);
-                    }
-                }
                 (Change::Paid, Some(sale)) => {
                     self.just_paid(order_id.clone());
                     if android {

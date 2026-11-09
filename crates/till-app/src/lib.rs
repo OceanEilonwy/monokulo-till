@@ -21,6 +21,7 @@
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
 
+mod alerted;
 mod background;
 mod engine;
 mod phases;
