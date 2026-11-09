@@ -289,13 +289,11 @@ mod tests {
         assert_eq!(view.step, 3);
         assert_eq!(
             view.ring,
-            Ring {
-                step: 3,
-                confirmations: Some(4),
-                required: Some(10),
-            },
+            Ring::new(3, Some(4), Some(10)),
             "the ring grows with each confirmation"
         );
+        assert!(view.ring.spins && view.ring.green);
+        assert!((view.ring.fill - (0.12 + 0.88 * 0.4)).abs() < 1e-6);
         assert!(!view.ticks);
     }
 }

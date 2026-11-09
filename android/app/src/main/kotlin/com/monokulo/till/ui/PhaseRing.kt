@@ -21,32 +21,9 @@ import androidx.compose.ui.unit.dp
 import uniffi.till_screens.Ring
 
 /**
- * How much of the ring a phase fills, from the top, clockwise: a quarter
- * while it waits, the whole ring paid. Seen and confirming, it is the
- * payment's way to the store's threshold (Board 5): [SEEN_FILL] seen, and
- * the rest of the ring shared out over the [required] confirmations. With
- * no count from Monokulo, a quarter a step.
- */
-fun ringFill(step: Int, confirmations: Int? = null, required: Int? = null): Float {
-    if (ringSpins(step) && required != null && required > 0) {
-        val have = (confirmations ?: 0).coerceIn(0, required)
-        return SEEN_FILL + (1f - SEEN_FILL) * have / required
-    }
-    return step / 4f
-}
-
-/** Whether the arc turns: the payment is on the network, seen (step 2) or confirming (3), and not yet paid. */
-fun ringSpins(step: Int): Boolean = step == 2 || step == 3
-
-/** Whether the arc is the paid green: from the moment the payment is seen. Orange means waiting for money. */
-fun ringGreen(step: Int): Boolean = ringSpins(step) || step == 4
-
-/** How much of the ring a seen payment with no confirmation yet fills. */
-const val SEEN_FILL = 0.12f
-
-/**
- * A ring as the engine drew it: its step, and its payment's confirmations. Inline, so the ring's own scope takes
- * the numbers, and a view drawn again with the same ring skips it (the engine's records aren't stable to Compose).
+ * A ring as the engine drew it: how much the arc fills, whether it turns and whether it's green, worked out from its
+ * step and its payment's confirmations (docs/decisions/core.md 100). Inline, so the ring's own scope takes the
+ * numbers, and a view drawn again with the same ring skips it (the engine's records aren't stable to Compose).
  */
 @Suppress("NOTHING_TO_INLINE")
 @Composable
@@ -57,13 +34,13 @@ inline fun PhaseRing(
     track: Color = mk.chip,
     fill: Color = mk.accent,
     paid: Color = mk.paid,
-) = PhaseRing(ring.step.toInt(), size, modifier, track, fill, paid, ring.confirmations?.toInt(), ring.required?.toInt())
+) = PhaseRing(ring.fill, ring.spins, ring.green, size, modifier, track, fill, paid)
 
 /**
  * The design's phase ring (its Chips and status rows): an open ring whose
  * arc is a still [fill] quarter while the sale waits, then, once the payment
  * is seen, the [paid] green turning a lap every `motion.spin` and growing
- * with each of its [confirmations] towards [required] ([ringFill]), until
+ * with each confirmation towards the store's threshold ([fraction], the engine's), until
  * paid closes it and it stops. Decoration: the words beside it say the phase.
  *
  * A change of length sweeps (`docs/motion.md` M6, `motion.sweep`): the arc
@@ -82,23 +59,22 @@ inline fun PhaseRing(
  */
 @Composable
 fun PhaseRing(
-    step: Int,
+    fraction: Float,
+    spins: Boolean,
+    green: Boolean,
     size: Dp,
     modifier: Modifier = Modifier,
     track: Color = mk.chip,
     fill: Color = mk.accent,
     paid: Color = mk.paid,
-    confirmations: Int? = null,
-    required: Int? = null,
 ) {
     val m = motion
-    val fraction by animateFloatAsState(ringFill(step, confirmations, required), m.sweep.fraction, label = "ring")
-    val green = ringGreen(step)
+    val swept by animateFloatAsState(fraction, m.sweep.fraction, label = "ring")
     val fillShown by animateFloatAsState(if (green) 0f else 1f, (if (green) m.fadeQuick else m.fadeThrough).fraction, label = "fill")
     val paidShown by animateFloatAsState(if (green) 1f else 0f, (if (green) m.fadeThrough else m.fadeQuick).fraction, label = "paid")
     // Only while the payment is on its way: a waiting, paid or ended ring runs no loop.
     val turn = m.spin
-    val spin = if (turn != null && ringSpins(step)) {
+    val spin = if (turn != null && spins) {
         rememberInfiniteTransition(label = "ring turn").animateFloat(0f, 360f, turn, label = "turn")
     } else {
         null
@@ -114,7 +90,7 @@ fun PhaseRing(
         val arcSize = Size(this.size.width - 2 * inset, this.size.height - 2 * inset)
         val topLeft = Offset(inset, inset)
         drawArc(track, 0f, 360f, useCenter = false, topLeft = topLeft, size = arcSize, style = strokes.track)
-        val sweep = 360f * fraction
+        val sweep = 360f * swept
         for (stroke in 0..1) {
             val colour = if (stroke == 0) fill else paid
             val shown = if (stroke == 0) fillShown else paidShown

@@ -625,3 +625,12 @@ on from 1; the Android app's own choices are in [android.md](android.md).
     write a currency's symbol, plus the locale's own currency.
     `MoneyTest`'s cases are ported to `monokulo-client/tests/money.rs`
     against stand-in locales holding the JVM's data for each one.
+100. **`Ring` is ready to draw**: besides its step and confirmations it
+     carries `fill` (0 to 1: a quarter a step, or `SEEN_FILL` plus the
+     confirmations' share of the rest), `spins` and `green`, which
+     Android's `PhaseRing.kt` used to work out (`ringFill`, `ringSpins`,
+     `ringGreen`, with `PhaseRingTest` ported to `view::ring_tests`).
+     `ring_of(step, confirmations, required)` is exported for a badge
+     drawn without a sale. Android keeps the sweep, the turn and the
+     colour fade. iOS's `RingGlyph` now draws `fill` in the accent, or in
+     the paid green once `green`, instead of quarters by step.

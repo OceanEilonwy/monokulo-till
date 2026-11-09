@@ -141,7 +141,7 @@ import com.monokulo.till.engine.CloseSheet
 import uniffi.till_app.Action
 import uniffi.till_screens.CloseThen
 import uniffi.till_screens.Ground
-import uniffi.till_screens.Ring
+import uniffi.till_screens.ringOf
 import uniffi.till_screens.RowEnds
 import uniffi.till_screens.RowOpens
 import uniffi.till_screens.ShiftEntry
@@ -1008,7 +1008,7 @@ private fun RowBadge(id: String, icon: StateIcon, step: Int, confirmations: Int?
     val fade = motion.fade.fraction
     AnimatedContent(targetState = icon, transitionSpec = { (fadeIn(fade) togetherWith fadeOut(fade)).using(null) }, label = "row badge") { face ->
         Box(Modifier.sharedSurface(badgeKey(id), Move.RowGrow, CircleShape, layer = Layers.OVER_GROUND)) {
-            StateBadge(Ring(step.toUByte(), confirmations?.toUInt(), required?.toUInt()), face, badgeGround(face), RingRowSize, 18.dp, quiet = true)
+            StateBadge(ringOf(step.toUByte(), confirmations?.toUInt(), required?.toUInt()), face, badgeGround(face), RingRowSize, 18.dp, quiet = true)
         }
     }
 }

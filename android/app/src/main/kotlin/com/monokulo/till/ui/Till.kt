@@ -104,6 +104,7 @@ import uniffi.till_screens.CodeView
 import uniffi.till_screens.Ground
 import uniffi.till_screens.OrderPageView
 import uniffi.till_screens.Ring
+import uniffi.till_screens.ringOf
 import uniffi.till_screens.SalePageView
 import uniffi.till_screens.SaleView
 import uniffi.till_screens.StateIcon
@@ -742,7 +743,7 @@ val HeroSize = 72.dp
 @Composable
 fun StateBadge(ring: Ring?, icon: StateIcon, ground: Ground, size: Dp, glyph: Dp, quiet: Boolean = false) {
     if (icon == StateIcon.RING) {
-        PhaseRing(ring ?: Ring(1u, null, null), size)
+        PhaseRing(ring ?: ringOf(1u, null, null), size)
         return
     }
     val (vector, tint) = when (icon) {

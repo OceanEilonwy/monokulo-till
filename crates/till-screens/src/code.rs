@@ -140,11 +140,7 @@ mod tests {
                 under: "0.31684 XMR · 14:52 left".into(),
                 code: "monero:4abc".into(),
                 step: 1,
-                ring: Ring {
-                    step: 1,
-                    confirmations: None,
-                    required: None,
-                },
+                ring: Ring::new(1, None, None),
                 done: false,
                 ticks: true,
             }

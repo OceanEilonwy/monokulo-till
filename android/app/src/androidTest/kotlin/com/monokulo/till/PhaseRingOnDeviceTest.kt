@@ -27,6 +27,7 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.test.assertTrue
+import uniffi.till_screens.ringOf
 
 /** The ring's sweep on a real window, frame by frame on the test clock (M6). */
 class PhaseRingOnDeviceTest {
@@ -50,7 +51,7 @@ class PhaseRingOnDeviceTest {
             TillTheme(dark = false) {
                 CompositionLocalProvider(LocalMotion provides motion) {
                     Box(Modifier.testTag("ring").padding(0.dp)) {
-                        PhaseRing(phase.step, 120.dp, track = track, fill = fill, confirmations = confirmations, required = required.takeIf { confirmations != null })
+                        PhaseRing(ringOf(phase.step.toUByte(), confirmations?.toUInt(), required.toUInt().takeIf { confirmations != null }), 120.dp, track = track, fill = fill)
                     }
                 }
             }

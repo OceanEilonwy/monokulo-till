@@ -91,6 +91,8 @@ struct StateBadge: View {
     let ground: Ground
     var size: CGFloat = 36
     var quiet = false
+    /// The ring the engine drew, for the ring icon; a waiting sale's without.
+    var ring: Ring? = nil
 
     var body: some View {
         ZStack {
@@ -100,7 +102,7 @@ struct StateBadge: View {
                     .font(.system(size: size * 0.42, weight: .semibold))
                     .foregroundStyle(Roles.glyph(icon, quiet: quiet))
             } else {
-                RingGlyph(size: size * 0.6)
+                RingGlyph(size: size * 0.6, ring: ring ?? ringOf(step: 1, confirmations: nil, required: nil))
             }
         }
         .frame(width: size, height: size)
@@ -108,18 +110,19 @@ struct StateBadge: View {
     }
 }
 
-/// A live sale's ring: the track, and the accent's first quarter.
+/// A sale's ring as the engine drew it (docs/decisions/core.md 100): the
+/// track, and the arc as far as its `fill`, in the paid green once `green`.
 struct RingGlyph: View {
     var size: CGFloat
-    var step: Int = 1
+    var ring: Ring
 
     var body: some View {
         ZStack {
             Circle()
                 .stroke(Palette.border, lineWidth: size * 0.14)
             Circle()
-                .trim(from: 0, to: CGFloat(max(1, min(step, 4))) / 4)
-                .stroke(Palette.accent, style: StrokeStyle(lineWidth: size * 0.14, lineCap: .round))
+                .trim(from: 0, to: CGFloat(ring.fill))
+                .stroke(ring.green ? Palette.paid : Palette.accent, style: StrokeStyle(lineWidth: size * 0.14, lineCap: .round))
                 .rotationEffect(.degrees(-90))
         }
         .frame(width: size, height: size)
