@@ -1851,3 +1851,76 @@ async fn this_counters_sale_another_till_announced_first_alerts_when_found_here(
         _ => None,
     });
 }
+
+/// Core.md decision 142: Clover runs on its own device, with Till beside it.
+/// A Clover payment names its device by id alone, so the engine reads
+/// Clover's devices once for their names, keeps them, and the counters
+/// menu and Settings call the device by Clover's name.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_clover_till_names_the_device_by_clovers_list_and_offers_the_counters_settings() {
+    let monokulo = monokulo().await;
+    let clover = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v3/merchants/MID1/payments"))
+        .respond_with(json(
+            r#"{"elements":[{"id":"PAY_1","amount":1388,"result":"SUCCESS","createdTime":1761149220000,
+                "tender":{"id":"T_MONERO"},"device":{"id":"DEV3F2A"},"refunds":{"elements":[]}}]}"#,
+        ))
+        .mount(&clover)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v3/merchants/MID1/devices"))
+        .respond_with(json(
+            r#"{"elements":[{"id":"DEV3F2A","name":"Front counter","model":"Clover Mini"}]}"#,
+        ))
+        .mount(&clover)
+        .await;
+    let connection = format!(r#"{{"app_key":"ak_1","api":"{}/api/v1"}}"#, monokulo.uri());
+    let platform = FakePlatform::with(&[
+        ("setup.done", "true"),
+        ("pos.kind", "clover"),
+        (
+            "clover.merchant",
+            r#"{"id":"MID1","name":"The Bean Room","currency":"USD"}"#,
+        ),
+        (
+            "clover.tokens",
+            r#"{"access_token":"c1","expires_at":"2030-01-01T00:00:00Z","refresh_token":"r1","merchant_id":"MID1"}"#,
+        ),
+        ("clover.tender.MID1", "T_MONERO"),
+        ("clover.since", "2026-10-22T16:06:00Z"),
+        ("clover.handled", "[]"),
+        ("shift.started", "1761148000"),
+        (
+            "counter.device",
+            r#"{"id":"DEV3F2A","learnedAt":1761148000}"#,
+        ),
+    ]);
+    platform.set("connection", &connection);
+    let mut config = config(None);
+    config.clover.base_url = Some(clover.uri());
+    let (engine, rx, _) = start(config, platform.clone());
+    let counters = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view
+            .counters
+            .as_ref()
+            .and_then(|c| c.this_device.as_ref())
+            .filter(|this| this.label == "This device: Front counter")
+            .map(|_| view.counters.clone().unwrap()),
+        _ => None,
+    });
+    assert_eq!(counters.every_device.label, "Every device at The Bean Room");
+    assert_eq!(
+        platform.get("clover.devices").as_deref(),
+        Some(r#"{"DEV3F2A":"Front counter"}"#)
+    );
+    let asked = clover
+        .received_requests()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.url.path().ends_with("/devices"))
+        .count();
+    assert_eq!(asked, 1, "Clover's devices are read once");
+    drop(engine);
+}

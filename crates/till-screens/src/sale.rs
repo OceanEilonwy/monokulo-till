@@ -61,7 +61,10 @@ pub struct SaleView {
     /// "Copy address", and what it copies.
     pub copy_address: Press,
     pub address: String,
-    /// Android: "Back to Square", and which point of sale it opens.
+    /// "Back to Square", and which point of sale it opens: on a till on
+    /// Square, for its own sales, on every device. Android draws it beside
+    /// "Copy address"; iOS on Paid, where Square is installed (core.md
+    /// decision 94).
     pub back_to_pos: Option<BackToPos>,
     /// The bar's X, which asks whether the customer is paying.
     pub closes: bool,
@@ -90,9 +93,8 @@ pub struct SaleView {
     pub order_title: String,
 }
 
-/// Android's way back to the point of sale beside "Copy address": its
-/// words, and whose app it opens, so the button opens the point of sale it
-/// names.
+/// The way back to the point of sale: its words, and whose app it opens,
+/// so the button opens the point of sale it names.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct BackToPos {
@@ -126,7 +128,7 @@ pub fn code_said(sale: &TillSale, money: &dyn MoneyFormat) -> String {
 /// The sale at the clock's now, on `device`, amounts written by `money`.
 pub fn sale(
     input: &SaleInput,
-    device: Device,
+    _device: Device,
     clock: DeviceClock,
     money: &dyn MoneyFormat,
 ) -> SaleView {
@@ -160,7 +162,7 @@ pub fn sale(
         address: sale.address.clone(),
         back_to_pos: header
             .pos
-            .filter(|_| header.back_to_pos && !device.is_ios())
+            .filter(|_| header.back_to_pos)
             .map(BackToPos::new),
         closes: !close::choices(sale, header.elsewhere).is_empty(),
         ticks: live && sale.phase.counts_down(),
@@ -257,11 +259,22 @@ mod tests {
     }
 
     #[test]
-    fn ios_has_copy_address_and_no_back_to_square() {
+    fn every_ios_device_is_offered_back_to_square_as_android_is() {
         for device in [Device::Iphone, Device::Ipad] {
             let view = sale(&input(bp9m(), SQUARE), device, la(at()), &money);
             assert_eq!(view.copy_address, Press::new("Copy address"));
-            assert_eq!(view.back_to_pos, None, "{device:?} can't open Square");
+            assert_eq!(
+                view.back_to_pos.map(|back| back.mark),
+                Some(PosMark::Square),
+                "{device:?} opens Square where it's installed"
+            );
+            let clover = sale(
+                &input(bp9m(), Some(PointOfSale::Clover)),
+                device,
+                la(at()),
+                &money,
+            );
+            assert_eq!(clover.back_to_pos, None, "Clover's device is its own");
         }
     }
 

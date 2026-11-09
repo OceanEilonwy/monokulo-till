@@ -388,9 +388,12 @@ the customer.
    or the receipt doesn't encode, the app shows the plain payment URI.
    Paying never depends on the receipt.
 
-Only the app's own screens show the receipt code. Anything drawn from a push
-(the Live Activity's "Show code in island", §6) uses the plain payment URI,
-because that content comes through the relay.
+Only what the device draws itself shows the receipt code: the app's own
+screens, the iPad's floating window, and the Live Activity's "Show code in
+island" (§6) while the app is the only thing updating it. Anything that comes
+through the relay (a Live Activity push from Monokulo, once its push token is
+registered) uses the plain payment URI, and then so do the app's own updates
+to that activity, so the two never disagree (core.md decision 140).
 
 ---
 
@@ -805,11 +808,14 @@ through the relay): location label, store name.
 | `xmr` | "0.1421" | Second line |
 | `expiresAt` | 1761312000 | Unix seconds: a countdown iOS draws itself (`Text(timerInterval:)`), and `stale-date` |
 | `waitingCount` | 2 | The till's own app orders still waiting for a payment, this one included while it is: "+1 more" at 2 |
-| `paymentURI` | `monero:…` | **Only** when the device has "Show code in island" on; the plain URI, never the receipt (§4) |
+| `paymentURI` | `monero:…` | **Only** when the device has "Show code in island" on; in a relay push the plain URI, never the receipt (§4) |
 
 **Show code in island** is a per-device setting, off by default. Turning it
-on explains that the payment address of each sale then passes through the
-Till push relay, and that the island's code has no receipt. Off: the
+on explains that each waiting sale's code, with what was bought, then shows
+in the island and on the lock screen. While the app alone updates the
+activity (its push token isn't registered yet), the code is the app's, with
+the receipt; once Monokulo pushes it through the relay, the plain URI
+(core.md decision 140). Off: the
 expanded island shows amount, status and "Tap to show code"; the QR appears
 only in the app.
 

@@ -10,8 +10,8 @@ mod receipts;
 mod source;
 
 pub use api::{
-    CloverApi, CloverMerchant, CloverOrder, CloverPayment, CloverRefund, CloverTender, Elements,
-    OrderLineItem, PaymentOrder, Ref,
+    CloverApi, CloverDevice, CloverMerchant, CloverOrder, CloverPayment, CloverRefund,
+    CloverTender, Elements, OrderLineItem, PaymentOrder, Ref,
 };
 pub use auth::CloverAuth;
 pub use config::{CloverConfig, CloverEnvironment};

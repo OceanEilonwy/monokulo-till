@@ -98,9 +98,10 @@ pub trait RunnerSide: Send + Sync {
 
     /// The source for the point of sale the cashier chose, while signed in
     /// to it (with its location or merchant); `None` makes a till that only
-    /// shows other tills' sales ([`NoSource`]). Every sale at a Clover
-    /// merchant is the till's: the phone isn't the Clover device, so there
-    /// is no device filter.
+    /// shows other tills' sales ([`NoSource`]). At Clover too the phone or
+    /// iPad isn't the point-of-sale device but sits beside one, whose
+    /// sales are this counter's once a test sale names it
+    /// ([`RunnerSide::till_options`], core.md decision 142).
     fn source(&self) -> Option<Arc<dyn SaleSource>>;
 
     /// Where the shift's sales are kept.

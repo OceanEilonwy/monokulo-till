@@ -109,6 +109,9 @@ pub mod keys {
     /// How a new sale shows up (core.md decision 120): `alert`, `pip` or
     /// `side`; absent is `alert`.
     pub const SHOW_SALES: &str = "sales.show";
+    /// What Clover calls the merchant's devices (core.md decision 142): a
+    /// JSON object of names by device id; absent until read.
+    pub const CLOVER_DEVICES: &str = "clover.devices";
     /// The sales whose new-sale alert this till has posted, by the app or
     /// iOS's extension (core.md decision 123): a JSON array of order ids,
     /// oldest first, the newest 500 kept. It survives `forget_all`: an
@@ -434,6 +437,7 @@ impl Store {
             counter_device: self.read(keys::COUNTER_DEVICE)?,
             alert_every: self.flag(keys::COUNTER_EVERY)?,
             show_others: self.switch(keys::COUNTER_OTHERS)?,
+            clover_devices: self.read(keys::CLOVER_DEVICES)?.unwrap_or_default(),
             cash_as_monero: self.switch(keys::CASH_AS_MONERO)?,
             show_sales: match self.get(keys::SHOW_SALES)?.as_deref() {
                 Some("pip") => crate::ShowSales::FloatingWindow,
@@ -523,6 +527,10 @@ impl Store {
         }
         if old.show_others != new.show_others {
             self.put_switch(keys::COUNTER_OTHERS, new.show_others)?;
+        }
+        if old.clover_devices != new.clover_devices {
+            let names = (!new.clover_devices.is_empty()).then_some(&new.clover_devices);
+            self.write(keys::CLOVER_DEVICES, names)?;
         }
         if old.cash_as_monero != new.cash_as_monero {
             self.put_switch(keys::CASH_AS_MONERO, new.cash_as_monero)?;
@@ -617,6 +625,9 @@ pub struct Model {
     pub alert_every: bool,
     /// The list opens on every counter's sales (on unless turned off).
     pub show_others: bool,
+    /// What Clover calls the merchant's devices, by id (core.md decision
+    /// 137); forgotten with the store.
+    pub clover_devices: std::collections::BTreeMap<String, String>,
     /// A cash sale is treated as Monero as it's found (on unless turned
     /// off, core.md decision 116).
     pub cash_as_monero: bool,
@@ -653,6 +664,7 @@ impl Default for Model {
             counter_device: None,
             alert_every: false,
             show_others: true,
+            clover_devices: Default::default(),
             cash_as_monero: true,
             show_sales: crate::ShowSales::Alert,
         }
@@ -681,6 +693,10 @@ impl Model {
                 }),
             every_device: self.alert_every,
             show_others: self.show_others,
+            names: match self.point_of_sale {
+                Some(PointOfSale::Clover) => self.clover_devices.clone(),
+                _ => Default::default(),
+            },
         }
     }
 

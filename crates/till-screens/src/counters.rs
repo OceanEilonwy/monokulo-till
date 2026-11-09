@@ -26,6 +26,9 @@ pub struct Counters {
     /// "Show other counters' sales in the list": the list opens on every
     /// counter's sales rather than this one's.
     pub show_others: bool,
+    /// What the point of sale calls its devices, by id, where its payments
+    /// don't say: Clover's devices endpoint (core.md decision 142).
+    pub names: std::collections::BTreeMap<String, String>,
 }
 
 impl Counters {
@@ -133,14 +136,16 @@ pub const SHOW_SALES_FROM: &str = "Show sales from";
 /// Sales other tills found, by name.
 pub const OTHER_TILLS: &str = "Other tills";
 
-/// What the menu calls `device_id`: its name on a sale, else this
-/// counter's kept name, else "Device" and the end of its id.
+/// What the menu calls `device_id`: its name on a sale, else the point of
+/// sale's list of devices, else this counter's kept name, else "Device"
+/// and the end of its id.
 pub fn device_name(device_id: &str, sales: &[TillSale], counters: &Counters) -> String {
     sales
         .iter()
         .filter_map(TillSale::pos_device)
         .find(|(id, name)| *id == device_id && name.is_some())
         .and_then(|(_, name)| name.map(str::to_owned))
+        .or_else(|| counters.names.get(device_id).cloned())
         .or_else(|| {
             counters
                 .device
@@ -288,6 +293,7 @@ mod tests {
             }),
             every_device: false,
             show_others: true,
+            names: Default::default(),
         }
     }
 
@@ -421,5 +427,24 @@ mod tests {
             Some("Bar iPad")
         );
         assert_eq!(row_device(&bar, &[], &Counters::default()), None);
+    }
+
+    #[test]
+    fn a_clover_device_is_called_by_the_name_clovers_list_gives_it() {
+        let mut clover = sale("c", None, SalePhase::Waiting);
+        clover.found.as_mut().unwrap().device_id = Some("DEV3F2A".into());
+        let counters = Counters {
+            names: [("DEV3F2A".to_owned(), "Front counter".to_owned())].into(),
+            ..Counters::default()
+        };
+        assert_eq!(
+            device_name("DEV3F2A", std::slice::from_ref(&clover), &counters),
+            "Front counter",
+            "not \"Device 3F2A\""
+        );
+        assert_eq!(
+            device_name("DEV3F2A", &[clover], &Counters::default()),
+            "Device 3F2A"
+        );
     }
 }

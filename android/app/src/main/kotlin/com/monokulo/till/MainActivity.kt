@@ -390,14 +390,14 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Back to the point of sale the engine named: Square Point of Sale, if it's installed. On Clover, Till runs on the
-     * Clover device itself, over the Register it was opened from, so Till steps back to it, as it does when Square
-     * isn't installed (docs/decisions/core.md 94).
+     * Back to the point of sale the engine named: Square Point of Sale, if it's installed, else Till steps back to
+     * whatever was under it. Clover runs on its own device, with Till on a separate phone beside it, so there is no
+     * Clover app to open and the engine never offers the button there (docs/decisions/core.md 94).
      */
     private fun backToPos(pos: PosMark) {
         val app = when (pos) {
             PosMark.SQUARE -> packageManager.getLaunchIntentForPackage(SQUARE_POS)
-            PosMark.CLOVER -> null
+            PosMark.CLOVER -> return
         }
         if (app != null) startActivity(app) else moveTaskToBack(true)
     }

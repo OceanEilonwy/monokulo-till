@@ -82,8 +82,8 @@ pub struct SaleHeader {
     /// till" for a sale rung up at the point of sale it changed from.
     pub place: String,
     /// Whether the sale offers "Back to Square": only on a till on Square,
-    /// and never for a sale another point of sale took (decision 135). The
-    /// sale screen leaves it out on iOS, which can't open Square.
+    /// and never for a sale another point of sale took (decision 135), on
+    /// every device (core.md decision 94).
     pub back_to_pos: bool,
 }
 
@@ -568,8 +568,9 @@ pub struct SalePageView {
     /// A cash sale's buttons ([`cash_buttons`]), after [`Self::buttons`].
     #[cfg_attr(feature = "uniffi", uniffi(default = []))]
     pub cash: Vec<CashButton>,
-    /// Paid's way back to the point of sale on iOS, "Back to Square", where
-    /// the platform can open it (docs/ipad-redesign.md decision 1).
+    /// Paid's way back to the point of sale on iOS, "Back to Square", on a
+    /// till on Square for its own sales (empty otherwise), shown where the
+    /// platform can open it (docs/ipad-redesign.md decision 1, core.md 94).
     #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
     pub back_to: String,
 }
@@ -629,7 +630,11 @@ pub fn sale_page(
             .flatten(),
         buttons,
         cash: cash_buttons(sale, input.taking),
-        back_to: pos_text::back_to(header.pos),
+        back_to: if header.back_to_pos {
+            pos_text::back_to(header.pos)
+        } else {
+            String::new()
+        },
     }
 }
 
@@ -947,6 +952,25 @@ mod tests {
             refunding: false,
             taking: false,
         }
+    }
+
+    #[test]
+    fn paid_offers_back_to_square_only_on_a_till_on_square_for_its_own_sale() {
+        let at = at();
+        let sale = sale_of("paidHere").build();
+        assert_eq!(
+            sale_page(&input(sale.clone()), la(at), &money).back_to,
+            "Back to Square"
+        );
+        let clover_till = SalePageInput {
+            till: CLOVER,
+            ..input(sale)
+        };
+        assert_eq!(
+            sale_page(&clover_till, la(at), &money).back_to,
+            "",
+            "Clover runs on its own device: nothing to go back to"
+        );
     }
 
     #[test]
