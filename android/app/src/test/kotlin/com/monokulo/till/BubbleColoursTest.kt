@@ -3,6 +3,7 @@ package com.monokulo.till
 import androidx.compose.ui.graphics.Color
 import com.monokulo.till.overlay.BubbleInks
 import com.monokulo.till.ui.Fixed
+import com.monokulo.till.ui.LensLook
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
@@ -10,11 +11,11 @@ import kotlin.test.Test
 import kotlin.test.assertTrue
 
 /**
- * The logo bubble's fixed colours (`docs/motion.md` §12.5, decision 267)
+ * The terminal bubble's fixed colours (`docs/motion.md` §12.5, decision 267)
  * hold the contrast the design claims for what a cashier reads off the
- * bubble: the white tick on each of the lens's greens and the ink
- * segment on the pale track it chases round, each at least WCAG's 3:1 for
- * graphics, on the white disc and on the dark one night mode gives it.
+ * bubble: the white tick on each of the screen's greens, and the orange
+ * segment, the fills and the screen on the disc, each at least WCAG's 3:1
+ * for graphics, on the icon's ink disc and on the charcoal one night mode gives it.
  * The bubble sits over another app, so these are [Fixed], not the theme's.
  */
 class BubbleColoursTest {
@@ -43,29 +44,32 @@ class BubbleColoursTest {
     }
 
     @Test
-    fun `the ink segment reads on the track it chases round`() {
-        val ratio = contrast(Fixed.Ink, Fixed.ChaseTrack)
-        assertTrue(ratio >= 3.0, "ink on the chase track is ${"%.2f".format(ratio)}:1, under 3:1")
-        assertTrue(contrast(Fixed.ChaseTrack, Fixed.White) < 3.0, "the track is pale: it is not itself a mark on the white glass")
-    }
-
-    @Test
-    fun `in either mode the border's ink and idle grey read on the disc, and the track is quiet`() {
+    fun `in either mode the fills and the running segment read on the disc, and the track is quiet`() {
         for ((mode, inks) in listOf("light" to BubbleInks.Light, "dark" to BubbleInks.Dark)) {
-            for ((what, colour) in listOf("ink" to inks.ink, "idle border" to inks.idle)) {
+            for ((what, colour) in listOf("orange fill" to Fixed.Accent, "green fill" to Fixed.PaidLight)) {
                 val ratio = contrast(colour, inks.disc)
                 assertTrue(ratio >= 3.0, "$mode: the $what on the disc is ${"%.2f".format(ratio)}:1, under 3:1")
             }
-            val chase = contrast(inks.ink, inks.track)
-            assertTrue(chase >= 3.0, "$mode: the chasing segment on its track is ${"%.2f".format(chase)}:1, under 3:1")
+            val run = contrast(Fixed.Accent, inks.track)
+            assertTrue(run >= 3.0, "$mode: the running segment on its track is ${"%.2f".format(run)}:1, under 3:1")
             assertTrue(contrast(inks.track, inks.disc) < 3.0, "$mode: the track is not itself a mark on the disc")
         }
     }
 
     @Test
-    fun `light mode keeps its colours and dark mode takes the design's disc`() {
+    fun `the orange and the paid screens read on the disc`() {
+        for ((mode, inks) in listOf("light" to BubbleInks.Light, "dark" to BubbleInks.Dark)) {
+            for ((what, colour) in listOf("orange" to LensLook.Orange[2], "paid green" to LensLook.Green[2])) {
+                val ratio = contrast(colour, inks.disc)
+                assertTrue(ratio >= 3.0, "$mode: the $what screen on the disc is ${"%.2f".format(ratio)}:1, under 3:1")
+            }
+        }
+    }
+
+    @Test
+    fun `light mode takes the icon's ink disc and dark mode its charcoal one`() {
         assertTrue(BubbleInks.of(dark = false) === BubbleInks.Light && BubbleInks.of(dark = true) === BubbleInks.Dark)
-        assertTrue(BubbleInks.Light.disc == Fixed.White && BubbleInks.Light.ink == Fixed.Ink, "light mode is as it was")
-        assertTrue(BubbleInks.Dark.disc == Fixed.BubbleDark, "the dark disc is the design's #2A2825")
+        assertTrue(BubbleInks.Light.disc == Fixed.Ink && BubbleInks.Light.track == Fixed.TerminalDim, "light: TillRound's ink disc and #4A4740 track")
+        assertTrue(BubbleInks.Dark.disc == Color(0xFF3A3733) && BubbleInks.Dark.track == Fixed.Ink, "dark: the charcoal body #3A3733 and an ink track")
     }
 }

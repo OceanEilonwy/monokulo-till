@@ -43,152 +43,285 @@ extension Color {
     }
 }
 
-/// The Monokulo mark, from the app's `Mark.swift` (Android's `Mark.kt`):
-/// the orange lens of facets in a ring. Still: a Live Activity doesn't
-/// animate it.
-struct WidgetMark: View {
-    var size: CGFloat
-    var ring: Color = WidgetPalette.cream
+/// Till's status mark: the app icon's terminal as Monokulo's "Keys count"
+/// canvas draws it (TillWidget and TillRound), in two forms, square for the
+/// expanded island and the lock screen, round for the compact and minimal
+/// island's circles. Still: a Live Activity doesn't animate it, so the
+/// canvas's flashing key and running segment are never drawn here, and the
+/// colours and fills say the state, as they do under reduced motion.
+enum TillStatus: Sendable {
+    case idle, scanning, waiting, seen, confirming, paid
 
-    var body: some View {
-        ZStack {
-            ZStack {
-                MarkShape(kind: .lens).fill(MarkData.shades[0])
-                MarkShape(kind: .facets(shade: 0)).fill(MarkData.shades[0])
-                MarkShape(kind: .facets(shade: 1)).fill(MarkData.shades[1])
-                MarkShape(kind: .facets(shade: 2)).fill(MarkData.shades[2])
-            }
-            .clipShape(MarkShape(kind: .lens))
-            MarkShape(kind: .border).stroke(ring, lineWidth: MarkData.borderStroke * size / 64)
+    /// The Live Activity's phase on the canvas's states: there is no
+    /// "scanning" (the code waits for money, not for a scan the app can
+    /// see), and an expired code shows its clock instead (never here).
+    init(_ phase: TillActivityAttributes.ContentState.Phase) {
+        switch phase {
+        case .idle, .expired: self = .idle
+        case .waiting: self = .waiting
+        case .seen: self = .seen
+        case .confirming: self = .confirming
+        case .paid: self = .paid
         }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
+    }
+
+    /// How many of the three steps are done: a third at seen, two at confirming, all once paid.
+    var step: Int {
+        switch self {
+        case .idle, .scanning, .waiting: 0
+        case .seen: 1
+        case .confirming: 2
+        case .paid: 3
+        }
+    }
+
+    var isPaid: Bool { self == .paid }
+    var progress: Double { Double(step) / 3 }
+
+    var label: String {
+        switch self {
+        case .idle: "Till, idle"
+        case .scanning: "Till, scanning"
+        case .waiting: "Till, waiting for a payment"
+        case .seen: "Till, payment seen"
+        case .confirming: "Till, confirming"
+        case .paid: "Till, paid"
+        }
     }
 }
 
-/// The mark's measures, in the SVG's 64-unit box before the lens's 1.42.
-private enum MarkData {
-    static let shades: [Color] = [Color(hex: 0xFF6600), Color(hex: 0xE85D00), Color(hex: 0xC24E00)]
-    static let centre = CGPoint(x: 30, y: 28)
-    static let lensRadius: CGFloat = 15.75
-    static let borderRadius: CGFloat = 18
-    static let borderStroke: CGFloat = 4.5
+/// The terminal's colours (the canvas's `renderVals`), in light and dark.
+private struct TerminalInks {
+    static let orange = Color(hex: 0xFF6600)
+    static let green = Color(hex: 0x2EA052)
 
-    /// Each facet and its shade, in the SVG's order: the core, the inner
-    /// six, the middle twelve, the rim twelve.
-    static let facets: [(d: String, shade: Int)] = [
-        ("M30,23L34.33,25.5L34.33,30.5L30,33L25.67,30.5L25.67,25.5Z", 2),
-        ("M30,23L34.33,25.5L35.5,18.47Z", 1),
-        ("M34.33,25.5L34.33,30.5L41,28Z", 1),
-        ("M34.33,30.5L30,33L35.5,37.53Z", 1),
-        ("M30,33L25.67,30.5L24.5,37.53Z", 1),
-        ("M25.67,30.5L25.67,25.5L19,28Z", 1),
-        ("M25.67,25.5L30,23L24.5,18.47Z", 1),
-        ("M30,23L24.5,18.47L30,4Z", 0),
-        ("M30,23L30,4L35.5,18.47Z", 0),
-        ("M34.33,25.5L35.5,18.47L50.78,16Z", 0),
-        ("M34.33,25.5L50.78,16L41,28Z", 0),
-        ("M34.33,30.5L41,28L50.78,40Z", 0),
-        ("M34.33,30.5L50.78,40L35.5,37.53Z", 0),
-        ("M30,33L35.5,37.53L30,52Z", 0),
-        ("M30,33L30,52L24.5,37.53Z", 0),
-        ("M25.67,30.5L24.5,37.53L9.22,40Z", 0),
-        ("M25.67,30.5L9.22,40L19,28Z", 0),
-        ("M25.67,25.5L19,28L9.22,16Z", 0),
-        ("M25.67,25.5L9.22,16L24.5,18.47Z", 0),
-        ("M35.5,18.47L30,4L42,7.22Z", 1),
-        ("M35.5,18.47L42,7.22L50.78,16Z", 1),
-        ("M41,28L50.78,16L54,28Z", 1),
-        ("M41,28L54,28L50.78,40Z", 1),
-        ("M35.5,37.53L50.78,40L42,48.78Z", 1),
-        ("M35.5,37.53L42,48.78L30,52Z", 1),
-        ("M24.5,37.53L30,52L18,48.78Z", 1),
-        ("M24.5,37.53L18,48.78L9.22,40Z", 1),
-        ("M19,28L9.22,40L6,28Z", 1),
-        ("M19,28L6,28L9.22,16Z", 1),
-        ("M24.5,18.47L9.22,16L18,7.22Z", 1),
-        ("M24.5,18.47L18,7.22L30,4Z", 1),
+    let dark: Bool
+    let status: TillStatus
+
+    /// The unlit keys and the unfilled border and bar.
+    var dim: Color { dark ? Color(hex: 0x66615A) : Color(hex: 0x4A4740) }
+    var body: Color { dark ? Color(hex: 0x3A3733) : Color(hex: 0x1A1917) }
+    /// The square's screen outline: the ground it sits on.
+    var outline: Color { dark ? Color(hex: 0x1E1E1E) : Color(hex: 0xF4F1EA) }
+    /// The round form's border track: dim on ink, ink on charcoal.
+    var track: Color { dark ? Color(hex: 0x1A1917) : Color(hex: 0x4A4740) }
+
+    /// The screen's three shades: the whole, the eight triangles, the centre square.
+    var mid: Color { status.isPaid ? Color(hex: 0x2EA052) : status == .idle ? Color(hex: 0x7F7F7F) : Color(hex: 0xFF6600) }
+    var warm: Color { status.isPaid ? Color(hex: 0x238A43) : status == .idle ? Color(hex: 0x747474) : Color(hex: 0xE85D00) }
+    var deep: Color { status.isPaid ? Color(hex: 0x1A7F37) : status == .idle ? Color(hex: 0x616161) : Color(hex: 0xC24E00) }
+
+    /// The three keys, top down: each joins at its step, all green once paid; the bottom one waits for paid.
+    var keys: [Color] {
+        if status.isPaid { return [Self.green, Self.green, Self.green] }
+        return [status.step >= 1 ? Self.orange : dim, status.step >= 2 ? Self.orange : dim, dim]
+    }
+
+    /// The fill's colour: orange, green once paid.
+    var fill: Color { status.isPaid ? Self.green : Self.orange }
+}
+
+/// The terminal's measures, on the canvas's 120 grid.
+private enum TerminalData {
+    static let screen = CGRect(x: 26.5, y: 29.5, width: 43, height: 43)
+    static let screenRadius: CGFloat = 6.5
+    static let body = CGRect(x: 12, y: 12, width: 96, height: 96)
+    static let bodyRadius: CGFloat = 18
+    static let keys = [
+        CGRect(x: 80, y: 28, width: 16, height: 11),
+        CGRect(x: 80, y: 45.5, width: 16, height: 11),
+        CGRect(x: 80, y: 63, width: 16, height: 11),
     ]
+    static let keyRadius: CGFloat = 3
+    static let bar = CGRect(x: 24, y: 88, width: 72, height: 7)
+    static let barRadius: CGFloat = 3.5
+    /// The screen's border, drawn on the centre line of its stroke.
+    static let border = CGRect(x: 24, y: 27, width: 48, height: 48)
+    static let borderRadius: CGFloat = 9
+    static let borderStroke: CGFloat = 5
 
-    /// A path from SVG data of absolute `M`, `L` and `Z`: all the mark uses.
-    static func path(_ d: String) -> Path {
-        var tokens: [String] = []
-        var number = ""
-        for character in d {
-            if character.isLetter || character == "," || character == " " {
-                if !number.isEmpty {
-                    tokens.append(number)
-                    number = ""
-                }
-                if character.isLetter { tokens.append(String(character)) }
-            } else {
-                number.append(character)
-            }
-        }
-        if !number.isEmpty { tokens.append(number) }
+    /// The eight triangles round the centre square.
+    static let triangles: [[CGPoint]] = [
+        [CGPoint(x: 43, y: 46), CGPoint(x: 53, y: 46), CGPoint(x: 48, y: 39.5)],
+        [CGPoint(x: 53, y: 46), CGPoint(x: 53, y: 56), CGPoint(x: 59.5, y: 51)],
+        [CGPoint(x: 53, y: 56), CGPoint(x: 43, y: 56), CGPoint(x: 48, y: 62.5)],
+        [CGPoint(x: 43, y: 56), CGPoint(x: 43, y: 46), CGPoint(x: 36.5, y: 51)],
+        [CGPoint(x: 48, y: 39.5), CGPoint(x: 26.5, y: 29.5), CGPoint(x: 69.5, y: 29.5)],
+        [CGPoint(x: 59.5, y: 51), CGPoint(x: 69.5, y: 29.5), CGPoint(x: 69.5, y: 72.5)],
+        [CGPoint(x: 48, y: 62.5), CGPoint(x: 69.5, y: 72.5), CGPoint(x: 26.5, y: 72.5)],
+        [CGPoint(x: 36.5, y: 51), CGPoint(x: 26.5, y: 72.5), CGPoint(x: 26.5, y: 29.5)],
+    ]
+    static let centre = CGRect(x: 43, y: 46, width: 10, height: 10)
+
+    /// The paid screen's tick.
+    static let tick = [CGPoint(x: 37.5, y: 51.5), CGPoint(x: 44.5, y: 58.5), CGPoint(x: 58.5, y: 43.5)]
+    static let tickStroke: CGFloat = 5
+}
+
+/// How the 120 grid is fitted to a frame: the grid's [box] is the frame,
+/// with the grid point [pivot] at its centre and everything [scale]d
+/// about it. The square form's box is the grid's `8 8 104 104`, about its
+/// own centre; the round form's `10 10 100 100`, about the screen's
+/// centre (48, 51), scaled 1.22.
+private struct Fit: Sendable {
+    let box: CGRect
+    let pivot: CGPoint
+    let scale: CGFloat
+
+    static let square = Fit(box: CGRect(x: 8, y: 8, width: 104, height: 104), pivot: CGPoint(x: 60, y: 60), scale: 1)
+    static let round = Fit(box: CGRect(x: 10, y: 10, width: 100, height: 100), pivot: CGPoint(x: 48, y: 51), scale: 1.22)
+
+    /// One grid unit in points in a frame [size] across, for stroke widths.
+    func point(_ size: CGFloat) -> CGFloat { size / box.width * scale }
+}
+
+/// A path drawn on the 120 grid, fitted to its frame.
+private struct GridShape: Shape {
+    let fit: Fit
+    let build: @Sendable () -> Path
+
+    func path(in rect: CGRect) -> Path {
+        let unit = min(rect.width, rect.height) / fit.box.width
+        let transform = CGAffineTransform(
+            translationX: rect.minX + (rect.width - fit.box.width * unit) / 2,
+            y: rect.minY + (rect.height - fit.box.height * unit) / 2
+        )
+        .scaledBy(x: unit, y: unit)
+        .translatedBy(x: fit.box.width / 2, y: fit.box.height / 2)
+        .scaledBy(x: fit.scale, y: fit.scale)
+        .translatedBy(x: -fit.pivot.x, y: -fit.pivot.y)
+        return build().applying(transform)
+    }
+}
+
+private extension Path {
+    /// The border of the screen from 12 o'clock, clockwise, as one closed path so a trim runs round it.
+    static func border() -> Path {
+        let r = TerminalData.border
+        let c = TerminalData.borderRadius
+        let k = c * 0.5523
         var path = Path()
-        var command = "M"
-        var i = 0
-        while i < tokens.count {
-            let token = tokens[i]
-            if token == "Z" {
-                path.closeSubpath()
-                i += 1
-            } else if token == "M" || token == "L" {
-                command = token
-                i += 1
-            } else {
-                guard i + 1 < tokens.count, let x = Double(tokens[i]), let y = Double(tokens[i + 1]) else { break }
-                let point = CGPoint(x: x, y: y)
-                if command == "M" {
-                    path.move(to: point)
-                    command = "L"
-                } else {
-                    path.addLine(to: point)
-                }
-                i += 2
-            }
+        path.move(to: CGPoint(x: r.midX, y: r.minY))
+        path.addLine(to: CGPoint(x: r.maxX - c, y: r.minY))
+        path.addCurve(to: CGPoint(x: r.maxX, y: r.minY + c), control1: CGPoint(x: r.maxX - c + k, y: r.minY), control2: CGPoint(x: r.maxX, y: r.minY + c - k))
+        path.addLine(to: CGPoint(x: r.maxX, y: r.maxY - c))
+        path.addCurve(to: CGPoint(x: r.maxX - c, y: r.maxY), control1: CGPoint(x: r.maxX, y: r.maxY - c + k), control2: CGPoint(x: r.maxX - c + k, y: r.maxY))
+        path.addLine(to: CGPoint(x: r.minX + c, y: r.maxY))
+        path.addCurve(to: CGPoint(x: r.minX, y: r.maxY - c), control1: CGPoint(x: r.minX + c - k, y: r.maxY), control2: CGPoint(x: r.minX, y: r.maxY - c + k))
+        path.addLine(to: CGPoint(x: r.minX, y: r.minY + c))
+        path.addCurve(to: CGPoint(x: r.minX + c, y: r.minY), control1: CGPoint(x: r.minX, y: r.minY + c - k), control2: CGPoint(x: r.minX + c - k, y: r.minY))
+        path.closeSubpath()
+        return path
+    }
+
+    static func rounded(_ rect: CGRect, _ radius: CGFloat) -> Path {
+        Path(roundedRect: rect, cornerRadius: radius, style: .circular)
+    }
+
+    static func triangles() -> Path {
+        var path = Path()
+        for points in TerminalData.triangles {
+            path.move(to: points[0])
+            path.addLine(to: points[1])
+            path.addLine(to: points[2])
+            path.closeSubpath()
         }
+        return path
+    }
+
+    static func tick() -> Path {
+        var path = Path()
+        path.move(to: TerminalData.tick[0])
+        path.addLine(to: TerminalData.tick[1])
+        path.addLine(to: TerminalData.tick[2])
         return path
     }
 }
 
-/// One layer of the mark, fitted to its frame as the app's `drawMark` fits it.
-private struct MarkShape: Shape {
-    enum Kind: Sendable {
-        case lens
-        case border
-        case facets(shade: Int)
-    }
+/// The screen in its three shades, with the paid tick, clipped to its rounded square.
+private struct TerminalScreen: View {
+    let fit: Fit
+    let size: CGFloat
+    let inks: TerminalInks
 
-    let kind: Kind
-
-    func path(in rect: CGRect) -> Path {
-        let unit = min(rect.width, rect.height) / 64
-        let fit = CGAffineTransform(
-            translationX: rect.minX + (rect.width - 64 * unit) / 2,
-            y: rect.minY + (rect.height - 64 * unit) / 2
-        )
-        .scaledBy(x: unit, y: unit)
-        .translatedBy(x: 32, y: 32)
-        .scaledBy(x: 1.42, y: 1.42)
-        .translatedBy(x: -MarkData.centre.x, y: -MarkData.centre.y)
-        var path = Path()
-        switch kind {
-        case .lens:
-            path.addEllipse(in: circle(MarkData.lensRadius))
-        case .border:
-            path.addEllipse(in: circle(MarkData.borderRadius))
-        case .facets(let shade):
-            for facet in MarkData.facets where facet.shade == shade {
-                path.addPath(MarkData.path(facet.d))
+    var body: some View {
+        ZStack {
+            GridShape(fit: fit) { .rounded(TerminalData.screen, TerminalData.screenRadius) }.fill(inks.mid)
+            GridShape(fit: fit) { .triangles() }.fill(inks.warm)
+            GridShape(fit: fit) { Path(TerminalData.centre) }.fill(inks.deep)
+            if inks.status.isPaid {
+                GridShape(fit: fit) { .tick() }
+                    .stroke(Color.white, style: StrokeStyle(lineWidth: TerminalData.tickStroke * fit.point(size), lineCap: .round, lineJoin: .round))
             }
         }
-        return path.applying(fit)
+        .clipShape(GridShape(fit: fit) { .rounded(TerminalData.screen, TerminalData.screenRadius) })
     }
+}
 
-    private func circle(_ radius: CGFloat) -> CGRect {
-        CGRect(x: MarkData.centre.x - radius, y: MarkData.centre.y - radius, width: 2 * radius, height: 2 * radius)
+/// The square form (TillWidget, `keys`): the terminal with its three keys
+/// counting the steps and its bottom bar as the progress. For the expanded
+/// island and the lock screen. [dark] is the charcoal body.
+struct WidgetTerminal: View {
+    var status: TillStatus
+    var size: CGFloat
+    var dark: Bool = false
+
+    var body: some View {
+        let inks = TerminalInks(dark: dark, status: status)
+        let fit = Fit.square
+        let bar = TerminalData.bar
+        let filled = CGRect(x: bar.minX, y: bar.minY, width: bar.width * status.progress, height: bar.height)
+        ZStack {
+            GridShape(fit: fit) { .rounded(TerminalData.body, TerminalData.bodyRadius) }.fill(inks.body)
+            ForEach(0..<3, id: \.self) { i in
+                GridShape(fit: fit) { .rounded(TerminalData.keys[i], TerminalData.keyRadius) }.fill(inks.keys[i])
+            }
+            GridShape(fit: fit) { .rounded(bar, TerminalData.barRadius) }.fill(inks.dim)
+            if status.step > 0 {
+                GridShape(fit: fit) { .rounded(bar, TerminalData.barRadius) }
+                    .fill(inks.fill)
+                    .mask(GridShape(fit: fit) { Path(filled) })
+            }
+            TerminalScreen(fit: fit, size: size, inks: inks)
+            GridShape(fit: fit) { .rounded(TerminalData.border, TerminalData.borderRadius) }
+                .stroke(inks.outline, lineWidth: TerminalData.borderStroke * fit.point(size))
+        }
+        .frame(width: size, height: size)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(status.label)
+        .accessibilityAddTraits(.isImage)
+    }
+}
+
+/// The round form (TillRound), for circular containers: the screen alone
+/// on a disc, scaled 1.22, with no keys and no outer ring; the progress
+/// runs clockwise round the screen's own border from 12 o'clock, a third a
+/// step, whole and green once paid. Its track is dim on the ink disc and
+/// ink on the dark one's charcoal.
+struct WidgetRound: View {
+    var status: TillStatus
+    var size: CGFloat
+    var dark: Bool = false
+
+    var body: some View {
+        let inks = TerminalInks(dark: dark, status: status)
+        let fit = Fit.round
+        let width = TerminalData.borderStroke * fit.point(size)
+        ZStack {
+            Circle().fill(inks.body)
+            TerminalScreen(fit: fit, size: size, inks: inks)
+            GridShape(fit: fit) { .border() }
+                .stroke(inks.track, lineWidth: width)
+            if status.step > 0 {
+                GridShape(fit: fit) { .border() }
+                    .trim(from: 0, to: status.progress)
+                    .stroke(inks.fill, style: StrokeStyle(lineWidth: width, lineCap: status.isPaid ? .butt : .round))
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(status.label)
+        .accessibilityAddTraits(.isImage)
     }
 }
 

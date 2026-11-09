@@ -318,7 +318,7 @@ class Overlay(
                         scaleX = 0.6f + 0.4f * p
                         scaleY = scaleX
                     },
-                ) { BubbleFace(s.look, pulses = s.pulses, confirms = s.buzzes, presence = presence, label = label) }
+                ) { BubbleFace(s.look, pulses = s.pulses, confirms = s.buzzes, presence = presence, label = label, step = s.sale?.ring?.step?.toInt() ?: 1) }
             }.apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS },
         )
         runCatching { wm.addView(frame, params) }.onSuccess {

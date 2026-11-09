@@ -27,7 +27,7 @@ import androidx.compose.ui.unit.Dp
 /**
  * The mark's measures that aren't paths (`docs/motion.md` §12.5 and
  * §13.5), in mark units: the SVG's 64-unit box, before the lens's own
- * 1.42 scale. Pure, so the rings and the arc are tested on the JVM.
+ * 1.42 scale. Pure, so the rings are tested on the JVM.
  */
 object MarkGeometry {
     /** The lens's centre and radius: every facet is clipped to it. */
@@ -44,16 +44,6 @@ object MarkGeometry {
 
     /** The ring the lens's base circle, under the facets, is coloured with: the middle twelve's, whose shade it is. */
     const val BASE_RING = 2
-
-    /** How much of the border the waiting bubble's chasing segment is: the canvas's 34 of 113.1 u (§12.6 item 1). */
-    const val ARC_SHARE = 0.30f
-
-    /** Where the chasing segment starts its turn, in degrees: 12 o'clock; it runs clockwise. */
-    const val ARC_START = -90f
-
-    /** The paid bubble's tick, drawn over the lens inside its clip. */
-    const val TICK = "M23.5 28.5 l4.3 4.3 8.7 -9"
-    const val TICK_STROKE = 3.2f
 
     /** Each facet and its shade (0 #ff6600, 1 #e85d00, 2 #c24e00), in the SVG's order: the core, the inner six, the middle twelve, the rim twelve. */
     val facets: List<Pair<String, Int>> = listOf(
@@ -169,31 +159,8 @@ private object MarkPaths {
         addOval(Rect(Offset(MarkGeometry.CENTRE_X, MarkGeometry.CENTRE_Y), MarkGeometry.LENS_RADIUS))
     }
 
-    /** The paid tick, whole, and its length, measured once. */
-    val tick: Path = p(MarkGeometry.TICK)
-    private val measure: PathMeasure = PathMeasure().apply { setPath(tick, forceClosed = false) }
-    private val tickLength: Float = measure.length
-
-    /**
-     * The tick trimmed to its first [trim] of its length: the one mutable
-     * thing the mark keeps, made once and refilled each frame of the draw
-     * (the main thread's alone, where every draw runs).
-     */
-    fun tick(trim: Float): Path {
-        if (trim >= 1f) return tick
-        trimmed.rewind()
-        measure.getSegment(0f, tickLength * trim, trimmed, startWithMoveTo = true)
-        return trimmed
-    }
-
-    private val trimmed: Path = Path()
-
     val centre = Offset(MarkGeometry.CENTRE_X, MarkGeometry.CENTRE_Y)
     val border = Stroke(MarkGeometry.BORDER_STROKE)
-    val arc = Stroke(MarkGeometry.BORDER_STROKE, cap = StrokeCap.Round)
-    val tickStroke = Stroke(MarkGeometry.TICK_STROKE, cap = StrokeCap.Round, join = StrokeJoin.Round)
-    val arcTopLeft = Offset(MarkGeometry.CENTRE_X - MarkGeometry.BORDER_RADIUS, MarkGeometry.CENTRE_Y - MarkGeometry.BORDER_RADIUS)
-    val arcSize = Size(2 * MarkGeometry.BORDER_RADIUS, 2 * MarkGeometry.BORDER_RADIUS)
 }
 
 const val GLINT_MS = 4200
@@ -251,33 +218,6 @@ private fun DrawScope.mark(ring: Color, grey: Boolean, time: Float?) = inMark {
     drawCircle(ring, MarkGeometry.BORDER_RADIUS, MarkPaths.centre, style = MarkPaths.border)
 }
 
-/**
- * The mark as the bubble draws it (`docs/motion.md` §12.5): the lens in
- * [lens]'s colours, ring by ring; the [border] round it; over the border,
- * at [arcAlpha], the [arc] segment chasing round it, [arcStart] degrees
- * clockwise of 12 o'clock and [MarkGeometry.ARC_SHARE] of the way round;
- * and the white tick over the lens drawn to [tick] of its length at
- * [tickAlpha], so it comes in along its path and leaves by fading. Every
- * argument is a value read in the caller's draw, so a frame of the chase,
- * the spread or the tick redraws and recomposes nothing, and nothing here
- * allocates: the paths and strokes are made once, and the tick's trim is
- * refilled into one kept path. No arc is drawn at an [arcAlpha] of 0, no
- * tick at a [tick] or [tickAlpha] of 0.
- */
-fun DrawScope.mark(lens: LensLook, border: Color, arcStart: Float, arcAlpha: Float, tick: Float, tickAlpha: Float, arc: Color = Fixed.Ink) = inMark {
-    clipPath(MarkPaths.lens) {
-        lens(lens)
-        if (tick > 0f && tickAlpha > 0f) drawPath(MarkPaths.tick(tick), Fixed.White, alpha = tickAlpha, style = MarkPaths.tickStroke)
-    }
-    drawCircle(border, MarkGeometry.BORDER_RADIUS, MarkPaths.centre, style = MarkPaths.border)
-    if (arcAlpha > 0f) {
-        drawArc(
-            arc, MarkGeometry.ARC_START + arcStart, MarkGeometry.ARC_SHARE * 360f, useCenter = false,
-            topLeft = MarkPaths.arcTopLeft, size = MarkPaths.arcSize, alpha = arcAlpha, style = MarkPaths.arc,
-        )
-    }
-}
-
 /** The Monokulo logo; [label] null when it's decoration. */
 @Composable
 fun Logo(size: Dp, modifier: Modifier = Modifier, ring: Color = mk.ink, grey: Boolean = false, label: String? = null) {
@@ -306,5 +246,156 @@ fun LoadingMark(size: Dp, label: String, modifier: Modifier = Modifier, ring: Co
         label = "glints",
     )
     Canvas(described) { mark(ring, false, time.value) }
+}
+
+/**
+ * Till's status mark, the app icon's terminal as Monokulo's "Keys count"
+ * canvas draws it, in its round form (`TillRound`): for the bubble, which
+ * is a circle. The screen alone, scaled 1.22 about the disc's centre, with
+ * no keys and no outer ring; the progress runs clockwise round the
+ * screen's own rounded-square border from 12 o'clock. Measures are on the
+ * canvas's 120 grid, so they match the icon's; the disc behind it is the
+ * caller's.
+ */
+object TillGeometry {
+    /** The screen, which the facets are clipped to. */
+    const val SCREEN = "M33.0,29.5H63.0A6.5,6.5 0 0 1 69.5,36.0V66.0A6.5,6.5 0 0 1 63.0,72.5H33.0A6.5,6.5 0 0 1 26.5,66.0V36.0A6.5,6.5 0 0 1 33.0,29.5Z"
+
+    /** The screen's eight triangles round its centre square, in the warm shade. */
+    const val FACETS = "M43,46H53L48,39.5ZM53,46V56L59.5,51ZM53,56H43L48,62.5ZM43,56V46L36.5,51ZM48,39.5L26.5,29.5H69.5ZM59.5,51L69.5,29.5V72.5ZM48,62.5L69.5,72.5H26.5ZM36.5,51L26.5,72.5V29.5Z"
+
+    /** The centre square, in the deep shade. */
+    const val CENTRE = "M43,46H53V56H43Z"
+
+    /** The screen's border, from 12 o'clock, clockwise: the track the progress runs round. */
+    const val BORDER = "M48,27H63A9,9 0 0 1 72,36V66A9,9 0 0 1 63,75H33A9,9 0 0 1 24,66V36A9,9 0 0 1 33,27Z"
+    const val BORDER_STROKE = 5f
+
+    /** The paid screen's tick, drawn over it inside its clip. */
+    const val TICK = "M37.5,51.5 l7,7 l14,-15"
+    const val TICK_STROKE = 5f
+
+    /** The disc's box on the grid (the canvas's viewBox `10 10 100 100`), and the screen's scale in it, about the screen's centre (48, 51). */
+    const val BOX = 100f
+    const val SCALE = 1.22f
+    const val SCREEN_X = 48f
+    const val SCREEN_Y = 51f
+
+    /** How much of the border the running segment is while the code waits to be scanned. */
+    const val RUN_SHARE = 0.22f
+
+    /** The steps of progress after the first: seen, confirming, paid. */
+    const val STEPS = 3
+
+    /**
+     * How many of the [STEPS] the border is filled to for a bubble that is
+     * [idle] or [paid], or lit at the sale's ring [step] (1 waiting, 2
+     * seen, 3 confirming, 4 paid; 0 for a sale that ended unpaid): the
+     * canvas's 1/3 at seen, 2/3 at confirming, the whole once paid.
+     */
+    fun steps(idle: Boolean, paid: Boolean, step: Int): Int = when {
+        idle -> 0
+        paid || step >= 4 -> STEPS
+        step == 3 -> 2
+        step == 2 -> 1
+        else -> 0
+    }
+
+    /** Whether the orange segment runs round the border: the code is up and no payment is on its way yet. */
+    fun runs(idle: Boolean, paid: Boolean, step: Int): Boolean = !idle && !paid && step < 2
+}
+
+private object TillPaths {
+    private fun p(d: String): Path = PathParser().parsePathString(d).toPath()
+
+    val screen: Path = p(TillGeometry.SCREEN)
+    val facets: Path = p(TillGeometry.FACETS)
+    val centre: Path = p(TillGeometry.CENTRE)
+    val border: Path = p(TillGeometry.BORDER)
+    private val tickWhole: Path = p(TillGeometry.TICK)
+
+    val borderStroke = Stroke(TillGeometry.BORDER_STROKE)
+    val segmentStroke = Stroke(TillGeometry.BORDER_STROKE, cap = StrokeCap.Round)
+    val tickStroke = Stroke(TillGeometry.TICK_STROKE, cap = StrokeCap.Round, join = StrokeJoin.Round)
+
+    private val borderMeasure = PathMeasure().apply { setPath(border, forceClosed = false) }
+    private val borderLength = borderMeasure.length
+    private val tickMeasure = PathMeasure().apply { setPath(tickWhole, forceClosed = false) }
+    private val tickLength = tickMeasure.length
+
+    /** The two kept paths a frame refills: the border's segment, and the tick's trim (the main thread's alone, where every draw runs). */
+    private val segment = Path()
+    private val trimmed = Path()
+
+    /** The border from [from] to [to] of its length, both in 0..1, into the one kept path. */
+    fun segment(from: Float, to: Float): Path {
+        segment.rewind()
+        borderMeasure.getSegment(borderLength * from, borderLength * to, segment, startWithMoveTo = true)
+        return segment
+    }
+
+    fun tick(trim: Float): Path {
+        if (trim >= 1f) return tickWhole
+        trimmed.rewind()
+        tickMeasure.getSegment(0f, tickLength * trim, trimmed, startWithMoveTo = true)
+        return trimmed
+    }
+}
+
+/** [block] on the canvas's 120 grid: the 100-unit box fitted to the canvas, the screen scaled about its centre onto the box's. */
+private inline fun DrawScope.inTill(block: DrawScope.() -> Unit) {
+    scale(size.minDimension / TillGeometry.BOX, pivot = Offset.Zero) {
+        translate(TillGeometry.BOX / 2, TillGeometry.BOX / 2) {
+            scale(TillGeometry.SCALE, pivot = Offset.Zero) {
+                translate(-TillGeometry.SCREEN_X, -TillGeometry.SCREEN_Y) { block() }
+            }
+        }
+    }
+}
+
+/**
+ * Till's round status mark: the screen in [lens]'s colours (the middle
+ * twelve's shade the screen, the inner six's the triangles, the core's the
+ * centre square: the icon's three shades); the border's [track], and over
+ * it the [fill] (0..1) of the way round from 12 o'clock in [fillInk], and
+ * the running segment ([TillGeometry.RUN_SHARE] of the border) in orange
+ * at [runAlpha], [runStart] (0..1) of the way round; and the white tick
+ * drawn to [tick] of its length at [tickAlpha]. Every argument is a value
+ * the caller reads in its draw, so a frame redraws and recomposes nothing,
+ * and nothing here allocates: the paths and strokes are made once, and the
+ * segment and the tick's trim are refilled into kept paths.
+ */
+fun DrawScope.till(
+    lens: LensLook,
+    track: Color,
+    fill: Float,
+    fillInk: Color,
+    runStart: Float,
+    runAlpha: Float,
+    tick: Float,
+    tickAlpha: Float,
+    run: Color = Fixed.Accent,
+) = inTill {
+    clipPath(TillPaths.screen) {
+        drawPath(TillPaths.screen, lens[MarkGeometry.BASE_RING])
+        drawPath(TillPaths.facets, lens[1])
+        drawPath(TillPaths.centre, lens[0])
+        if (tick > 0f && tickAlpha > 0f) drawPath(TillPaths.tick(tick), Fixed.White, alpha = tickAlpha, style = TillPaths.tickStroke)
+    }
+    drawPath(TillPaths.border, track, style = TillPaths.borderStroke)
+    if (fill >= 1f) {
+        drawPath(TillPaths.border, fillInk, style = TillPaths.borderStroke)
+    } else if (fill > 0f) {
+        drawPath(TillPaths.segment(0f, fill), fillInk, style = TillPaths.segmentStroke)
+    }
+    if (runAlpha > 0f) {
+        val end = runStart + TillGeometry.RUN_SHARE
+        if (end <= 1f) {
+            drawPath(TillPaths.segment(runStart, end), run, alpha = runAlpha, style = TillPaths.segmentStroke)
+        } else {
+            drawPath(TillPaths.segment(runStart, 1f), run, alpha = runAlpha, style = TillPaths.segmentStroke)
+            drawPath(TillPaths.segment(0f, end - 1f), run, alpha = runAlpha, style = TillPaths.segmentStroke)
+        }
+    }
 }
 

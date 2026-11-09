@@ -9,6 +9,7 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColor
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Transition
 import androidx.compose.animation.core.updateTransition
@@ -131,7 +132,8 @@ import com.monokulo.till.ui.ReceiptFolds
 import com.monokulo.till.ui.rememberReceiptRoom
 import com.monokulo.till.ui.display
 import com.monokulo.till.ui.tabular
-import com.monokulo.till.ui.mark
+import com.monokulo.till.ui.TillGeometry
+import com.monokulo.till.ui.till
 import com.monokulo.till.ui.mk
 import com.monokulo.till.ui.motion
 import kotlinx.coroutines.launch
@@ -281,14 +283,17 @@ class PanelActions(
 )
 
 /**
- * The bubble (the design's Bubble part, B5 c): the Till logo in each
- * [look]. Faded and grey with nothing to do; a still orange lens for a
- * sale whose code is up, its border a pale track with an ink segment
- * chasing round it (and a pulse behind); once it's paid, the lens fills
- * green from the core out and a white tick draws over it, the border
- * whole ink. Its colours are the design's own ([BubbleInks]), not the
- * theme's: it sits over another app, on a white disc, or a dark one when
- * the device is in night mode. [confirms] is whether a payment landing on it buzzes:
+ * The bubble (Monokulo's "Keys count" status mark, in its round form): the
+ * terminal icon's screen on a dark disc, in each [look]. Faded and grey
+ * with nothing to do; orange for a sale whose code is up, an orange segment
+ * running round the screen's border while it waits to be scanned (and a
+ * pulse behind); the border filling a third at [step] 2 (the payment seen)
+ * and two thirds at 3 (confirming), the sale ring's own steps; once it's
+ * paid, the screen goes green from the centre out, a white tick draws over
+ * it and the border is whole green. Its colours are the design's own
+ * ([BubbleInks]), not the theme's: it sits over another app, on the icon's
+ * ink disc, or its charcoal one when the device is in night mode.
+ * [confirms] is whether a payment landing on it buzzes:
  * only while Till is away (the engine's `BubbleView.buzzes`, decision 176). [pulse] is false for the bubble docked above the panel,
  * which has nothing left to call for; [pulses] is the engine's word for the
  * free bubble (`BubbleView.pulses`: a code waits for its money and no panel
@@ -306,10 +311,11 @@ fun BubbleFace(
     confirms: Boolean = true,
     presence: Presence? = null,
     label: String? = null,
+    step: Int = 1,
 ) = Box(
     Modifier.padding(if (pulse) BubblePadding else DockedPadding).clearAndSetSemantics { if (label != null) contentDescription = label },
     contentAlignment = Alignment.Center,
-) { Circle(look, pulse && pulses, confirms, presence) }
+) { Circle(look, step, pulse && pulses, confirms, presence) }
 
 /** Room round the bubble's circle in its window: the pulse's halo reaches 16 dp out and isn't clipped. */
 val BubblePadding = 16.dp
@@ -322,20 +328,20 @@ internal val BubbleSize = 56.dp
 
 private val BubbleElevation = 6.dp
 
-/** The logo in the bubble, the same size in every look (§12.6 item 2): its border's edge leaves about 7 dp of the disc round it. */
-internal val BubbleMark = 46.dp
+/** The terminal in the bubble, the same size in every look: the canvas's own disc, with the screen scaled 1.22 in it ([TillGeometry]). */
+internal val BubbleMark = BubbleSize
 
 /**
- * The bubble's colours in light and dark mode: its [disc], the waiting
- * border's [track], the [ink] chasing round it (and the whole border,
- * waiting under Still or paid) and the [idle] border. The lens and the
- * paid tick are the same in both.
+ * The bubble's colours in light and dark mode: its [disc] (the icon's body:
+ * ink, or the dark icon's charcoal) and the screen border's [track], the
+ * unfilled part (dim on ink; ink on charcoal). The screen, the orange
+ * segment, the fill and the paid tick are the same in both.
  */
 @Immutable
-internal class BubbleInks(val disc: Color, val track: Color, val ink: Color, val idle: Color) {
+internal class BubbleInks(val disc: Color, val track: Color) {
     companion object {
-        val Light = BubbleInks(Fixed.White, Fixed.ChaseTrack, Fixed.Ink, Fixed.IdleBorder)
-        val Dark = BubbleInks(Fixed.BubbleDark, Fixed.BubbleDarkTrack, Fixed.BubbleDarkInk, Fixed.BubbleDarkIdleBorder)
+        val Light = BubbleInks(Fixed.Ink, Fixed.TerminalDim)
+        val Dark = BubbleInks(Fixed.TerminalCharcoal, Fixed.Ink)
 
         fun of(dark: Boolean): BubbleInks = if (dark) Dark else Light
     }
@@ -364,38 +370,41 @@ private class Rings(private val core: State<Color>, private val inner: State<Col
 /**
  * One circle whatever the look (`docs/motion.md` M4, §12.5): its shadow
  * and place stay; one transition of the look moves the bubble's alpha and
- * ground, the border's colour, each ring of the lens (from the core out,
- * [Motion.spread]), the chasing arc's alpha and the tick's trim and alpha, and one
- * infinite transition, only while it is lit (or pulsing), runs the chase
- * and the pulse. Every value is read in the layer or the draw, so a
- * change recomposes nothing per frame. A paid mid-turn holds the arc
- * where it was while it fades into the darkening border; a look changed
- * mid-spread turns each ring from where it is.
+ * ground, each shade of the screen (from the core out, [Motion.spread]),
+ * and the tick's trim and alpha; the border's fill is a [Motion.sweep]
+ * towards the third its step asks for ([TillGeometry.steps]), in orange,
+ * green once paid; the running segment's alpha fades in while the code
+ * waits for its scan and out once a payment is on its way; and one
+ * infinite transition, only while it is lit (or pulsing), runs the segment
+ * round and the pulse. Every value is read in the layer or the draw, so a
+ * change recomposes nothing per frame. A step that arrives mid-run holds
+ * the segment where it was while it fades; a look changed mid-spread turns
+ * each shade from where it is. With loops off ([Motion.Still]) nothing
+ * runs or pulses: the screen's colour and the border's fill say the state.
  */
 @Composable
-private fun Circle(look: BubbleLook, pulses: Boolean, confirms: Boolean, presence: Presence?) {
+private fun Circle(look: BubbleLook, step: Int, pulses: Boolean, confirms: Boolean, presence: Presence?) {
     val m = motion
     // The theme follows the device's night mode, and the overlay's windows are themed: so does the bubble.
     val inks = BubbleInks.of(mk.dark)
     val t = updateTransition(look, label = "bubble")
     val alpha = t.animateFloat({ m.fade.fraction }, label = "alpha") { if (it == BubbleLook.IDLE) 0.55f else 1f }
     val ground = t.animateColor({ m.fade.spec() }, label = "ground") { if (it == BubbleLook.IDLE) inks.disc.copy(alpha = 0.9f) else inks.disc }
-    val border = t.animateColor({ m.fade.spec() }, label = "border") {
-        when (it) {
-            BubbleLook.IDLE -> inks.idle
-            // With no chase (Still) the waiting border is whole ink, the arc not drawn.
-            BubbleLook.LIT -> if (m.chase == null) inks.ink else inks.track
-            BubbleLook.PAID -> inks.ink
-        }
-    }
+    // The track follows a night-mode switch over the fade, as the disc does.
+    val track = animateColorAsState(inks.track, m.fade.spec(), label = "track")
     val core = t.animateColor({ m.spread[0].spec() }, label = "core") { lensOf(it)[0] }
     val inner = t.animateColor({ m.spread[1].spec() }, label = "inner") { lensOf(it)[1] }
     val middle = t.animateColor({ m.spread[2].spec() }, label = "middle") { lensOf(it)[2] }
     val rim = t.animateColor({ m.spread[3].spec() }, label = "rim") { lensOf(it)[3] }
     val lens = remember(core, inner, middle, rim) { Rings(core, inner, middle, rim) }
-    // The arc's ink follows a night-mode switch over the fade, as the track under it does.
-    val arcInk = animateColorAsState(inks.ink, m.fade.spec(), label = "arc ink")
-    val arcAlpha = t.animateFloat({ m.fade.fraction }, label = "arc") { if (it == BubbleLook.LIT && m.chase != null) 1f else 0f }
+    val idle = look == BubbleLook.IDLE
+    val paid = look == BubbleLook.PAID
+    // The border's fill: a third a step, the whole once paid, back to nothing as the bubble fades.
+    val filled = animateFloatAsState(TillGeometry.steps(idle, paid, step).toFloat() / TillGeometry.STEPS, m.sweep.fraction, label = "fill")
+    val fillInk = animateColorAsState(if (paid) Fixed.PaidLight else Fixed.Accent, m.fade.spec(), label = "fill ink")
+    // The segment runs while the code waits for its scan: with no loop (Still) it is not drawn.
+    val running = TillGeometry.runs(idle, paid, step)
+    val runAlpha = animateFloatAsState(if (running && m.chase != null) 1f else 0f, m.fade.fraction, label = "run")
     // The tick is drawn in along its path and leaves by fading whole: its trim only grows, rewound once it is invisible.
     val tick = t.animateFloat({ (if (targetState == BubbleLook.PAID) m.tick else m.untick).fraction }, label = "tick") {
         if (it == BubbleLook.PAID) 1f else 0f
@@ -405,11 +414,11 @@ private fun Circle(look: BubbleLook, pulses: Boolean, confirms: Boolean, presenc
     val pulseTurn = m.pulse
     val chaseTurn = m.chase
     val pulsing = pulseTurn != null && pulses && look == BubbleLook.LIT
-    val chasing = chaseTurn != null && look == BubbleLook.LIT
+    val chasing = chaseTurn != null && running
     val loops = if (pulsing || chasing) rememberInfiniteTransition(label = "bubble loops") else null
     val halo = if (pulsing && loops != null) loops.animateFloat(0f, 1f, pulseTurn!!, label = "halo") else null
-    val chase = if (chasing && loops != null) loops.animateFloat(0f, 360f, chaseTurn!!, label = "chase") else null
-    // Where the arc was when the chase stopped, so it fades out there rather than jumping to 12 o'clock: written by the draw.
+    val chase = if (chasing && loops != null) loops.animateFloat(0f, 1f, chaseTurn!!, label = "chase") else null
+    // Where the segment was when the chase stopped, so it fades out there rather than jumping to 12 o'clock: written by the draw.
     val heldAt = remember { FloatArray(1) }
     if (confirms) Confirm(look)
     Box(
@@ -433,7 +442,7 @@ private fun Circle(look: BubbleLook, pulses: Boolean, confirms: Boolean, presenc
     ) {
         Canvas(Modifier.size(BubbleMark).testTag(BUBBLE_MARK_TAG)) {
             if (chase != null) heldAt[0] = chase.value
-            mark(lens, border.value, heldAt[0], arcAlpha.value, tick.value, tickAlpha.value, arcInk.value)
+            till(lens, track.value, filled.value, fillInk.value, heldAt[0], runAlpha.value, tick.value, tickAlpha.value)
         }
     }
 }
