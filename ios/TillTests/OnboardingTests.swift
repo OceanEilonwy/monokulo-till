@@ -11,7 +11,7 @@ struct OnboardingTests {
     private let clover = "https://till.monokulo.com/clover"
 
     private func link(_ text: String) throws -> IncomingLink {
-        IncomingLink.of(try #require(URL(string: text)), square: square, clover: clover)
+        IncomingLink.of(try #require(URL(string: text)), square: square, clover: clover, host: "till.monokulo.com")
     }
 
     @Test func setupScreensAreOnboardingAndTheRestTheTill() {
@@ -67,12 +67,16 @@ struct OnboardingTests {
     }
 
     @Test func aSandboxSignInEndsAtTheDebugPageAndComesBackThroughTheScheme() throws {
-        let square = TillShared.squareRedirect(sandbox: true)
-        let clover = TillShared.cloverRedirect(environment: "sandbox")
+        let host = "till.monokulo.com"
+        let square = TillShared.squareRedirect(sandbox: true, host: host)
+        let clover = TillShared.cloverRedirect(environment: "sandbox", host: host)
         #expect(square == "https://till.monokulo.com/square/debug/")
         #expect(clover == "https://till.monokulo.com/clover/debug/")
-        #expect(TillShared.squareRedirect(sandbox: false) == self.square)
-        #expect(TillShared.cloverRedirect(environment: "europe") == self.clover)
+        #expect(TillShared.squareRedirect(sandbox: false, host: host) == self.square)
+        #expect(TillShared.cloverRedirect(environment: "europe", host: host) == self.clover)
+        // Without one, the build's (a test build's is project.yml's placeholder).
+        #expect(TillShared.squareRedirect(sandbox: false) == "https://\(Build.linkHost)/square")
+        #expect(Build.linkHost == "till.invalid")
         let page = try #require(URL(string: "https://example.com/oauth"))
         #expect(SignInCallback.of(page: page, fallback: square) == .https(host: "till.monokulo.com", path: "/square/debug/"))
         // The debug page's forward to the app reaches the engine as its redirect.

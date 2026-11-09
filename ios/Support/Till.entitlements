@@ -3,15 +3,15 @@
 <plist version="1.0">
 <dict>
 	<!--
-	Universal links on till.monokulo.com ("Open in Till" connect links and the
+	Universal links on the build's TILL_LINK_HOST ("Open in Till" connect links and the
 	points of sale's redirects), and the same domain for
 	ASWebAuthenticationSession's https callback. The site's
 	.well-known/apple-app-site-association names the app (site/).
 	-->
 	<key>com.apple.developer.associated-domains</key>
 	<array>
-		<string>applinks:till.monokulo.com</string>
-		<string>webcredentials:till.monokulo.com</string>
+		<string>applinks:$(TILL_LINK_HOST)</string>
+		<string>webcredentials:$(TILL_LINK_HOST)</string>
 	</array>
 	<!--
 	A new sale's alert while Till is tucked off the edge (PadTucked) is

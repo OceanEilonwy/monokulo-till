@@ -18,6 +18,10 @@ enum Build {
     /// answer (`.invalid`), as no deployment's are in the source.
     static let relayUrl = value("TillRelayUrl") ?? "https://relay.invalid"
     static let bellUrl = value("TillBellUrl") ?? "https://bell.invalid"
+    /// The web host of the app's universal links and the points of sale's
+    /// sign-in redirects (`TILL_LINK_HOST`), which the associated domains
+    /// name too.
+    static let linkHost = value("TillLinkHost") ?? "till.invalid"
 
     private static func value(_ key: String) -> String? {
         guard let value = Bundle.main.object(forInfoDictionaryKey: key) as? String,

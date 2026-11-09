@@ -25,7 +25,7 @@ struct RootView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.25), value: core.screen)
-            // Universal links on till.monokulo.com and the monokulo-till scheme.
+            // Universal links on the build's link host and the monokulo-till scheme.
             .onOpenURL { url in core.open(url) }
             .onChange(of: scenePhase) { _, phase in
                 switch phase {

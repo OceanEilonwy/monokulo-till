@@ -41,6 +41,12 @@ settings:
     # never answer, for builds that don't push.
     TILL_RELAY_URL: https://relay.invalid
     TILL_BELL_URL: https://bell.invalid
+    # The web host of the app's universal links, where the points of sale's
+    # sign-ins come back (/square, /clover, and their sandboxes' /debug/
+    # pages) and "Open in Till" links live; the associated domains name it
+    # too. The testflight environment's TILL_LINK_HOST; a host that never
+    # resolves for builds that don't sign in.
+    TILL_LINK_HOST: till.invalid
 targets:
   Till:
     type: application

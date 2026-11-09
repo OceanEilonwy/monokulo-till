@@ -16,7 +16,7 @@
 	</dict>
 	<!--
 	The points of sale's application ids and environments, and the push relay
-	and Bell, from the build
+	and Bell, and the universal links' host, from the build
 	settings of the same names (project.yml, release-ios.yml), for Build.swift.
 	-->
 	<key>TillSquareApplicationId</key>
@@ -31,5 +31,7 @@
 	<string>$(TILL_RELAY_URL)</string>
 	<key>TillBellUrl</key>
 	<string>$(TILL_BELL_URL)</string>
+	<key>TillLinkHost</key>
+	<string>$(TILL_LINK_HOST)</string>
 </dict>
 </plist>

@@ -48,6 +48,8 @@ jobs:
       # The deployment's push relay and Bell.
       TILL_RELAY_URL: ${{ vars.TILL_RELAY_URL }}
       TILL_BELL_URL: ${{ vars.TILL_BELL_URL }}
+      # The universal links' host, where the sign-ins come back.
+      TILL_LINK_HOST: ${{ vars.TILL_LINK_HOST }}
       BUILD_NUMBER: ${{ github.run_number }}
     steps:
       # Before anything costs macOS minutes: every secret and the variable,
@@ -76,6 +78,7 @@ jobs:
           need TILL_CLOVER_ENVIRONMENT "$TILL_CLOVER_ENVIRONMENT" "a variable of the testflight environment" '^(north_america|europe|latin_america|sandbox)$' "north_america, europe, latin_america or sandbox"
           need TILL_RELAY_URL "$TILL_RELAY_URL" "a variable of the testflight environment" '^https://[A-Za-z0-9.-]+(:[0-9]+)?$' "an https address with no path, such as https://push.example.org"
           need TILL_BELL_URL "$TILL_BELL_URL" "a variable of the testflight environment" '^https://[A-Za-z0-9.-]+(:[0-9]+)?$' "an https address with no path, such as https://bell.example.org"
+          need TILL_LINK_HOST "$TILL_LINK_HOST" "a variable of the testflight environment" '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$' "a host name alone, such as till.example.org"
           case "$TILL_SQUARE_APPLICATION_ID:$TILL_SQUARE_SANDBOX" in
             sandbox-*:false|sq0id*:true)
               echo "::error::TILL_SQUARE_SANDBOX ($TILL_SQUARE_SANDBOX) doesn't match the application id's environment (docs/release.md)"
@@ -166,6 +169,7 @@ jobs:
             TILL_CLOVER_ENVIRONMENT="$TILL_CLOVER_ENVIRONMENT" \
             TILL_RELAY_URL="$TILL_RELAY_URL" \
             TILL_BELL_URL="$TILL_BELL_URL" \
+            TILL_LINK_HOST="$TILL_LINK_HOST" \
             2>&1 | tee "$LOGS/archive.log"
       # ExportOptions.plist with this team, and a copy that exports an .ipa
       # here instead of uploading.

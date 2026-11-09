@@ -1,13 +1,13 @@
 import Foundation
 
-/// A link that opened the app (`.onOpenURL`: a universal link on
-/// till.monokulo.com, or the `monokulo-till` scheme), as the engine takes it.
+/// A link that opened the app (`.onOpenURL`: a universal link on the
+/// build's link host, or the `monokulo-till` scheme), as the engine takes it.
 ///
-/// - A point of sale's redirect, `https://till.monokulo.com/square?code=…`
+/// - A point of sale's redirect, `https://<link host>/square?code=…`
 ///   (or `/clover`), is a sign-in coming back. So is the scheme's
 ///   `monokulo-till://square?…`, rewritten to the redirect the engine's
 ///   setup names, since the engine matches its `redirect_uri`.
-/// - "Open in Till", `https://till.monokulo.com/connect#<connect link>`,
+/// - "Open in Till", `https://<link host>/connect#<connect link>`,
 ///   carries the store's connect link percent-encoded in its fragment, which
 ///   never leaves the device, as the link's own `#token=` never does.
 /// - Anything else is handed over as a connect link, for the engine to take
@@ -16,14 +16,15 @@ enum IncomingLink: Equatable {
     case connect(String)
     case signInReturned(String)
 
-    /// Till's own web host, where its universal links live.
-    static let host = "till.monokulo.com"
+    /// Till's own web host, where its universal links live: the build's
+    /// `TILL_LINK_HOST`.
+    static var host: String { Build.linkHost }
     /// The app's URL schemes: release, and debug builds'.
     static let schemes: Set<String> = ["monokulo-till", "monokulo-till-debug"]
 
     /// `url` read against the setups' redirect URIs (`SquareSetup` and
     /// `CloverSetup`'s `redirectUri`).
-    static func of(_ url: URL, square: String, clover: String) -> IncomingLink {
+    static func of(_ url: URL, square: String, clover: String, host linkHost: String = IncomingLink.host) -> IncomingLink {
         let text = url.absoluteString
         let opened = Self.base(text)
         if opened == Self.base(square) || opened == Self.base(clover) {
@@ -39,7 +40,7 @@ enum IncomingLink: Equatable {
             default: break
             }
         }
-        if scheme == "https", host == Self.host, parts?.path.hasPrefix("/connect") == true {
+        if scheme == "https", host == linkHost.lowercased(), parts?.path.hasPrefix("/connect") == true {
             let wrapped = parts?.percentEncodedFragment?.removingPercentEncoding ?? ""
             return .connect(wrapped.isEmpty ? text : wrapped)
         }

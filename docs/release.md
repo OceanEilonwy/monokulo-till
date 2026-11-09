@@ -80,6 +80,7 @@ This page lists the one-time setup, in order (docs/ios-plan.md §5, phase I7).
    | `TILL_CLOVER_ENVIRONMENT` | `north_america`, `europe`, `latin_america` or `sandbox` |
    | `TILL_RELAY_URL` | the push relay's https address, such as `https://push.monokulo.com` |
    | `TILL_BELL_URL` | the Bell's https address, such as `https://bell.monokulo.com` |
+   | `TILL_LINK_HOST` | the host of the app's universal links and sign-in redirects, such as `till.monokulo.com` (§5) |
 
    ```sh
    gh variable set TILL_SQUARE_APPLICATION_ID --env testflight --body sq0idp-…
@@ -88,6 +89,7 @@ This page lists the one-time setup, in order (docs/ios-plan.md §5, phase I7).
    gh variable set TILL_CLOVER_ENVIRONMENT --env testflight --body north_america
    gh variable set TILL_RELAY_URL --env testflight --body https://push.monokulo.com
    gh variable set TILL_BELL_URL --env testflight --body https://bell.monokulo.com
+   gh variable set TILL_LINK_HOST --env testflight --body till.monokulo.com
    ```
    The iOS app signs in through universal links on `till.monokulo.com`.
    A production Square application's OAuth redirect URL must be

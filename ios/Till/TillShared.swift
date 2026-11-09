@@ -47,13 +47,13 @@ enum TillShared {
     /// (the `webcredentials` domain), and should the page load anyway it
     /// forwards an iPhone or iPad to `monokulo-till://square`, which
     /// `IncomingLink` reads back to this address (docs/release.md).
-    static func squareRedirect(sandbox: Bool) -> String {
-        sandbox ? "https://till.monokulo.com/square/debug/" : "https://till.monokulo.com/square"
+    static func squareRedirect(sandbox: Bool, host: String = Build.linkHost) -> String {
+        sandbox ? "https://\(host)/square/debug/" : "https://\(host)/square"
     }
 
     /// As `squareRedirect`, for Clover's sandbox.
-    static func cloverRedirect(environment: String) -> String {
-        environment == "sandbox" ? "https://till.monokulo.com/clover/debug/" : "https://till.monokulo.com/clover"
+    static func cloverRedirect(environment: String, host: String = Build.linkHost) -> String {
+        environment == "sandbox" ? "https://\(host)/clover/debug/" : "https://\(host)/clover"
     }
 
     /// What the engine needs to know about this device and build

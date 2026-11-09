@@ -30,7 +30,13 @@ are `-Ptill.clover.applicationId=…` (the app's App ID) and
 `latin_america` or `sandbox`; Clover's app secret is never used either (its
 PKCE flow for low-trust apps needs none).
 
-A release build signs in through the App Link host `till.monokulo.com`, so
+The deployment's addresses are build properties too, never in the source:
+`-Ptill.link.host=till.monokulo.com`, the App Link host where sign-ins come
+back, and `-Ptill.bell.url=https://bell.monokulo.com`, the Bell Settings ›
+Wake-ups offers. Without them a build gets `.invalid` names that never
+resolve, so they belong in `~/.gradle/gradle.properties` too.
+
+A release build signs in through the App Link host (`till.monokulo.com` here), so
 the Square application's OAuth redirect URL is
 `https://till.monokulo.com/square` and the Clover app's Site URL is
 `https://till.monokulo.com/clover`; a debug build comes back through

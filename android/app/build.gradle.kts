@@ -3,6 +3,12 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+// The web host of the app's App Links, where the points of sale's sign-ins
+// come back (/square, /clover, and their sandboxes' /debug/ pages): the
+// deployment's, from -Ptill.link.host (or ~/.gradle/gradle.properties),
+// never in the source; a host that never resolves otherwise.
+val linkHost: String = providers.gradleProperty("till.link.host").getOrElse("till.invalid")
+
 android {
     namespace = "com.monokulo.till"
     compileSdk = 37
@@ -14,6 +20,7 @@ android {
         targetSdk = 37
         versionCode = 1
         versionName = "0.1.0"
+        manifestPlaceholders["tillLinkHost"] = linkHost
         // The project's Square application (docs/design.md §1). Public: the
         // till signs in with PKCE, so no secret is ever built in. Replace the
         // placeholder once the Square application exists.
@@ -21,8 +28,8 @@ android {
         buildConfigField("boolean", "SQUARE_SANDBOX", providers.gradleProperty("till.square.sandbox").getOrElse("false"))
         // Where Square sends the sign-in back, and where it comes back into
         // the app: the same App Link in a release build.
-        buildConfigField("String", "SQUARE_REDIRECT_URI", "\"https://till.monokulo.com/square\"")
-        buildConfigField("String", "SQUARE_RETURN_URI", "\"https://till.monokulo.com/square\"")
+        buildConfigField("String", "SQUARE_REDIRECT_URI", "\"https://$linkHost/square\"")
+        buildConfigField("String", "SQUARE_RETURN_URI", "\"https://$linkHost/square\"")
         buildConfigField("String", "SQUARE_BASE_URL", "\"\"")
         // The project's Clover application and the region it is in (sandbox,
         // north_america, europe or latin_america). Public too: Clover's
@@ -31,8 +38,8 @@ android {
         buildConfigField("String", "CLOVER_APPLICATION_ID", "\"${providers.gradleProperty("till.clover.applicationId").getOrElse("REPLACE-ME-CLOVER")}\"")
         buildConfigField("String", "CLOVER_ENVIRONMENT", "\"${providers.gradleProperty("till.clover.environment").getOrElse("north_america")}\"")
         // Clover sends the sign-in to a path under the application's Site URL, https only: the App Link.
-        buildConfigField("String", "CLOVER_REDIRECT_URI", "\"https://till.monokulo.com/clover\"")
-        buildConfigField("String", "CLOVER_RETURN_URI", "\"https://till.monokulo.com/clover\"")
+        buildConfigField("String", "CLOVER_REDIRECT_URI", "\"https://$linkHost/clover\"")
+        buildConfigField("String", "CLOVER_RETURN_URI", "\"https://$linkHost/clover\"")
         buildConfigField("String", "CLOVER_BASE_URL", "\"\"")
         // The project's Monokulo Bell (docs/design.md §3), which Settings ›
         // Wake-ups offers by name: the deployment's, from -Ptill.bell.url (or
@@ -55,7 +62,7 @@ android {
             // the scheme; the stand-in Square sends it to the scheme itself.
             // -Ptill.square.redirectUri=… names another such page.
             val squareRedirect = providers.gradleProperty("till.square.redirectUri")
-                .getOrElse(if (squareBase.isEmpty()) "https://till.monokulo.com/square/debug/" else "monokulo-till-debug://square")
+                .getOrElse(if (squareBase.isEmpty()) "https://$linkHost/square/debug/" else "monokulo-till-debug://square")
             buildConfigField("String", "SQUARE_REDIRECT_URI", "\"$squareRedirect\"")
             buildConfigField("String", "SQUARE_RETURN_URI", "\"monokulo-till-debug://square\"")
             // The same for Clover: -Ptill.clover.baseUrl=http://10.0.2.2:8740 for
@@ -64,7 +71,7 @@ android {
             val cloverBase = providers.gradleProperty("till.clover.baseUrl").getOrElse("")
             buildConfigField("String", "CLOVER_BASE_URL", "\"$cloverBase\"")
             val cloverRedirect = providers.gradleProperty("till.clover.redirectUri")
-                .getOrElse(if (cloverBase.isEmpty()) "https://till.monokulo.com/clover/debug/" else "monokulo-till-debug://clover")
+                .getOrElse(if (cloverBase.isEmpty()) "https://$linkHost/clover/debug/" else "monokulo-till-debug://clover")
             buildConfigField("String", "CLOVER_REDIRECT_URI", "\"$cloverRedirect\"")
             buildConfigField("String", "CLOVER_RETURN_URI", "\"monokulo-till-debug://clover\"")
         }
