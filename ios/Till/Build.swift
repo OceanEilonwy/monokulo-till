@@ -13,6 +13,11 @@ enum Build {
     static let cloverApplicationId = value("TillCloverApplicationId") ?? "REPLACE-ME-CLOVER"
     /// `north_america`, `europe`, `latin_america` or `sandbox`.
     static let cloverEnvironment = value("TillCloverEnvironment") ?? "north_america"
+    /// The push relay and the Bell the deployment runs (`TILL_RELAY_URL`,
+    /// `TILL_BELL_URL`). A build without them gets addresses that never
+    /// answer (`.invalid`), as no deployment's are in the source.
+    static let relayUrl = value("TillRelayUrl") ?? "https://relay.invalid"
+    static let bellUrl = value("TillBellUrl") ?? "https://bell.invalid"
 
     private static func value(_ key: String) -> String? {
         guard let value = Bundle.main.object(forInfoDictionaryKey: key) as? String,

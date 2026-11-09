@@ -35,8 +35,10 @@ android {
         buildConfigField("String", "CLOVER_RETURN_URI", "\"https://till.monokulo.com/clover\"")
         buildConfigField("String", "CLOVER_BASE_URL", "\"\"")
         // The project's Monokulo Bell (docs/design.md §3), which Settings ›
-        // Wake-ups offers by name. A placeholder until one is deployed.
-        buildConfigField("String", "BELL_URL", "\"${providers.gradleProperty("till.bell.url").getOrElse("https://bell.monokulo.com")}\"")
+        // Wake-ups offers by name: the deployment's, from -Ptill.bell.url (or
+        // ~/.gradle/gradle.properties), never in the source; an address that
+        // never answers otherwise.
+        buildConfigField("String", "BELL_URL", "\"${providers.gradleProperty("till.bell.url").getOrElse("https://bell.invalid")}\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

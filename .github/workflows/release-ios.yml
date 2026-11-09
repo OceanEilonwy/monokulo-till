@@ -45,6 +45,9 @@ jobs:
       TILL_SQUARE_SANDBOX: ${{ vars.TILL_SQUARE_SANDBOX || 'false' }}
       TILL_CLOVER_APPLICATION_ID: ${{ vars.TILL_CLOVER_APPLICATION_ID }}
       TILL_CLOVER_ENVIRONMENT: ${{ vars.TILL_CLOVER_ENVIRONMENT || 'north_america' }}
+      # The deployment's push relay and Bell.
+      TILL_RELAY_URL: ${{ vars.TILL_RELAY_URL }}
+      TILL_BELL_URL: ${{ vars.TILL_BELL_URL }}
       BUILD_NUMBER: ${{ github.run_number }}
     steps:
       # Before anything costs macOS minutes: every secret and the variable,
@@ -71,6 +74,8 @@ jobs:
           need TILL_SQUARE_SANDBOX "$TILL_SQUARE_SANDBOX" "a variable of the testflight environment" '^(true|false)$' "true or false"
           need TILL_CLOVER_APPLICATION_ID "$TILL_CLOVER_APPLICATION_ID" "a variable of the testflight environment" '^[A-Z0-9]{10,16}$' "a Clover App ID (letters and digits)"
           need TILL_CLOVER_ENVIRONMENT "$TILL_CLOVER_ENVIRONMENT" "a variable of the testflight environment" '^(north_america|europe|latin_america|sandbox)$' "north_america, europe, latin_america or sandbox"
+          need TILL_RELAY_URL "$TILL_RELAY_URL" "a variable of the testflight environment" '^https://[A-Za-z0-9.-]+(:[0-9]+)?$' "an https address with no path, such as https://push.example.org"
+          need TILL_BELL_URL "$TILL_BELL_URL" "a variable of the testflight environment" '^https://[A-Za-z0-9.-]+(:[0-9]+)?$' "an https address with no path, such as https://bell.example.org"
           case "$TILL_SQUARE_APPLICATION_ID:$TILL_SQUARE_SANDBOX" in
             sandbox-*:false|sq0id*:true)
               echo "::error::TILL_SQUARE_SANDBOX ($TILL_SQUARE_SANDBOX) doesn't match the application id's environment (docs/release.md)"
@@ -159,6 +164,8 @@ jobs:
             TILL_SQUARE_SANDBOX="$TILL_SQUARE_SANDBOX" \
             TILL_CLOVER_APPLICATION_ID="$TILL_CLOVER_APPLICATION_ID" \
             TILL_CLOVER_ENVIRONMENT="$TILL_CLOVER_ENVIRONMENT" \
+            TILL_RELAY_URL="$TILL_RELAY_URL" \
+            TILL_BELL_URL="$TILL_BELL_URL" \
             2>&1 | tee "$LOGS/archive.log"
       # ExportOptions.plist with this team, and a copy that exports an .ipa
       # here instead of uploading.

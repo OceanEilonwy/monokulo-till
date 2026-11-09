@@ -78,12 +78,16 @@ This page lists the one-time setup, in order (docs/ios-plan.md §5, phase I7).
    | `TILL_SQUARE_SANDBOX` | `true` for a sandbox id, else `false` |
    | `TILL_CLOVER_APPLICATION_ID` | the Clover app's App ID |
    | `TILL_CLOVER_ENVIRONMENT` | `north_america`, `europe`, `latin_america` or `sandbox` |
+   | `TILL_RELAY_URL` | the push relay's https address, such as `https://push.monokulo.com` |
+   | `TILL_BELL_URL` | the Bell's https address, such as `https://bell.monokulo.com` |
 
    ```sh
    gh variable set TILL_SQUARE_APPLICATION_ID --env testflight --body sq0idp-…
    gh variable set TILL_SQUARE_SANDBOX --env testflight --body false
    gh variable set TILL_CLOVER_APPLICATION_ID --env testflight --body …
    gh variable set TILL_CLOVER_ENVIRONMENT --env testflight --body north_america
+   gh variable set TILL_RELAY_URL --env testflight --body https://push.monokulo.com
+   gh variable set TILL_BELL_URL --env testflight --body https://bell.monokulo.com
    ```
    The iOS app signs in through universal links on `till.monokulo.com`.
    A production Square application's OAuth redirect URL must be

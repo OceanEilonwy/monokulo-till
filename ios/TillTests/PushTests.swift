@@ -58,8 +58,12 @@ struct PushTests {
 
     @Test func theAppAndTheExtensionShareTheirConfigurationAndPushThroughTheRelay() {
         let config = TillShared.config(device: .iphone, deviceName: "iPhone")
-        #expect(config.relayUrl == "https://relay.monokulo.com")
-        #expect(config.bellUrl == "https://bell.monokulo.com")
+        // The build's addresses (TILL_RELAY_URL, TILL_BELL_URL): in a test
+        // build, project.yml's .invalid placeholders.
+        #expect(config.relayUrl == Build.relayUrl)
+        #expect(config.bellUrl == Build.bellUrl)
+        #expect(Build.relayUrl == "https://relay.invalid")
+        #expect(Build.bellUrl == "https://bell.invalid")
         #expect(config.platform == "ios")
         #expect(config.dataDir == TillShared.dataDirectory().path)
         #expect(!config.dataDir.isEmpty)

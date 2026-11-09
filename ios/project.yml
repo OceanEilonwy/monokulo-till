@@ -36,6 +36,11 @@ settings:
     TILL_SQUARE_SANDBOX: "false"
     TILL_CLOVER_APPLICATION_ID: REPLACE-ME-CLOVER
     TILL_CLOVER_ENVIRONMENT: north_america
+    # The deployment's push relay and Bell, from the testflight
+    # environment's variables of the same names; .invalid addresses, which
+    # never answer, for builds that don't push.
+    TILL_RELAY_URL: https://relay.invalid
+    TILL_BELL_URL: https://bell.invalid
 targets:
   Till:
     type: application

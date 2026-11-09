@@ -15,7 +15,8 @@
 		<string>$(PRODUCT_MODULE_NAME).NotificationService</string>
 	</dict>
 	<!--
-	The points of sale's application ids and environments, from the build
+	The points of sale's application ids and environments, and the push relay
+	and Bell, from the build
 	settings of the same names (project.yml, release-ios.yml), for Build.swift.
 	-->
 	<key>TillSquareApplicationId</key>
@@ -26,5 +27,9 @@
 	<string>$(TILL_CLOVER_APPLICATION_ID)</string>
 	<key>TillCloverEnvironment</key>
 	<string>$(TILL_CLOVER_ENVIRONMENT)</string>
+	<key>TillRelayUrl</key>
+	<string>$(TILL_RELAY_URL)</string>
+	<key>TillBellUrl</key>
+	<string>$(TILL_BELL_URL)</string>
 </dict>
 </plist>

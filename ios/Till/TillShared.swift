@@ -16,11 +16,13 @@ enum TillShared {
     static let appGroup = "group.com.monokulo.till"
 
     /// The project's push relay, which turns the APNs token into a Web Push
-    /// endpoint for the Bell (design.md §5, "The relay API").
-    static let relayUrl = "https://relay.monokulo.com"
+    /// endpoint for the Bell (design.md §5, "The relay API"): the build's
+    /// `TILL_RELAY_URL` (`Build.relayUrl`).
+    static var relayUrl: String { Build.relayUrl }
 
-    /// The project's Bell, what "Monokulo Bell" registers with.
-    static let bellUrl = "https://bell.monokulo.com"
+    /// The project's Bell, what "Monokulo Bell" registers with: the
+    /// build's `TILL_BELL_URL` (`Build.bellUrl`).
+    static var bellUrl: String { Build.bellUrl }
 
     /// Where a new sale's alert keeps its sale, for the tap: the app's own
     /// alerts and the ones the extension rewrites.
