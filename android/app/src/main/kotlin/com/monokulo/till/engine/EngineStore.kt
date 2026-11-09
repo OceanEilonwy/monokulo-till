@@ -27,8 +27,8 @@ import uniffi.till_screens.WakeUpsView
 /** Busy with a network call (buttons wait), and what went wrong last. */
 data class Work(val busy: Boolean = false, val problem: String? = null)
 
-/** How the screen came ([Update.Nav]), and where Back would go from it. */
-data class Nav(val byItself: Boolean = false, val backTarget: Screen? = null)
+/** How the screen came ([Update.Nav]), where Back would go from it, and whether the system's Back is the app's there. */
+data class Nav(val byItself: Boolean = false, val backTarget: Screen? = null, val backEnabled: Boolean = false)
 
 /** The close sheet over a sale, while one is asked. */
 data class CloseSheet(val orderId: String?, val view: CloseView?)
@@ -100,7 +100,7 @@ object EngineStore {
             is Update.Onboarding -> mutableOnboarding.value = update.view
             is Update.Settings -> mutableSettings.value = update.view
             is Update.WakeUps -> mutableWakeUps.value = update.view
-            is Update.Nav -> mutableNav.value = Nav(update.byItself, update.backTarget)
+            is Update.Nav -> mutableNav.value = Nav(update.byItself, update.backTarget, update.backEnabled)
             is Update.Shift -> mutableShift.value = update.view
             is Update.Sale -> mutableSale.value = update
             is Update.CloseSheet -> mutableClose.value = CloseSheet(update.orderId, update.view)

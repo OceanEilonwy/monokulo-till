@@ -1162,6 +1162,47 @@ fn back_from_settings_previews_where_it_was_opened_from() {
     screen(&rx, Screen::Settings);
 }
 
+/// The Nav sent before `wanted`: whether the system's Back is the app's
+/// there.
+fn back_enabled_on(rx: &Receiver<Heard>, wanted: Screen) -> bool {
+    let mut enabled = None;
+    wait_for(rx, |heard| match heard {
+        Heard::Update(Update::Nav { back_enabled, .. }) => {
+            enabled = Some(*back_enabled);
+            None
+        }
+        Heard::Update(Update::Screen { screen }) if *screen == wanted => Some(()),
+        _ => None,
+    });
+    enabled.expect("a Nav before the screen")
+}
+
+/// Decision 98 (android.md 77): the system's Back is the app's everywhere
+/// but Welcome, the shift and step 4 during setup; step 4 opened from
+/// Settings goes back to it.
+#[test]
+fn back_is_the_apps_everywhere_but_welcome_the_shift_and_setups_step_4() {
+    let (engine, rx, _) = start(config(None), Arc::new(FakePlatform::default()));
+    assert!(!back_enabled_on(&rx, Screen::Welcome));
+    engine.send(Action::Next);
+    assert!(back_enabled_on(&rx, Screen::Scan));
+
+    let platform = FakePlatform::with(&[("setup.done", "true")]);
+    platform.set(
+        "connection",
+        r#"{"app_key":"ak_1","api":"https://pay.example/api/v1"}"#,
+    );
+    let (engine, rx, _) = start(config(None), platform);
+    assert!(!back_enabled_on(&rx, Screen::Till));
+    engine.send(Action::OpenSettings);
+    assert!(back_enabled_on(&rx, Screen::Settings));
+    engine.send(Action::OpenPointOfSale);
+    assert!(
+        back_enabled_on(&rx, Screen::PointOfSale),
+        "from Settings, step 4 goes back"
+    );
+}
+
 #[test]
 fn the_till_and_the_sales_screens_map_to_places_and_back() {
     use super::till::{place, screen as of_place};

@@ -150,7 +150,7 @@ struct Published {
     onboarding: Option<OnboardingView>,
     settings: Option<SettingsView>,
     wake_ups: Option<WakeUpsView>,
-    nav: Option<(bool, Option<Screen>)>,
+    nav: Option<(bool, Option<Screen>, bool)>,
     shift: Option<till_screens::ShiftView>,
     sale: Option<Update>,
     close: Option<(Option<String>, Option<till_screens::CloseView>)>,
@@ -1845,10 +1845,13 @@ impl State {
         send!(core, CORE_VERSION.to_owned(), |version| Update::Core {
             version
         });
-        let nav = (self.by_itself, self.back_target());
-        send!(nav, nav, |(by_itself, back_target)| Update::Nav {
-            by_itself,
-            back_target
+        let nav = (self.by_itself, self.back_target(), self.back_enabled());
+        send!(nav, nav, |(by_itself, back_target, back_enabled)| {
+            Update::Nav {
+                by_itself,
+                back_target,
+                back_enabled,
+            }
         });
         send!(screen, self.screen.clone(), |screen| Update::Screen {
             screen

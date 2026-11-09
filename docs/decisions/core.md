@@ -604,3 +604,11 @@ on from 1; the Android app's own choices are in [android.md](android.md).
     and `Faces.kt`, and wrote "Copy address" itself instead of using the
     sale's `copy_address`. It now draws what the engine lists, and the
     Kotlin `PanelFace` enum is gone.
+98. **`Update::Nav` says whether the system's Back is the app's**
+    (`back_enabled`): false on Welcome, the shift, and step 4 during
+    setup, where Back leaves the app (android.md 77); true everywhere
+    else, including step 4 opened from Settings. `MainActivity` worked
+    this out from the screen and step 4's view. It now reads the flag, and
+    keeps only the stage's own rule that a second Back while the shift is
+    still arriving stays in the app (android.md 260 c), which is about the
+    animation. iOS has no system Back and ignores the field.

@@ -199,6 +199,18 @@ impl State {
         });
     }
 
+    /// Whether the system's Back is the app's on the screen up (android.md
+    /// decision 77): not on Welcome, the shift, or step 4 during setup,
+    /// where it leaves the app as the system's would; from Settings step 4
+    /// goes back to Settings.
+    pub(super) fn back_enabled(&self) -> bool {
+        match self.screen {
+            Screen::Welcome | Screen::Till => false,
+            Screen::PointOfSale => self.setup_done(),
+            _ => true,
+        }
+    }
+
     /// Where Back would go from the screen up, without going: what a back
     /// gesture previews. `None` where Back shows no preview.
     pub(super) fn back_target(&self) -> Option<Screen> {

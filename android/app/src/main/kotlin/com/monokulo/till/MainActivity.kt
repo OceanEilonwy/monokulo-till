@@ -141,22 +141,17 @@ class MainActivity : ComponentActivity() {
         val multiWindow = isInMultiWindowMode
         val actions = remember(multiWindow) { TillActions(::send, onBackToPos = if (multiWindow) null else ::backToPos) }
         val stage = remember { SeekableTransitionState(first) }
-        // Android's back (decision 77: everywhere but the first step, the shift and step 4 in setup). From a sale's
+        // Android's back where the engine says it is the app's (decision 77; docs/decisions/core.md 98). From a sale's
         // screens and Settings the gesture previews the way back the engine names; nothing changes before it commits.
         val scrub = remember { BackScrub() }
-        val stepFour by remember {
-            derivedStateOf {
-                screenState.value == Screen.PointOfSale &&
-                    (flows.onboarding.value?.page as? OnboardingPage.PointOfSale)?.view?.back != true
-            }
-        }
+        val backEnabled by remember { derivedStateOf { flows.nav.value.backEnabled } }
         FollowScreen(stage, scrub, screenState, onLanded = { send(Action.Landed(it)) })
         // A second Back while the shift is still arriving lands on the shift, never leaves the app (decision 260 c):
         // Back stays the stage's until it rests there. Read as a derived state, so the root recomposes as a change
         // starts and as it lands, never a frame.
         val arriving by remember { derivedStateOf { stage.currentState != stage.targetState } }
         StageBack(
-            enabled = (screen != Screen.Welcome && screen != Screen.Till && !stepFour) || (screen == Screen.Till && arriving),
+            enabled = backEnabled || (screen == Screen.Till && arriving),
             state = stage, scrub = scrub, current = { screenState.value }, target = { flows.nav.value.backTarget },
             onCommit = { send(Action.Back) },
         )

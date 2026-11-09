@@ -550,10 +550,14 @@ pub enum Update {
     /// the sales put it there (a new sale rising, a code going down), not
     /// the cashier, so it arrives without growing out of anything (M7);
     /// and where Back would go from it, for a back gesture's preview
-    /// (`None` where Back shows none). Sent before the screen it describes.
+    /// (`None` where Back shows none); and whether the system's Back is the
+    /// app's there at all (`back_enabled`): everywhere but Welcome, the
+    /// shift and step 4 during setup, where Back leaves the app (android.md
+    /// decision 77, core.md 98). Sent before the screen it describes.
     Nav {
         by_itself: bool,
         back_target: Option<Screen>,
+        back_enabled: bool,
     },
     /// The shift, as `till_screens::shift` draws it, once the till is set up.
     Shift { view: ShiftView },
