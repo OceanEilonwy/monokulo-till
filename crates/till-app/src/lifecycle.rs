@@ -1,6 +1,6 @@
 //! What the platforms tell the core about the process's life, and the one
 //! thing the core asks of them around its writes, for the ledger
-//! (docs/ledger.md §11, §14; docs/decisions/core.md 144, 145).
+//! (docs/ledger.md §11, §14; docs/decisions/core.md 151, 152).
 //!
 //! Everything about the ledger is decided here in Rust: when to close and
 //! reopen it, whether the extension's round changed anything. The platforms

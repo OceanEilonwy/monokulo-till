@@ -1054,10 +1054,9 @@ journal and are not done here.
 
 The platform side of [ledger.md](../ledger.md) §4, §11 and §14: SQLCipher
 in the one library on every target, and what only iOS and Android can do
-for the ledger. The ledger's own crate and its integration record theirs
-after these.
+for the ledger. The ledger crate's decisions (PR 59) come before these.
 
-143. **SQLCipher is compiled into the library everywhere.** The workspace
+150. **SQLCipher is compiled into the library everywhere.** The workspace
      takes `rusqlite` 0.41.1 (libsqlite3-sys 0.39.1) with default
      features off and `bundled-sqlcipher`, so there is one libsqlite3-sys
      and never the system's SQLite. Its crypto differs by target: on
@@ -1070,7 +1069,9 @@ after these.
      libcrypto an app may link, till-ffi adds
      `bundled-sqlcipher-vendored-openssl` for that target only, so
      OpenSSL's libcrypto is built from source into each ABI's `.so`
-     (a cold build's cost, which rust-cache then keeps).
+     (a cold build's cost, which rust-cache then keeps). Features unify
+     per target, so if till-ledger also asks for the vendored OpenSSL
+     off Apple, Linux builds use it too; it is still one libsqlite3-sys.
      `OPENSSL_DIR` must stay unset on the Mac, or libsqlite3-sys would
      take Homebrew's OpenSSL for the iOS targets. till-ffi exports
      `sqlcipher_check(dir)` (its own bindings, `till_ffi`), which opens a
@@ -1080,7 +1081,7 @@ after these.
      `PRAGMA cipher_version`. Rust CI, Android's JVM tests and iOS's
      simulator tests call it. It goes once the ledger's open does the same
      check (ledger.md §4).
-144. **The platforms only pass on the process's life; the core decides.**
+151. **The platforms only pass on the process's life; the core decides.**
      The engine has `suspend()` (blocks until any write is done and the
      ledger is closed), `resume()` and `ledger_changed()`, stubs until the
      integration: iOS calls `suspend` as the app goes to the background,
@@ -1102,7 +1103,7 @@ after these.
      Only` items in the access group the extension shares, so the
      extension reads them while the device is locked after the first
      unlock.
-145. **Nothing of the core's is backed up.** iOS marks the core's data
+152. **Nothing of the core's is backed up.** iOS marks the core's data
      directory (the App Group's container) excluded from backup each time
      it's looked up, rather than `till.db` and its WAL and shared-memory
      files one by one, which come and go and would lose the flag. That

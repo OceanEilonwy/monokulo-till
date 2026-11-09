@@ -8,7 +8,7 @@ import uniffi.till_ffi.sqlcipherCheck
 /**
  * The library loads through the bindings and carries SQLCipher, which
  * encrypts and reads back as the ledger will use it (docs/decisions/core.md
- * 143). This runs against the library built for this machine; the ABIs'
+ * 150). This runs against the library built for this machine; the ABIs'
  * builds link the same SQLCipher with OpenSSL built in.
  */
 class SqlcipherTest {

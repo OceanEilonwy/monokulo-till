@@ -46,7 +46,7 @@ enum TillShared {
     /// Left out of iCloud and computer backups, the core's files and its
     /// ledger (`till.db` and its WAL, which come and go) alike: they're
     /// this device's, as Android's are, and useless without the Keychain
-    /// items, which never leave it (docs/decisions/core.md 145).
+    /// items, which never leave it (docs/decisions/core.md 152).
     static func dataDirectory() -> URL {
         var directory = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup)
             ?? (try? FileManager.default.url(

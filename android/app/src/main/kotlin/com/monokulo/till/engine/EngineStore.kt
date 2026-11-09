@@ -83,7 +83,7 @@ object EngineStore {
 
     /**
      * The app's lifecycle for the engine's ledger (docs/decisions/core.md
-     * 144): Till left the screen, or came back. The engine decides what to
+     * 151): Till left the screen, or came back. The engine decides what to
      * close and reopen; `Engine.suspend` blocks until it has, so both run in
      * order on one thread of their own, never the main one. Android has no
      * second process writing the ledger, so it never calls `ledgerChanged`.

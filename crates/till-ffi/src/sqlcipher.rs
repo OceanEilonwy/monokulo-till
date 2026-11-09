@@ -1,7 +1,7 @@
 //! That the library carries SQLCipher, and that it works as the ledger will
 //! use it (docs/ledger.md §4, §11), on every platform the library is built
 //! for: the apps' tests call [`sqlcipher_check`] on the device or simulator,
-//! Rust CI on Linux (docs/decisions/core.md 143).
+//! Rust CI on Linux (docs/decisions/core.md 150).
 //!
 //! It opens a database in `dir` with a raw key and a salt the caller keeps
 //! (the ledger's are kept in the platform's secret store), with its first 32
