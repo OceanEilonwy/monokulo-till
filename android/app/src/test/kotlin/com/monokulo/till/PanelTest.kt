@@ -8,73 +8,16 @@ import com.monokulo.till.overlay.EdgeSnap
 import com.monokulo.till.overlay.Handoff
 import com.monokulo.till.overlay.Life
 import com.monokulo.till.overlay.Panel
-import com.monokulo.till.overlay.PanelFace
 import com.monokulo.till.overlay.WindowAct
 import com.monokulo.till.overlay.WindowEvent
 import com.monokulo.till.overlay.Windows
-import com.monokulo.till.overlay.PanelSale
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import uniffi.till_app.BubbleView
-import uniffi.till_screens.BubbleTap
-import uniffi.till_screens.OrderCard
-import uniffi.till_screens.PanelHero
-import uniffi.till_screens.PanelView
-import uniffi.till_screens.Press
-import uniffi.till_screens.Ring
-import uniffi.till_screens.SaleView
-import uniffi.till_screens.BubbleLook as EngineLook
 
 class PanelTest {
-    /**
-     * The engine's bubble about one sale, its panel as `till_screens::bubble`
-     * writes it: [hint] is the sale's, [left] the panel's time left, [hero]
-     * its hero and [ended] its ended heading and line.
-     */
-    private fun bubble(
-        id: String = "o1",
-        step: Int = 1,
-        spent: Boolean = false,
-        hint: String = "Scan with any Monero wallet · 14:52 left",
-        left: String? = "14:52 left",
-        hero: PanelHero = if (spent) PanelHero.PAID else PanelHero.CODE,
-        ended: Pair<String, String>? = null,
-        order: OrderCard? = null,
-    ) = BubbleView(
-        shown = true,
-        left = false,
-        y = null,
-        look = if (spent) EngineLook.PAID else EngineLook.LIT,
-        orderId = id,
-        label = "Till, \$79.21 waiting for payment",
-        tap = BubbleTap.OPEN_PANEL,
-        tapLabel = "Show the sale",
-        tapOpen = BubbleTap.LOWER_PANEL,
-        tapOpenLabel = "Lower to the bubble",
-        panel = PanelView(
-            orderId = id,
-            sale = SaleView(
-                title = "Sale #k4Rt", titleLine = "Front Counter · this till", amount = "\$79.21", xmr = "0.31684 XMR",
-                code = "monero:4abc", codeSaid = "Payment code for \$79.21", spent = spent, status = "Waiting for payment",
-                hint = hint, step = step.toUByte(), ring = Ring(step.toUByte(), null, null), order = order,
-                copyAddress = Press("Copy address", true), address = "4abc", backToPos = null, closes = true, ticks = step == 1,
-            ),
-            whereFrom = "Front Counter",
-            created = "4:07 PM",
-            timeLeft = left,
-            hero = hero,
-            order = null,
-            endedHeading = ended?.first,
-            endedLine = ended?.second,
-            ticks = step == 1,
-        ),
-        pulses = step == 1,
-        buzzes = true,
-    )
-
     @Test
     fun `the card is gone and at its smallest when the panel is back in the bubble, and whole by a third of the way out`() {
         assertEquals(0f, Panel.shown(Panel.IN_BUBBLE))
@@ -108,18 +51,6 @@ class PanelTest {
         assertFalse(Panel.wide(599))
         assertTrue(Panel.wide(600), "a small tablet")
         assertTrue(Panel.wide(840))
-    }
-
-    @Test
-    fun `the panel's status row counts down only while the code waits for its money`() {
-        val waiting = PanelSale.of(bubble())!!
-        assertEquals("· 14:52 left", waiting.left)
-        assertEquals("4:07 PM", waiting.created)
-        assertEquals("Front Counter", waiting.where)
-        assertNull(PanelSale.of(bubble(step = 3, hint = "The customer can go: it's being confirmed", left = null))!!.left, "a payment on its way")
-        val paid = PanelSale.of(bubble(step = 4, spent = true, hint = "0.31684 XMR received", left = null))!!
-        assertNull(paid.left)
-        assertEquals("0.31684 XMR received", paid.received)
     }
 
     @Test
@@ -283,22 +214,5 @@ class PanelTest {
         assertEquals(EdgeSnap(left = false, x = 1016), Edge.snap(x = 600, width, screen), "its centre past the middle")
         assertEquals(EdgeSnap(left = true, x = 0), Edge.snap(x = 507, width, screen), "centre at 639: still the left")
         assertEquals(EdgeSnap(left = false, x = 1016), Edge.snap(x = 508, width, screen), "centre at 640: the right")
-    }
-
-    @Test
-    fun `the panel shows the code while live, the tick once paid, and where the code was once it ended`() {
-        fun face(b: BubbleView) = PanelSale.of(b)!!.face
-        assertEquals(PanelFace.Code, face(bubble(step = 1)))
-        assertEquals(PanelFace.Code, face(bubble(step = 3)))
-        assertEquals(PanelFace.Paid, face(bubble(step = 4, spent = true)))
-        val expired = bubble(step = 0, hero = PanelHero.EXPIRED, ended = "Code expired · not paid" to "Open the shift to refund it in Square.")
-        assertEquals(PanelFace.Ended, face(expired))
-        assertEquals("Code expired · not paid", PanelSale.of(expired)!!.endedHeading)
-        val reversed = bubble(step = 0, hero = PanelHero.REVERSED, ended = "Payment reversed · don't hand it over" to "Open the shift to refund it in Square.")
-        assertEquals(PanelFace.Ended, face(reversed))
-        val refunded = bubble(step = 0, hero = PanelHero.REFUNDED, ended = "Refunded in Square" to "Nothing more to do.")
-        assertEquals(PanelFace.Ended, face(refunded))
-        assertEquals(PanelHero.REFUNDED, PanelSale.of(refunded)!!.hero)
-        assertNull(PanelSale.of(bubble().copy(panel = null)), "no sale: no panel")
     }
 }

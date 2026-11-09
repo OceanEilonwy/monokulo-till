@@ -114,6 +114,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.util.lerp
 import androidx.compose.ui.zIndex
+import uniffi.till_screens.PanelAction
+import uniffi.till_screens.PanelFace
 import uniffi.till_screens.PanelHero
 import com.monokulo.till.ui.confirm
 import com.monokulo.till.ui.Fixed
@@ -141,9 +143,6 @@ sealed interface PanelPage {
     data object Code : PanelPage
     data object Order : PanelPage
 }
-
-/** What the panel's middle shows: the code, the paid tick, or where an ended sale's code was. */
-enum class PanelFace { Code, Paid, Ended }
 
 /** The panel's words and its grabber's rule: pure, so they're tested on the JVM. */
 object Panel {
@@ -705,16 +704,16 @@ private fun Face(faces: Transition<FaceShown>, wide: Boolean, words: Modifier, o
     val m = motion
     val shown = faces.targetState
     val sale = shown.sale
-    val live = shown.face == PanelFace.Code
+    val live = shown.face == PanelFace.CODE
     val codeSize = if (wide) 280.dp else 264.dp
     val codeCorner = if (wide) 30.dp else 28.dp
-    val fold = faces.animateFloat({ m.surface.fraction }, label = "fold") { if (it.face == PanelFace.Code) 0f else 1f }
+    val fold = faces.animateFloat({ m.surface.fraction }, label = "fold") { if (it.face == PanelFace.CODE) 0f else 1f }
     // The code only fades out, into a paid or ended hero, where nothing scans; the next sale's grows out of the hero
     // opaque from its first frame (§10 rule 6), so a camera already on the panel never sees it faint.
-    val codeAlpha = faces.animateFloat({ m.fadeQuick.fraction }, label = "code") { if (it.face == PanelFace.Code) 1f else 0f }
+    val codeAlpha = faces.animateFloat({ m.fadeQuick.fraction }, label = "code") { if (it.face == PanelFace.CODE) 1f else 0f }
     val heroAlpha = faces.animateFloat(
-        { (if (targetState.face == PanelFace.Code) m.fadeQuick else m.fade).fraction }, label = "hero",
-    ) { if (it.face == PanelFace.Code) 0f else 1f }
+        { (if (targetState.face == PanelFace.CODE) m.fadeQuick else m.fade).fraction }, label = "hero",
+    ) { if (it.face == PanelFace.CODE) 0f else 1f }
     // The last face the code folded into, kept while the next code grows out of it and let go once it has.
     var folded by remember { mutableStateOf<PanelSale?>(null) }
     if (!live) folded = sale else if (!faces.isRunning) folded = null
@@ -747,12 +746,12 @@ private fun Face(faces: Transition<FaceShown>, wide: Boolean, words: Modifier, o
             Modifier.size(codeSize)
                 .then(scaled)
                 .graphicsLayer {
-                    alpha = if (faces.targetState.face == PanelFace.Code) 1f else codeAlpha.value
+                    alpha = if (faces.targetState.face == PanelFace.CODE) 1f else codeAlpha.value
                     compositingStrategy = CompositingStrategy.ModulateAlpha
                 }
                 // Folding, the code's own white card is held to the surface's rounding corners, so no square white
                 // corner is left outside the circle; growing back it is whole (§10 rule 6) and covers the surface.
-                .clipToFold(codeCorner, fold, folding = { faces.targetState.face != PanelFace.Code })
+                .clipToFold(codeCorner, fold, folding = { faces.targetState.face != PanelFace.CODE })
                 .testTag(CODE_TAG)
                 .then(
                     if (live) {
@@ -768,7 +767,7 @@ private fun Face(faces: Transition<FaceShown>, wide: Boolean, words: Modifier, o
         // The sale screen's enlarge badge in the code's corner, on the code's layer, so it folds and fades with it.
         Box(
             Modifier.size(codeSize).then(scaled).graphicsLayer {
-                alpha = if (faces.targetState.face == PanelFace.Code) 1f else codeAlpha.value
+                alpha = if (faces.targetState.face == PanelFace.CODE) 1f else codeAlpha.value
             },
             contentAlignment = Alignment.BottomEnd,
         ) {
@@ -797,15 +796,15 @@ private fun Face(faces: Transition<FaceShown>, wide: Boolean, words: Modifier, o
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
             val its = side.sale
             when (side.face) {
-                PanelFace.Code -> StatusRow(its)
-                PanelFace.Paid -> {
+                PanelFace.CODE -> StatusRow(its)
+                PanelFace.PAID -> {
                     Text(
                         its.status, style = display(28), textAlign = TextAlign.Center,
                         modifier = Modifier.semantics { heading(); liveRegion = LiveRegionMode.Polite },
                     )
                     Text(its.received, fontSize = 15.sp, color = mk.muted)
                 }
-                PanelFace.Ended -> {
+                PanelFace.ENDED -> {
                     Text(
                         its.endedHeading, style = display(26), textAlign = TextAlign.Center,
                         modifier = Modifier.semantics { heading(); liveRegion = LiveRegionMode.Polite },
@@ -892,13 +891,20 @@ private fun Buttons(faces: Transition<FaceShown>, actions: PanelActions, modifie
     ) { side ->
         val sale = side.sale
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            when (side.face) {
-                PanelFace.Paid -> PrimaryButton("Done", actions.onLower, Modifier.weight(1f), height = 48.dp, size = 15)
-                PanelFace.Code -> {
-                    OutlineButton("Copy address", { actions.onCopy(sale) }, Modifier.weight(1f), size = 15)
-                    PrimaryButton("Full screen", { actions.onFullScreen(sale) }, Modifier.weight(1f), height = 48.dp, size = 15)
+            // The engine's buttons for the face, in its words.
+            for (button in sale.buttons) {
+                val press = button.press
+                val onClick = when (button.action) {
+                    PanelAction.COPY_ADDRESS -> ({ actions.onCopy(sale) })
+                    PanelAction.FULL_SCREEN -> ({ actions.onFullScreen(sale) })
+                    PanelAction.DONE -> actions.onLower
+                    PanelAction.OPEN_SHIFT -> actions.onOpenShift
                 }
-                PanelFace.Ended -> PrimaryButton("Open the shift", actions.onOpenShift, Modifier.weight(1f), height = 48.dp, size = 15)
+                if (button.primary) {
+                    PrimaryButton(press.label, onClick, Modifier.weight(1f), height = 48.dp, size = 15, enabled = press.enabled)
+                } else {
+                    OutlineButton(press.label, onClick, Modifier.weight(1f), size = 15, enabled = press.enabled)
+                }
             }
         }
     }

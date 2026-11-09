@@ -55,6 +55,8 @@ import kotlin.math.roundToInt
 import uniffi.till_app.BubbleView
 import uniffi.till_screens.OrderCard
 import uniffi.till_screens.OrderPageView
+import uniffi.till_screens.PanelButton
+import uniffi.till_screens.PanelFace
 import uniffi.till_screens.PanelHero
 import uniffi.till_screens.PanelView
 import uniffi.till_screens.Ring
@@ -85,9 +87,11 @@ data class PanelSale(
     val status: String,
     /** "· 14:52 left" while the code counts down; null once a payment is on its way. */
     val left: String?,
+    /** "14:52 left", the same countdown without its dot. */
+    val timeLeft: String?,
     /** The phase ring: its step and the payment's confirmations. */
     val ring: Ring,
-    /** "0.05552 XMR received", once paid. */
+    /** "0.05552 XMR received", on the paid face. */
     val received: String,
     val endedHeading: String,
     val endedLine: String,
@@ -95,7 +99,8 @@ data class PanelSale(
     val card: OrderCard?,
     /** The whole order, every line: the panel's order page. */
     val order: OrderPageView?,
-    val copyAddress: String,
+    /** The buttons under the face, as the engine lists them. */
+    val buttons: List<PanelButton>,
 ) {
     companion object {
         /** The panel's sale from the engine's [view]; null when it is about no sale. */
@@ -104,14 +109,9 @@ data class PanelSale(
         /** The panel's sale from the engine's [panel]. */
         fun of(panel: PanelView): PanelSale {
             val sale = panel.sale
-            val face = when {
-                panel.hero == PanelHero.CODE -> PanelFace.Code
-                panel.hero == PanelHero.PAID && panel.endedHeading == null -> PanelFace.Paid
-                else -> PanelFace.Ended
-            }
             return PanelSale(
                 orderId = panel.orderId,
-                face = face,
+                face = panel.face,
                 hero = panel.hero,
                 title = sale.title,
                 created = panel.created,
@@ -121,14 +121,15 @@ data class PanelSale(
                 code = sale.code,
                 codeSaid = sale.codeSaid,
                 status = sale.status,
-                left = panel.timeLeft?.takeIf { face == PanelFace.Code }?.let { "· $it" },
+                left = panel.statusLeft,
+                timeLeft = panel.timeLeft,
                 ring = sale.ring,
-                received = if (face == PanelFace.Paid) sale.hint else "",
+                received = panel.received.orEmpty(),
                 endedHeading = panel.endedHeading.orEmpty(),
                 endedLine = panel.endedLine.orEmpty(),
                 card = sale.order?.takeIf { it.lines.isNotEmpty() },
                 order = panel.order,
-                copyAddress = sale.copyAddress.label,
+                buttons = panel.buttons,
             )
         }
     }
@@ -257,7 +258,7 @@ internal fun PanelOrderContent(sale: PanelSale, onBack: () -> Unit, modifier: Mo
             Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
                 Text("Show the code", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = mk.onAccent)
                 Text(
-                    "${sale.amount} · ${sale.xmr} · ${sale.left?.removePrefix("· ") ?: sale.status}",
+                    "${sale.amount} · ${sale.xmr} · ${sale.timeLeft ?: sale.status}",
                     fontSize = 13.sp, color = mk.onAccent, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }

@@ -54,6 +54,7 @@ import uniffi.till_app.Action
 import uniffi.till_app.Effect
 import uniffi.till_screens.BubbleTap
 import uniffi.till_screens.BubbleLook
+import uniffi.till_screens.PanelFace
 
 /** What the overlay's windows show: the engine's bubble ([uniffi.till_app.BubbleView]), and the panel's page. */
 data class OverlayState(
@@ -135,11 +136,11 @@ class Overlay(
                 focus = view?.orderId
                 if (view != null) place.follow(view.left, view.y)
                 // The whole order is about the sale whose code is up: another sale, or this one ending, brings the code back.
-                if (focus != previous || sale?.face != PanelFace.Code || sale.order == null) page.value = PanelPage.Code
+                if (focus != previous || sale?.face != PanelFace.CODE || sale.order == null) page.value = PanelPage.Code
                 // Green through the paid moment, its collapse included: the engine's (docs/decisions/core.md 95).
                 val look = view?.look ?: BubbleLook.IDLE
                 state.value = OverlayState(
-                    look, sale, sale?.where.orEmpty(), if (sale?.face == PanelFace.Code) shown else PanelPage.Code,
+                    look, sale, sale?.where.orEmpty(), if (sale?.face == PanelFace.CODE) shown else PanelPage.Code,
                     buzzes = view?.buzzes ?: true,
                     pulses = view?.pulses ?: false,
                     label = view?.label.orEmpty(),

@@ -595,3 +595,12 @@ on from 1; the Android app's own choices are in [android.md](android.md).
     place. `CloseAnswer.then` tells the platform where an answer lands, so
     Android's stage can grow the sale out of its row without its own copy
     of the rule.
+97. **`PanelView` says its face and its buttons**: `face: PanelFace`
+    (`Code`, `Paid`, `Ended`, from the hero and whether the code came down
+    unpaid), `status_left` ("· 14:52 left"), `received` ("… XMR received"
+    on the paid face) and `buttons: Vec<PanelButton>` (a `PanelAction`, a
+    `Press` and whether it is filled), shaped like the sale page's
+    `PageButton`. Android had worked all of these out in `PanelSale.of`
+    and `Faces.kt`, and wrote "Copy address" itself instead of using the
+    sale's `copy_address`. It now draws what the engine lists, and the
+    Kotlin `PanelFace` enum is gone.

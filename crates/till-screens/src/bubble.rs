@@ -9,7 +9,7 @@ use till_sales::{Standing, TillSale};
 use crate::order_text::{OrderPageView, order_page};
 use crate::sale::{SaleInput, SaleView};
 use crate::time::DeviceClock;
-use crate::view::Device;
+use crate::view::{Device, Press};
 use crate::{code, pos_text, sale, sale_text};
 
 /// What the bubble shows.
@@ -310,6 +310,84 @@ pub fn hero(sale: &TillSale) -> PanelHero {
     }
 }
 
+/// Which face the panel shows: the code and its status row while the sale
+/// is live; the tick, "Paid" and what came in once paid; else how it ended
+/// and what to do about it (acceptance P15). Its hero says how it looks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum PanelFace {
+    Code,
+    Paid,
+    Ended,
+}
+
+/// `hero`'s face, `ended` when the code came down unpaid: a sale paid
+/// after it ended (a late payment, or one after its refund) is an ended
+/// face with the tick.
+pub fn face(hero: PanelHero, ended: bool) -> PanelFace {
+    match hero {
+        PanelHero::Code => PanelFace::Code,
+        PanelHero::Paid if !ended => PanelFace::Paid,
+        _ => PanelFace::Ended,
+    }
+}
+
+/// What a panel button does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum PanelAction {
+    /// Copies the sale's address.
+    CopyAddress,
+    /// Opens Till full screen on the sale.
+    FullScreen,
+    /// Lowers the panel into the bubble.
+    Done,
+    /// Opens Till on the shift.
+    OpenShift,
+}
+
+/// One of the panel's buttons, under its face.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct PanelButton {
+    pub action: PanelAction,
+    pub press: Press,
+    /// Filled in the accent; else outlined.
+    pub primary: bool,
+}
+
+impl PanelButton {
+    fn new(action: PanelAction, press: Press, primary: bool) -> PanelButton {
+        PanelButton {
+            action,
+            press,
+            primary,
+        }
+    }
+}
+
+/// The buttons under `face`: "Copy address" (`copy`, the sale's own) and
+/// "Full screen" while the code is up, "Done" once paid, "Open the shift"
+/// once it ended.
+pub fn buttons(face: PanelFace, copy: &Press) -> Vec<PanelButton> {
+    match face {
+        PanelFace::Code => vec![
+            PanelButton::new(PanelAction::CopyAddress, copy.clone(), false),
+            PanelButton::new(PanelAction::FullScreen, Press::new("Full screen"), true),
+        ],
+        PanelFace::Paid => vec![PanelButton::new(
+            PanelAction::Done,
+            Press::new("Done"),
+            true,
+        )],
+        PanelFace::Ended => vec![PanelButton::new(
+            PanelAction::OpenShift,
+            Press::new("Open the shift"),
+            true,
+        )],
+    }
+}
+
 /// What the bubble's panel shows about its sale.
 #[derive(Clone, Debug)]
 pub struct PanelInput {
@@ -336,7 +414,15 @@ pub struct PanelView {
     /// "14:52 left", beside the status, while the code counts down; else
     /// `None`. (The sale's `hint` says more, for the sale screen.)
     pub time_left: Option<String>,
+    /// The status row's tail, "· 14:52 left", on the code's face while it
+    /// counts down.
+    pub status_left: Option<String>,
     pub hero: PanelHero,
+    pub face: PanelFace,
+    /// "0.31684 XMR received", under "Paid" on the paid face.
+    pub received: Option<String>,
+    /// The buttons under the face, in order.
+    pub buttons: Vec<PanelButton>,
     /// The whole order, every line: the panel's order page, as the app's
     /// own order page draws it. (The ring, confirmations and all, is the
     /// sale's `ring`.)
@@ -369,12 +455,22 @@ pub fn panel(
     );
     let ended = !s.live() && s.phase != SalePhase::Paid;
     let seconds = sale_text::seconds_left(s.expires_at, clock.now);
+    let hero = hero(s);
+    let face = face(hero, ended);
+    let time_left = s.live().then(|| code::left(s, seconds)).flatten();
     PanelView {
         order_id: s.order_id.clone(),
         where_from: panel_where(s, input.location.as_deref()),
         created: (s.created_at > 0).then(|| sale_text::time_of(s.created_at, clock)),
-        time_left: s.live().then(|| code::left(s, seconds)).flatten(),
-        hero: hero(s),
+        status_left: time_left
+            .as_ref()
+            .filter(|_| face == PanelFace::Code)
+            .map(|left| format!("· {left}")),
+        time_left,
+        hero,
+        face,
+        received: (face == PanelFace::Paid).then(|| view.hint.clone()),
+        buttons: buttons(face, &view.copy_address),
         order: order_page(s, pos_text::of(s, input.till), clock),
         ended_heading: ended.then(|| panel_ended_heading(s, input.till)),
         ended_line: ended.then(|| panel_ended_line(s, input.till)),
@@ -897,6 +993,84 @@ mod panel_tests {
         assert_eq!(
             view.ended_line.as_deref(),
             Some("Open the shift to refund it in Square.")
+        );
+    }
+
+    /// Ported from Android's `PanelTest` (the face, the status row and the
+    /// buttons, which `PanelSale.of` and `Faces.kt` worked out from the
+    /// hero and the ended words).
+    #[test]
+    fn the_panel_says_its_face_its_status_tail_and_its_buttons() {
+        use SalePhase::*;
+        let draw = |sale: TillSale| {
+            panel(
+                &PanelInput {
+                    sale: TillSale {
+                        expires_at: at() + 892,
+                        ..sale
+                    },
+                    till: SQUARE,
+                    location: Some("Front Counter".into()),
+                },
+                Device::Android,
+                la(at()),
+                &money,
+            )
+        };
+        let actions = |view: &PanelView| {
+            view.buttons
+                .iter()
+                .map(|b| (b.action, b.press.label.clone(), b.primary))
+                .collect::<Vec<_>>()
+        };
+
+        let waiting = draw(of(Waiting));
+        assert_eq!(waiting.face, PanelFace::Code);
+        assert_eq!(waiting.status_left.as_deref(), Some("· 14:52 left"));
+        assert_eq!(waiting.received, None);
+        assert_eq!(
+            actions(&waiting),
+            [
+                (
+                    PanelAction::CopyAddress,
+                    waiting.sale.copy_address.label.clone(),
+                    false
+                ),
+                (PanelAction::FullScreen, "Full screen".into(), true),
+            ],
+            "the sale's own Copy address, outlined, and Full screen"
+        );
+
+        let confirming = draw(TillSale {
+            confirmations: Some(4),
+            confirmations_required: Some(10),
+            ..of(Confirming)
+        });
+        assert_eq!(confirming.face, PanelFace::Code);
+        assert_eq!(confirming.status_left, None, "a payment on its way");
+
+        let paid = draw(TillSale {
+            paid_at: Some(at()),
+            ..of(Paid)
+        });
+        assert_eq!(paid.face, PanelFace::Paid);
+        assert_eq!(paid.status_left, None);
+        assert_eq!(paid.received.as_deref(), Some("0.31684 XMR received"));
+        assert_eq!(actions(&paid), [(PanelAction::Done, "Done".into(), true)]);
+
+        for ended in [of(Expired), of(DoubleSpend), refunded(Expired)] {
+            let view = draw(ended);
+            assert_eq!(view.face, PanelFace::Ended, "{:?}", view.hero);
+            assert_eq!(view.received, None);
+            assert_eq!(
+                actions(&view),
+                [(PanelAction::OpenShift, "Open the shift".into(), true)]
+            );
+        }
+        assert_eq!(
+            face(PanelHero::Paid, true),
+            PanelFace::Ended,
+            "paid after it ended: the tick, with how it ended"
         );
     }
 }
