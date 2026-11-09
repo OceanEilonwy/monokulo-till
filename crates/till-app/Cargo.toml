@@ -26,11 +26,13 @@ serde_json.workspace = true
 thiserror.workspace = true
 till-bell.workspace = true
 till-pos.workspace = true
+till-ledger.workspace = true
 till-sales.workspace = true
 till-screens.workspace = true
 tokio.workspace = true
 uniffi = { workspace = true, optional = true }
 
 [dev-dependencies]
+tempfile = "3.27.0"
 tokio = { workspace = true, features = ["test-util"] }
 wiremock = "0.6.5"

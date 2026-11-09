@@ -128,6 +128,10 @@ pub(crate) fn order_id(screen: &Screen) -> Option<&str> {
 const LIVE_ACTIVITY_PUSHED: bool = false;
 
 impl State {
+    pub(super) fn sales_now(&self) -> Vec<TillSale> {
+        self.sales()
+    }
+
     fn sales(&self) -> Vec<TillSale> {
         self.parts
             .as_ref()
@@ -343,7 +347,7 @@ impl State {
             disconnected: runner.disconnected,
             problem: runner.till.problem.or(runner.stream_problem),
             sign_in_again: runner.till.sign_in_again,
-            started_at: model.shift_started_at,
+            started_at: runner.till.shift_from.or(model.shift_started_at),
             filter: self.filter,
             folded: self.folded,
             counters: self.counters(),

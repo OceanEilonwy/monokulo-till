@@ -248,6 +248,7 @@ struct TillScreenTests {
     @Test func aPagesButtonsAskTheEngine() {
         #expect(SalePageScreen.action(.refund, orderId: "o1") == .refund(orderId: "o1"))
         #expect(SalePageScreen.action(.showCodeAgain, orderId: "o1") == .reopen(orderId: "o1"))
+        #expect(SalePageScreen.action(.newCode, orderId: "o1") == .newCode(orderId: "o1"))
         #expect(CloseSheetScreen.ink(.refundIt) == Palette.danger)
         #expect(CloseSheetScreen.ink(.keepUp) == Palette.ink)
     }

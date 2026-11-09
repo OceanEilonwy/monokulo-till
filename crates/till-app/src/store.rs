@@ -13,8 +13,10 @@
 //! - [`Store`]: each key, read and written as `Stores.kt` did.
 //! - [`Model`] and [`Kept`]: the small values, held in memory and written
 //!   through as they change.
-//! - [`PosTokenStore`], [`PosCursor`], [`Tenders`], [`ShiftKept`] and
-//!   [`WakeUpsKept`]: the leaf crates' store traits over it.
+//! - [`PosTokenStore`], [`PosCursor`], [`Tenders`] and [`WakeUpsKept`]:
+//!   the leaf crates' store traits over it. The shift's sales are the
+//!   ledger's now (docs/ledger.md); what an older build kept is read once,
+//!   into it.
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -25,7 +27,7 @@ use till_bell::{BellAddress, BellRegistration, WakeUpChoice, WakeUpStore};
 use till_pos::clover::{CloverMerchant, TenderStore};
 use till_pos::square::SquareLocation;
 use till_pos::{CursorStore, Pkce, PosTokens, StoreError, TokenStore};
-use till_sales::{ShiftStore, TillSale, shift_json};
+use till_sales::{TillSale, shift_json};
 
 use crate::{Platform, SecretError};
 
@@ -677,6 +679,7 @@ impl Model {
     pub fn till_options(&self) -> till_sales::TillOptions {
         till_sales::TillOptions {
             device_id: self.counter_device.as_ref().map(|d| d.id.clone()),
+            every_device: self.alert_every,
             cash_as_monero: self.cash_as_monero,
         }
     }
@@ -887,34 +890,6 @@ impl TenderStore for Tenders {
             &self.log,
             "keep the tender id".into(),
             self.store.set_tender_id(merchant_id, tender_id),
-        );
-    }
-}
-
-/// The shift's sales (till-sales' [`ShiftStore`]), encrypted like
-/// everything else (decision 64 of android.md). A shift that can't be read
-/// is reported, and the till then never saves over it.
-pub struct ShiftKept {
-    store: Store,
-    log: Log,
-}
-
-impl ShiftKept {
-    pub fn new(store: Store, log: Log) -> ShiftKept {
-        ShiftKept { store, log }
-    }
-}
-
-impl ShiftStore for ShiftKept {
-    fn load(&self) -> Result<Vec<TillSale>, StoreError> {
-        logged(&self.log, "read the shift".into(), self.store.shift_sales())
-    }
-
-    fn save(&self, sales: &[TillSale]) {
-        let _ = logged(
-            &self.log,
-            "keep the shift".into(),
-            self.store.set_shift_sales(sales),
         );
     }
 }

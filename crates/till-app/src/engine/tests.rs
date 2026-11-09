@@ -25,9 +25,19 @@ const NOW: i64 = 1_761_149_280;
 
 const TOKEN: &str = "ct_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
+/// A data directory of the test's own, for the ledger and the locks.
+pub(crate) fn data_dir() -> String {
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let dir = std::env::temp_dir().join(format!("till-engine-{}-{n}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir.to_string_lossy().into_owned()
+}
+
 fn config(square: Option<&MockServer>) -> EngineConfig {
     EngineConfig {
-        data_dir: std::env::temp_dir().to_string_lossy().into_owned(),
+        data_dir: data_dir(),
         device: Device::Iphone,
         device_name: "iPhone 17".into(),
         app_version: "0.1.0".into(),
@@ -562,11 +572,10 @@ async fn an_upgraded_till_runs_its_shift_makes_orders_and_tells_the_platform() {
         alert.body,
         "Monero sale. Tap to show the customer the code."
     );
-    assert!(
-        platform
-            .get("shift.sales")
-            .unwrap()
-            .contains(r#""orderId":"ord_1""#)
+    assert_eq!(
+        platform.get("shift.sales"),
+        None,
+        "the kept shift went into the ledger"
     );
     assert_eq!(
         platform.get("square.handled").as_deref(),
@@ -1831,10 +1840,6 @@ async fn this_counters_sale_another_till_announced_first_alerts_when_found_here(
     });
     assert_eq!(alert.order_id, "ord_1");
     assert_eq!(alert.title, "Sam · $13.88");
-    assert_eq!(
-        platform.get("alerts.posted").as_deref(),
-        Some(r#"["ord_1"]"#)
-    );
     // Looks go on (a ding wakes one); the sale is never alerted again.
     engine.send(Action::PushReceived {
         content: br#"{"wake":"square"}"#.to_vec(),
@@ -1923,4 +1928,61 @@ async fn a_clover_till_names_the_device_by_clovers_list_and_offers_the_counters_
         .count();
     assert_eq!(asked, 1, "Clover's devices are read once");
     drop(engine);
+}
+
+/// The owner's fix 2: a payment while Till is behind is a notice on iPad and
+/// on an iPhone without the Live Activity, as on Android; on an iPhone with
+/// the Live Activity, the island says it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_payment_while_behind_is_a_notice_on_ipad_and_on_an_iphone_without_the_live_activity() {
+    for (device, island, notice) in [
+        (Device::Ipad, None, true),
+        (Device::Iphone, Some("false"), true),
+        (Device::Iphone, None, false),
+    ] {
+        let monokulo = monokulo().await;
+        let square = square().await;
+        let platform = signed_in_till(&monokulo);
+        if let Some(on) = island {
+            platform.set("island.activity", on);
+        }
+        let mut config = config(Some(&square));
+        config.device = device;
+        let (engine, rx, _) = start(config, platform);
+        engine.send(Action::Backgrounded);
+        wait_for(&rx, |heard| match heard {
+            Heard::Update(Update::Notification { view }) => view.alert.clone(),
+            _ => None,
+        });
+        engine.poke(|s| {
+            let p = s.parts.as_ref().unwrap();
+            p.side.books().record(till_ledger::Fact::OrderObserved(
+                till_ledger::OrderObserved {
+                    order_id: till_ledger::OrderId::new("ord_1"),
+                    phase: monokulo_client::SalePhase::Paid,
+                    confirmations: None,
+                    is_final: true,
+                    received: None,
+                    overpaid: false,
+                },
+            ));
+        });
+        // Two round trips through the engine's queue: the claim it made as
+        // it recorded the payment is delivered by the second.
+        let mut noticed = false;
+        for _ in 0..2 {
+            engine.send(Action::CopyAmount {
+                order_id: "ord_1".into(),
+            });
+            wait_for(&rx, |heard| match heard {
+                Heard::Effect(Effect::Notify { paid: true, .. }) => {
+                    noticed = true;
+                    None
+                }
+                Heard::Effect(Effect::CopyText { .. }) => Some(()),
+                _ => None,
+            });
+        }
+        assert_eq!(noticed, notice, "{device:?}, island {island:?}");
+    }
 }

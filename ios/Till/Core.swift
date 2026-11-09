@@ -211,6 +211,12 @@ final class Core {
             UIPasteboard.general.string = text
         case .clearNotification(let id):
             SaleAlerts.clear(id)
+        case .notify(let orderId, let notice, _, _, let quiet):
+            // Paid and "No payment yet" while Till is behind: on iPad and on
+            // an iPhone without the Live Activity (the engine decides).
+            if !quiet {
+                Task { await SaleAlerts.notice(orderId: orderId, notice) }
+            }
         case .probeTor, .lowerPanel:
             // No Tor and no bubble on iOS: the engine never sends these here.
             break

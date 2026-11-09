@@ -32,6 +32,9 @@ struct SettingsScreen: View {
                 if let cash = view.cash {
                     CashSettings(section: cash, send: send)
                 }
+                if let shift = view.shift {
+                    ShiftSettings(section: shift, send: send)
+                }
                 alertsSection
                 if let showSales = view.showSales {
                     ShowSalesSettings(section: showSales, send: send)
@@ -186,6 +189,23 @@ struct CashSettings: View {
             Text(section.title)
         } footer: {
             Text(section.footnotes.joined(separator: "\n\n"))
+        }
+    }
+}
+
+/// Settings › Watch for sales: Stop and Start watching, as on Android. The
+/// shift's totals run from when it started (docs/ledger.md §9).
+struct ShiftSettings: View {
+    let section: SwitchSection
+    let send: Send
+
+    var body: some View {
+        Section {
+            SwitchRow(label: "Watch for sales", on: section.on) { on in
+                send(on ? .startShift : .stopShift)
+            }
+        } footer: {
+            Text(section.footnote)
         }
     }
 }

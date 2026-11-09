@@ -13,9 +13,21 @@ use crate::engine::tests::{PAYMENTS, signed_in_till};
 use crate::testing::FakePlatform;
 use crate::{CloverSetup, Device, SquareSetup};
 
+/// The test's own data directory, by its Square stand-in's port: every look
+/// a test makes shares one ledger, as the app and its extension do.
+fn data_dir(square: &MockServer) -> String {
+    let dir = std::env::temp_dir().join(format!(
+        "till-background-{}-{}",
+        std::process::id(),
+        square.address().port()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir.to_string_lossy().into_owned()
+}
+
 fn config(square: &MockServer) -> EngineConfig {
     EngineConfig {
-        data_dir: std::env::temp_dir().to_string_lossy().into_owned(),
+        data_dir: data_dir(square),
         device: Device::Iphone,
         device_name: "iPhone 17".into(),
         app_version: "0.1.0".into(),
@@ -106,12 +118,7 @@ async fn a_look_makes_orders_for_new_sales_keeps_them_and_says_what_the_alert_sa
         "Monero sale. Tap to show the customer the code."
     );
     assert_eq!(check.ongoing, None, "iOS has no ongoing notification");
-    assert!(
-        platform
-            .get("shift.sales")
-            .unwrap()
-            .contains(r#""orderId":"ord_1""#)
-    );
+    assert_eq!(platform.get("shift.sales"), None, "kept in the ledger");
     assert_eq!(
         platform.get("square.handled").as_deref(),
         Some(r#"["pay_monero"]"#)
@@ -268,29 +275,25 @@ async fn two_looks_at_once_for_two_dings_of_one_payment_alert_once() {
     let alerts: Vec<_> = first.alerts.iter().chain(&second.alerts).collect();
     assert_eq!(alerts.len(), 1, "{first:?} {second:?}");
     assert_eq!(alerts[0].order_id, "ord_1");
-    assert_eq!(
-        platform.get("alerts.posted").as_deref(),
-        Some(r#"["ord_1"]"#)
-    );
 }
 
-/// A sale the app has alerted already (its record shared with the
-/// extension) isn't alerted by the extension's look.
+/// A sale an older build kept and alerted (its kept shift and alert
+/// record) is taken into the ledger once, and isn't alerted again by the
+/// extension's look (docs/ledger.md §10).
 #[tokio::test(flavor = "multi_thread")]
-async fn a_look_never_alerts_a_sale_the_app_alerted() {
+async fn a_look_never_alerts_a_sale_an_older_build_alerted_and_imports_it_once() {
     let (monokulo, square) = (monokulo().await, square(Duration::ZERO).await);
     let platform = signed_in_till(&monokulo);
+    platform.set(
+        "shift.sales",
+        r#"[{"orderId":"ord_1","amount":"13.88","currency":"USD","reference":"bP9m","code":{"uri":"monero:8Bx?tx_amount=0.08","hasReceipt":false},"phase":"Waiting","expiresAt":1893456000,"xmr":"0.08","address":"8Bx","found":{"id":"pay_monero","amountMinor":1388,"currency":"USD","reference":"bP9m","createdAt":"2026-10-22T16:07:00Z"}}]"#,
+    );
     platform.set("alerts.posted", r#"["ord_1"]"#);
     let check = look(config(&square), platform.clone(), 10_000).await;
     assert!(check.finished);
     assert!(check.alerts.is_empty(), "{check:?}");
-    assert!(
-        platform
-            .get("shift.sales")
-            .unwrap()
-            .contains(r#""orderId":"ord_1""#),
-        "the sale is still kept"
-    );
+    assert_eq!(platform.get("shift.sales"), None, "imported, then deleted");
+    assert_eq!(platform.get("alerts.posted"), None);
 }
 
 /// Issue 1 in the extension: this counter's sale, kept as another till's

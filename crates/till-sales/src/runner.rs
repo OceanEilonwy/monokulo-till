@@ -11,7 +11,7 @@ use tokio::runtime::Handle;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
-use crate::{Shift, ShiftStore, Standing, Till, TillOptions, TillState, WakeCause};
+use crate::{Books, Shift, Standing, Till, TillOptions, TillState, WakeCause};
 
 /// The till as the screens and the service see it.
 #[derive(Clone, Debug, PartialEq)]
@@ -104,8 +104,9 @@ pub trait RunnerSide: Send + Sync {
     /// ([`RunnerSide::till_options`], core.md decision 142).
     fn source(&self) -> Option<Arc<dyn SaleSource>>;
 
-    /// Where the shift's sales are kept.
-    fn shift_store(&self) -> Arc<dyn ShiftStore>;
+    /// The ledger the till keeps its facts in (docs/ledger.md), the same
+    /// for every till the runner makes.
+    fn books(&self) -> Arc<Books>;
 
     /// How often to check without a wake-up: 30 s while the Bell is
     /// connected, else 2 s (decision 94). Read on every tick.
@@ -190,9 +191,14 @@ impl TillRunner {
         self.inner.state.subscribe()
     }
 
-    /// The runner's state now.
+    /// The runner's state now, with the till's as the ledger holds it this
+    /// moment (the copy [`TillRunner::subscribe`] follows may lag behind).
     pub fn state(&self) -> RunnerState {
-        self.inner.state.borrow().clone()
+        let mut state = self.inner.state.borrow().clone();
+        if let Some(till) = self.till() {
+            state.till = till.state();
+        }
+        state
     }
 
     /// Starts a shift, unless one is running or there's no connection: the
@@ -400,15 +406,16 @@ impl Inner {
     /// The till for the point of sale the cashier chose and signed in to,
     /// or one that only shows other tills' sales.
     fn new_till(&self, connection: Connection) -> Arc<Till> {
-        let source = self.side.source().unwrap_or_else(|| Arc::new(NoSource));
+        let source = self.side.source();
+        let with_pos = source.is_some();
+        let source = source.unwrap_or_else(|| Arc::new(NoSource));
         let pos = source.point_of_sale();
         self.state.send_modify(|s| s.source = pos);
-        Arc::new(
-            Till::new(source, self.monokulo.clone(), connection)
-                .with_options(&self.side.till_options())
-                .with_clock(self.clock.clone())
-                .with_store(self.side.shift_store()),
-        )
+        let till = Till::new(source, self.monokulo.clone(), connection, self.side.books())
+            .with_clock(self.clock.clone())
+            .with_options(&self.side.till_options());
+        till.books().refresh();
+        Arc::new(if with_pos { till } else { till.without_pos() })
     }
 
     fn show(&self, till: Arc<Till>) {
@@ -516,37 +523,20 @@ mod tests {
 
     use monokulo_client::{AppIdentity, FixedClock};
 
+    use till_ledger::{Fact, OrderCreated, OrderId, SaleKey};
+
     use super::*;
-    use crate::{TillSale, shift_json};
+    use crate::books::testing::TestHost;
 
     /// The engine's side, counting what the runner asked of it. Not part of
     /// the Kotlin oracle: `TillRunner` had no unit tests.
     struct Side {
         connection: Option<Connection>,
-        sales: Mutex<Vec<TillSale>>,
+        books: Arc<Books>,
+        _dir: tempfile::TempDir,
         reads: AtomicUsize,
         starts: AtomicUsize,
         rechecks: AtomicUsize,
-    }
-
-    impl ShiftStore for Side {
-        fn load(&self) -> Result<Vec<TillSale>, till_pos::StoreError> {
-            Ok(self.sales.lock().unwrap().clone())
-        }
-        fn save(&self, sales: &[TillSale]) {
-            *self.sales.lock().unwrap() = sales.to_vec();
-        }
-    }
-
-    struct Store(Arc<Side>);
-
-    impl ShiftStore for Store {
-        fn load(&self) -> Result<Vec<TillSale>, till_pos::StoreError> {
-            self.0.load()
-        }
-        fn save(&self, sales: &[TillSale]) {
-            self.0.save(sales)
-        }
     }
 
     impl RunnerSide for Arc<Side> {
@@ -562,8 +552,8 @@ mod tests {
         fn source(&self) -> Option<Arc<dyn SaleSource>> {
             None
         }
-        fn shift_store(&self) -> Arc<dyn ShiftStore> {
-            Arc::new(Store(self.clone()))
+        fn books(&self) -> Arc<Books> {
+            self.books.clone()
         }
         fn interval(&self) -> Duration {
             Duration::from_secs(2)
@@ -575,10 +565,29 @@ mod tests {
     }
 
     fn runner(connection: Option<Connection>) -> (TillRunner, Arc<Side>) {
-        let waiting = r#"[{"orderId":"ord_2","amount":"5.00","currency":"USD","code":{"uri":"monero:8Cy?tx_amount=0.03","hasReceipt":false},"phase":"Waiting","expiresAt":0,"xmr":"0.03","address":"8Cy"}]"#;
+        let dir = tempfile::tempdir().unwrap();
+        let books = Arc::new(Books::new(TestHost::new(dir.path()), None));
+        books.set_clock(Arc::new(FixedClock::at(60)));
+        // Another till's sale, waiting, known from Monokulo alone.
+        books.record(Fact::OrderCreated(OrderCreated {
+            sale: SaleKey::Order(OrderId::new("ord_2")),
+            order_id: OrderId::new("ord_2"),
+            attempt: 1,
+            url: None,
+            payment_uri: "monero:8Cy?tx_amount=0.03".into(),
+            address: "8Cy".into(),
+            xmr: "0.03".into(),
+            amount: "5.00".into(),
+            currency: "USD".into(),
+            reference: None,
+            expires_at: 0,
+            confirmations_required: None,
+            device_name: None,
+        }));
         let side = Arc::new(Side {
             connection,
-            sales: Mutex::new(shift_json::decode(waiting).unwrap()),
+            books,
+            _dir: dir,
             reads: AtomicUsize::new(0),
             starts: AtomicUsize::new(0),
             rechecks: AtomicUsize::new(0),
@@ -644,7 +653,14 @@ mod tests {
         );
         runner.close_live();
         until(&runner, |s| s.till.sales[0].closed_at == Some(70)).await;
-        assert_eq!(side.load().unwrap()[0].closed_at, Some(70), "and saved");
+        assert_eq!(
+            side.books
+                .view(&SaleKey::Order(OrderId::new("ord_2")))
+                .unwrap()
+                .closed_at,
+            Some(70),
+            "and kept"
+        );
         runner.stop();
         assert!(!runner.state().running);
         runner.reopen("ord_2");

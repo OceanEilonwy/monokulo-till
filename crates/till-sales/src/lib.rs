@@ -13,7 +13,9 @@
 //!   times. Its [`TillState`] is a `watch` channel.
 //! - [`TillSale`] and [`Standing`]: a sale, and where it stands, which every
 //!   screen's words follow from.
-//! - [`ShiftStore`] and [`shift_json`]: the shift kept between runs, in the
+//! - [`Books`]: the ledger (till-ledger) the till records facts in, and its
+//!   state read back from it. [`shift_json`]: the shift kept before the
+//!   ledger, in the
 //!   JSON the Android app writes.
 //! - [`Shift`]: the wake-up loop, checking on a timer and whenever woken.
 //! - [`TillRunner`]: a shift's tasks together (checks, the event stream, the
@@ -25,6 +27,7 @@
 //! Time comes from a [`monokulo_client::Clock`] and tokio's timers, so tests
 //! run on tokio's paused clock.
 
+mod books;
 mod kotlin_json;
 mod live_store;
 mod pos_switch;
@@ -34,11 +37,13 @@ mod shift;
 mod standing;
 mod till;
 
+pub use books::{Books, LedgerHost};
 pub use kotlin_json::shift_json;
 pub use live_store::{LiveStore, OnDisconnected, OnOnionApi, StoreNow};
 pub use pos_switch::{PosSwitch, PosSwitchSide};
 pub use runner::{NoSource, RunnerSide, RunnerState, TillRunner};
-pub use sale::{PaymentCode, TillSale, TillState};
+pub use sale::{AttemptLine, PaymentCode, SaleExtras, TillSale, TillState};
 pub use shift::{Interval, OnChecked, Shift, WakeCause};
 pub use standing::Standing;
-pub use till::{OrderStatus, ShiftStore, Till, TillOptions};
+pub use till::{OrderStatus, Till, TillOptions};
+pub use till_ledger;

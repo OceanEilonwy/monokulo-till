@@ -40,6 +40,7 @@ pub(crate) fn till_sale(id: &str, amount: &str, currency: &str, xmr: &str) -> Ti
         offered: false,
         kept_as_cash_at: None,
         paid_in_cash_at: None,
+        extras: Default::default(),
     }
 }
 

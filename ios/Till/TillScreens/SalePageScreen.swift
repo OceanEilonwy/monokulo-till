@@ -141,6 +141,7 @@ struct SalePageScreen: View {
         switch action {
         case .refund: .refund(orderId: orderId)
         case .showCodeAgain: .reopen(orderId: orderId)
+        case .newCode: .newCode(orderId: orderId)
         }
     }
 
