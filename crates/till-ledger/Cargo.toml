@@ -18,17 +18,11 @@ serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 till-pos.workspace = true
-
-# SQLCipher, bundled (docs/ledger.md §4, §11). On Apple platforms it uses
-# CommonCrypto, so nothing more is linked than the Security framework;
-# elsewhere (Android, Linux CI) it builds and links its own OpenSSL, so no
-# system OpenSSL is needed. Never system SQLite: `Ledger::open` refuses a
+# SQLCipher, bundled, from the workspace (decision 150): CommonCrypto on
+# Apple platforms, the system libcrypto on Linux, and on Android a vendored
+# OpenSSL that till-ffi adds. Never system SQLite: `Ledger::open` refuses a
 # library without `PRAGMA cipher_version`.
-[target.'cfg(target_vendor = "apple")'.dependencies]
-rusqlite = { version = "0.41.1", features = ["bundled-sqlcipher"] }
-
-[target.'cfg(not(target_vendor = "apple"))'.dependencies]
-rusqlite = { version = "0.41.1", features = ["bundled-sqlcipher-vendored-openssl"] }
+rusqlite.workspace = true
 
 [dev-dependencies]
 proptest = "1.12.0"

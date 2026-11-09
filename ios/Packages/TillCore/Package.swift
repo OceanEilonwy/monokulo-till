@@ -18,9 +18,12 @@ let package = Package(
             dependencies: ["TillFFI"],
             path: "Sources/TillCore",
             linkerSettings: [
-                // What the core's networking needs from the system: rustls'
+                // What the core needs from the system: rustls'
                 // platform verifier checks certificates with Security, and
                 // reqwest reads proxy settings through SystemConfiguration.
+                // SQLCipher encrypts the ledger with CommonCrypto, which is
+                // in libSystem, and asks Security and CoreFoundation for
+                // random bytes (docs/decisions/core.md 143).
                 .linkedFramework("Security"),
                 .linkedFramework("SystemConfiguration"),
                 .linkedFramework("CoreFoundation"),

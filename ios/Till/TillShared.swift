@@ -42,13 +42,20 @@ enum TillShared {
     /// The App Group's container, where the core keeps its files. An
     /// unsigned build (CI's simulator) may have no group: then the app's
     /// own Application Support.
+    ///
+    /// Left out of iCloud and computer backups, the core's files and its
+    /// ledger (`till.db` and its WAL, which come and go) alike: they're
+    /// this device's, as Android's are, and useless without the Keychain
+    /// items, which never leave it (docs/decisions/core.md 145).
     static func dataDirectory() -> URL {
-        if let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) {
-            return group
-        }
-        return (try? FileManager.default.url(
-            for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
-        )) ?? FileManager.default.temporaryDirectory
+        var directory = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup)
+            ?? (try? FileManager.default.url(
+                for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
+            )) ?? FileManager.default.temporaryDirectory
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? directory.setResourceValues(values)
+        return directory
     }
 
     /// Where Square sends the sign-in back. A sandbox application ends at
