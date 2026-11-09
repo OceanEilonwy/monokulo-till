@@ -142,6 +142,7 @@ pub(crate) async fn check(
     };
     let monokulo = MonokuloApi::new(http, side.identity(), clock.clone());
     let till = Till::new(source, monokulo, connection)
+        .with_options(&model.till_options())
         .with_clock(clock)
         .with_store(side.shift_kept().clone());
     if till.shift_unread() {
@@ -158,10 +159,12 @@ pub(crate) async fn check(
         .await
         .is_ok();
     let state = till.state();
+    // Another counter's sales never alert here (core.md decision 113).
+    let counters = model.counters();
     let new: Vec<&TillSale> = state
         .sales
         .iter()
-        .filter(|sale| !before.contains(&sale.order_id) && sale.live())
+        .filter(|sale| !before.contains(&sale.order_id) && sale.live() && !counters.quiet(sale))
         .collect();
     let money = Money(platform);
     // What the notifications say about `sale`, as it arrives.

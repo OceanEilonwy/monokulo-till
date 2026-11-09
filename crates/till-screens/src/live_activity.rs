@@ -53,6 +53,11 @@ pub struct LiveActivityState {
     /// for its first payment: the plain payment URI, never the receipt
     /// (design.md §4).
     pub payment_uri: Option<String>,
+    /// Whom the sale is for ("Sam"), which leads the activity (core.md
+    /// decision 118). The app sets it on the device; the relay's pushes
+    /// never carry it, as names never reach Monokulo.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub name: Option<String>,
 }
 
 /// What the Live Activity shows.
@@ -156,6 +161,9 @@ pub fn live_activity(input: &LiveActivityInput, device: Device) -> Option<LiveAc
         payment_uri: shown
             .filter(|sale| input.code_in_island && sale.live() && sale.phase == SalePhase::Waiting)
             .map(|sale| plain_uri(&sale.code.uri)),
+        name: shown
+            .and_then(crate::sale_text::customer)
+            .map(str::to_owned),
     })
 }
 
@@ -213,6 +221,7 @@ mod tests {
                 expires_at: None,
                 waiting_count: 0,
                 payment_uri: None,
+                name: None,
             }
         );
         assert_eq!(live_activity(&input(vec![]), Device::Ipad), None);
@@ -238,6 +247,7 @@ mod tests {
                 expires_at: Some(1_761_312_000),
                 waiting_count: 2,
                 payment_uri: None,
+                name: None,
             }
         );
         let on = live_activity(
@@ -253,6 +263,12 @@ mod tests {
             Some("monero:4abc?tx_amount=0.1421#x"),
             "the plain URI: the receipt never goes through the relay"
         );
+        let named = TillSale {
+            customer_name: Some(" Sam ".into()),
+            ..sale("o3", SalePhase::Waiting, true)
+        };
+        let state = live_activity(&input(vec![named]), Device::Iphone).unwrap();
+        assert_eq!(state.name.as_deref(), Some("Sam"), "the name leads it");
     }
 
     #[test]

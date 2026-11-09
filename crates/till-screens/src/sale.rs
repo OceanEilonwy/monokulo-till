@@ -15,7 +15,7 @@ use till_sales::TillSale;
 use crate::order_text::{OrderCard, order_card};
 use crate::sale_page::header;
 use crate::time::DeviceClock;
-use crate::view::{Device, PosMark, Press, Ring, mark, ring};
+use crate::view::{Device, PaymentProgress, PosMark, Press, Ring, mark, ring};
 use crate::{close, pos_text, sale_text};
 
 /// What the sale screen shows.
@@ -67,6 +67,13 @@ pub struct SaleView {
     pub closes: bool,
     /// The countdown is on screen: draw it again in a second.
     pub ticks: bool,
+    /// How far the payment has come, in the Till widget's thirds, for the
+    /// platform's progress bar (core.md decision 119).
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub progress: Option<PaymentProgress>,
+    /// A cash sale's "Paid in cash" (core.md decision 116).
+    #[cfg_attr(feature = "uniffi", uniffi(default = []))]
+    pub cash: Vec<crate::sale_page::CashButton>,
 }
 
 /// Android's way back to the point of sale beside "Copy address": its
@@ -137,6 +144,8 @@ pub fn sale(
             .map(BackToPos::new),
         closes: !close::choices(sale, header.elsewhere).is_empty(),
         ticks: live && sale.phase.counts_down(),
+        progress: crate::view::progress(sale),
+        cash: crate::sale_page::cash_buttons(sale, false),
     }
 }
 
@@ -292,7 +301,10 @@ mod tests {
             Ring::new(3, Some(4), Some(10)),
             "the ring grows with each confirmation"
         );
-        assert!(view.ring.spins && view.ring.green);
+        assert!(
+            view.ring.spins && !view.ring.green,
+            "green is for paid alone"
+        );
         assert!((view.ring.fill - (0.12 + 0.88 * 0.4)).abs() < 1e-6);
         assert!(!view.ticks);
     }

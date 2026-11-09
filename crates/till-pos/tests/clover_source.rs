@@ -114,6 +114,8 @@ fn sale(order_id: Option<&str>, device: Option<&str>) -> FoundSale {
         order_id: order_id.map(Into::into),
         created_at: "2026-10-28T08:56:00Z".into(),
         device_id: device.map(Into::into),
+        device_name: None,
+        cash: false,
         title: None,
         point_of_sale: PointOfSale::Square,
     }
@@ -266,6 +268,8 @@ async fn only_successful_monero_payments_not_voided_refunded_or_handled_are_sale
             order_id: Some("ORDER_CL_1".into()),
             created_at: "2026-10-28T08:56:00Z".into(),
             device_id: Some("DEV_FRONT".into()),
+            device_name: None,
+            cash: false,
             title: Some("Table 4".into()),
             point_of_sale: PointOfSale::Clover,
         }

@@ -6,11 +6,11 @@
 //! shift, which becomes the current sale (a Live Update, its chip the ring
 //! alone), and alerts by making it a heads-up. iOS has no ongoing
 //! notification (the iPhone's Live Activity is [`crate::live_activity`]);
-//! a new sale is a time-sensitive alert, whose words differ on iPad (swipe
-//! Till in from Slide Over) and iPhone (tap to open Till).
+//! a new sale is a time-sensitive alert, the same on iPad and iPhone
+//! ("Sam · $24.50", core.md decision 118).
 //!
-//! Whom a sale is for, and on the lock screen what was bought, are never on
-//! a notification.
+//! Whom a sale is for leads iOS's alert, posted on the device; Android's
+//! notifications never name them, nor, on the lock screen, what was bought.
 
 use monokulo_client::{MoneyFormat, PointOfSale, SalePhase};
 use till_sales::TillSale;
@@ -317,6 +317,29 @@ pub struct SaleAlert {
     pub body: String,
 }
 
+/// iOS's alert for `sale` (board Main, core.md decision 118): whom it's
+/// for and the amount, "Sam · $24.50", and "Monero sale. Tap to show Sam
+/// the code." With no name, the sale's number leads and the customer is
+/// "the customer". The name is the device's own: the alert is posted here,
+/// never sent through Monokulo or the relay.
+pub fn alert(sale: &TillSale, money: &dyn MoneyFormat) -> SaleAlert {
+    let who = sale_text::customer(sale).unwrap_or("the customer");
+    let what = if sale.cash() {
+        "Cash sale, paying in Monero"
+    } else {
+        "Monero sale"
+    };
+    SaleAlert {
+        order_id: sale.order_id.clone(),
+        title: format!(
+            "{} · {}",
+            sale_text::heading(sale),
+            sale_text::amount(sale, money)
+        ),
+        body: format!("{what}. Tap to show {who} the code."),
+    }
+}
+
 /// What the notifications show.
 #[derive(Clone, Debug)]
 pub struct NotificationInput {
@@ -356,18 +379,7 @@ pub fn notification(
             .as_deref()
             .and_then(|id| input.sales.iter().find(|sale| sale.order_id == id))
             .filter(|sale| sale.live())
-            .map(|sale| {
-                let to_show = if device == Device::Ipad {
-                    "Swipe in Till, or tap here, to show the payment code."
-                } else {
-                    "Tap here to show the payment code."
-                };
-                SaleAlert {
-                    order_id: sale.order_id.clone(),
-                    title: format!("New Monero sale · {}", sale_text::amount(sale, money)),
-                    body: format!("{}. {to_show}", where_from(sale, location)),
-                }
-            });
+            .map(|sale| alert(sale, money));
         return NotificationView {
             ongoing: None,
             alert,
@@ -550,7 +562,7 @@ mod tests {
     }
 
     #[test]
-    fn whom_a_sale_is_for_is_never_on_a_notification_private_version_or_public() {
+    fn whom_a_sale_is_for_is_on_ios_alert_but_never_on_androids_faces() {
         let named = TillSale {
             customer_name: Some("Ana López".into()),
             ..of(SalePhase::Waiting)
@@ -588,7 +600,11 @@ mod tests {
         )
         .alert
         .unwrap();
-        assert!(!alert.title.contains("Ana") && !alert.body.contains("Ana"));
+        assert_eq!(
+            alert.title, "Ana López · $13.88",
+            "the name leads the alert (decision 118)"
+        );
+        assert_eq!(alert.body, "Monero sale. Tap to show Ana López the code.");
     }
 
     #[test]
@@ -773,14 +789,28 @@ mod tests {
             ipad.alert,
             Some(SaleAlert {
                 order_id: "o1".into(),
-                title: "New Monero sale · $24.50".into(),
-                body: "Front Counter. Swipe in Till, or tap here, to show the payment code.".into(),
-            })
+                title: "Sale #bP9m · $24.50".into(),
+                body: "Monero sale. Tap to show the customer the code.".into(),
+            }),
+            "with no name, the sale's number leads"
         );
         let iphone = notification(&input(sales.clone(), Some("o1")), Device::Iphone, &money);
+        assert_eq!(iphone.alert, ipad.alert, "the same words on iPhone");
+        let cash = TillSale {
+            customer_name: Some("Sam".into()),
+            found: Some(till_pos::FoundSale {
+                cash: true,
+                ..found("p", 2450, "USD", Some("bP9m"), "o", "2026-11-09T10:00:00Z")
+            }),
+            ..sales[0].clone()
+        };
         assert_eq!(
-            iphone.alert.unwrap().body,
-            "Front Counter. Tap here to show the payment code."
+            alert(&cash, &money),
+            SaleAlert {
+                order_id: "o1".into(),
+                title: "Sam · $24.50".into(),
+                body: "Cash sale, paying in Monero. Tap to show Sam the code.".into(),
+            }
         );
         assert_eq!(
             notification(&input(sales, None), Device::Ipad, &money).alert,
@@ -800,7 +830,7 @@ mod tests {
         );
         assert_eq!(
             theirs.alert.unwrap().body,
-            "From Back till. Swipe in Till, or tap here, to show the payment code."
+            "Monero sale. Tap to show the customer the code."
         );
     }
 }

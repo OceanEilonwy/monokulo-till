@@ -36,6 +36,26 @@ pub trait ShiftStore: Send + Sync {
     fn save(&self, sales: &[TillSale]);
 }
 
+/// How the cashier set the till up (core.md decisions 113 and 116): this
+/// counter's point-of-sale device, when known, and whether a cash sale is
+/// treated as Monero as it's found.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TillOptions {
+    pub device_id: Option<String>,
+    pub cash_as_monero: bool,
+}
+
+impl Default for TillOptions {
+    /// Every device's sales, and cash treated as Monero: the till before
+    /// it's told otherwise.
+    fn default() -> TillOptions {
+        TillOptions {
+            device_id: None,
+            cash_as_monero: true,
+        }
+    }
+}
+
 /// What a read of an order says about its sale: its phase, whether
 /// Monokulo has settled it, and its confirmations of those it needs, when
 /// Monokulo said ([`Till::on_status`]).
@@ -109,6 +129,9 @@ pub struct Till {
     monokulo: MonokuloApi,
     connection: Connection,
     device_id: Option<String>,
+    /// A cash sale gets its order and code as it's found, as a Monero
+    /// one does; else it's offered ([`TillSale::offered`]).
+    cash_as_monero: bool,
     clock: Arc<dyn Clock>,
     store: Option<Arc<dyn ShiftStore>>,
     /// The store's shift couldn't be read, so nothing is saved over it.
@@ -138,15 +161,16 @@ impl Till {
     pub const LAPSE_RETRY: Duration = Duration::from_secs(1);
 
     /// A till over `source`, making orders at `connection`'s store. It takes
-    /// every device's sales, reads the device's clock and saves nothing
-    /// until told otherwise ([`Till::with_device_id`], [`Till::with_clock`],
-    /// [`Till::with_store`]).
+    /// every device's sales as its own, treats cash as Monero, reads the
+    /// device's clock and saves nothing until told otherwise
+    /// ([`Till::with_options`], [`Till::with_clock`], [`Till::with_store`]).
     pub fn new(source: Arc<dyn SaleSource>, monokulo: MonokuloApi, connection: Connection) -> Till {
         Till {
             source,
             monokulo,
             connection,
             device_id: None,
+            cash_as_monero: true,
             clock: Arc::new(SystemClock),
             store: None,
             unread: false,
@@ -156,14 +180,36 @@ impl Till {
         }
     }
 
-    /// The same till, taking only `device_id`'s sales when the POS says
-    /// which device took each; another device's are marked handled and
-    /// left alone.
+    /// The same till, at the counter whose point-of-sale device is
+    /// `device_id` (core.md decision 113). Another device's sales are still
+    /// taken, so they can be listed and their code shown if the customer
+    /// comes here, but without the receipt, which stays with the till at
+    /// that counter; whether one alerts is the engine's to say.
     pub fn with_device_id(self, device_id: impl Into<String>) -> Till {
         Till {
             device_id: Some(device_id.into()),
             ..self
         }
+    }
+
+    /// The same till, set up as `options` say.
+    pub fn with_options(self, options: &TillOptions) -> Till {
+        let till = Till {
+            cash_as_monero: options.cash_as_monero,
+            ..self
+        };
+        match &options.device_id {
+            Some(device_id) => till.with_device_id(device_id.clone()),
+            None => till,
+        }
+    }
+
+    /// Whether `sale` was taken on a device other than this counter's.
+    fn elsewhere(&self, sale: &FoundSale) -> bool {
+        matches!(
+            (&self.device_id, &sale.device_id),
+            (Some(mine), Some(theirs)) if mine != theirs
+        )
     }
 
     /// The same till, stamping the cashier's marks and a resync's with
@@ -294,31 +340,28 @@ impl Till {
         checking.last_found = found.iter().map(|sale| sale.id.clone()).collect();
         let mut problem = None;
         for sale in &found {
-            if let (Some(mine), Some(theirs)) = (&self.device_id, &sale.device_id)
-                && mine != theirs
-            {
+            if sale.cash && !self.cash_as_monero {
+                // Offered quietly: no order until the cashier takes it.
+                let read = self.source.order(sale).await.ok();
                 self.source.handled(sale);
+                self.offer(sale, read);
                 continue;
             }
-            let order = self
-                .monokulo
-                .create_order(
-                    &self.connection,
-                    &decimal_amount(sale.amount_minor, &sale.currency),
-                    &sale.currency,
-                    sale.reference.as_deref(),
-                    &Till::idempotency_key(sale),
-                )
-                .await;
-            let order = match order {
+            let order = match self.create_order(sale).await {
                 Ok(order) => order,
                 Err(e) => {
-                    problem = Some(creation_problem(&e));
+                    problem = Some(e);
                     continue;
                 }
             };
             self.source.handled(sale);
-            let read = self.source.order(sale).await.ok();
+            let mut read = self.source.order(sale).await.ok();
+            if self.elsewhere(sale)
+                && let Some(read) = &mut read
+            {
+                // The receipt stays with the till at that counter.
+                read.receipt = None;
+            }
             let code = PaymentCode::of(
                 &order.payment_uri(),
                 read.as_ref().and_then(|read| read.receipt.as_ref()),
@@ -590,9 +633,153 @@ impl Till {
         });
     }
 
+    /// The Monokulo order for `sale`: its amount, currency and receipt
+    /// number, and the idempotency key, never whom it's for (names stay on
+    /// the device). What went wrong, in the till's words.
+    async fn create_order(&self, sale: &FoundSale) -> Result<Order, String> {
+        self.monokulo
+            .create_order(
+                &self.connection,
+                &decimal_amount(sale.amount_minor, &sale.currency),
+                &sale.currency,
+                sale.reference.as_deref(),
+                &Till::idempotency_key(sale),
+            )
+            .await
+            .map_err(|e| creation_problem(&e))
+    }
+
+    /// Lists a cash sale quietly, with no order, for the cashier to take in
+    /// Monero or keep as cash (core.md decision 116). One already listed
+    /// (or already taken) stays as it is.
+    fn offer(&self, found: &FoundSale, read: Option<SaleOrder>) {
+        let order_id = format!("{}{}", TillSale::OFFERED, found.id);
+        let created_at =
+            till_pos::time::unix_seconds(&found.created_at).unwrap_or_else(|| self.clock.now());
+        let (receipt, customer_name) = match read {
+            Some(read) => (read.receipt, read.customer_name),
+            None => (None, None),
+        };
+        let receipt = receipt.filter(|_| !self.elsewhere(found));
+        self.change(|s| {
+            let taken = s
+                .sales
+                .iter()
+                .any(|sale| sale.found.as_ref().is_some_and(|f| f.id == found.id));
+            if taken {
+                return s.clone();
+            }
+            let sale = TillSale {
+                order_id: order_id.clone(),
+                amount: decimal_amount(found.amount_minor, &found.currency),
+                currency: found.currency.clone(),
+                reference: found.reference.clone(),
+                code: PaymentCode::plain(""),
+                phase: SalePhase::Waiting,
+                expires_at: 0,
+                xmr: String::new(),
+                address: String::new(),
+                found: Some(found.clone()),
+                receipt: receipt.clone(),
+                customer_name: customer_name.clone(),
+                device_name: None,
+                url: None,
+                settled: false,
+                created_at,
+                seen_at: None,
+                paid_at: None,
+                ended_at: None,
+                closed_at: None,
+                refunded_at: None,
+                refund_pending_at: None,
+                confirmations: None,
+                confirmations_required: None,
+                offered: true,
+                kept_as_cash_at: None,
+                paid_in_cash_at: None,
+            };
+            let mut sales = Vec::with_capacity(s.sales.len() + 1);
+            sales.push(sale);
+            sales.extend(s.sales.iter().cloned());
+            TillState { sales, ..s.clone() }
+        });
+    }
+
+    /// "Take it in Monero" on an offered cash sale: its order is made now,
+    /// with the receipt and name read when it was found, and the sale with
+    /// the order takes the offered one's place. The new order's id, or what
+    /// went wrong (also kept as the till's problem). A sale that isn't
+    /// offered any more answers its own id.
+    pub async fn take_in_monero(&self, order_id: &str) -> Result<String, String> {
+        let Some(offered) = self.state.borrow().sale(order_id).cloned() else {
+            return Err("That sale isn't on the till any more.".into());
+        };
+        let Some(found) = offered.found.clone().filter(|_| offered.offered) else {
+            return Ok(order_id.to_owned());
+        };
+        let order = match self.create_order(&found).await {
+            Ok(order) => order,
+            Err(e) => {
+                self.change(|s| TillState {
+                    problem: Some(e.clone()),
+                    ..s.clone()
+                });
+                return Err(e);
+            }
+        };
+        let code = PaymentCode::of(&order.payment_uri(), offered.receipt.as_ref());
+        let read = SaleOrder {
+            receipt: offered.receipt.clone(),
+            customer_name: offered.customer_name.clone(),
+        };
+        self.add(&order, code, Some(read), &found);
+        self.change(|s| TillState {
+            sales: s
+                .sales
+                .iter()
+                .filter(|sale| sale.order_id != order_id)
+                .cloned()
+                .collect(),
+            ..s.clone()
+        });
+        Ok(order.order_id)
+    }
+
+    /// "Keep as cash" on an offered cash sale: it stays listed, quietly.
+    pub fn keep_as_cash(&self, order_id: &str) {
+        let at = self.clock.now();
+        self.change_sale(order_id, |sale| {
+            if !sale.offered {
+                return sale.clone();
+            }
+            TillSale {
+                kept_as_cash_at: sale.kept_as_cash_at.or(Some(at)),
+                ..sale.clone()
+            }
+        });
+    }
+
+    /// "Paid in cash" on a cash sale with a code: the customer paid real
+    /// cash after all, so its code comes down and nothing is refunded (the
+    /// point of sale already has the cash). Only a cash sale, and never one
+    /// already paid in Monero.
+    pub fn paid_in_cash(&self, order_id: &str) {
+        let at = self.clock.now();
+        self.change_sale(order_id, |sale| {
+            if !sale.cash() || sale.offered || sale.phase == SalePhase::Paid {
+                return sale.clone();
+            }
+            TillSale {
+                paid_in_cash_at: sale.paid_in_cash_at.or(Some(at)),
+                ..sale.clone()
+            }
+        });
+    }
+
     /// Refunds the POS sale of an order that was never paid: through the
     /// POS when the till can ([`Refunds::ByTill`]), else marks it for the
     /// cashier to refund there ([`Refunds::InPos`]), which sends nothing. A
+    /// cash sale is never refunded at all ([`TillSale::cash`]). A
     /// sale another point of sale took (the cashier changed it since) is
     /// only ever marked: its payment id means nothing to this source's POS.
     /// A paid sale is never refunded from here, nor one already refunded:
@@ -608,6 +795,11 @@ impl Till {
         let Some(found) = sale.found else {
             return;
         };
+        if found.cash {
+            // Never refunded through the point of sale: it took cash, which
+            // the cashier hands back if need be (core.md decision 116).
+            return;
+        }
         self.change(|s| {
             let mut s = s.clone();
             s.refund_problems.remove(order_id);
@@ -722,6 +914,9 @@ impl Till {
                 confirmations_required: order
                     .confirmations_required
                     .or(known.and_then(|known| known.confirmations_required)),
+                offered: false,
+                kept_as_cash_at: None,
+                paid_in_cash_at: known.and_then(|known| known.paid_in_cash_at),
             };
             let mut sales = Vec::with_capacity(s.sales.len() + 1);
             sales.push(sale);
@@ -884,5 +1079,8 @@ fn event_sale(event: &SaleEvent) -> TillSale {
         refund_pending_at: None,
         confirmations: None,
         confirmations_required: None,
+        offered: false,
+        kept_as_cash_at: None,
+        paid_in_cash_at: None,
     }
 }

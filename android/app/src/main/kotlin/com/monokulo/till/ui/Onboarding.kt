@@ -59,6 +59,9 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.monokulo.till.overlay.BubbleFace
 import uniffi.till_screens.Account
+import uniffi.till_screens.CounterStep
+import uniffi.till_screens.ShowSales
+import uniffi.till_screens.ShowSalesStep
 import uniffi.till_screens.Fact
 import uniffi.till_screens.OnboardingPage
 import uniffi.till_screens.PosCard
@@ -314,8 +317,14 @@ class PosSetupActions(
 fun PointOfSaleScreen(step: PosStep, stepLabel: String?, a: PosSetupActions) = Page(
     top = { BackBar(a.onBack.takeIf { step.back }) },
     bottom = {
+        // The test sale's status (docs/decisions/core.md 121), drawn plainly.
+        step.status?.let { status ->
+            Text(status.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Muted(status.detail)
+        }
         step.next?.let { next -> PrimaryButton(next.label, a.onNext, Modifier.fillMaxWidth(), enabled = next.enabled) }
         step.skip?.let { skip -> LinkButton(skip.label, a.onSkip, enabled = skip.enabled, size = 15) }
+        step.skipFootnote?.let { Muted(it, align = TextAlign.Center) }
         StepLabel(stepLabel)
     },
 ) {
@@ -561,6 +570,40 @@ fun FloatScreen(page: OnboardingPage.Float, onOpenSettings: () -> Unit, onNotifi
         }
     }
     Spacer(Modifier.height(16.dp))
+}
+
+/**
+ * After the test sale (C4, docs/decisions/core.md 113): which sales alert on
+ * this phone, drawn plainly.
+ */
+@Composable
+fun CounterScreen(view: CounterStep, onPick: (everyDevice: Boolean) -> Unit, onNext: () -> Unit, onBack: () -> Unit) = Page(
+    top = { BackBar(onBack) },
+    bottom = { PrimaryButton(view.next.label, onNext, Modifier.fillMaxWidth(), enabled = view.next.enabled) },
+) {
+    Column(Modifier.padding(start = 24.dp, end = 24.dp, top = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Muted(view.found)
+        Heading(view.heading)
+        Lead(view.lead)
+    }
+    Spacer(Modifier.height(16.dp))
+    Group(rows = view.choices.mapIndexed { index, choice -> { ChoiceRow(choice.label, choice.selected, { onPick(index == 1) }, choice.detail) } })
+    Footnote(view.footnote)
+}
+
+/** How a new sale shows up (O4): an iPad step, drawn plainly should it come. */
+@Composable
+fun ShowSalesScreen(view: ShowSalesStep, onPick: (ShowSales) -> Unit, onNext: () -> Unit, onBack: () -> Unit) = Page(
+    top = { BackBar(onBack) },
+    bottom = { PrimaryButton(view.next.label, onNext, Modifier.fillMaxWidth(), enabled = view.next.enabled) },
+) {
+    Column(Modifier.padding(start = 24.dp, end = 24.dp, top = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Heading(view.heading)
+        Lead(view.lead)
+    }
+    Spacer(Modifier.height(16.dp))
+    Group(rows = view.choices.map { c -> { ChoiceRow(c.choice.label, c.choice.selected, { onPick(c.mode) }, c.choice.detail) } })
+    view.sideBySide?.let { Footnote(it.value) }
 }
 
 /** Step 6 (OnbReady): what's set up, and start the shift. */

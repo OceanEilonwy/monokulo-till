@@ -298,6 +298,52 @@ fn defaults_are_kept_as_the_setters_keep_them() {
     assert_eq!(platform.get("clover.handled").as_deref(), Some("[]"));
 }
 
+#[test]
+fn counters_cash_and_how_sales_show_up_are_kept_and_the_device_goes_with_the_store() {
+    let platform = Arc::new(FakePlatform::default());
+    let s = store(&platform);
+    let fresh = s.load().unwrap();
+    assert_eq!(fresh.counter_device, None);
+    assert!(!fresh.alert_every, "this device's alerts, once known");
+    assert!(fresh.show_others && fresh.cash_as_monero, "absent is on");
+    assert_eq!(fresh.show_sales, crate::ShowSales::Alert);
+    let set = Model {
+        counter_device: Some(CounterKept {
+            id: "dev_front".into(),
+            name: Some("Front iPad".into()),
+            learned_at: 1_762_700_000,
+        }),
+        alert_every: true,
+        show_others: false,
+        cash_as_monero: false,
+        show_sales: crate::ShowSales::FloatingWindow,
+        ..Model::default()
+    };
+    s.save(&Model::default(), &set).unwrap();
+    assert_eq!(
+        platform.get("counter.device").as_deref(),
+        Some(r#"{"id":"dev_front","name":"Front iPad","learnedAt":1762700000}"#)
+    );
+    assert_eq!(platform.get("counter.every").as_deref(), Some("true"));
+    assert_eq!(platform.get("counter.others").as_deref(), Some("false"));
+    assert_eq!(platform.get("cash.monero").as_deref(), Some("false"));
+    assert_eq!(platform.get("sales.show").as_deref(), Some("pip"));
+    assert_eq!(s.load().unwrap(), set);
+    let side = Model {
+        show_sales: crate::ShowSales::SideBySide,
+        ..set.clone()
+    };
+    s.save(&set, &side).unwrap();
+    assert_eq!(platform.get("sales.show").as_deref(), Some("side"));
+
+    let forgotten = s.forget_all(&side).unwrap();
+    assert_eq!(forgotten.counter_device, None, "the device is the store's");
+    assert!(!forgotten.alert_every);
+    assert!(!forgotten.show_others && !forgotten.cash_as_monero);
+    assert_eq!(forgotten.show_sales, crate::ShowSales::SideBySide);
+    assert_eq!(platform.get("counter.device"), None);
+}
+
 /// The keys only the iOS app writes, each as it writes it and none the
 /// default: Settings › Dynamic Island's two switches.
 const IOS: &[(&str, &str)] = &[("island.activity", "false"), ("island.code", "true")];

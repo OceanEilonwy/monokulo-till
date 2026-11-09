@@ -715,3 +715,132 @@ on from 1; the Android app's own choices are in [android.md](android.md).
      nothing is said twice. Each app draws them over the top of the
      screen with a part it already had: Android a thin progress bar and
      its `Notice` (`WorkBar`), iOS a `ProgressView` and its `ProblemNote`.
+
+## The iPad redesign, phase 1: the core (2026-11-09)
+
+The engine side of [ipad-redesign.md](../ipad-redesign.md) (its decisions
+4 to 14, 17 and 20): counters, cash, customer names, the onboarding steps
+and copy, tones and progress.
+
+110. **Every found sale carries the device that took it.** `FoundSale`
+     has `device_id` (as before) and `device_name`, both from Square's
+     `device_details` (`device_name` on one line, blank as none). Clover's
+     payments name only the device's id (`device.id`; its name would need
+     the devices endpoint), so a Clover sale's menu line says "Device" and
+     the end of the id. Both stay on the device, in the saved shift.
+111. **New view fields cross UniFFI with defaults.** Every field added to a
+     record the platforms construct or that the iOS rework reads (`Press`,
+     `PosStep`, `ShiftRow`, `ShiftView`, `SettingsView`, `SaleView`,
+     `SalePageView`, `OnboardingView`, `LiveActivityState`) has a UniFFI
+     default, and no existing enum variant gained a field, so Swift's
+     positional patterns and both platforms' tests keep compiling. New
+     choices are new records (`CashButton`, `CounterMenu`, `TestStatus`)
+     rather than new variants of enums the apps switch over (`PageAction`,
+     `StateIcon`, `ShiftEntry`). The only new variants are the two new
+     onboarding screens (`Screen::Counter`, `Screen::ShowSales`) and their
+     pages, and the new `Action`s.
+112. **The order's name: the fulfillment recipient first, then its
+     `ticket_name`.** A recipient is a person the seller named on a
+     pickup, delivery or shipment; a ticket name is typed at the counter
+     and is often a label ("Table 4", or a default an open ticket got), so
+     it's the fallback. Both are one line and at most 80 characters, and
+     neither is ever sent to Monokulo: orders carry the amount, currency,
+     receipt number and idempotency key alone (a test checks a taken cash
+     sale's order body).
+113. **This counter's device comes from the test sale, and only its sales
+     alert.** When step 4's test sale names its Square device, the engine
+     keeps it (`counter.device`: id, name, when) and C4 asks "Only sales on
+     Front iPad (recommended)" or "Every sale at Front Counter"
+     (`counter.every`, `Action::SetAlertFor`). With the test skipped, or at
+     a point of sale with no device, there is no device and every sale is
+     this till's. `Till::with_device_id` (through `TillOptions`, which
+     `RunnerSide::till_options` and the background check read from the
+     model) no longer drops another device's sales: it still makes their
+     orders, by the same idempotency key, so they can be listed and their
+     code shown, but without the receipt, which stays with that counter's
+     till. A sale another till found (no `found`) counts as another
+     counter's while this one has a device. Another counter's sale, while
+     alerts are for this device (`Counters::quiet`), never alerts (iOS
+     alert, background check, Android's heads-up), never rises out of the
+     shift (it's treated as left), never buzzes or shows paid, and isn't in
+     the bubble's, the ongoing notification's or the Live Activity's sales.
+     The apps read `ShiftRow.other_counter` and `ShiftRow.device`. One
+     edge: a sale this counter took that another till announced first
+     arrives quiet and doesn't alert when this till adds it a moment later.
+     Changing the point of sale forgets the device, as does forgetting the
+     store.
+114. **The title menu chooses whose sales the list shows.**
+     `ShiftView.counters` (`CounterMenu`) is there while this counter has a
+     device or the sales come from more than one place: its title is the
+     choice shown, its items this counter ("This counter · alerts"), each
+     other device with sales this shift ("No alerts here", or "Alerts here
+     too" with every device), "Other tills" for sales other tills found,
+     and "All counters", each with its waiting count. `Action::ChooseCounter`
+     chooses; until then the list opens on "All counters" when "Show other
+     counters' sales" is on (the default, `counter.others`), else on this
+     counter. The summary, chips and rows follow the choice; the menu's
+     counts are over every sale.
+115. **Settings C5.** `SettingsView.counters` (Square, signed in): "This
+     device: Front iPad" with when the test sale named it, "Every device at
+     Front Counter" naming the devices seen, "Find this device again with a
+     test sale" (`Action::FindDevice`: the next sale found that names a
+     device becomes this counter's; tapped again while waiting, it stops),
+     and "Show their sales in the list".
+116. **Cash.** Square's completed `CASH` payments are found as well as the
+     Monero tender (`FoundSale::cash`). With "Treat cash sales as Monero"
+     on (the default, `cash.monero`) a cash sale gets its order and code as
+     it's found and follows a Monero sale's flow. Off, it's listed quietly
+     as an offered sale (`TillSale::offered`, order id `cash:` and the
+     payment's id, no order) under its own header ("Cash · paying in
+     Monero?", drawn as an `Earlier` entry), with `CashButton`s "Take it in
+     Monero" (`Till::take_in_monero` makes the order then; the sale with the
+     order replaces the offered one and opens on its code) and "Keep as
+     cash". A cash sale with a code offers "Paid in cash"
+     (`TillSale::paid_in_cash_at`, `Standing::PaidInCash`): its code comes
+     down and nothing is refunded. A cash sale is never refunded through
+     the point of sale (`Till::refund` returns at once), its close sheet
+     has no "No: refund it", and its page has no Refund. Clover: cash would
+     be a second query by Clover's cash tender; not done, and Clover is
+     unchanged.
+117. **Cash paid in Monero is counted for the end of the day.** A paid cash
+     sale's row says "Paid in Monero · cash in Square", and
+     `ShiftView.cash_in_monero` is "2 cash sales paid in Monero · $32.90",
+     as Square's books say Cash for them.
+118. **The customer's name leads.** `ShiftRow.name` (the name, else "Sale
+     #m2Qe"), `ShiftRow.amount`, and the sale's number at the end of `sub`
+     when a name leads; `title` is still name and amount on one line for
+     Android. The sale's title was already the name. iOS's alert is "Sam ·
+     $24.50", "Monero sale. Tap to show Sam the code." (a cash sale's
+     says so), and `LiveActivityState.name` carries it, set on the device
+     (the relay's pushes never have it). Android's notifications keep the
+     sale's number, as they show on the lock screen.
+119. **Green is for paid alone, and progress is in thirds.** Seen and
+     confirming rows are muted, the ring's arc is green only once paid,
+     "Watching" and Settings' "Connected" are plain, and a paid row is
+     green. `SaleView.progress` (`PaymentProgress`) is the Till widget's thirds,
+     waiting 0, seen 1, confirming 2, paid 3, with its label ("Seen on the
+     network"), count ("1 of 3") and what a screen reader says.
+120. **How a new sale shows up is the engine's to keep.** `ShowSales`
+     (Alert, the default; FloatingWindow; SideBySide), kept as
+     `sales.show`, chosen in O4 (`Screen::ShowSales`, iPad only, after
+     Alerts, in place of the old Slide Over step) and in iPad Settings
+     (`SettingsView.show_sales`), by `Action::ChooseShowSales`. O4's page
+     carries the sample alert its "Send a test alert" posts. The platform
+     does the showing. Android keeps its bubble step.
+121. **Onboarding's steps.** No step label on iOS: iPad's rail (Welcome,
+     Connect your store, Point of sale, Alerts, How sales show up, Ready),
+     iPhone's `OnboardingView.progress` (value of total, none on Welcome).
+     Android keeps "Step N of 6". Step 4 is three stages in setup
+     (`PosStep.stage`): O1 the choice alone with "Continue with Square" and
+     "Set up later" (with its footnote, `PosStep.skip_footnote`), O2 the
+     card and the sign-in with Back to O1, O3 the test sale with its status
+     bar (`PosStep.status`: "Waiting for the test sale…", "Continue unlocks
+     when it arrives"). `Press.busy` says a button shows progress in itself:
+     the sign-in while it runs, and step 3's Continue while the store is
+     read (review finding I6). After the test sale, C4
+     (`Screen::Counter`) when it named a Square device. iPad's Ready no
+     longer says Slide Over.
+122. **iOS alerts are a status row.** `SettingsView.alerts_status`: "New
+     sales and payments · On", or "Off" in warning, with "Open Notification
+     Settings" and its footnote (review finding I15). Android keeps its
+     switch.

@@ -280,6 +280,10 @@ pub enum WakeUps {
 /// The close sheet's answers are `till-screens`' own: one type, so the Swift
 /// bindings (one module for every crate) don't declare it twice.
 pub use till_screens::close::CloseChoice;
+/// The title menu's choices and how a new sale shows up are `till-screens`'
+/// own, for the same reason.
+pub use till_screens::counters::CounterChoice;
+pub use till_screens::settings::ShowSales;
 
 /// Where the app is (Android: `Screen`). Setup follows the design's six
 /// onboarding steps.
@@ -296,9 +300,14 @@ pub enum Screen {
     /// 4: the point of sale and its sign-in; Square's locations next.
     PointOfSale,
     Locations,
-    /// 5: alerts, then (Android) the bubble.
+    /// After the test sale, when it named its device: which sales alert
+    /// here (C4, core.md decision 113).
+    Counter,
+    /// 5: alerts, then (Android) the bubble, or (iPad) how a new sale shows
+    /// up (O4, core.md decision 120).
     Alerts,
     Float,
+    ShowSales,
     /// 6: start the shift.
     Ready,
     /// The shift: the till's home.
@@ -545,6 +554,43 @@ pub enum Action {
     },
     /// An app came or went, which may have been a distributor.
     DistributorsChanged,
+    /// C4 and Settings' "Alert for": this counter's device alone, or every
+    /// device at the location (core.md decision 113).
+    SetAlertFor {
+        every_device: bool,
+    },
+    /// Settings' "Find this device again with a test sale": the next sale
+    /// this till finds names this counter's device.
+    FindDevice,
+    /// Settings' "Show other counters' sales in the list".
+    SetShowOtherCounters {
+        on: bool,
+    },
+    /// The shift's title menu: whose sales the list shows.
+    ChooseCounter {
+        choice: CounterChoice,
+    },
+    /// Settings' "Treat cash sales as Monero" (core.md decision 116).
+    SetCashAsMonero {
+        on: bool,
+    },
+    /// O4 and Settings: how a new sale shows up (core.md decision 120).
+    ChooseShowSales {
+        mode: ShowSales,
+    },
+    /// "Take it in Monero" on an offered cash sale: its order and code are
+    /// made, and the sale opens on its code.
+    TakeInMonero {
+        order_id: String,
+    },
+    /// "Keep as cash" on an offered cash sale.
+    KeepAsCash {
+        order_id: String,
+    },
+    /// "Paid in cash" on a cash sale: closed, nothing refunded.
+    PaidInCash {
+        order_id: String,
+    },
     /// iOS's APNs device token, the bytes in hex, each time iOS gives one
     /// (every launch, from `registerForRemoteNotifications`); `None` when
     /// iOS couldn't register for remote notifications. With a

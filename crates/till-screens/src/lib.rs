@@ -33,6 +33,7 @@ uniffi::setup_scaffolding!();
 pub mod bubble;
 pub mod close;
 pub mod code;
+pub mod counters;
 mod decimal;
 #[cfg(test)]
 mod fixtures;

@@ -252,6 +252,8 @@ fn found(
         order_id: Some(order_id.into()),
         created_at: created_at.into(),
         device_id: device_id.map(Into::into),
+        device_name: None,
+        cash: false,
         title: None,
         point_of_sale: PointOfSale::Square,
     }
@@ -765,6 +767,8 @@ async fn a_check_counts_the_sales_no_check_found_before_another_devices_included
     let other = FoundSale {
         id: "pay_2".into(),
         device_id: Some("dev_back".into()),
+        device_name: None,
+        cash: false,
         ..sale()
     };
     let source = FakeSource::new(vec![sale(), other]);
@@ -785,6 +789,8 @@ async fn a_check_counts_the_sales_no_check_found_before_another_devices_included
     source.sales.lock().unwrap().push(FoundSale {
         id: "pay_3".into(),
         device_id: Some("dev_back".into()),
+        device_name: None,
+        cash: false,
         ..sale()
     });
     assert_eq!(till.check().await, 1);
@@ -850,22 +856,181 @@ async fn an_ended_sign_in_keeps_saying_why_until_the_cashier_signs_in_and_a_sale
 }
 
 #[tokio::test]
-async fn without_a_receipt_the_plain_code_is_shown_and_another_devices_sales_are_left_alone() {
+async fn without_a_receipt_the_plain_code_is_shown() {
     let f = fixture().await;
-    let other = FoundSale {
-        id: "pay_2".into(),
-        device_id: Some("dev_back".into()),
-        ..sale()
-    };
-    let source = FakeSource::new(vec![sale(), other]);
+    let source = FakeSource::new(vec![sale()]);
     let till = f.till(source.clone()).with_device_id("dev_front");
     f.enqueue(order());
     till.check().await;
     let shown = only(&till);
     assert!(!shown.code.has_receipt);
     assert_eq!(shown.code.uri, "monero:8Bx?tx_amount=0.08");
-    assert_eq!(source.handled_ids(), ["pay_monero", "pay_2"]);
+    assert_eq!(source.handled_ids(), ["pay_monero"]);
     assert_eq!(f.request_count(), 2, "the entry, then one order");
+}
+
+/// The order for another sale, `ord_2`.
+fn second_order() -> ResponseTemplate {
+    ResponseTemplate::new(201).set_body_raw(
+        r#"{"order_id":"ord_2","status":"pending","is_final":false,"address":"8Cz","xmr_amount_piconero":20000000000,
+           "amount":"5.00","currency":"USD","merchant_order_id":"p4Xr","expires_at":1761312000,
+           "_links":{"self":{"href":"/api/v1/orders/ord_2"}}}"#,
+        "application/json",
+    )
+}
+
+/// [`sale`] rung up as cash.
+fn cash_sale() -> FoundSale {
+    FoundSale {
+        id: "pay_cash".into(),
+        cash: true,
+        ..sale()
+    }
+}
+
+#[tokio::test]
+async fn a_cash_sale_is_treated_as_monero_by_default_and_never_refunded() {
+    let f = fixture().await;
+    let source = FakeSource::with(vec![cash_sale()], Some(receipt()), Some("Sam"));
+    let till = f.till(source.clone());
+    f.enqueue(order());
+    till.check().await;
+    let shown = only(&till);
+    assert!(shown.cash());
+    assert!(
+        shown.live(),
+        "it alerts and shows its code like a Monero sale"
+    );
+    assert!(shown.code.has_receipt);
+    assert_eq!(shown.customer_name.as_deref(), Some("Sam"));
+    till.close("ord_1");
+    till.refund("ord_1").await;
+    assert!(
+        source.refunded().is_empty(),
+        "cash is never refunded in Square"
+    );
+    assert_eq!(only(&till).refund_pending_at, None);
+}
+
+#[tokio::test]
+async fn paid_in_cash_closes_a_cash_sale_with_nothing_to_refund() {
+    let f = fixture().await;
+    let source = FakeSource::new(vec![
+        cash_sale(),
+        FoundSale {
+            id: "pay_2".into(),
+            ..sale()
+        },
+    ]);
+    let till = f.till(source.clone());
+    f.enqueue(order());
+    f.enqueue(second_order());
+    till.check().await;
+    till.paid_in_cash("ord_1");
+    let state = till.state();
+    let cash = state.sale("ord_1").unwrap();
+    assert_eq!(cash.standing(), Standing::PaidInCash);
+    assert!(!cash.live());
+    assert!(!cash.needs_action());
+    till.paid_in_cash("ord_2");
+    assert_eq!(
+        till.state().sale("ord_2").unwrap().paid_in_cash_at,
+        None,
+        "only a cash sale"
+    );
+    assert!(source.refunded().is_empty());
+}
+
+#[tokio::test]
+async fn with_cash_offered_a_cash_sale_waits_quietly_until_its_taken_in_monero() {
+    let f = fixture().await;
+    let source = FakeSource::with(vec![cash_sale()], Some(receipt()), Some("Sam"));
+    let till = f.till(source.clone()).with_options(&TillOptions {
+        device_id: None,
+        cash_as_monero: false,
+    });
+    till.check().await;
+    assert_eq!(f.request_count(), 0, "no order until it's taken");
+    assert_eq!(source.handled_ids(), ["pay_cash"]);
+    let offered = only(&till);
+    assert_eq!(offered.order_id, "cash:pay_cash");
+    assert!(offered.offered);
+    assert_eq!(offered.standing(), Standing::CashOffer { kept: false });
+    assert!(!offered.live() && !offered.needs_action() && !offered.open());
+    assert_eq!(offered.customer_name.as_deref(), Some("Sam"));
+    assert_eq!(offered.amount, "13.88");
+    till.keep_as_cash("cash:pay_cash");
+    assert_eq!(only(&till).standing(), Standing::CashOffer { kept: true });
+
+    f.enqueue(order());
+    assert_eq!(
+        till.take_in_monero("cash:pay_cash").await.as_deref(),
+        Ok("ord_1")
+    );
+    let taken = only(&till);
+    assert_eq!(taken.order_id, "ord_1", "the order takes the offer's place");
+    assert!(taken.cash() && taken.live() && !taken.offered);
+    assert!(taken.code.has_receipt);
+    assert_eq!(taken.customer_name.as_deref(), Some("Sam"));
+    let body: Value = serde_json::from_slice(&f.queue.seen.lock().unwrap()[1].body).unwrap();
+    assert!(
+        !body.to_string().contains("Sam"),
+        "names never go to Monokulo"
+    );
+    assert_eq!(
+        till.take_in_monero("ord_1").await.as_deref(),
+        Ok("ord_1"),
+        "taken already"
+    );
+}
+
+#[tokio::test]
+async fn a_cash_sale_whose_order_fails_stays_offered_and_says_why() {
+    let f = fixture().await;
+    let source = FakeSource::new(vec![cash_sale()]);
+    let till = f.till(source.clone()).with_options(&TillOptions {
+        device_id: None,
+        cash_as_monero: false,
+    });
+    till.check().await;
+    f.enqueue(ResponseTemplate::new(503));
+    assert!(till.take_in_monero("cash:pay_cash").await.is_err());
+    assert!(only(&till).offered);
+    assert!(till.state().problem.is_some());
+}
+
+#[tokio::test]
+async fn another_devices_sale_is_taken_with_its_name_but_without_its_receipt() {
+    let f = fixture().await;
+    let other = FoundSale {
+        id: "pay_2".into(),
+        device_id: Some("dev_back".into()),
+        device_name: Some("Bar iPad".into()),
+        cash: false,
+        ..sale()
+    };
+    let source = FakeSource::with(vec![sale(), other], Some(receipt()), Some("Sam"));
+    let till = f.till(source.clone()).with_options(&TillOptions {
+        device_id: Some("dev_front".into()),
+        cash_as_monero: true,
+    });
+    f.enqueue(order());
+    f.enqueue(second_order());
+    till.check().await;
+    let state = till.state();
+    assert_eq!(state.sales.len(), 2, "{:?}", state.sales);
+    let theirs = state.sale("ord_2").unwrap();
+    assert!(
+        theirs.receipt.is_none(),
+        "the receipt stays at that counter"
+    );
+    assert!(!theirs.code.has_receipt);
+    assert_eq!(theirs.customer_name.as_deref(), Some("Sam"));
+    assert_eq!(theirs.pos_device(), Some(("dev_back", Some("Bar iPad"))));
+    let mine = state.sale("ord_1").unwrap();
+    assert!(mine.code.has_receipt);
+    assert!(mine.receipt.is_some());
+    assert_eq!(source.handled_ids(), ["pay_monero", "pay_2"]);
 }
 
 #[tokio::test]

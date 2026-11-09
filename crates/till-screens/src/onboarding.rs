@@ -13,7 +13,7 @@ use monokulo_client::{MoneyFormat, PointOfSale, amounts};
 use till_pos::square::SquareLocation;
 
 use crate::pos_text;
-use crate::settings::{StoreNow, connected, pos_choices};
+use crate::settings::{ShowSales, StoreNow, connected, pos_choices, show_sales_choices};
 use crate::view::{Device, Fact, PosChoice, PosMark, Press, capitalised, mark, on_off};
 
 /// How many steps setting up takes, on every device.
@@ -65,6 +65,22 @@ pub struct PosSetup {
     /// Onboarding's step 4; false when Settings' "Change the point of sale"
     /// opened it, with Back and no test sale.
     pub setup: bool,
+    /// Past O1: the cashier chose the point of sale and went on to sign in.
+    pub confirmed: bool,
+}
+
+/// C4's state: the test sale and the device it came from.
+#[derive(Clone, Debug)]
+pub struct CounterSetup {
+    /// The test sale's amount, as the till writes amounts.
+    pub amount: String,
+    /// "#t0Ab", when the point of sale numbered it.
+    pub number: Option<String>,
+    /// The device's name ("Front iPad").
+    pub device: String,
+    /// The location ("Front Counter").
+    pub place: Option<String>,
+    pub every_device: bool,
 }
 
 impl PosSetup {
@@ -117,6 +133,11 @@ pub enum Step {
     },
     /// Step 5 on Android: the bubble over other apps.
     Float { allowed: bool },
+    /// C4, after the test sale named its device.
+    Counter(CounterSetup),
+    /// O4 on iPad: how a new sale shows up. `place` names the sample
+    /// alert's sale amount's currency, as Alerts' does.
+    ShowSales { chosen: ShowSales, currency: String },
     /// Step 6: what's set up. `location` is the location or merchant.
     Ready {
         store: String,
@@ -138,11 +159,126 @@ pub struct OnboardingInput {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct OnboardingView {
-    /// Under the buttons: "Step 4 of 6".
+    /// Android, under the buttons: "Step 4 of 6". Never on iOS (core.md
+    /// decision 121): the iPad's rail shows the step, the iPhone's
+    /// [`Self::progress`] bar.
     pub step_label: Option<String>,
     /// iPad: every step, beside the page.
     pub rail: Vec<RailStep>,
     pub page: OnboardingPage,
+    /// iPhone: how far through setup, for a thin progress bar; none on
+    /// Welcome.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub progress: Option<StepProgress>,
+}
+
+/// How far through setup, as a bar draws it: step `value` of `total`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct StepProgress {
+    pub value: u8,
+    pub total: u8,
+}
+
+/// Where setup is, as iOS counts it (core.md decision 121): the rail's
+/// steps on iPad, the progress bar's on iPhone, which has no "How sales
+/// show up".
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Phase {
+    Welcome,
+    Store,
+    PointOfSale,
+    Alerts,
+    ShowSales,
+    Ready,
+}
+
+impl Phase {
+    /// The rail's names, in order (board OnbRail).
+    const RAIL: [(Phase, &'static str); 6] = [
+        (Phase::Welcome, "Welcome"),
+        (Phase::Store, "Connect your store"),
+        (Phase::PointOfSale, "Point of sale"),
+        (Phase::Alerts, "Alerts"),
+        (Phase::ShowSales, "How sales show up"),
+        (Phase::Ready, "Ready"),
+    ];
+
+    /// The iPhone's bar: none on Welcome, and no "How sales show up".
+    fn progress(self) -> Option<StepProgress> {
+        let steps = [
+            Phase::Store,
+            Phase::PointOfSale,
+            Phase::Alerts,
+            Phase::Ready,
+        ];
+        let at = steps.iter().position(|p| *p == self)?;
+        Some(StepProgress {
+            value: at as u8 + 1,
+            total: steps.len() as u8,
+        })
+    }
+}
+
+/// Step 4 split in three (O1–O3, core.md decision 121): choosing the point
+/// of sale, signing in, then the test sale.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum PosStage {
+    /// "Which point of sale do you use?": the choice, "Continue with
+    /// Square" and "Set up later".
+    Choose,
+    /// "Sign in to Square": the card, the sign-in and Back.
+    SignIn,
+    /// "Try a test sale": the steps at the point of sale, and the status
+    /// bar beside "Skip the test" and Continue.
+    TestSale,
+}
+
+/// O3's status bar: "Waiting for the test sale…" / "Continue unlocks when
+/// it arrives", or the sale found.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct TestStatus {
+    pub found: bool,
+    pub title: String,
+    pub detail: String,
+}
+
+/// C4: which sales alert here, after the test sale named its device
+/// (board CounterLearn, core.md decision 113).
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct CounterStep {
+    /// "Test sale found · $1.00 · Sale #t0Ab".
+    pub found: String,
+    /// "Which sales should alert this iPad?".
+    pub heading: String,
+    /// "The test sale came from the Square device Front iPad. …".
+    pub lead: String,
+    /// "Front iPad".
+    pub device: String,
+    /// "Only sales on Front iPad (recommended)", "Every sale at Front
+    /// Counter": [`crate::view::Choice`]s for
+    /// `Action::SetAlertFor { every_device }`, false then true.
+    pub choices: Vec<crate::view::Choice>,
+    pub footnote: String,
+    pub next: Press,
+}
+
+/// O4: how a new sale shows up (board OnbShow, core.md decision 120).
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct ShowSalesStep {
+    pub heading: String,
+    pub lead: String,
+    pub choices: Vec<crate::settings::ShowSalesChoice>,
+    /// "On iPadOS 26" and how, while side by side is chosen.
+    pub side_by_side: Option<Fact>,
+    /// "Send a test alert", and the alert it posts.
+    pub test_alert: Press,
+    pub sample: crate::notification::SaleAlert,
+    pub next: Press,
 }
 
 /// A step on iPad's rail.
@@ -226,20 +362,40 @@ pub enum OnboardingPage {
         lead: String,
         checks: Vec<Check>,
     },
+    /// C4: which sales alert here.
+    Counter {
+        view: CounterStep,
+    },
+    /// O4 (iPad): how a new sale shows up.
+    ShowSales {
+        view: ShowSalesStep,
+    },
 }
 
 /// Step 4: the choice, then the chosen point of sale's card.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct PosStep {
-    /// Opened from Settings: Back, and Done when connected.
+    /// Opened from Settings, or past choosing: Back, and Done when
+    /// connected from Settings.
     pub back: bool,
     pub choices: Vec<PosChoice>,
     pub card: Option<PosCard>,
-    /// "Done", "Continue" (once the test sale is in), or the sign-in.
+    /// "Continue with Square", the sign-in, "Continue" (once the test sale
+    /// is in), or "Done".
     pub next: Option<Press>,
-    /// "Skip the test", or "Not now: only show other tills' sales".
+    /// "Skip the test", or "Set up later".
     pub skip: Option<Press>,
+    /// Which of O1–O3 this is, in setup; `None` from Settings, which shows
+    /// the choice and the card together.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub stage: Option<PosStage>,
+    /// Under "Set up later": what a till with no point of sale can do.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub skip_footnote: Option<String>,
+    /// O3's status bar.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub status: Option<TestStatus>,
 }
 
 /// The chosen point of sale's card: its sign-in, its location or merchant,
@@ -454,16 +610,110 @@ pub fn onboarding(
             false,
             ready_page(pos, device, store, location.as_deref(), *alerts, *bubble),
         ),
+        Step::Counter(c) => (
+            Some(4),
+            false,
+            OnboardingPage::Counter {
+                view: counter_step(c, pos, device),
+            },
+        ),
+        Step::ShowSales { chosen, currency } => (
+            None,
+            false,
+            OnboardingPage::ShowSales {
+                view: show_sales_step(*chosen, currency, pos, money),
+            },
+        ),
     };
+    let phase = phase(&input.step);
     OnboardingView {
+        // iOS has its rail and its bar instead (decision 121).
         step_label: number
-            .filter(|_| labelled)
+            .filter(|_| labelled && device == Device::Android)
             .map(|n| format!("Step {n} of {STEPS}")),
-        rail: match (device, number) {
-            (Device::Ipad, Some(current)) => rail(pos, current),
+        rail: match (device, phase) {
+            (Device::Ipad, Some(current)) => rail(current),
             _ => Vec::new(),
         },
+        progress: phase
+            .filter(|_| device == Device::Iphone)
+            .and_then(Phase::progress),
         page,
+    }
+}
+
+/// Where `step` is in setup as iOS counts it; `None` for step 4 opened from
+/// Settings and Android's bubble, which aren't steps there.
+fn phase(step: &Step) -> Option<Phase> {
+    Some(match step {
+        Step::Welcome => Phase::Welcome,
+        Step::Scan { .. } | Step::Confirm { .. } | Step::Connected { .. } => Phase::Store,
+        Step::PointOfSale(setup) if !setup.setup => return None,
+        Step::PointOfSale(_) | Step::Locations { .. } | Step::Counter(_) => Phase::PointOfSale,
+        Step::Alerts { .. } => Phase::Alerts,
+        Step::Float { .. } => return None,
+        Step::ShowSales { .. } => Phase::ShowSales,
+        Step::Ready { .. } => Phase::Ready,
+    })
+}
+
+fn counter_step(c: &CounterSetup, pos: Option<PointOfSale>, device: Device) -> CounterStep {
+    let mut found = vec!["Test sale found".to_owned(), c.amount.clone()];
+    found.extend(c.number.as_ref().map(|n| format!("Sale {n}")));
+    let place = c.place.as_deref().unwrap_or("this location");
+    let this = pos_text::this_device(device);
+    CounterStep {
+        found: found.join(" · "),
+        heading: format!("Which sales should alert {this}?"),
+        lead: format!(
+            "The test sale came from the {} device {}. If other counters at {place} take Monero too, {this} can alert only for its own.",
+            pos_text::name_first(pos),
+            c.device
+        ),
+        device: c.device.clone(),
+        choices: vec![
+            crate::view::Choice {
+                label: format!("Only sales on {} (recommended)", c.device),
+                detail: Some("Other counters' sales are listed but stay quiet.".into()),
+                selected: !c.every_device,
+                enabled: true,
+            },
+            crate::view::Choice {
+                label: format!("Every sale at {place}"),
+                detail: Some("For one till serving the whole location.".into()),
+                selected: c.every_device,
+                enabled: true,
+            },
+        ],
+        footnote:
+            "Either way, every counter's sales are in the list. Change this any time in Settings."
+                .into(),
+        next: Press::new("Continue"),
+    }
+}
+
+fn show_sales_step(
+    chosen: ShowSales,
+    currency: &str,
+    pos: Option<PointOfSale>,
+    money: &dyn MoneyFormat,
+) -> ShowSalesStep {
+    ShowSalesStep {
+        heading: "How should a new sale show up?".into(),
+        lead: format!(
+            "Keep using {} as normal. You can change this any time in Settings.",
+            pos_text::name_first(pos)
+        ),
+        choices: show_sales_choices(chosen, pos),
+        side_by_side: (chosen == ShowSales::SideBySide)
+            .then(|| Fact::new("On iPadOS 26", crate::settings::SIDE_BY_SIDE_HOW)),
+        test_alert: Press::new("Send a test alert"),
+        sample: crate::notification::SaleAlert {
+            order_id: "test".into(),
+            title: format!("Sam · {}", amounts::fiat("24.50", currency, money)),
+            body: "Monero sale. Tap to show Sam the code.".into(),
+        },
+        next: Press::new("Continue"),
     }
 }
 
@@ -506,42 +756,86 @@ fn connected_page(host: &str, encrypted: bool, now: &StoreNow) -> OnboardingPage
         next: if retry {
             Press::new("Try again")
         } else {
-            Press::new("Continue").enabled(store.is_some())
+            Press::new("Continue")
+                .enabled(store.is_some())
+                .busy(store.is_none() && now.reading)
         },
         retry,
         footnote: format!("Check this is the store you meant: payments go to its wallet. {CAN_DO}"),
     }
 }
 
-const NOT_NOW: &str = "Not now: only show other tills' sales";
+/// Which of O1–O3 `s` is on, in setup (decision 121).
+fn stage(s: &PosSetup) -> Option<PosStage> {
+    if !s.setup {
+        None
+    } else if s.connected() {
+        Some(PosStage::TestSale)
+    } else if s.confirmed && s.chosen.is_some() {
+        Some(PosStage::SignIn)
+    } else {
+        Some(PosStage::Choose)
+    }
+}
 
 fn pos_step(s: &PosSetup, device: Device) -> PosStep {
     let connected = s.connected();
-    let (next, skip) = match s.chosen {
+    let stage = stage(s);
+    let later = || Press::new(pos_text::SET_UP_LATER).enabled(!s.busy);
+    let (next, skip) = match (s.chosen, stage) {
         _ if connected && !s.setup => (Some(Press::new("Done")), None),
         _ if connected => (
             Some(Press::new("Continue").enabled(s.test_sale.is_some())),
             s.test_sale.is_none().then(|| Press::new("Skip the test")),
         ),
-        Some(chosen) => (
+        // O1: the choice, then on to sign in.
+        (Some(chosen), Some(PosStage::Choose)) => (
+            Some(Press::new(format!("Continue with {}", chosen.display_name())).enabled(!s.busy)),
+            Some(later()),
+        ),
+        (Some(chosen), _) => (
             Some(
                 Press::new(if s.busy {
                     pos_text::SIGNING_IN.to_owned()
                 } else {
                     pos_text::sign_in(Some(chosen))
                 })
-                .enabled(!s.busy),
+                .enabled(!s.busy)
+                .busy(s.busy),
             ),
-            Some(Press::new(NOT_NOW).enabled(!s.busy)),
+            // O2 goes back to the choice instead.
+            (stage != Some(PosStage::SignIn)).then(later),
         ),
-        None => (None, Some(Press::new(NOT_NOW).enabled(!s.busy))),
+        (None, _) => (None, Some(later())),
     };
+    let status = (stage == Some(PosStage::TestSale)).then(|| match &s.test_sale {
+        None => TestStatus {
+            found: false,
+            title: "Waiting for the test sale…".into(),
+            detail: "Continue unlocks when it arrives.".into(),
+        },
+        Some(amount) => TestStatus {
+            found: true,
+            title: format!("Test sale found · {amount}"),
+            detail: "Continue when you're ready.".into(),
+        },
+    });
     PosStep {
-        back: !s.setup,
+        back: !s.setup || stage == Some(PosStage::SignIn),
         choices: pos_choices(s.chosen, !s.busy, device),
-        card: s.chosen.map(|pos| pos_card(pos, s)),
+        // O1 is the choice alone; the card follows it.
+        card: s
+            .chosen
+            .filter(|_| stage != Some(PosStage::Choose))
+            .map(|pos| pos_card(pos, s)),
         next,
+        skip_footnote: skip
+            .as_ref()
+            .filter(|p| p.label == pos_text::SET_UP_LATER)
+            .map(|_| pos_text::set_up_later_footnote(device)),
         skip,
+        stage,
+        status,
     }
 }
 
@@ -636,19 +930,15 @@ fn ready_page(
                 pos_text::ready_start(pos)
             ),
         ),
-        // Step 6 on iPad puts Till in Slide Over, beside Square on the same
-        // iPad, or over whatever it shows beside a Clover device.
-        Device::Ipad => match pos {
-            Some(PointOfSale::Square) => (
-                "Keep Till next to Square".to_owned(),
-                "Put Till in Slide Over so it floats on top of Square while you work.".to_owned(),
+        // How a sale shows up was chosen the step before (O4, decision
+        // 120), in place of the old Slide Over step.
+        Device::Ipad => (
+            "You're ready".to_owned(),
+            format!(
+                "{} Till shows each new sale the way you chose.",
+                pos_text::ready_start(pos)
             ),
-            Some(PointOfSale::Clover) | None => (
-                "Keep Till in Slide Over".to_owned(),
-                "Put Till in Slide Over so it floats on top of other apps while you work."
-                    .to_owned(),
-            ),
-        },
+        ),
     };
     let mut checks = vec![
         Check {
@@ -682,22 +972,14 @@ fn ready_page(
 }
 
 /// iPad's step rail, with `current` lit.
-fn rail(pos: Option<PointOfSale>, current: u8) -> Vec<RailStep> {
-    let labels = [
-        "Welcome",
-        "Connect a store",
-        "Confirm",
-        pos_text::check_name(pos),
-        "Alerts",
-        "Slide Over",
-    ];
-    labels
+fn rail(current: Phase) -> Vec<RailStep> {
+    Phase::RAIL
         .into_iter()
         .zip(1..)
-        .map(|(label, number)| RailStep {
+        .map(|((phase, label), number)| RailStep {
             number,
             label: label.into(),
-            state: match number.cmp(&current) {
+            state: match phase.cmp(&current) {
                 std::cmp::Ordering::Less => RailState::Done,
                 std::cmp::Ordering::Equal => RailState::Current,
                 std::cmp::Ordering::Greater => RailState::Todo,
@@ -742,6 +1024,7 @@ mod tests {
         PosSetup {
             chosen,
             setup: true,
+            confirmed: true,
             ..PosSetup::default()
         }
     }
@@ -779,6 +1062,7 @@ mod tests {
             OnboardingView {
                 step_label: Some("Step 1 of 6".into()),
                 rail: vec![],
+                progress: None,
                 page: OnboardingPage::Welcome {
                     feature:
                         "Ring up in Square or Clover as usual and choose Monero as the payment."
@@ -924,7 +1208,11 @@ mod tests {
                 Fact::new("Device name", "Reading…")
             ]
         );
-        assert_eq!(next, Press::new("Continue").enabled(false));
+        assert_eq!(
+            next,
+            Press::new("Continue").enabled(false).busy(true),
+            "Continue shows the read going"
+        );
         assert!(!retry);
         let OnboardingPage::Connected {
             next,
@@ -948,10 +1236,7 @@ mod tests {
         let view = pos_step_of(setup(None), Device::Android);
         assert_eq!(view.card, None);
         assert_eq!(view.next, None);
-        assert_eq!(
-            view.skip,
-            Some(Press::new("Not now: only show other tills' sales"))
-        );
+        assert_eq!(view.skip, Some(Press::new("Set up later")));
         assert!(!view.back);
         assert_eq!(
             view.choices
@@ -979,10 +1264,7 @@ mod tests {
     fn squares_card_before_the_sign_in_word_for_word() {
         let view = pos_step_of(setup(Some(PointOfSale::Square)), Device::Android);
         assert_eq!(view.next, Some(Press::new("Sign in to Square")));
-        assert_eq!(
-            view.skip,
-            Some(Press::new("Not now: only show other tills' sales"))
-        );
+        assert_eq!(view.skip, None);
         assert_eq!(
             view.card,
             Some(PosCard {
@@ -1016,8 +1298,11 @@ mod tests {
             },
             Device::Android,
         );
-        assert_eq!(busy.next, Some(Press::new("Signing in…").enabled(false)));
-        assert!(!busy.skip.unwrap().enabled);
+        assert_eq!(
+            busy.next,
+            Some(Press::new("Signing in…").enabled(false).busy(true))
+        );
+        assert_eq!(busy.skip, None, "O2 goes back with Back");
         assert!(busy.choices.iter().all(|c| !c.choice.enabled));
     }
 
@@ -1263,6 +1548,7 @@ mod tests {
             OnboardingView {
                 step_label: None,
                 rail: vec![],
+                progress: None,
                 page: OnboardingPage::Float {
                     heading: "Float over other apps".into(),
                     lead: "Till puts a small bubble over other apps. It's faded while there's nothing to do and lights up when a Monero sale comes in. Tap it to show the code.".into(),
@@ -1354,52 +1640,229 @@ mod tests {
     }
 
     #[test]
-    fn on_an_ipad_step_6_puts_till_in_slide_over_and_the_rail_follows_the_steps() {
-        let view = ready(
-            Device::Ipad,
-            Some(PointOfSale::Square),
-            Some("Front Counter"),
-        );
-        let OnboardingPage::Ready { heading, lead, .. } = &view.page else {
-            panic!()
-        };
-        assert_eq!(heading, "Keep Till next to Square");
-        assert_eq!(
-            lead,
-            "Put Till in Slide Over so it floats on top of Square while you work."
-        );
-        assert!(view.rail.iter().take(5).all(|s| s.state == RailState::Done));
-        assert_eq!(view.rail[5].state, RailState::Current);
-
-        let OnboardingPage::Ready { heading, lead, .. } =
-            ready(Device::Ipad, Some(PointOfSale::Clover), None).page
-        else {
-            panic!()
-        };
-        assert_eq!(heading, "Keep Till in Slide Over");
-        assert_eq!(
-            lead,
-            "Put Till in Slide Over so it floats on top of other apps while you work."
-        );
-
-        let rail = show(Step::Scan { problem: None }, None, Device::Ipad).rail;
-        let rail: Vec<_> = rail
+    fn ipad_has_the_rail_alone_and_iphone_a_progress_bar_with_none_on_welcome() {
+        let rail = show(Step::Scan { problem: None }, None, Device::Ipad);
+        assert_eq!(rail.step_label, None, "no \"Step N of 6\" on iPad");
+        assert_eq!(rail.progress, None);
+        let names: Vec<_> = rail
+            .rail
             .iter()
             .map(|s| (s.number, s.label.as_str(), s.state))
             .collect();
         assert_eq!(
-            rail,
+            names,
             [
                 (1, "Welcome", RailState::Done),
-                (2, "Connect a store", RailState::Current),
-                (3, "Confirm", RailState::Todo),
-                (4, "Point of sale", RailState::Todo),
-                (5, "Alerts", RailState::Todo),
-                (6, "Slide Over", RailState::Todo),
+                (2, "Connect your store", RailState::Current),
+                (3, "Point of sale", RailState::Todo),
+                (4, "Alerts", RailState::Todo),
+                (5, "How sales show up", RailState::Todo),
+                (6, "Ready", RailState::Todo),
             ]
         );
-        let square = show(Step::Welcome, Some(PointOfSale::Square), Device::Ipad).rail;
-        assert_eq!(square[3].label, "Square");
-        assert_eq!(show(Step::Welcome, None, Device::Iphone).rail, []);
+        let ready = ready(
+            Device::Ipad,
+            Some(PointOfSale::Square),
+            Some("Front Counter"),
+        );
+        assert!(
+            ready
+                .rail
+                .iter()
+                .take(5)
+                .all(|s| s.state == RailState::Done)
+        );
+        assert_eq!(ready.rail[5].state, RailState::Current);
+        let OnboardingPage::Ready { heading, lead, .. } = &ready.page else {
+            panic!()
+        };
+        assert_eq!(heading, "You're ready");
+        assert_eq!(
+            lead,
+            "Start Till and switch to Square. Till shows each new sale the way you chose."
+        );
+        let show_step = show(
+            Step::ShowSales {
+                chosen: ShowSales::Alert,
+                currency: "USD".into(),
+            },
+            Some(PointOfSale::Square),
+            Device::Ipad,
+        );
+        assert_eq!(show_step.rail[4].state, RailState::Current);
+
+        let iphone = |step| show(step, Some(PointOfSale::Square), Device::Iphone);
+        assert_eq!(iphone(Step::Welcome).progress, None, "none on Welcome");
+        assert_eq!(iphone(Step::Welcome).step_label, None);
+        assert_eq!(
+            iphone(Step::Scan { problem: None }).progress,
+            Some(StepProgress { value: 1, total: 4 })
+        );
+        assert_eq!(
+            iphone(Step::PointOfSale(square_connected())).progress,
+            Some(StepProgress { value: 2, total: 4 })
+        );
+        assert_eq!(
+            iphone(Step::Ready {
+                store: "The Bean Room".into(),
+                location: None,
+                alerts: true,
+                bubble: false,
+            })
+            .progress,
+            Some(StepProgress { value: 4, total: 4 })
+        );
+        assert_eq!(iphone(Step::Welcome).rail, []);
+        assert_eq!(
+            show(Step::Welcome, None, Device::Android)
+                .step_label
+                .as_deref(),
+            Some("Step 1 of 6"),
+            "Android keeps its words"
+        );
+    }
+
+    #[test]
+    fn step_4_goes_choose_then_sign_in_then_test_sale() {
+        let choose = pos_step_of(
+            PosSetup {
+                confirmed: false,
+                ..setup(Some(PointOfSale::Square))
+            },
+            Device::Ipad,
+        );
+        assert_eq!(choose.stage, Some(PosStage::Choose));
+        assert_eq!(choose.card, None, "O1 is the choice alone");
+        assert_eq!(choose.next, Some(Press::new("Continue with Square")));
+        assert_eq!(choose.skip, Some(Press::new("Set up later")));
+        assert_eq!(
+            choose.skip_footnote.as_deref(),
+            Some(
+                "Without a point of sale, this iPad can't find new sales itself. It still shows sales that another till finds."
+            )
+        );
+        assert!(!choose.back);
+
+        let sign_in = pos_step_of(setup(Some(PointOfSale::Square)), Device::Ipad);
+        assert_eq!(sign_in.stage, Some(PosStage::SignIn));
+        assert!(sign_in.card.is_some() && sign_in.back);
+        assert_eq!(sign_in.next, Some(Press::new("Sign in to Square")));
+        assert_eq!(sign_in.skip, None, "Back returns to the choice");
+        let busy = pos_step_of(
+            PosSetup {
+                busy: true,
+                ..setup(Some(PointOfSale::Square))
+            },
+            Device::Ipad,
+        );
+        assert!(
+            busy.next.unwrap().busy,
+            "the button shows the sign-in going"
+        );
+
+        let test = pos_step_of(square_connected(), Device::Ipad);
+        assert_eq!(test.stage, Some(PosStage::TestSale));
+        assert_eq!(
+            test.status,
+            Some(TestStatus {
+                found: false,
+                title: "Waiting for the test sale…".into(),
+                detail: "Continue unlocks when it arrives.".into(),
+            })
+        );
+        assert_eq!(test.next, Some(Press::new("Continue").enabled(false)));
+        assert_eq!(test.skip, Some(Press::new("Skip the test")));
+        let found = pos_step_of(
+            PosSetup {
+                test_sale: Some("$1.00".into()),
+                ..square_connected()
+            },
+            Device::Ipad,
+        );
+        assert!(found.status.unwrap().found);
+        assert_eq!(found.next, Some(Press::new("Continue")));
+
+        let settings = pos_step_of(
+            PosSetup {
+                setup: false,
+                ..setup(Some(PointOfSale::Square))
+            },
+            Device::Ipad,
+        );
+        assert_eq!(settings.stage, None, "Settings shows choice and card");
+        assert!(settings.card.is_some());
+    }
+
+    #[test]
+    fn after_the_test_sale_c4_names_its_device_and_asks_which_sales_alert() {
+        let view = match page(
+            Step::Counter(CounterSetup {
+                amount: "$1.00".into(),
+                number: Some("#t0Ab".into()),
+                device: "Front iPad".into(),
+                place: Some("Front Counter".into()),
+                every_device: false,
+            }),
+            Some(PointOfSale::Square),
+            Device::Ipad,
+        ) {
+            OnboardingPage::Counter { view } => view,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(view.found, "Test sale found · $1.00 · Sale #t0Ab");
+        assert_eq!(view.heading, "Which sales should alert this iPad?");
+        assert_eq!(
+            view.lead,
+            "The test sale came from the Square device Front iPad. If other counters at Front Counter take Monero too, this iPad can alert only for its own."
+        );
+        assert_eq!(
+            view.choices
+                .iter()
+                .map(|c| (c.label.as_str(), c.selected))
+                .collect::<Vec<_>>(),
+            [
+                ("Only sales on Front iPad (recommended)", true),
+                ("Every sale at Front Counter", false),
+            ]
+        );
+        assert_eq!(
+            view.footnote,
+            "Either way, every counter's sales are in the list. Change this any time in Settings."
+        );
+    }
+
+    #[test]
+    fn o4_asks_how_a_new_sale_shows_up_and_offers_a_test_alert() {
+        let view = match page(
+            Step::ShowSales {
+                chosen: ShowSales::SideBySide,
+                currency: "USD".into(),
+            },
+            Some(PointOfSale::Square),
+            Device::Ipad,
+        ) {
+            OnboardingPage::ShowSales { view } => view,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(view.heading, "How should a new sale show up?");
+        assert_eq!(
+            view.lead,
+            "Keep using Square as normal. You can change this any time in Settings."
+        );
+        assert_eq!(
+            view.choices
+                .iter()
+                .map(|c| (c.mode, c.choice.label.as_str(), c.choice.selected))
+                .collect::<Vec<_>>(),
+            [
+                (ShowSales::Alert, "An alert (recommended)", false),
+                (ShowSales::FloatingWindow, "A floating window", false),
+                (ShowSales::SideBySide, "Side by side", true),
+            ]
+        );
+        assert_eq!(view.side_by_side.unwrap().label, "On iPadOS 26");
+        assert_eq!(view.test_alert, Press::new("Send a test alert"));
+        assert_eq!(view.sample.title, "Sam · $24.50");
+        assert_eq!(view.sample.body, "Monero sale. Tap to show Sam the code.");
     }
 }

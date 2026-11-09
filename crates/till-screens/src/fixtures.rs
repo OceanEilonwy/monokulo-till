@@ -37,6 +37,9 @@ pub(crate) fn till_sale(id: &str, amount: &str, currency: &str, xmr: &str) -> Ti
         refund_pending_at: None,
         confirmations: None,
         confirmations_required: None,
+        offered: false,
+        kept_as_cash_at: None,
+        paid_in_cash_at: None,
     }
 }
 
@@ -58,6 +61,8 @@ pub(crate) fn found(
         order_id: Some(order_id.into()),
         created_at: created_at.into(),
         device_id: None,
+        device_name: None,
+        cash: false,
         title: None,
         point_of_sale: monokulo_client::PointOfSale::Square,
     }

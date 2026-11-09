@@ -342,6 +342,39 @@ pub fn page(
                 )
             }
         }
+        Standing::CashOffer { kept } => {
+            let who = sale_text::customer(sale).unwrap_or("the customer");
+            let note = if kept {
+                format!(
+                    "Kept as cash in {name}. If {who} would rather pay in Monero after all, make a payment code for this sale."
+                )
+            } else {
+                format!(
+                    "Rung up as Cash. If {who} would rather pay in Monero, make a payment code for this sale."
+                )
+            };
+            model(
+                if kept {
+                    StateIcon::Close
+                } else {
+                    StateIcon::Clock
+                },
+                Ground::Chip,
+                format!("Cash in {name}"),
+                Some(PageNote::card(note)),
+                facts(vec![rung_up, fact("Kept as cash", sale.kept_as_cash_at)]),
+            )
+        }
+        Standing::PaidInCash => model(
+            StateIcon::Close,
+            Ground::Chip,
+            format!("Cash in {name}"),
+            Some(PageNote::card(format!(
+                "The customer paid in cash. {} already has it as cash, so there's nothing to refund.",
+                pos_text::name_first(pos)
+            ))),
+            facts(vec![rung_up, fact("Paid in cash", sale.paid_in_cash_at)]),
+        ),
         // A live sale shows its code, not a page; this is only what it
         // would say.
         Standing::Live(_) => model(
@@ -379,10 +412,85 @@ pub fn page(
             ..model
         }
     };
+    if sale.cash() && here.actions.contains(&PageAction::Refund) {
+        // Never refunded through the point of sale (core.md decision 116).
+        here.actions.retain(|&a| a != PageAction::Refund);
+        here.note = Some(PageNote::card(format!(
+            "{} has it as cash. If the customer paid in real cash, tap Paid in cash. If they aren't paying, take the sale back in {name}.",
+            pos_text::name_first(pos)
+        )));
+    }
     if let Some(title) = sale.found.as_ref().and_then(|found| found.title.as_deref()) {
         here.facts.insert(0, Fact::new("Order", title));
     }
     here
+}
+
+/// What a cash sale offers (core.md decision 116).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum CashAction {
+    /// Make the offered cash sale's order and code now.
+    TakeInMonero,
+    /// Leave the offered cash sale as cash.
+    KeepAsCash,
+    /// The customer paid real cash: close it, with nothing refunded.
+    PaidInCash,
+}
+
+/// A cash sale's button.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct CashButton {
+    pub action: CashAction,
+    pub press: Press,
+}
+
+/// "Take it in Monero".
+pub const TAKE_IN_MONERO: &str = "Take it in Monero";
+/// "Keep as cash".
+pub const KEEP_AS_CASH: &str = "Keep as cash";
+/// "Paid in cash".
+pub const PAID_IN_CASH: &str = "Paid in cash";
+
+/// The cash buttons for `sale`: Take it in Monero and Keep as cash while
+/// it's offered (Take it alone once kept), Paid in cash on a cash sale
+/// whose code is up or ended unpaid; none for any other sale. `busy`
+/// while its order is being made.
+pub fn cash_buttons(sale: &TillSale, busy: bool) -> Vec<CashButton> {
+    let button = |action, label: &str| CashButton {
+        action,
+        press: Press::new(label).enabled(!busy),
+    };
+    match sale.standing() {
+        Standing::CashOffer { kept: false } => vec![
+            CashButton {
+                action: CashAction::TakeInMonero,
+                press: Press::new(if busy {
+                    "Making the code…"
+                } else {
+                    TAKE_IN_MONERO
+                })
+                .enabled(!busy),
+            },
+            button(CashAction::KeepAsCash, KEEP_AS_CASH),
+        ],
+        Standing::CashOffer { kept: true } => vec![CashButton {
+            action: CashAction::TakeInMonero,
+            press: Press::new(if busy {
+                "Making the code…"
+            } else {
+                TAKE_IN_MONERO
+            })
+            .enabled(!busy),
+        }],
+        Standing::Live(_) | Standing::Closed | Standing::Expired | Standing::Reversed
+            if sale.cash() =>
+        {
+            vec![button(CashAction::PaidInCash, PAID_IN_CASH)]
+        }
+        _ => Vec::new(),
+    }
 }
 
 /// "15 minutes ", "1 minute ", "under a minute " from `from` to `to`: how
@@ -426,6 +534,8 @@ pub struct SalePageInput {
     pub refund_problem: Option<String>,
     /// A refund is under way.
     pub refunding: bool,
+    /// An offered cash sale's order is being made ("Take it in Monero").
+    pub taking: bool,
 }
 
 /// A button on the page: the action, its words, and whether it can be
@@ -459,6 +569,9 @@ pub struct SalePageView {
     pub facts: Vec<Fact>,
     pub refund_problem: Option<String>,
     pub buttons: Vec<PageButton>,
+    /// A cash sale's buttons ([`cash_buttons`]), after [`Self::buttons`].
+    #[cfg_attr(feature = "uniffi", uniffi(default = []))]
+    pub cash: Vec<CashButton>,
 }
 
 /// `input`'s page at the clock's now, amounts written by `money`.
@@ -515,6 +628,7 @@ pub fn sale_page(
             .then(|| input.refund_problem.clone())
             .flatten(),
         buttons,
+        cash: cash_buttons(sale, input.taking),
     }
 }
 
@@ -830,6 +944,7 @@ mod tests {
             location: Some("Front Counter".into()),
             refund_problem: None,
             refunding: false,
+            taking: false,
         }
     }
 
@@ -873,6 +988,7 @@ mod tests {
         let page = sale_page(
             &SalePageInput {
                 refunding: true,
+                taking: false,
                 refund_problem: Some("Square refused the refund.".into()),
                 ..input(
                     sale_of("e")
@@ -922,6 +1038,91 @@ mod tests {
         assert_eq!(
             named.title_line,
             "Sale #m2Qe · 3:48 PM · Front Counter · this till"
+        );
+    }
+
+    fn cash(sale: TillSale) -> TillSale {
+        let mut sale = sale;
+        sale.found.as_mut().unwrap().cash = true;
+        sale
+    }
+
+    #[test]
+    fn an_offered_cash_sale_offers_take_it_in_monero_and_keep_as_cash() {
+        let offered = TillSale {
+            offered: true,
+            customer_name: Some("Sam".into()),
+            ..cash(sale_of("q8Lw").build())
+        };
+        let view = sale_page(&input(offered.clone()), la(at()), &money);
+        assert_eq!(view.title, "Sam");
+        assert_eq!(view.heading, "Cash in Square");
+        assert_eq!(
+            view.note.unwrap().text,
+            "Rung up as Cash. If Sam would rather pay in Monero, make a payment code for this sale."
+        );
+        assert!(view.buttons.is_empty());
+        let labels = |buttons: &[CashButton]| {
+            buttons
+                .iter()
+                .map(|b| (b.action, b.press.label.clone(), b.press.enabled))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            labels(&view.cash),
+            [
+                (CashAction::TakeInMonero, "Take it in Monero".into(), true),
+                (CashAction::KeepAsCash, "Keep as cash".into(), true),
+            ]
+        );
+        let taking = sale_page(
+            &SalePageInput {
+                taking: true,
+                ..input(offered.clone())
+            },
+            la(at()),
+            &money,
+        );
+        assert_eq!(
+            labels(&taking.cash)[0],
+            (CashAction::TakeInMonero, "Making the code…".into(), false)
+        );
+        let kept = TillSale {
+            kept_as_cash_at: Some(at()),
+            ..offered
+        };
+        assert_eq!(
+            labels(&cash_buttons(&kept, false)),
+            [(CashAction::TakeInMonero, "Take it in Monero".into(), true)]
+        );
+    }
+
+    #[test]
+    fn a_cash_sale_is_never_refunded_and_offers_paid_in_cash() {
+        let closed = cash(sale_of("c").closed_at(at()).build());
+        let view = sale_page(&input(closed.clone()), la(at()), &money);
+        assert!(
+            view.buttons.iter().all(|b| b.action != PageAction::Refund),
+            "{:?}",
+            view.buttons
+        );
+        assert_eq!(view.cash[0].action, CashAction::PaidInCash);
+        assert!(
+            view.note
+                .unwrap()
+                .text
+                .starts_with("Square has it as cash.")
+        );
+        let paid_in_cash = TillSale {
+            paid_in_cash_at: Some(at()),
+            ..closed
+        };
+        let view = sale_page(&input(paid_in_cash), la(at()), &money);
+        assert_eq!(view.heading, "Paid in cash");
+        assert!(view.cash.is_empty() && view.buttons.is_empty());
+        assert!(
+            cash_buttons(&sale_of("m").build(), false).is_empty(),
+            "not cash"
         );
     }
 }

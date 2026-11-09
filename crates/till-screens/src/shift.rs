@@ -10,6 +10,7 @@ use monokulo_client::{MoneyFormat, PointOfSale, SalePhase, amounts};
 use till_sales::{Standing, TillSale};
 
 use crate::close;
+use crate::counters::{CounterChoice, CounterMenu, Counters};
 use crate::pos_text;
 use crate::sale_text;
 use crate::time::{DeviceClock, time};
@@ -91,14 +92,21 @@ pub enum ShiftItem<'a> {
     Fold { hidden: usize, open: bool },
     /// The header over the sales that are no longer live, under the tray.
     Earlier,
+    /// The header over cash sales offered in Monero, under the tray:
+    /// drawn as [`ShiftEntry::Earlier`] with [`CASH_HEADER`].
+    CashHeader,
 }
 
 /// One shift row, in words and roles: what the screen draws for a sale.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct ShiftRow {
-    /// "Sale #m2Qe · $8.40".
+    /// "Sam · $8.40", or "Sale #m2Qe · $8.40" with no name: [`Self::name`]
+    /// and [`Self::amount`] on one line, for a layout with no column for
+    /// the amount.
     pub title: String,
+    /// "Waiting · 14:40 left · #m2Qe": the sale's state, and its number
+    /// when the name leads (core.md decision 118).
     pub sub: String,
     pub tone: Tone,
     /// The title in muted, as a refunded sale's is: nothing more to do.
@@ -107,6 +115,19 @@ pub struct ShiftRow {
     /// The ring drawn while the icon is [`StateIcon::Ring`].
     pub ring: Ring,
     pub opens: RowOpens,
+    /// Whom the sale is for ("Sam"), else "Sale #m2Qe": what leads the row.
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub name: String,
+    /// "$8.40".
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub amount: String,
+    /// Another counter's device ("Bar iPad"), when the sale is another
+    /// counter's (core.md decision 114).
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub device: Option<String>,
+    /// The sale never alerts here: another counter's.
+    #[cfg_attr(feature = "uniffi", uniffi(default = false))]
+    pub other_counter: bool,
 }
 
 /// How many live sales the folded tray shows before its fold row.
@@ -117,6 +138,9 @@ pub const TRAY_HEADER: &str = "Waiting for payment";
 
 /// The header over what is no longer live.
 pub const EARLIER: &str = "Earlier";
+
+/// The header over cash sales offered in Monero.
+pub const CASH_HEADER: &str = "Cash · paying in Monero?";
 
 fn is_live(sale: &TillSale) -> bool {
     matches!(sale.standing(), Standing::Live(_))
@@ -151,32 +175,51 @@ pub fn sections(sales: &[TillSale], filter: ShiftFilter, folded: bool) -> Vec<Sh
     } else {
         sales.iter().filter(|sale| is_live(sale)).collect()
     };
+    // Cash sales waiting for the cashier's word have their own section
+    // under the tray (board CashTill, core.md decision 116).
+    let offered: Vec<&TillSale> = if filter == ShiftFilter::All {
+        sales.iter().filter(|sale| is_offered(sale)).collect()
+    } else {
+        Vec::new()
+    };
     let rest: Vec<&TillSale> = rows(sales, filter)
         .into_iter()
-        .filter(|sale| !is_live(sale))
+        .filter(|sale| !is_live(sale) && !is_offered(sale))
         .collect();
-    if live.is_empty() {
+    if live.is_empty() && offered.is_empty() {
         return section(&rest, false);
     }
-    let folds = filter != ShiftFilter::NeedsAction && live.len() > FOLD_AFTER;
-    let shown = if folds && folded {
-        &live[..FOLD_AFTER]
-    } else {
-        &live[..]
-    };
-    let mut items = vec![ShiftItem::TrayHeader { count: live.len() }];
-    items.extend(section(shown, true));
-    if folds {
-        items.push(ShiftItem::Fold {
-            hidden: live.len() - FOLD_AFTER,
-            open: !folded,
-        });
+    let mut items = Vec::new();
+    if !live.is_empty() {
+        let folds = filter != ShiftFilter::NeedsAction && live.len() > FOLD_AFTER;
+        let shown = if folds && folded {
+            &live[..FOLD_AFTER]
+        } else {
+            &live[..]
+        };
+        items.push(ShiftItem::TrayHeader { count: live.len() });
+        items.extend(section(shown, true));
+        if folds {
+            items.push(ShiftItem::Fold {
+                hidden: live.len() - FOLD_AFTER,
+                open: !folded,
+            });
+        }
+    }
+    if !offered.is_empty() {
+        items.push(ShiftItem::CashHeader);
+        items.extend(section(&offered, false));
     }
     if !rest.is_empty() {
         items.push(ShiftItem::Earlier);
         items.extend(section(&rest, false));
     }
     items
+}
+
+/// A cash sale offered in Monero that the cashier hasn't kept as cash.
+fn is_offered(sale: &TillSale) -> bool {
+    sale.standing() == (Standing::CashOffer { kept: false })
 }
 
 /// Whether `order_id`'s row is one the folded tray hides under `filter`: a
@@ -359,26 +402,33 @@ pub fn row(
     let other = sale.device_name.as_deref().unwrap_or("another till");
     let standing = sale.standing();
     let (sub, tone, icon) = match standing {
-        // The money on its way is the paid green, as its ring is (Board 5);
-        // still waiting for it, the link's.
+        // Green is for paid alone (core.md decision 119): the money on its
+        // way is muted, still waiting for it the link's.
         Standing::Live(phase) => match phase {
             SalePhase::Partial => (format!("Part paid{left}"), Tone::Link, StateIcon::Ring),
-            SalePhase::Seen => ("Seen on the network".into(), Tone::Paid, StateIcon::Ring),
-            SalePhase::Confirming => (sale_text::confirming(sale), Tone::Paid, StateIcon::Ring),
+            SalePhase::Seen => ("Seen on the network".into(), Tone::Muted, StateIcon::Ring),
+            SalePhase::Confirming => (sale_text::confirming(sale), Tone::Muted, StateIcon::Ring),
             _ => (format!("Waiting{left}"), Tone::Link, StateIcon::Ring),
         },
-        Standing::Paid {
-            late, after_refund, ..
-        } => (
+        Standing::Paid { after_refund, .. } => (
             sale_text::status(sale, till) + &at(sale.paid_at),
-            if after_refund {
-                Tone::Warn
-            } else if late {
-                Tone::Paid
-            } else {
-                Tone::Muted
-            },
+            if after_refund { Tone::Warn } else { Tone::Paid },
             StateIcon::Tick,
+        ),
+        Standing::CashOffer { kept: false } => (
+            sale_text::status(sale, till) + &at(Some(sale.created_at).filter(|&t| t > 0)),
+            Tone::Link,
+            StateIcon::Clock,
+        ),
+        Standing::CashOffer { kept: true } => (
+            sale_text::status(sale, till) + &at(sale.kept_as_cash_at),
+            Tone::Muted,
+            StateIcon::Close,
+        ),
+        Standing::PaidInCash => (
+            sale_text::status(sale, till) + &at(sale.paid_in_cash_at),
+            Tone::Muted,
+            StateIcon::Close,
         ),
         Standing::Closed => (
             format!("Closed · not paid · {}", pos_text::refund_it_in(till)),
@@ -413,18 +463,28 @@ pub fn row(
             StateIcon::Close,
         ),
     };
+    let name = sale_text::heading(sale);
+    let amount = sale_text::amount(sale, money);
+    // The sale's number moves to the second line under a name.
+    let sub = match (sale_text::customer(sale), sale_text::label(sale)) {
+        (Some(_), Some(number)) => format!("{sub} · {number}"),
+        _ => sub,
+    };
     ShiftRow {
-        title: format!(
-            "{} · {}",
-            sale_text::title(sale),
-            sale_text::amount(sale, money)
-        ),
+        title: format!("{name} · {amount}"),
         sub,
         tone,
-        quiet: standing == Standing::Refunded,
+        quiet: matches!(
+            standing,
+            Standing::Refunded | Standing::CashOffer { kept: true } | Standing::PaidInCash
+        ),
         icon,
         ring: crate::view::ring(sale),
         opens: opens(sale),
+        name,
+        amount,
+        device: None,
+        other_counter: false,
     }
 }
 
@@ -502,6 +562,11 @@ pub struct ShiftInput {
     pub filter: ShiftFilter,
     /// The tray folded (its default).
     pub folded: bool,
+    /// How this till channels sales by device (core.md decision 113).
+    pub counters: Counters,
+    /// Whose sales the list shows; `None` until the cashier chooses, when
+    /// [`Counters::default_choice`] does.
+    pub counter: Option<CounterChoice>,
 }
 
 /// The top row's state word, in the colour the dot had.
@@ -602,6 +667,43 @@ pub struct ShiftView {
     pub empty: Option<String>,
     /// A live sale's countdown is on screen: draw it again in a second.
     pub ticks: bool,
+    /// The title menu (C3): whose sales the list shows; `None` while
+    /// there's nothing to choose between.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub counters: Option<CounterMenu>,
+    /// "2 cash sales paid in Monero · $32.90": for the end-of-day count,
+    /// as the point of sale's books say cash (core.md decision 117).
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub cash_in_monero: Option<String>,
+}
+
+/// "2 cash sales paid in Monero · $32.90", summed per currency; `None`
+/// with none.
+pub fn cash_in_monero(sales: &[TillSale], money: &dyn MoneyFormat) -> Option<String> {
+    let paid: Vec<&TillSale> = sales.iter().filter(|s| s.cash_paid_in_monero()).collect();
+    if paid.is_empty() {
+        return None;
+    }
+    let mut currencies: Vec<&str> = Vec::new();
+    for sale in &paid {
+        if !currencies.contains(&sale.currency.as_str()) {
+            currencies.push(&sale.currency);
+        }
+    }
+    let mut parts = vec![format!(
+        "{} cash {} paid in Monero",
+        paid.len(),
+        sales_word(paid.len())
+    )];
+    parts.extend(currencies.into_iter().map(|currency| {
+        let those: Vec<&str> = paid
+            .iter()
+            .filter(|sale| sale.currency == currency)
+            .map(|sale| sale.amount.as_str())
+            .collect();
+        total(&those, currency, money)
+    }));
+    Some(parts.join(" · "))
 }
 
 /// The shift at the clock's now, on `device`, amounts written by `money`.
@@ -616,7 +718,7 @@ pub fn shift(
     } else if !input.running {
         ("Not watching", Tone::Muted)
     } else if input.live {
-        ("Watching", Tone::Paid)
+        ("Watching", Tone::Plain)
     } else {
         ("Reconnecting…", Tone::Muted)
     };
@@ -655,9 +757,26 @@ pub fn shift(
             entries: Vec::new(),
             empty: None,
             ticks: false,
+            counters: None,
+            cash_in_monero: None,
         };
     }
-    let sales = &input.sales;
+    let all = &input.sales;
+    let chosen = input
+        .counter
+        .clone()
+        .unwrap_or_else(|| input.counters.default_choice());
+    let counters = crate::counters::menu(all, &input.counters, &chosen);
+    // Without a menu there's nothing to choose: every sale shows.
+    let shown: Vec<TillSale> = if counters.is_some() {
+        all.iter()
+            .filter(|sale| chosen.shows(sale, &input.counters))
+            .cloned()
+            .collect()
+    } else {
+        all.clone()
+    };
+    let sales = &shown;
     let idle = (!input.running || sales.is_empty()).then(|| ShiftIdle {
         title: if input.running {
             "No sale right now"
@@ -699,6 +818,9 @@ pub fn shift(
             ShiftItem::Earlier => ShiftEntry::Earlier {
                 label: EARLIER.into(),
             },
+            ShiftItem::CashHeader => ShiftEntry::Earlier {
+                label: CASH_HEADER.into(),
+            },
             ShiftItem::Fold { hidden, open } => ShiftEntry::Fold {
                 label: fold_label(hidden, open),
                 said: fold_said(hidden, open),
@@ -713,9 +835,12 @@ pub fn shift(
                 } else {
                     0
                 };
+                let mut row = row(sale, pos_text::of(sale, input.till), seconds, clock, money);
+                row.other_counter = input.counters.quiet(sale);
+                row.device = crate::counters::row_device(sale, all, &input.counters);
                 ShiftEntry::Row {
                     order_id: sale.order_id.clone(),
-                    row: row(sale, pos_text::of(sale, input.till), seconds, clock, money),
+                    row,
                     ends,
                     tray,
                     closes: !close::choices(sale, false).is_empty(),
@@ -740,6 +865,8 @@ pub fn shift(
         empty: (!sales.is_empty() && items.is_empty()).then(|| empty(input.filter).into()),
         entries,
         ticks,
+        cash_in_monero: cash_in_monero(sales, money),
+        counters,
     }
 }
 
@@ -1036,12 +1163,12 @@ pub(crate) mod tests {
         );
         assert_eq!(
             r(&sale_of("w").phase(Seen).build()),
-            t("Seen on the network", Tone::Paid, StateIcon::Ring),
-            "the money on its way is green"
+            t("Seen on the network", Tone::Muted, StateIcon::Ring),
+            "the money on its way isn't green: that's for paid"
         );
         assert_eq!(
             r(&sale_of("w").phase(Confirming).build()),
-            t("Confirming", Tone::Paid, StateIcon::Ring),
+            t("Confirming", Tone::Muted, StateIcon::Ring),
             "until Monokulo says how many"
         );
         let counted = TillSale {
@@ -1051,7 +1178,7 @@ pub(crate) mod tests {
         };
         assert_eq!(
             r(&counted),
-            t("Confirming · 4 of 10", Tone::Paid, StateIcon::Ring)
+            t("Confirming · 4 of 10", Tone::Muted, StateIcon::Ring)
         );
         assert_eq!(
             r(&sale_of("w").phase(Partial).build()),
@@ -1109,7 +1236,7 @@ pub(crate) mod tests {
         );
         assert_eq!(
             row_of("paid"),
-            t("Paid · 3:58 PM", Tone::Muted, StateIcon::Tick)
+            t("Paid · 3:58 PM", Tone::Paid, StateIcon::Tick)
         );
         assert_eq!(
             row_of("latePaid"),
@@ -1297,6 +1424,7 @@ pub(crate) mod tests {
                 ),
                 ShiftItem::Fold { hidden, open } => fold_label(*hidden, *open),
                 ShiftItem::Earlier => "earlier".into(),
+                ShiftItem::CashHeader => "cash".into(),
             })
             .collect()
     }
@@ -1541,6 +1669,8 @@ pub(crate) mod tests {
             started_at: Some(instant("2026-10-22T16:02:00Z")),
             filter: ShiftFilter::All,
             folded: true,
+            counters: Counters::default(),
+            counter: None,
         }
     }
 
@@ -1576,7 +1706,7 @@ pub(crate) mod tests {
             ShiftTop {
                 place: Some("The Bean Room · Front Counter".into()),
                 state: "Watching".into(),
-                tone: Tone::Paid,
+                tone: Tone::Plain,
                 said: "The Bean Room, Front Counter, Watching".into(),
                 mark: Some(PosMark::Square),
             }
@@ -1709,5 +1839,156 @@ pub(crate) mod tests {
         };
         let view = shift(&clover, Device::Android, la(at()), &money);
         assert_eq!(view.top.place.as_deref(), Some("The Bean Room"));
+    }
+
+    fn cash(sale: TillSale) -> TillSale {
+        let mut sale = sale;
+        if let Some(found) = sale.found.as_mut() {
+            found.cash = true;
+        }
+        sale
+    }
+
+    #[test]
+    fn the_customers_name_leads_a_row_and_the_sale_number_moves_under_it() {
+        let named = TillSale {
+            customer_name: Some("Sam".into()),
+            ..sale_of("m2Qe").build()
+        };
+        let row = row(&named, SQUARE, 552, la(at()), &money);
+        assert_eq!(row.name, "Sam");
+        assert_eq!(row.amount, "$8.40");
+        assert_eq!(row.title, "Sam · $8.40");
+        assert_eq!(row.sub, "Waiting · 9:12 left · #m2Qe");
+        let plain = super::row(&sale_of("h7Rt").build(), SQUARE, 552, la(at()), &money);
+        assert_eq!(plain.name, "Sale #h7Rt", "no name: the sale's number leads");
+        assert_eq!(plain.sub, "Waiting · 9:12 left");
+    }
+
+    #[test]
+    fn offered_cash_sales_have_their_own_section_and_cash_paid_in_monero_is_counted() {
+        let offered = TillSale {
+            offered: true,
+            order_id: "cash:p".into(),
+            ..cash(sale_of("q8Lw").build())
+        };
+        let kept = TillSale {
+            kept_as_cash_at: Some(at()),
+            ..offered.clone()
+        };
+        let paid = TillSale {
+            paid_at: Some(at()),
+            phase: SalePhase::Paid,
+            ..cash(sale_of("j1Qx").build())
+        };
+        let sales = [
+            sale_of("live").build(),
+            offered.clone(),
+            paid.clone(),
+            TillSale {
+                order_id: "cash:k".into(),
+                ..kept.clone()
+            },
+        ];
+        assert_eq!(
+            read(&sections(&sales, ShiftFilter::All, true)),
+            [
+                "header 1",
+                "tray live Only",
+                "cash",
+                "cash:p Only",
+                "earlier",
+                "j1Qx First",
+                "cash:k Last",
+            ]
+        );
+        assert_eq!(
+            triple(&offered, SQUARE, 0),
+            t("Cash in Square · 3:48 PM", Tone::Link, StateIcon::Clock)
+        );
+        assert_eq!(
+            triple(&kept, SQUARE, 0),
+            t(
+                "Cash · kept as cash · 3:58 PM",
+                Tone::Muted,
+                StateIcon::Close
+            )
+        );
+        assert_eq!(
+            triple(&paid, SQUARE, 0),
+            t(
+                "Paid in Monero · cash in Square · 3:58 PM",
+                Tone::Paid,
+                StateIcon::Tick
+            )
+        );
+        assert_eq!(
+            cash_in_monero(&sales, &money).as_deref(),
+            Some("1 cash sale paid in Monero · $8.40")
+        );
+        assert_eq!(cash_in_monero(&[sale_of("x").build()], &money), None);
+    }
+
+    #[test]
+    fn the_title_menu_chooses_whose_sales_the_list_shows() {
+        use crate::counters::{CounterChoice, CounterDevice, Counters};
+        let device = |sale: TillSale, id: &str, name: &str| {
+            let mut sale = sale;
+            let found = sale.found.as_mut().unwrap();
+            found.device_id = Some(id.into());
+            found.device_name = Some(name.into());
+            sale
+        };
+        let sales = vec![
+            device(sale_of("a").build(), "dev_front", "Front iPad"),
+            device(sale_of("b").build(), "dev_bar", "Bar iPad"),
+        ];
+        let counters = Counters {
+            device: Some(CounterDevice {
+                id: "dev_front".into(),
+                name: Some("Front iPad".into()),
+            }),
+            every_device: false,
+            show_others: false,
+        };
+        let view = |counter: Option<CounterChoice>| {
+            shift(
+                &ShiftInput {
+                    counters: counters.clone(),
+                    counter,
+                    ..input(sales.clone())
+                },
+                Device::Ipad,
+                la(at()),
+                &money,
+            )
+        };
+        let mine = view(None);
+        assert_eq!(mine.counters.as_ref().unwrap().title, "Front iPad");
+        let ids = |v: &ShiftView| {
+            v.entries
+                .iter()
+                .filter_map(|e| match e {
+                    ShiftEntry::Row { order_id, row, .. } => {
+                        Some((order_id.clone(), row.other_counter, row.device.clone()))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ids(&mine), [("a".into(), false, None)]);
+        let all = view(Some(CounterChoice::All));
+        assert_eq!(all.counters.as_ref().unwrap().title, "All counters");
+        assert_eq!(
+            ids(&all),
+            [
+                ("a".into(), false, None),
+                ("b".into(), true, Some("Bar iPad".into()))
+            ]
+        );
+        assert_eq!(
+            view(None).counters.unwrap().items[1].count.as_deref(),
+            Some("1 waiting")
+        );
     }
 }
