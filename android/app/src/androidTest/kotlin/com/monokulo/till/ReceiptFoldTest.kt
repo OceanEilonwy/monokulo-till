@@ -78,7 +78,7 @@ class ReceiptFoldTest {
                     CompositionLocalProvider(LocalReceiptFolds provides folds) {
                         ModelStage(model) { s ->
                             when (s) {
-                                is Screen.Order -> OrderPage(rememberFace(sale), "Back to the sale", onBack = { model.back(s) }, onShowCode = { model.back(s) })
+                                is Screen.Order -> OrderPage(rememberFace(sale), onBack = { model.back(s) }, onShowCode = { model.back(s) })
                                 is Screen.Code -> CodeScreen(rememberFace(sale), onBack = { model.back(s) })
                                 else -> SaleScreen(rememberFace(sale, now.longValue), noActions)
                             }

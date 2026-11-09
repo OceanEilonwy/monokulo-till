@@ -60,7 +60,7 @@ class InterruptTest(private val move: Moved, private val interruption: Interrupt
                     when (s) {
                         // As the activity does: the enlarged code goes back by itself once its sale isn't live.
                         is Screen.Code -> CodeScreen(rememberFace(shown), onBack = { model.back(s) })
-                        is Screen.Order -> OrderPage(rememberFace(shown), "Back to the sale", onBack = { model.back(s) }, onShowCode = { model.back(s) })
+                        is Screen.Order -> OrderPage(rememberFace(shown), onBack = { model.back(s) }, onShowCode = { model.back(s) })
                         is Screen.Sale -> SaleScreen(rememberFace(shown, now.longValue), noActions)
                         else -> EngineShift(listOf(sale, other), now.longValue, noActions)
                     }

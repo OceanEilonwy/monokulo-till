@@ -197,7 +197,7 @@ class MainActivity : ComponentActivity() {
             // A sale not drawn (yet) shows the shift until it is.
             face == null -> if (shift != null) ShiftScreen(shift, actions, shiftPlace, close?.takeIf { s == Screen.Till })
             s is Screen.Code -> CodeScreen(face) { send(Action.Back) }
-            s is Screen.Order -> OrderPage(face, "Back to the sale", onBack = { send(Action.Back) }, onShowCode = { send(Action.Back) })
+            s is Screen.Order -> OrderPage(face, onBack = { send(Action.Back) }, onShowCode = { send(Action.Back) })
             else -> SaleScreen(face, actions, close?.takeIf { it.orderId == id }?.view, flows.refund.value.takeIf { target })
         }
     }

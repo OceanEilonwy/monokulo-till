@@ -87,8 +87,8 @@ data class PanelSale(
     val status: String,
     /** "· 14:52 left" while the code counts down; null once a payment is on its way. */
     val left: String?,
-    /** "14:52 left", the same countdown without its dot. */
-    val timeLeft: String?,
+    /** "$79.21 · 0.31684 XMR · 14:52 left", on the whole order's "Show the code" bar. */
+    val showCode: String,
     /** The phase ring: its step and the payment's confirmations. */
     val ring: Ring,
     /** "0.05552 XMR received", on the paid face. */
@@ -122,7 +122,7 @@ data class PanelSale(
                 codeSaid = sale.codeSaid,
                 status = sale.status,
                 left = panel.statusLeft,
-                timeLeft = panel.timeLeft,
+                showCode = panel.showCode,
                 ring = sale.ring,
                 received = panel.received.orEmpty(),
                 endedHeading = panel.endedHeading.orEmpty(),
@@ -258,7 +258,7 @@ internal fun PanelOrderContent(sale: PanelSale, onBack: () -> Unit, modifier: Mo
             Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
                 Text("Show the code", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = mk.onAccent)
                 Text(
-                    "${sale.amount} · ${sale.xmr} · ${sale.timeLeft ?: sale.status}",
+                    sale.showCode,
                     fontSize = 13.sp, color = mk.onAccent, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }

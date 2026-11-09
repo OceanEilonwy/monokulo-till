@@ -182,7 +182,12 @@ pub struct OrderPageView {
     pub sums: Vec<OrderSum>,
     /// "79.21 USD", after "Total".
     pub total: String,
+    /// The top bar's way back, "Back to the sale" (core.md decision 107).
+    pub back: String,
 }
+
+/// The whole order's way back to its sale.
+pub const BACK_TO_THE_SALE: &str = "Back to the sale";
 
 /// `sale`'s whole order, named by `pos`, while the till has its receipt.
 pub fn order_page(
@@ -228,6 +233,7 @@ pub fn order_page(
             .collect(),
         sums,
         total: total(receipt),
+        back: BACK_TO_THE_SALE.into(),
     })
 }
 
@@ -358,6 +364,7 @@ mod tests {
             [("Subtotal", "72.75"), ("Tax 8.875%", "6.46")]
         );
         assert_eq!(page.total, "79.21 USD");
+        assert_eq!(page.back, "Back to the sale");
         let other = TillSale {
             receipt: None,
             ..sale(None)

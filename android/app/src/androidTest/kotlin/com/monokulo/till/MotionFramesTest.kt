@@ -76,7 +76,7 @@ class MotionFramesTest {
                 TillStage(state, cameUpByItself = { byItself }) { s ->
                     when (s) {
                         is Screen.Code -> CodeScreen(rememberFace(shown), onBack = {})
-                        is Screen.Order -> OrderPage(rememberFace(shown), "Back to the sale", onBack = {}, onShowCode = {})
+                        is Screen.Order -> OrderPage(rememberFace(shown), onBack = {}, onShowCode = {})
                         is Screen.Sale -> SaleScreen(rememberFace(shown, now.longValue), noActions)
                         else -> EngineShift(sales, now.longValue, noActions)
                     }

@@ -50,19 +50,20 @@ import uniffi.till_screens.OrderPageView
 /**
  * The whole order, full screen (the design's PanelE), in the app, as the
  * engine wrote it ([SaleFace.order]): opened from the sale's order card.
- * [backLabel] says where back goes; "Show the code" ([onShowCode]) goes
+ * Back ([OrderPageView.back], the engine's words) goes to the sale; "Show the code" ([onShowCode]) goes
  * there too. Android's back is the activity's, which previews the way back
  * to the sale.
  */
 @Composable
-fun OrderPage(sale: SaleFace, backLabel: String, onBack: () -> Unit, onShowCode: () -> Unit) {
+fun OrderPage(sale: SaleFace, onBack: () -> Unit, onShowCode: () -> Unit) {
     // No ground of its own while it grows out of the sale's card: the sale's is under it, the same colour (decision 185).
     Surface(Modifier.fillMaxSize().groundExcept(Move.OrderGrow, mk.ground), color = Color.Transparent, contentColor = mk.ink) {
         Box(Modifier.fillMaxSize().safeDrawingPadding(), contentAlignment = Alignment.TopCenter) {
             // As wide as the app's other pages ([Page]), centred on a tablet or a wide window.
             Column(Modifier.widthIn(max = 560.dp).fillMaxSize()) {
                 val order = sale.order
-                OrderBar(backLabel, onBack, order?.subtitle)
+                // The engine's words for the way back and the code's bar (docs/decisions/core.md 107).
+                OrderBar(order?.back ?: "Back", onBack, order?.subtitle)
                 if (order == null) {
                     // Another till's sale: what was bought stays on that till.
                     Muted("What was bought stays on the till that rang it up.", Modifier.padding(24.dp).weight(1f), size = 15)
@@ -78,7 +79,7 @@ fun OrderPage(sale: SaleFace, backLabel: String, onBack: () -> Unit, onShowCode:
                         }
                     }
                 }
-                Box(Modifier.words(through = OrderGrowOnly)) { ShowCodeBar("${sale.code.amount} · ${sale.code.under}", onShowCode) }
+                Box(Modifier.words(through = OrderGrowOnly)) { ShowCodeBar(sale.code.showCode, onShowCode) }
             }
         }
     }

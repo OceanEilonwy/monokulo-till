@@ -93,7 +93,7 @@ class RunningMoves(private val compose: AndroidComposeTestRule<*, ComponentActiv
                     Box(Modifier.fillMaxSize().testTag(tag(s))) {
                     when (s) {
                         is Screen.Code -> CodeScreen(rememberFace(sale), onBack = {})
-                        is Screen.Order -> OrderPage(rememberFace(sale), "Back to the sale", onBack = {}, onShowCode = {})
+                        is Screen.Order -> OrderPage(rememberFace(sale), onBack = {}, onShowCode = {})
                         is Screen.Sale -> SaleScreen(rememberFace(sale, now.longValue), noActions)
                         else -> EngineShift(shift, now.longValue, noActions, place)
                     }

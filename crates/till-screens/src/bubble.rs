@@ -423,6 +423,9 @@ pub struct PanelView {
     pub received: Option<String>,
     /// The buttons under the face, in order.
     pub buttons: Vec<PanelButton>,
+    /// "$79.21 · 0.31684 XMR · 14:52 left", on the whole order's "Show the
+    /// code" bar (core.md decision 107).
+    pub show_code: String,
     /// The whole order, every line: the panel's order page, as the app's
     /// own order page draws it. (The ring, confirmations and all, is the
     /// sale's `ring`.)
@@ -471,6 +474,7 @@ pub fn panel(
         face,
         received: (face == PanelFace::Paid).then(|| view.hint.clone()),
         buttons: buttons(face, &view.copy_address),
+        show_code: code::show_code_line(s, pos_text::of(s, input.till), seconds, money),
         order: order_page(s, pos_text::of(s, input.till), clock),
         ended_heading: ended.then(|| panel_ended_heading(s, input.till)),
         ended_line: ended.then(|| panel_ended_line(s, input.till)),
@@ -948,6 +952,7 @@ mod panel_tests {
         assert_eq!(view.where_from, "Front Counter");
         assert_eq!(view.created.as_deref(), Some("4:07 PM"));
         assert_eq!(view.time_left.as_deref(), Some("14:52 left"));
+        assert_eq!(view.show_code, "$79.21 · 0.31684 XMR · 14:52 left");
         assert_eq!(view.sale.hint, "Scan with any Monero wallet · 14:52 left");
         assert_eq!(view.hero, PanelHero::Code);
         let order = view.order.unwrap();

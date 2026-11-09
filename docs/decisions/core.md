@@ -684,3 +684,12 @@ on from 1; the Android app's own choices are in [android.md](android.md).
      `NotificationView` because the count is the platform's, and a field
      there would be a guess. iOS posts only the new-sale alert (decision
      41), so none of this applies to it.
+107. **The whole order's words come from the engine**: `OrderPageView.back`
+     ("Back to the sale") and the "Show the code" bar's line
+     (`code::show_code_line`, "$79.21 · 0.31684 XMR · 14:52 left"), carried
+     as `CodeView.show_code` for the app (so it's there even without a
+     receipt) and `PanelView.show_code` for the panel. Android used to join
+     amount and under itself, the panel joined its own variant, and
+     `MainActivity` wrote "Back to the sale". The panel's own "Back to the
+     code" and "Show the code" headings stay in its screen, as words
+     written once. iOS's order screen has neither bar nor labelled back.
