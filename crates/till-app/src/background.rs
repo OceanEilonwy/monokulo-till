@@ -158,7 +158,7 @@ pub(crate) async fn check(
     books.refresh();
     // Woken by a ding for a sale: what this round finds is new, even on a
     // ledger just made or imported, as the extension's look always alerted
-    // (docs/decisions/core.md 155). The app's first look still learns.
+    // (docs/decisions/core.md 155).
     if let Err(e) = books.with(|l| l.set_learning(false)) {
         return BackgroundCheck::failed(format!("Couldn't read the sales this till keeps: {e}"));
     }

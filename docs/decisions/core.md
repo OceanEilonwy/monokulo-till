@@ -1176,3 +1176,100 @@ for the ledger. The ledger crate's decisions (PR 59) come before these.
      `allowBackup` is off and the backup rules exclude every domain, and
      costs nothing: the Keychain items are this device's only, so a
      restored container could open nothing.
+
+## The engine on the ledger (2026-11-09)
+
+The integration of [ledger.md](../ledger.md) §6 to §10 and §14: the till,
+the engine and the extension writing facts and reading projections.
+
+153. **The till drives the ledger and keeps no sales of its own.**
+     `till_sales::Books` holds the one `Ledger` a process opens (through
+     the platform's `LedgerHost`: the key, the scope, the background hold,
+     where claimed alerts go) and, after every write that changed
+     something, reads the shift back into `TillState`. `TillState::sales`
+     is therefore always `Ledger::sales` within the shift, each
+     `SaleView` copied field for field into the `TillSale` the screens
+     already take, with the ledger's additions (earlier codes, the
+     warnings, the sale's key) in `TillSale::extras`, left out of the kept
+     shift's JSON. A sale whose order is still being made isn't listed (it
+     has no code), and a sale kept from Monokulo alone whose order a
+     point-of-sale sale has since taken is shown as that sale. The
+     `ShiftStore`, the kept shift's writes, `alerted.rs`, the phase diff
+     (`Phases`, `NewSales`) and `reload_shift` are gone; `kotlin_json`
+     stays for previews and fixtures.
+154. **What a listing doesn't say.** A point of sale's listing gives no
+     update time, so a payment's `updated_at` is its own time (the POS
+     lists it once completed) and its order is read once; a read that
+     fails is recorded with why, which the sale page shows. Refunds the
+     till makes through Square are recorded as `PosRefundSeen`, completed,
+     under the refund's idempotency key; Clover's stay the cashier's
+     `RefundPending` and `RefundConfirmed` marks. Listing Square's
+     `/v2/refunds` for refunds made in Square itself is left for a
+     follow-up (till-pos has no client for it yet). An order read again
+     that gives the store's confirmation threshold, when the order as made
+     had none, records the order again with it, which the ledger's merge
+     takes over the one without: no ledger API change.
+155. **Learning ends before the first look.** The app learns what the
+     ledger held as it started (the old shift imported, a recovery) and
+     ends learning before its first look at the point of sale, as the
+     engine's first look learnt the kept shift before; the extension ends
+     it before its round, since a ding means a new sale and its look
+     always alerted. A sale the first look finds is therefore alerted, as
+     before the ledger. This reads ledger.md §6's "first look" as the
+     engine's first read, not its first point-of-sale request.
+156. **The ledger's claims are what the app says.** A new sale's claim
+     sets the alert while the app is behind; Paid and PaidMoment start the
+     paid moment and the haptic in front, and post a notice behind; Ended
+     starts the expired dwell and posts "No payment yet". Notices are
+     posted on Android, on iPad and on an iPhone without the Live
+     Activity (the owner's fix 2; iOS posts `Effect::Notify` as a local
+     notification with the sale's id, replacing its alert). Each claim is
+     reported posted once delivered. The sale on screen is the ledger's
+     open sale, so another counter's sale the cashier has open gets the
+     paid moment (fix 3). While in front the engine writes `Foreground`
+     for 10 s every 4 s, and `Foreground` until now as it goes behind. A
+     sale gone from the list has its notification cleared, as before.
+157. **Settings are the ledger's facts too.** This counter's device,
+     every device, cash as Monero, whether other counters' sales are
+     listed and how sales show up are kept as before for the screens and
+     also recorded as `SettingChanged` whenever they change and as the app
+     starts (only those that differ), under `counter.device`,
+     `counter.every`, `cash.monero`, `counter.others` and `sales.show`, so
+     the extension's views and alerts read the same.
+158. **The scope is the store's address and the point of sale's
+     account.** `Scope::of(connection.api, Square location or Clover
+     merchant)`. The engine works it out after every batch of messages;
+     when it changes (signed out, another location or merchant, the store
+     forgotten or another connected) the old scope's rows are deleted and
+     the ledger reads the new one's. A scope that changed while the app
+     wasn't running is left to retention.
+159. **The shift is the ledger's window, on iOS too.** Start watching
+     records `ShiftMarked(Started)` and runs upkeep (`maintain`); Stop
+     closes every live code and records `ShiftMarked(Stopped)`. The list
+     shows live and offered sales whatever the window, ended sales rung up
+     in it, and sales that still need the cashier from before it; the
+     shift's "since" is the window's start. Settings gains "Watch for
+     sales" on iOS (fix 1), with its own footnote, as Android has.
+160. **New code is the cashier's, on the sale's page.** A sale this till
+     can see at its point of sale, whose code ran out unpaid by
+     Monokulo's word or this device's clock and which isn't closed,
+     refunded or settled in cash, offers New code (`Action::NewCode`),
+     which makes the next attempt and opens its code. The page lists the
+     earlier codes ("Replaced by a new code", or "Replaced: another code
+     was paid"), warns when two were paid, and says why a code has no
+     receipt (fix 5); Android draws the button plainly.
+161. **Suspend closes the ledger from the platform's thread.** The engine
+     shares its books with `Engine`, so `suspend` waits for any write and
+     closes the ledger on the calling thread; `resume` and
+     `ledger_changed` read the projections again and claim what the
+     extension left. The extension reads Monokulo's open orders again
+     after its look, claims the newest new sale, and closes the ledger
+     before it returns. Upkeep runs as the app starts, comes to the front
+     and starts a shift.
+162. **What Monokulo says is read as the ledger reads it.** Times are this
+     device's first sighting, not an event's; an event on a till signed in
+     to the point of sale never makes a sale (it waits for this till's own
+     look); a code this device's clock says ran out is a local mark, shown
+     as expired with "No payment yet" until Monokulo says; and the
+     confirmations count only grows. The till's tests that said otherwise
+     now say this.
