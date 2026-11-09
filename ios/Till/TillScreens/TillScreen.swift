@@ -275,7 +275,13 @@ struct SaleDetail: View {
     var body: some View {
         if let sale = core.sale, sale.orderId == orderId {
             if sale.code.done {
-                SalePageScreen(orderId: orderId, page: sale.page, celebrate: celebrate, send: send)
+                SalePageScreen(
+                    orderId: orderId,
+                    page: sale.page,
+                    celebrate: celebrate,
+                    send: send,
+                    backToSquare: SalePageScreen.isPaid(sale.page) && BackToSquare.shown(core) ? { BackToSquare.open(core) } : nil
+                )
             } else {
                 SaleScreen(orderId: orderId, view: sale.view, send: send)
             }

@@ -15,7 +15,8 @@ extension TillActivityAttributes.ContentState {
             xmr: state.xmr,
             expiresAt: state.expiresAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             waitingCount: Int(state.waitingCount),
-            paymentUri: state.paymentUri
+            paymentUri: state.paymentUri,
+            name: state.name
         )
     }
 }

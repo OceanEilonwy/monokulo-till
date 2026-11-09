@@ -538,7 +538,8 @@ impl State {
     /// shift is on (one activity a shift, design.md §6).
     pub(super) fn live_activity_state(&self, p: &Parts) -> Option<LiveActivityState> {
         let model = p.side.model();
-        if !(self.live_activity_on(&model) && model.setup_done && model.shift_on) {
+        let pip = self.pip_on(&model);
+        if !((self.live_activity_on(&model) || pip) && model.setup_done && model.shift_on) {
             return None;
         }
         live_activity::live_activity(
@@ -546,7 +547,8 @@ impl State {
                 sales: self.loud_sales(&p.runner.state().till.sales),
                 just_paid: self.just_paid.clone(),
                 just_ended: self.just_ended.clone(),
-                code_in_island: self.code_in_island_on(&model),
+                // The floating window shows the code while the sale waits.
+                code_in_island: self.code_in_island_on(&model) || pip,
             },
             self.config.device,
         )

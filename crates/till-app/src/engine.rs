@@ -2023,6 +2023,13 @@ impl State {
         self.config.device == Device::Iphone && model.code_in_island
     }
 
+    /// The iPad's Picture in Picture window (docs/ipad-redesign.md
+    /// decision 2): drawn from the Live Activity's state, while a new sale
+    /// shows up in a floating window.
+    fn pip_on(&self, model: &crate::store::Model) -> bool {
+        self.config.device == Device::Ipad && model.show_sales == crate::ShowSales::FloatingWindow
+    }
+
     fn onboarding_input(&self, p: &Parts) -> Option<OnboardingInput> {
         let model = p.side.model();
         let store = State::store_now(p);
@@ -2249,7 +2256,7 @@ impl State {
         });
         // An alert is posted once, as its sale arrives.
         self.alert_for = None;
-        if device == Device::Iphone {
+        if device.is_ios() {
             let state = self.live_activity_state(p);
             send!(live_activity, state, |state| Update::LiveActivity { state });
         }

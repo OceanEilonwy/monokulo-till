@@ -844,3 +844,21 @@ and copy, tones and progress.
      sales and payments · On", or "Off" in warning, with "Open Notification
      Settings" and its footnote (review finding I15). Android keeps its
      switch.
+
+## The iPad redesign, phase 3: alert first and the floating window (2026-11-09)
+
+The iOS side of [ipad-redesign.md](../ipad-redesign.md) decisions 1, 2
+and 8, and what the engine adds for it.
+
+123. **The floating window draws the Live Activity's state.** On iPad,
+     while a new sale shows up in a floating window (`ShowSales::
+     FloatingWindow`), the engine publishes `Update::LiveActivity` as it
+     does on iPhone, with the plain payment URI while the sale waits
+     (as "Show code in island" would), and none otherwise. The app sends
+     it to its Picture in Picture window rather than ActivityKit. The
+     state already leaves out another counter's sales and goes from paid
+     back to idle after the paid dwell, which is the window's Paid and
+     back to Watching. A cash sale offered in Monero isn't in it: the
+     window reads the first of this counter's from the shift's cash
+     section. iOS's alert for a new sale is still posted, but not while
+     the window is up, as the window shows the sale itself.

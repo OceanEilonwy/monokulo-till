@@ -16,6 +16,8 @@ struct SalePageScreen: View {
     let page: SalePageView
     var celebrate = false
     let send: Send
+    /// Paid's "Back to Square" (A3), when it's offered (``BackToSquare``).
+    var backToSquare: (@MainActor () -> Void)?
 
     @State private var logo: TillLogoState = .paid
 
@@ -53,13 +55,24 @@ struct SalePageScreen: View {
         .readableWidth()
         .safeAreaInset(edge: .bottom) {
             if paid {
-                Button("Done") { send(.back) }
-                    .buttonStyle(.secondary)
-                    .frame(maxWidth: 440)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 8)
-                    .frame(maxWidth: .infinity)
-                    .background(Palette.ground)
+                VStack(spacing: 10) {
+                    if let backToSquare {
+                        Button {
+                            backToSquare()
+                        } label: {
+                            Label("Back to Square", systemImage: "chevron.left")
+                        }
+                        .buttonStyle(.primary)
+                        .accessibilityHint("Opens Square Point of Sale")
+                    }
+                    Button("Done") { send(.back) }
+                        .buttonStyle(.secondary)
+                }
+                .frame(maxWidth: 440)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .background(Palette.ground)
             }
         }
         .foregroundStyle(Palette.ink)

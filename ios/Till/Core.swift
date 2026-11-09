@@ -45,6 +45,9 @@ final class Core {
     /// The iPhone's Live Activity (`Update.liveActivity`). Its push token
     /// goes to `registerLiveActivityPushToken` (phase I5).
     let liveActivity = LiveActivityController()
+    /// The iPad's floating window (docs/ipad-redesign.md decision 2), drawn
+    /// from the same state; nil where Picture in Picture isn't offered.
+    let pip: PipWindow? = PipWindow.supported ? PipWindow() : nil
 
     init(secrets: Platform = DevicePlatform(), push: PushPlatform = ApnsPush()) {
         config = Core.config()
@@ -66,6 +69,17 @@ final class Core {
             self?.registerLiveActivityPushToken(token)
         }
         UNUserNotificationCenter.current().delegate = taps
+        pip?.onRestore = { [weak self] orderId in
+            self?.send(.openSale(orderId: orderId))
+        }
+        pip?.onTakeInMonero = { [weak self] orderId in
+            self?.send(.takeInMonero(orderId: orderId))
+        }
+    }
+
+    /// How a new sale shows up on this iPad, as Settings has it.
+    var showSales: ShowSales {
+        settings?.showSales?.choices.first { $0.choice.selected }?.mode ?? .alert
     }
 
     /// Which screen draws the app now.
@@ -96,6 +110,7 @@ final class Core {
     func opened() {
         send(.opened)
         liveActivity.resume()
+        pip?.appInFront()
         Task { await readPermissions() }
     }
 
@@ -129,7 +144,12 @@ final class Core {
             self.busy = busy
             self.problem = problem
         case .nav(let byItself, _, _, _, _): self.byItself = byItself
-        case .shift(let view): shift = view
+        case .shift(let view):
+            shift = view
+            pip?.shift(
+                place: TillActivityAttributes.location(place: view.top.place),
+                cash: PipCashOffer.first(in: view.entries)
+            )
         case .sale(let orderId, let view, let page, let code, let order):
             sale = SaleScreens(orderId: orderId, view: view, page: page, code: code, order: order)
         case .closeSheet(let orderId, let view):
@@ -141,14 +161,19 @@ final class Core {
         case .refundSheet(let view): refundSheet = view
         case .settings(let view): settings = view
         case .wakeUps(let view): wakeUps = view
+        case .liveActivity(let state) where pip != nil:
+            // On iPad the engine sends it only for the floating window.
+            pip?.show(state.map { TillActivityAttributes.ContentState($0) })
         case .liveActivity(let state):
             liveActivity.show(
                 state.map { TillActivityAttributes.ContentState($0) },
                 attributes: TillActivityAttributes(store: settings?.store?.name, place: shift?.top.place)
             )
         case .notification(let view):
-            // Set in one update only, as the sale arrives with Till in the back.
-            if let alert = view.alert {
+            // Set in one update only, as the sale arrives with Till in the
+            // back. While the floating window is up, it shows the sale
+            // instead (decision 2).
+            if let alert = view.alert, !(pip?.isActive ?? false) {
                 Task { await SaleAlerts.post(alert) }
             }
         default: break

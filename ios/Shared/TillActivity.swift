@@ -31,6 +31,10 @@ struct TillActivityAttributes: ActivityAttributes, Sendable {
         var waitingCount: Int
         /// The plain payment URI, only with "Show code in island" on.
         var paymentUri: String?
+        /// Whom the sale is for ("Sam"), which leads the words
+        /// (docs/ipad-redesign.md decision 10). Set by the app; the relay's
+        /// pushes never carry it, as names never reach Monokulo.
+        var name: String?
 
         /// The amount in the device's way of writing money: "$24.50".
         func money(locale: Locale = .autoupdatingCurrent) -> String? {
@@ -47,9 +51,22 @@ struct TillActivityAttributes: ActivityAttributes, Sendable {
         }
 
         /// The line over the status (PhoneOrder, PhonePaid): "New sale ·
-        /// #1042 · +1 more", "Paid · sale #1042"; nil while idle.
+        /// Sam · +1 more", "Paid · Sam"; without a name the sale's number,
+        /// "New sale · #1042", "Paid · sale #1042"; nil while idle.
         var headline: String? {
             let label = sale ?? ""
+            if let name = name?.trimmingCharacters(in: .whitespaces), !name.isEmpty {
+                switch phase {
+                case .idle:
+                    return nil
+                case .waiting:
+                    return (["New sale", name] + [more].compactMap { $0 }).joined(separator: " · ")
+                case .paid:
+                    return "Paid · \(name)"
+                case .seen, .confirming, .expired:
+                    return name
+                }
+            }
             switch phase {
             case .idle:
                 return nil
@@ -126,7 +143,7 @@ struct TillActivityAttributes: ActivityAttributes, Sendable {
 /// from 2001.
 extension TillActivityAttributes.ContentState {
     enum CodingKeys: String, CodingKey {
-        case phase, orderId, sale, amount, currency, xmr, expiresAt, waitingCount
+        case phase, orderId, sale, amount, currency, xmr, expiresAt, waitingCount, name
         case paymentUri = "paymentURI"
     }
 
@@ -142,7 +159,8 @@ extension TillActivityAttributes.ContentState {
             expiresAt: try container.decodeIfPresent(Double.self, forKey: .expiresAt)
                 .map { Date(timeIntervalSince1970: $0) },
             waitingCount: try container.decodeIfPresent(Int.self, forKey: .waitingCount) ?? 0,
-            paymentUri: try container.decodeIfPresent(String.self, forKey: .paymentUri)
+            paymentUri: try container.decodeIfPresent(String.self, forKey: .paymentUri),
+            name: try container.decodeIfPresent(String.self, forKey: .name)
         )
     }
 
@@ -157,6 +175,7 @@ extension TillActivityAttributes.ContentState {
         try container.encodeIfPresent(expiresAt?.timeIntervalSince1970, forKey: .expiresAt)
         try container.encode(waitingCount, forKey: .waitingCount)
         try container.encodeIfPresent(paymentUri, forKey: .paymentUri)
+        try container.encodeIfPresent(name, forKey: .name)
     }
 }
 
