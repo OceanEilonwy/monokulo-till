@@ -4,19 +4,31 @@ import UIKit
 
 /// The close sheet, "Is the customer paying?" (PadClose, PhoneClose; the
 /// design's CloseAsk), drawn from the engine's `CloseView`: the question,
-/// and its answers, each with the line under it.
+/// and its answers, each with the line under it, and Cancel.
 struct CloseSheetScreen: View {
     let sheet: CloseSheet
     let send: Send
 
     var body: some View {
+        NavigationStack {
+            content
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { send(.dismissClose) }
+                    }
+                }
+                .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
-                Heading(text: sheet.view.question, size: 24)
+                Heading(text: sheet.view.question)
                 Lead(text: sheet.view.subtitle)
             }
             .padding(.horizontal, 20)
-            .padding(.top, 24)
+            .padding(.top, 8)
             .padding(.bottom, 16)
             Card {
                 ForEach(Array(sheet.view.answers.enumerated()), id: \.offset) { index, answer in
@@ -74,7 +86,7 @@ struct RefundSheetScreen: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Heading(text: view.title, size: 24)
+            Heading(text: view.title)
             // Plain: the body names the order's own title, which may hold asterisks.
             Text(view.body)
                 .font(.body)
@@ -85,13 +97,8 @@ struct RefundSheetScreen: View {
             }
             Spacer(minLength: 12)
             PrimaryPress(press: view.refunded) { send(.confirmRefund(orderId: view.orderId)) }
-            Button {
-                send(.dismissRefund)
-            } label: {
-                Text(view.notYet)
-                    .frame(maxWidth: .infinity)
-            }
-            .glassButton()
+            Button(view.notYet) { send(.dismissRefund) }
+                .buttonStyle(.secondary)
         }
         // "Doesn't show a refund yet" arrives after the tap: said aloud, as Android's live region.
         .onChange(of: view.notSeen) { _, notSeen in

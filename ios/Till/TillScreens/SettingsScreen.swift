@@ -2,12 +2,13 @@ import SwiftUI
 import TillCore
 import UIKit
 
-/// Settings (PadSettings, in the Slide Over panel; PhoneSettings), drawn
-/// from the engine's `SettingsView` as an inset grouped list: the store,
-/// the point of sale, alerts, Wake-ups (its own page, pushed here, as
-/// `Screen` has none), the Dynamic Island on iPhone, the debug builds'
-/// stand-ins, and Disconnect. Section titles and Disconnect's footnote are
-/// written once here (decision 26).
+/// Settings (D4; a sheet over the till with Done), drawn from the engine's
+/// `SettingsView` as an inset grouped list: the store and its wallet (which
+/// Share hands on), the point of sale, alerts as a status row with Open
+/// Notification Settings (iOS decides; never a switch that snaps back),
+/// Wake-ups (its own page, pushed here, as `Screen` has none), the Dynamic
+/// Island on iPhone, the debug builds' stand-ins, and Disconnect. Section
+/// titles and Disconnect's footnote are written once here (decision 26).
 struct SettingsScreen: View {
     let view: SettingsView
     let wakeUps: WakeUpsView?
@@ -24,8 +25,10 @@ struct SettingsScreen: View {
                 }
                 PosSettings(section: view.pointOfSale, send: send)
                 Section {
-                    // iOS keeps the switch: it opens Till's notification settings.
-                    SwitchRow(label: "New sale alerts", on: view.alerts.on, snapsBack: true) { _ in openAlertSettings() }
+                    AlertsRow(on: view.alerts.on)
+                    if !view.alerts.on {
+                        Button("Open Notification Settings") { openAlertSettings() }
+                    }
                 } header: {
                     Text("Alerts")
                 } footer: {
@@ -53,17 +56,13 @@ struct SettingsScreen: View {
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
+            .readableWidth(640)
             .background(Palette.ground)
             .navigationTitle("Settings")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        send(.back)
-                    } label: {
-                        Image(systemName: "chevron.backward")
-                    }
-                    .accessibilityLabel("Back")
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { send(.back) }
                 }
             }
             .confirmationDialog("Disconnect this device?", isPresented: $askDisconnect, titleVisibility: .visible) {
@@ -94,6 +93,24 @@ struct SettingsScreen: View {
     private func openAlertSettings() {
         if let settings = URL(string: UIApplication.openNotificationSettingsURLString) {
             openURL(settings)
+        }
+    }
+}
+
+/// Whether iOS lets Till alert: "On", or "Off" in the warn colour with its
+/// glyph, so it doesn't rest on colour alone.
+struct AlertsRow: View {
+    let on: Bool
+
+    var body: some View {
+        LabeledContent("New sale alerts") {
+            if on {
+                Text("On")
+            } else {
+                Label("Off", systemImage: "exclamationmark.triangle")
+                    .labelStyle(.titleAndIcon)
+                    .foregroundStyle(Palette.expiredInk)
+            }
         }
     }
 }
@@ -156,33 +173,39 @@ struct StoreSettings: View {
                 HStack(spacing: 10) {
                     HostChip(host: store.host, encrypted: store.encrypted)
                     HStack(spacing: 6) {
-                        Circle()
-                            .fill(store.online ? Palette.paid : Palette.secondary)
-                            .frame(width: 8, height: 8)
+                        Image(systemName: store.online ? "circle.fill" : "circle.dashed")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(store.online ? Palette.ink : Palette.secondary)
                         Text(store.onlineLabel)
                             .font(.footnote.weight(.semibold))
-                            .foregroundStyle(store.online ? Palette.paid : Palette.secondary)
+                            .foregroundStyle(store.online ? Palette.ink : Palette.secondary)
                     }
                     .accessibilityElement(children: .combine)
                 }
             }
             .padding(.vertical, 4)
             ForEach(Array(store.facts.enumerated()), id: \.offset) { _, fact in
-                if fact.mono, store.walletAddress != nil {
-                    HStack(alignment: .firstTextBaseline) {
-                        LabeledContent(fact.label) {
+                if fact.mono, let address = store.walletAddress {
+                    HStack(alignment: .center, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(fact.label)
                             Text(fact.value)
-                                .font(.body.monospaced())
+                                .font(.footnote.monospaced())
                                 .foregroundStyle(toneColor(fact.tone))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
                         }
-                        Button {
-                            // The engine copies it, as every copy (docs/decisions/core.md 105).
-                            send(.copyWalletAddress)
-                        } label: {
-                            Image(systemName: "doc.on.doc")
+                        .accessibilityElement(children: .combine)
+                        Spacer(minLength: 8)
+                        // Share hands the address on: Copy, AirDrop, Messages.
+                        ShareLink(item: address) {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.body.weight(.semibold))
+                                .frame(width: minimumTarget, height: minimumTarget)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.borderless)
-                        .accessibilityLabel("Copy the wallet address")
+                        .accessibilityLabel("Share the wallet address")
                     }
                 } else {
                     FactLine(fact: fact)
@@ -448,8 +471,8 @@ struct ChoiceRow: View {
 }
 
 /// A switch row whose state is the engine's: flipped, it tells the engine,
-/// and shows what the engine says next. `snapsBack` for a switch iOS keeps
-/// (alerts), which goes back until the engine hears otherwise.
+/// and shows what the engine says next. `snapsBack` for a switch that asks
+/// first, which goes back until the engine hears yes.
 struct SwitchRow: View {
     let label: String
     let on: Bool
@@ -460,7 +483,6 @@ struct SwitchRow: View {
 
     var body: some View {
         Toggle(label, isOn: $shown)
-            .tint(Palette.accent)
             .onChange(of: on, initial: true) { _, value in shown = value }
             .onChange(of: shown) { _, value in
                 guard value != on else { return }

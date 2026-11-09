@@ -2,96 +2,156 @@ import SwiftUI
 import TillCore
 import UIKit
 
-/// A live sale (PadSale, PhoneSale; the design's SaleBody), drawn from the
-/// engine's `SaleView`: the amount and the XMR (tapped, it's copied), the
-/// code with its enlarge badge, how the payment stands, what was bought,
-/// and Copy address. The bar's tinted X asks whether the customer is
-/// paying. iOS can't open Square (docs/ios-plan.md §4), so there's no
-/// "Back to Square". On iPhone (PhoneSale) Copy address stays at the foot,
-/// under the scrolling body.
+/// A live sale (D1's detail, D2), drawn from the engine's `SaleView`: whom
+/// it's for and its line as the toolbar's title, Close in the toolbar, the
+/// amount and the XMR, the code on its white card, the payment's progress
+/// bar and its label, what was bought, and at the foot Customer view (the
+/// full-screen code, to turn towards the customer) and Share, which shares
+/// the `monero:` payment link (decision 17).
 struct SaleScreen: View {
     let orderId: String
     let view: SaleView
     let send: Send
-    var phone = false
+
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    private var regular: Bool { sizeClass == .regular }
 
     var body: some View {
-        VStack(spacing: 0) {
-            TillBar(title: view.title, line: view.titleLine, back: { send(.back) }) {
-                if view.closes {
-                    Button {
-                        send(.askClose(orderId: orderId))
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.body.weight(.bold))
-                            .foregroundStyle(Palette.danger)
-                    }
-                    .glassButton()
-                    .tint(Palette.danger)
-                    .accessibilityLabel("Close the sale")
-                } else {
-                    BarSpace()
-                }
-            }
-            ScrollView {
-                VStack(spacing: 16) {
-                    VStack(spacing: 4) {
-                        Text(view.amount)
-                            .display(44, tracking: -1)
-                            .minimumScaleFactor(0.5)
-                            .lineLimit(1)
-                        Button {
-                            send(.copyAmount(orderId: orderId))
-                        } label: {
-                            Text(view.xmr)
-                                .font(.subheadline.monospacedDigit())
-                                .foregroundStyle(Palette.secondary)
-                                .frame(minHeight: minimumTarget)
+        ScrollView {
+            Group {
+                if regular, let order = view.order {
+                    HStack(alignment: .center, spacing: 40) {
+                        codeColumn
+                        VStack(alignment: .leading, spacing: 10) {
+                            SectionCaption(text: "Order")
+                            OrderCardSection(card: order) { send(.showOrder(orderId: orderId)) }
+                                .padding(.horizontal, -16)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityHint("Copies the amount")
+                        .frame(width: 260)
                     }
-                    .padding(.top, 8)
-                    CodeCard(code: view.code, said: view.codeSaid, spent: view.spent, size: phone ? 220 : 240) {
-                        send(.enlarge(orderId: orderId))
-                    }
-                    SaleStatus(status: view.status, hint: view.hint, step: Int(view.step))
-                    if let order = view.order {
-                        OrderCardSection(card: order) { send(.showOrder(orderId: orderId)) }
-                    }
-                    if !phone {
-                        copyAddress
-                            .padding(.horizontal, 16)
+                    .frame(maxWidth: .infinity)
+                } else {
+                    VStack(spacing: 16) {
+                        codeColumn
+                        if let order = view.order {
+                            OrderCardSection(card: order) { send(.showOrder(orderId: orderId)) }
+                        }
                     }
                 }
-                .padding(.bottom, 24)
             }
-            .scrollBounceBehavior(.basedOnSize)
-            if phone {
-                copyAddress
-                    .padding(.horizontal, 20)
-                    .padding(.top, 8)
-                    .padding(.bottom, 8)
-            }
+            .padding(.vertical, 16)
+        }
+        .readableWidth(regular ? 760 : readableColumn)
+        .safeAreaInset(edge: .bottom) {
+            actions
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 8)
+                .background(Palette.ground)
         }
         .foregroundStyle(Palette.ink)
         .background(Palette.ground)
+        .navigationTitle(view.title)
+        .navigationSubtitle(view.titleLine)
+        .navigationBarTitleDisplayMode(regular ? .large : .inline)
+        .toolbar {
+            if view.closes {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(role: .destructive) {
+                        send(.askClose(orderId: orderId))
+                    } label: {
+                        if regular {
+                            Text("Close the sale")
+                        } else {
+                            Label("Close the sale", systemImage: "xmark")
+                        }
+                    }
+                    .tint(Palette.danger)
+                }
+            }
+        }
     }
 
-    private var copyAddress: some View {
-        Button {
-            send(.copyAddress(orderId: orderId))
-        } label: {
-            Label(view.copyAddress.label, systemImage: "doc.on.doc")
-                .frame(maxWidth: .infinity)
+    /// The amount, the code and the progress, as one column.
+    private var codeColumn: some View {
+        let side: CGFloat = regular ? 300 : 240
+        return VStack(spacing: 8) {
+            Text(view.amount)
+                .display(44, tracking: -1)
+                .minimumScaleFactor(0.5)
+                .lineLimit(1)
+            Text(view.xmr)
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(Palette.secondary)
+                .lineLimit(1)
+            CodeCard(code: view.code, said: view.codeSaid, spent: view.spent, size: side) {
+                send(.enlarge(orderId: orderId))
+            }
+            .padding(.top, 4)
+            PaymentProgress(step: Int(view.step), status: view.status, hint: view.hint)
+                .frame(width: side + 28)
+                .padding(.top, 6)
         }
-        .glassButton()
-        .disabled(!view.copyAddress.enabled)
+        .frame(maxWidth: .infinity)
+    }
+
+    /// Customer view, the primary, and Share.
+    @ViewBuilder
+    private var actions: some View {
+        let layout = regular
+            ? AnyLayout(HStackLayout(spacing: 12))
+            : AnyLayout(VStackLayout(spacing: 10))
+        layout {
+            Button {
+                send(.enlarge(orderId: orderId))
+            } label: {
+                Label("Customer view", systemImage: "arrow.2.circlepath")
+            }
+            .buttonStyle(.primary)
+            .frame(maxWidth: regular ? 260 : .infinity)
+            .accessibilityHint("Shows the code full screen, to turn towards the customer")
+            ShareLink(
+                item: SaleShare.uri(code: view.code, address: view.address),
+                subject: Text(view.amount),
+                preview: SharePreview(SaleShare.preview(amount: view.amount))
+            ) {
+                Label("Share", systemImage: "square.and.arrow.up")
+            }
+            .buttonStyle(.secondary)
+            .frame(maxWidth: regular ? 180 : .infinity)
+            .disabled(!view.copyAddress.enabled)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 
-/// The payment code on its white card, with the badge that enlarges it;
-/// faded once spent, so no one scans it again.
+/// What Share sends: the sale's `monero:` payment link (the code's own
+/// text), which gives Copy, AirDrop and Messages.
+enum SaleShare {
+    static func uri(code: String, address: String) -> String {
+        code.lowercased().hasPrefix("monero:") ? code : "monero:\(address)"
+    }
+
+    static func preview(amount: String) -> String {
+        "Monero payment · \(amount)"
+    }
+}
+
+/// Small capitals over a column: "ORDER".
+struct SectionCaption: View {
+    let text: String
+
+    var body: some View {
+        Text(text.uppercased())
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(Palette.secondary)
+            .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// The payment code on its plain white card, which also opens the
+/// customer's view; faded once spent, so no one scans it again.
 struct CodeCard: View {
     let code: String
     let said: String
@@ -103,63 +163,23 @@ struct CodeCard: View {
         Button {
             enlarge()
         } label: {
-            QRCodeView(text: code, label: said, size: size, padding: 16, cornerRadius: 24)
+            QRCodeView(text: code, label: said, size: size, padding: 14, cornerRadius: 20)
                 .opacity(spent ? 0.25 : 1)
-                .overlay(alignment: .bottomTrailing) {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.footnote.weight(.bold))
-                        .foregroundStyle(Palette.codeInk)
-                        .frame(width: 32, height: 32)
-                        .background(Circle().fill(Palette.codeGround))
-                        .overlay(Circle().stroke(Palette.border))
-                        .offset(x: 8, y: 8)
-                        .accessibilityHidden(true)
-                }
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(said)
-        .accessibilityHint("Enlarges the code")
+        .accessibilityHint("Shows the code full screen")
         .accessibilityAddTraits(.isButton)
     }
 }
 
-/// How the payment stands: the loading mark while Till watches, the tick
-/// once paid, the status and the hint under it.
-struct SaleStatus: View {
-    let status: String
-    let hint: String
-    let step: Int
-
-    var body: some View {
-        HStack(spacing: 12) {
-            if step >= 4 {
-                DoneTick(size: 28)
-            } else {
-                LoadingMark(size: 28, label: status)
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(status)
-                    .font(.body.weight(.semibold))
-                Text(hint)
-                    .font(.subheadline)
-                    .foregroundStyle(Palette.secondary)
-                    .monospacedDigit()
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 20)
-        .accessibilityElement(children: .combine)
-    }
-}
-
-/// The code enlarged for the customer (PadCode, PadFront; the design's
-/// CodeB), drawn from the engine's `CodeView`: white whatever the theme,
-/// the screen at full brightness while it shows, the amount, the line
-/// under it, the code as large as the screen allows and the four steps.
-/// A tap anywhere shrinks it. On iPhone (PhoneCode) the amount and the
-/// shrink button head the screen, and the code takes its width.
+/// The customer's view of the code (PadCode, PhoneCode), drawn from the
+/// engine's `CodeView`: white whatever the theme, the screen at full
+/// brightness while it shows, the amount and the line under it, the code
+/// as large as the screen allows, and the payment's progress. The shrink
+/// button, never a tap anywhere, gives it back to the cashier (customers
+/// touch the screen they scan).
 struct CodeScreen: View {
     let view: CodeView
     let send: Send
@@ -177,16 +197,27 @@ struct CodeScreen: View {
         }
         .foregroundStyle(Palette.codeInk)
         .background(Palette.codeGround)
-        .contentShape(Rectangle())
-        .onTapGesture { send(.back) }
         .accessibilityAction(named: "Shrink") { send(.back) }
         .onAppear { raiseBrightness() }
         .onDisappear { restoreBrightness() }
         .environment(\.colorScheme, .light)
     }
 
+    private var shrink: some View {
+        Button {
+            send(.back)
+        } label: {
+            Image(systemName: "arrow.down.right.and.arrow.up.left")
+                .font(.body.weight(.semibold))
+                .frame(width: 48, height: 48)
+                .background(Circle().fill(Color(hex: 0xEFEAE0)))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Shrink the code")
+    }
+
     /// PhoneCode: the amount and its line beside the shrink button, the
-    /// code edge to edge, and what to do with it.
+    /// code edge to edge, and how the payment stands.
     private var phoneLayout: some View {
         GeometryReader { box in
             let side = max(120, min(box.size.width - 12, box.size.height - 190))
@@ -204,16 +235,7 @@ struct CodeScreen: View {
                     }
                     .accessibilityElement(children: .combine)
                     Spacer(minLength: 8)
-                    Button {
-                        send(.back)
-                    } label: {
-                        Image(systemName: "arrow.down.right.and.arrow.up.left")
-                            .font(.body.weight(.semibold))
-                            .frame(width: 48, height: 48)
-                            .background(Circle().fill(Color(hex: 0xEFEAE0)))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Shrink the code")
+                    shrink
                 }
                 .padding(.leading, 14)
                 .padding(.trailing, 10)
@@ -221,23 +243,16 @@ struct CodeScreen: View {
                 Spacer(minLength: 8)
                 QRCodeView(text: view.code, label: "Payment code for \(view.amount)", size: side, padding: 12, cornerRadius: 0)
                 Spacer(minLength: 8)
-                HStack(spacing: 10) {
-                    LoadingMark(size: 26, label: "Waiting for payment")
-                    Text("Scan with any Monero wallet")
-                        .font(.headline)
-                }
-                Text("Tap anywhere to shrink")
-                    .font(.footnote)
-                    .foregroundStyle(Color(hex: 0x5A564C))
-                    .padding(.top, 6)
-                    .padding(.bottom, 8)
+                PaymentProgress(step: Int(view.step), status: "Scan with any Monero wallet")
+                    .frame(maxWidth: min(side, 320))
+                    .padding(.bottom, 12)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.horizontal, 6)
         }
     }
 
-    /// PadCode and PadFront: the amount over the code, and the four steps.
+    /// PadCode: the amount over the code, and how the payment stands.
     private var panelLayout: some View {
         GeometryReader { box in
             let side = max(120, min(box.size.width - 32, box.size.height - 260, 560))
@@ -250,19 +265,17 @@ struct CodeScreen: View {
                 Text(view.under)
                     .font(.subheadline.monospacedDigit())
                     .foregroundStyle(Color(hex: 0x5A564C))
+                    .lineLimit(1)
                 QRCodeView(text: view.code, label: "Payment code for \(view.amount)", size: side, padding: 12, cornerRadius: 0)
-                StepBar(step: Int(view.step))
+                PaymentProgress(step: Int(view.step), status: "Scan with any Monero wallet")
                     .frame(maxWidth: side)
-                Text("Scan with any Monero wallet")
-                    .font(.headline)
                 Spacer(minLength: 8)
-                Text("Tap anywhere to shrink")
-                    .font(.footnote)
-                    .foregroundStyle(Color(hex: 0x5A564C))
-                    .padding(.bottom, 12)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.horizontal, 16)
+            .overlay(alignment: .topTrailing) {
+                shrink.padding(16)
+            }
         }
     }
 
@@ -284,24 +297,6 @@ struct CodeScreen: View {
     }
 }
 
-/// The four steps a payment goes through, as a bar: waiting, seen,
-/// confirming, paid.
-struct StepBar: View {
-    let step: Int
-
-    var body: some View {
-        HStack(spacing: 6) {
-            ForEach(1...4, id: \.self) { index in
-                Capsule()
-                    .fill(index <= step ? Palette.accent : Color(hex: 0xE4DFD5))
-                    .frame(height: 6)
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Step \(max(step, 1)) of 4")
-    }
-}
-
 /// Every line of a sale's order (Screen.order, the design's PanelE),
 /// opened from its card's "+N more": the count, each line, the subtotal,
 /// tip, discount and taxes, and the total, as the engine's `OrderPageView`
@@ -313,69 +308,72 @@ struct OrderScreen: View {
     let send: Send
 
     var body: some View {
-        VStack(spacing: 0) {
-            TillBar(title: "The order", line: order?.subtitle ?? title, back: { send(.back) })
-            ScrollView {
-                if let order {
-                    VStack(alignment: .leading, spacing: 16) {
-                        HStack(alignment: .lastTextBaseline) {
-                            Text(order.items)
-                                .font(.largeTitle.weight(.bold))
-                            Spacer(minLength: 8)
-                            Text(order.lines)
-                                .font(.subheadline)
-                                .foregroundStyle(Palette.secondary)
-                        }
-                        .padding(.horizontal, 16)
-                        .accessibilityElement(children: .combine)
-                        Card {
-                            VStack(alignment: .leading, spacing: 8) {
-                                ForEach(Array(order.rows.enumerated()), id: \.offset) { _, row in
-                                    HStack(alignment: .firstTextBaseline, spacing: 12) {
-                                        Text(row.quantity)
-                                            .monospacedDigit()
-                                            .foregroundStyle(Palette.secondary)
-                                        Text(row.description)
-                                            .fixedSize(horizontal: false, vertical: true)
-                                        Spacer(minLength: 8)
-                                        Text(row.price)
-                                            .monospacedDigit()
-                                    }
-                                    .font(.subheadline)
-                                    .accessibilityElement(children: .combine)
-                                }
-                                Rectangle()
-                                    .fill(Palette.hairline)
-                                    .frame(height: 1)
-                                ForEach(Array(order.sums.enumerated()), id: \.offset) { _, sum in
-                                    HStack(alignment: .firstTextBaseline) {
-                                        Text(sum.name)
-                                        Spacer(minLength: 8)
-                                        Text(sum.value)
-                                            .monospacedDigit()
-                                    }
-                                    .font(.subheadline)
-                                    .foregroundStyle(Palette.secondary)
-                                    .accessibilityElement(children: .combine)
-                                }
-                                HStack(alignment: .firstTextBaseline) {
-                                    Text("Total")
-                                    Spacer(minLength: 8)
-                                    Text(order.total)
+        ScrollView {
+            if let order {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(alignment: .lastTextBaseline) {
+                        Text(order.items)
+                            .font(.title.weight(.bold))
+                        Spacer(minLength: 8)
+                        Text(order.lines)
+                            .font(.subheadline)
+                            .foregroundStyle(Palette.secondary)
+                    }
+                    .padding(.horizontal, 16)
+                    .accessibilityElement(children: .combine)
+                    Card {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(Array(order.rows.enumerated()), id: \.offset) { _, row in
+                                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                                    Text(row.quantity)
                                         .monospacedDigit()
+                                        .foregroundStyle(Palette.secondary)
+                                    Text(row.description)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    Spacer(minLength: 8)
+                                    Text(row.price)
+                                        .monospacedDigit()
+                                        .fixedSize()
                                 }
-                                .font(.headline)
+                                .font(.subheadline)
                                 .accessibilityElement(children: .combine)
                             }
-                            .padding(16)
+                            Rectangle()
+                                .fill(Palette.hairline)
+                                .frame(height: 1)
+                            ForEach(Array(order.sums.enumerated()), id: \.offset) { _, sum in
+                                HStack(alignment: .firstTextBaseline) {
+                                    Text(sum.name)
+                                    Spacer(minLength: 8)
+                                    Text(sum.value)
+                                        .monospacedDigit()
+                                        .fixedSize()
+                                }
+                                .font(.subheadline)
+                                .foregroundStyle(Palette.secondary)
+                                .accessibilityElement(children: .combine)
+                            }
+                            HStack(alignment: .firstTextBaseline) {
+                                Text("Total")
+                                Spacer(minLength: 8)
+                                Text(order.total)
+                                    .monospacedDigit()
+                                    .fixedSize()
+                            }
+                            .font(.headline)
+                            .accessibilityElement(children: .combine)
                         }
+                        .padding(16)
                     }
-                    .padding(.vertical, 12)
                 }
+                .padding(.vertical, 12)
             }
-            .scrollBounceBehavior(.basedOnSize)
         }
+        .readableWidth()
         .foregroundStyle(Palette.ink)
         .background(Palette.ground)
+        .navigationTitle("The order")
+        .navigationSubtitle(order?.subtitle ?? title)
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
