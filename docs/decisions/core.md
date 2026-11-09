@@ -990,3 +990,69 @@ label while a payment confirms.
      which it shares with the Live Activity widget: that draws Monokulo's
      pushes, which carry no words, so the vocabulary stays with the
      widget's code.
+
+## The ledger: the till-ledger crate (2026-11-09)
+
+The core of [ledger.md](../ledger.md): the crate `till-ledger`, its facts,
+merge, views, effects and database. Numbers 140 to 142 are taken by the
+review fixes on `ipad-redesign`.
+
+143. **Sales are facts in an encrypted journal with per-sale
+     projections.** One SQLCipher database per device (`till.db`), opened
+     through rusqlite with SQLCipher bundled: CommonCrypto on Apple
+     platforms (`bundled-sqlcipher`), a vendored OpenSSL elsewhere
+     (`bundled-sqlcipher-vendored-openssl`), and refused when `PRAGMA
+     cipher_version` is empty. The key and salt are 48 random bytes made
+     in Rust (`KeyMaterial::generate`) and kept as one secret,
+     `ledger.key`, through the platform's secret store; the first 32
+     bytes of the file stay plain (`cipher_plaintext_header_size`) so iOS
+     recognises the WAL database (0xdead10cc), and the key is given raw,
+     so no key derivation runs at open. A missing or wrong key with a
+     database moves it aside (`till.db.lost-<ms>`) and starts a new one
+     that learns without alerting; an error from the store fails and
+     changes nothing. Only facts that change a projection are
+     journalled; each write is one `BEGIN IMMEDIATE`, and effects are
+     claimed in the same transaction (`alerts`: `due` for one the
+     extension leaves to the app, `pending`, `posted`; a claim pending
+     30 s is delivered again). Considered and rejected: a plain upserted
+     table without a journal (the owner wants the journal for audit and
+     replay) and column encryption instead of SQLCipher (the owner chose
+     SQLCipher).
+144. **The shared merge is a join.** Every till fed the same facts in any
+     order, with repeats, holds the same `SharedSale`, so ledger.md §5's
+     rules are read order-free: Paid absorbs every other phase, except
+     that a double spend gives way only to a Paid Monokulo calls final,
+     in either order; an expiry or cancellation not final beats only
+     Waiting, so a late Seen, Confirming or Partial shows (Monokulo
+     doesn't expire an order whose payment it has seen), and a final one
+     beats progress; otherwise Seen, then Confirming by confirmations,
+     then Partial by amount received. The POS's payment is joined by its
+     `updated_at`, its order read by the payment's `updated_at` at the
+     read, a refund by how far it got. When a sale was seen, paid, ended
+     or refunded is this device's first sighting, kept in its local
+     marks, so `shared` is equal across tills.
+145. **New code.** A sale's nth order has the idempotency key of the
+     first with `#n` appended; the first is unchanged
+     (`Till::idempotency_key`). A Paid on any attempt decides the sale
+     and shows the others as superseded; two paid attempts warn ("Paid
+     twice"). This reverses android.md 43 by the owner's decision.
+146. **Closes, paid in cash and keep as cash stay local** (`Mark` facts
+     in `LocalMarks`) until Monokulo lets apps cancel an order. A reopen
+     after a close undoes it; a Paid after a close or a refund shows as
+     Paid, flagged.
+147. **Cash orders only from a till set to the sale's device.**
+     `may_make_order`: a Monero sale's order from any till; a cash sale's,
+     with cash as Monero on, only from a till set to its device or to
+     every device; the cashier's own "Take it in Monero" and New code
+     from any till.
+148. **The trading day starts at 04:00 and live sales always show.** The
+     shift's window is from its start mark, or 04:00 local if later, to
+     its stop mark; waiting, seen, confirming and part-paid sales are
+     listed whatever the window, which decides the totals, the cash paid
+     in Monero and which ended sales are listed.
+149. **Retention is 30 days.** Sales rung up longer ago are deleted with
+     their journal rows and projections (`ledger.retention_days`
+     changes it). An ended sale from before the shift is compacted into
+     one `Snapshot` row, at most hourly, and old app heartbeats are
+     dropped. Keeping the database out of backups is the platforms'
+     part.
