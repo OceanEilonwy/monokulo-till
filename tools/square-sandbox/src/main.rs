@@ -11,8 +11,16 @@
 //! The page asks for the sandbox access token (the Developer Console's
 //! Credentials page) and keeps it in memory only; `SQUARE_SANDBOX_TOKEN`
 //! gives it at start instead. `SQUARE_SANDBOX_PORT` picks the port. It
-//! listens on 127.0.0.1 only, and answers only requests for that address
-//! and forms posted from its own page.
+//! listens on 127.0.0.1, and answers only requests for that address and
+//! forms posted from its own page.
+//!
+//! To ring sales up from an iPad beside the till, as a cashier would,
+//! `SQUARE_SANDBOX_LISTEN=192.168.1.20` (this computer's address on the
+//! network) listens there too. Requests at that address need a key, made
+//! fresh at each start: the program prints a link carrying it, with a QR
+//! code to scan, and shows the same code on the page at 127.0.0.1. The
+//! link's key is swapped for a cookie on first use, so it isn't needed
+//! again in that browser.
 
 mod pages;
 mod square;
@@ -21,7 +29,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::extract::{Form, Path, Query, Request, State};
-use axum::http::header::{HOST, ORIGIN};
+use axum::http::header::{COOKIE, HOST, LOCATION, ORIGIN, SET_COOKIE};
 use axum::http::{Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Redirect, Response};
@@ -87,7 +95,25 @@ struct App {
     square: Square,
     /// The port it listens on, which its own pages' requests name.
     port: u16,
+    /// The network address it also listens on, and the key requests there
+    /// must carry (`SQUARE_SANDBOX_LISTEN`).
+    network: Option<Network>,
 }
+
+struct Network {
+    host: String,
+    key: String,
+}
+
+impl Network {
+    /// The link to open on another device: the page with its key.
+    fn link(&self) -> String {
+        format!("http://{}/?key={}", self.host, self.key)
+    }
+}
+
+/// The cookie that carries [Network::key] once the link has been opened.
+const KEY_COOKIE: &str = "sandbox_key";
 
 type Shared = State<Arc<App>>;
 
@@ -108,19 +134,76 @@ fn router(app: App) -> Router {
 /// the page itself, so another site can't replace the token or ring up a
 /// sale. A client that names no origin (curl) is taken at its word.
 async fn same_site(State(app): Shared, request: Request, next: Next) -> Response {
-    match refusal(&request, app.port) {
+    if let Some(network) = &app.network
+        && let Some(to) = key_swap(&request, network)
+    {
+        // The link's key, opened: keep it as a cookie, and show the page
+        // without it in the address.
+        let cookie = format!(
+            "{KEY_COOKIE}={}; Path=/; HttpOnly; SameSite=Strict",
+            network.key
+        );
+        return (
+            StatusCode::SEE_OTHER,
+            [(SET_COOKIE, cookie), (LOCATION, to)],
+        )
+            .into_response();
+    }
+    match refusal(&request, app.port, app.network.as_ref()) {
         Some(why) => (StatusCode::FORBIDDEN, why).into_response(),
         None => next.run(request).await,
     }
 }
 
+/// Where to send a GET at the network address that carries the right key
+/// in its query: the same page without it.
+fn key_swap(request: &Request, network: &Network) -> Option<String> {
+    let host = request.headers().get(HOST).and_then(|v| v.to_str().ok());
+    if request.method() != Method::GET || host != Some(network.host.as_str()) {
+        return None;
+    }
+    let query = request.uri().query()?;
+    let pairs: Vec<(String, String)> = serde_urlencoded::from_str(query).ok()?;
+    if !pairs.iter().any(|(k, v)| k == "key" && *v == network.key) {
+        return None;
+    }
+    let rest: Vec<_> = pairs.iter().filter(|(k, _)| k != "key").collect();
+    let rest = serde_urlencoded::to_string(rest).unwrap_or_default();
+    let path = request.uri().path();
+    Some(if rest.is_empty() {
+        path.to_owned()
+    } else {
+        format!("{path}?{rest}")
+    })
+}
+
+/// Whether [request] carries [key] in its cookie.
+fn has_key(request: &Request, key: &str) -> bool {
+    request
+        .headers()
+        .get_all(COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(';'))
+        .filter_map(|c| c.trim().split_once('='))
+        .any(|(name, value)| name == KEY_COOKIE && value == key)
+}
+
 /// Why [same_site] turns [request] away, if it does.
-fn refusal(request: &Request, port: u16) -> Option<&'static str> {
+fn refusal(request: &Request, port: u16, network: Option<&Network>) -> Option<&'static str> {
     let header = |name: &str| request.headers().get(name).and_then(|v| v.to_str().ok());
     let host = header(HOST.as_str()).unwrap_or_default();
     let ours = [format!("127.0.0.1:{port}"), format!("localhost:{port}")];
-    if !ours.iter().any(|o| o == host) {
-        return Some("Open this page at http://127.0.0.1 with its port.");
+    match network {
+        Some(network) if host == network.host => {
+            if !has_key(request, &network.key) {
+                return Some("Open this page from the link (or QR code) the program printed.");
+            }
+        }
+        _ if !ours.iter().any(|o| o == host) => {
+            return Some("Open this page at http://127.0.0.1 with its port.");
+        }
+        _ => {}
     }
     if request.method() == Method::GET {
         return None;
@@ -139,9 +222,27 @@ struct Shown {
     error: Option<String>,
 }
 
-async fn index(State(app): Shared, Query(shown): Query<Shown>) -> Markup {
+async fn index(
+    State(app): Shared,
+    Query(shown): Query<Shown>,
+    headers: axum::http::HeaderMap,
+) -> Markup {
+    // The QR code for another device, only on this computer's own page.
+    let local = headers
+        .get(HOST)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|h| app.network.as_ref().is_none_or(|n| n.host != h));
+    let share = app
+        .network
+        .as_ref()
+        .filter(|_| local)
+        .map(|n| pages::Share { link: n.link() });
     if !app.square.has_token() {
-        return pages::token(shown.notice.as_deref(), shown.error.as_deref());
+        return pages::token(
+            shown.notice.as_deref(),
+            shown.error.as_deref(),
+            share.as_ref(),
+        );
     }
     let mut error = shown.error;
     let locations = app.square.locations().await.unwrap_or_else(|e| {
@@ -166,6 +267,7 @@ async fn index(State(app): Shared, Query(shown): Query<Shown>) -> Markup {
         payments: &payments,
         notice: shown.notice.as_deref(),
         error: error.as_deref(),
+        share: share.as_ref(),
     })
 }
 
@@ -331,18 +433,71 @@ async fn main() {
         }),
         Err(_) => 8739,
     };
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
-        .await
-        .unwrap_or_else(|e| {
-            eprintln!("Couldn't listen on 127.0.0.1:{port}: {e}");
-            std::process::exit(1);
-        });
+    let listen = std::env::var("SQUARE_SANDBOX_LISTEN")
+        .ok()
+        .filter(|a| !a.trim().is_empty())
+        .map(|a| {
+            a.trim().parse::<std::net::IpAddr>().unwrap_or_else(|_| {
+                eprintln!(
+                    "SQUARE_SANDBOX_LISTEN must be this computer's IP address on the network, such as 192.168.1.20, not {a:?}."
+                );
+                std::process::exit(2);
+            })
+        })
+        .filter(|ip| !ip.is_loopback());
+    let bind = |ip: std::net::IpAddr| async move {
+        tokio::net::TcpListener::bind((ip, port))
+            .await
+            .unwrap_or_else(|e| {
+                eprintln!("Couldn't listen on {ip}:{port}: {e}");
+                std::process::exit(1);
+            })
+    };
+    let local = bind(std::net::Ipv4Addr::LOCALHOST.into()).await;
     println!("Square sandbox till on http://127.0.0.1:{port}");
+    let network = match listen {
+        Some(ip) => {
+            let listener = bind(ip).await;
+            let host = match ip {
+                std::net::IpAddr::V6(v6) => format!("[{v6}]:{port}"),
+                v4 => format!("{v4}:{port}"),
+            };
+            let network = Network {
+                host,
+                key: uuid::Uuid::new_v4().simple().to_string(),
+            };
+            println!(
+                "\nOn another device on this network (keep the link to yourself: it rings up and refunds sales):\n{}\n",
+                network.link()
+            );
+            match pages::terminal_qr(&network.link()) {
+                Some(qr) => println!("{qr}"),
+                None => println!("(The link is too long for a QR code.)"),
+            }
+            Some((listener, network))
+        }
+        None => None,
+    };
+    let (network_listener, network) = match network {
+        Some((l, n)) => (Some(l), Some(n)),
+        None => (None, None),
+    };
     let app = router(App {
         square: Square::new(SANDBOX, token),
         port,
+        network,
     });
-    if let Err(e) = axum::serve(listener, app).await {
+    let served = match network_listener {
+        Some(l) => {
+            let both = (app.clone(), app);
+            tokio::try_join!(async { axum::serve(local, both.0).await }, async {
+                axum::serve(l, both.1).await
+            })
+            .map(|_| ())
+        }
+        None => axum::serve(local, app).await,
+    };
+    if let Err(e) = served {
         eprintln!("The server stopped: {e}");
         std::process::exit(1);
     }
@@ -471,6 +626,7 @@ mod tests {
         let app = router(App {
             square: Square::new(base, token.map(str::to_owned)),
             port,
+            network: None,
         });
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         url
@@ -538,6 +694,90 @@ mod tests {
             "{html}"
         );
         assert!(html.contains("Ring up a sale at Front"));
+    }
+
+    /// The page at 127.0.0.1 and at a stand-in network address (also
+    /// 127.0.0.1, but named differently in Host), with key [key].
+    async fn serve_on_network(key: &str) -> (String, String) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let host = format!("192.0.2.7:{port}");
+        let app = router(App {
+            square: Square::new("http://127.0.0.1:9".to_owned(), None),
+            port,
+            network: Some(Network {
+                host: host.clone(),
+                key: key.to_owned(),
+            }),
+        });
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        (format!("http://127.0.0.1:{port}"), host)
+    }
+
+    #[tokio::test]
+    async fn the_network_address_needs_the_key_which_the_link_swaps_for_a_cookie() {
+        let (page, host) = serve_on_network("k3y").await;
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+        let get = |path: &str, cookie: Option<&str>| {
+            let mut request = client.get(format!("{page}{path}")).header("Host", &host);
+            if let Some(cookie) = cookie {
+                request = request.header("Cookie", cookie);
+            }
+            request.send()
+        };
+
+        assert_eq!(get("/", None).await.unwrap().status(), 403);
+        assert_eq!(get("/?key=wrong", None).await.unwrap().status(), 403);
+        assert_eq!(
+            get("/", Some("sandbox_key=wrong")).await.unwrap().status(),
+            403
+        );
+
+        let swapped = get("/?key=k3y&location=L1", None).await.unwrap();
+        assert_eq!(swapped.status(), 303);
+        assert_eq!(swapped.headers()["location"], "/?location=L1");
+        let cookie = swapped.headers()["set-cookie"].to_str().unwrap();
+        assert!(cookie.starts_with("sandbox_key=k3y;"), "{cookie}");
+        assert!(cookie.contains("HttpOnly") && cookie.contains("SameSite=Strict"));
+
+        let shown = get("/", Some("sandbox_key=k3y")).await.unwrap();
+        assert_eq!(shown.status(), 200);
+        assert!(
+            !shown.text().await.unwrap().contains("Open on an iPad"),
+            "no QR code on the iPad itself"
+        );
+
+        // Another site's form, even with the cookie, changes nothing.
+        let posted = client
+            .post(format!("{page}/token/forget"))
+            .header("Host", &host)
+            .header("Cookie", "sandbox_key=k3y")
+            .header("Origin", "http://evil.example")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(posted.status(), 403);
+
+        // This computer's own page needs no key, and shows the QR code.
+        let local = client.get(format!("{page}/")).send().await.unwrap();
+        assert_eq!(local.status(), 200);
+        let html = local.text().await.unwrap();
+        assert!(
+            html.contains("Open on an iPad") && html.contains("<svg"),
+            "{html}"
+        );
+        assert!(html.contains(&format!("http://{host}/?key=k3y")));
+    }
+
+    #[test]
+    fn the_link_fits_a_terminal_qr_code() {
+        let qr =
+            pages::terminal_qr("http://192.168.1.20:8739/?key=0123456789abcdef0123456789abcdef")
+                .unwrap();
+        assert!(qr.lines().count() > 10);
     }
 
     #[tokio::test]

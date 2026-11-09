@@ -68,6 +68,19 @@ signed in as. It lists the location's latest payments and refunds them too.
 cargo run -p square-sandbox   # http://127.0.0.1:8739, then enter the token on the page
 ```
 
+To ring sales up from an iPad beside the till, as a cashier would, give it
+this computer's address on the network, and open the port in its firewall:
+
+```sh
+SQUARE_SANDBOX_LISTEN=192.168.1.20 cargo run -p square-sandbox
+```
+
+It prints a link with a key made fresh at each start, and a QR code for it;
+the page at 127.0.0.1 shows the same code. Scan it with the iPad's camera
+and open the page in Safari beside Till. The key becomes a cookie in that
+browser, and requests at the network address without it are refused, since
+the page rings up and refunds sales with your sandbox token.
+
 ### Signing a debug build in to Clover's sandbox
 
 ```properties

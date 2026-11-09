@@ -13,6 +13,50 @@ pub struct Index<'a> {
     /// What just happened, or what went wrong.
     pub notice: Option<&'a str>,
     pub error: Option<&'a str>,
+    /// The link for another device, when the program listens on the network.
+    pub share: Option<&'a Share>,
+}
+
+/// The page's link with its key, for another device on the network
+/// (`SQUARE_SANDBOX_LISTEN`).
+pub struct Share {
+    pub link: String,
+}
+
+/// [link] as a QR code drawn in the terminal; None if it's too long for one.
+pub fn terminal_qr(link: &str) -> Option<String> {
+    use qrcode::render::unicode::Dense1x2;
+    let code = qrcode::QrCode::new(link.as_bytes()).ok()?;
+    Some(
+        code.render::<Dense1x2>()
+            .dark_color(Dense1x2::Light)
+            .light_color(Dense1x2::Dark)
+            .quiet_zone(true)
+            .build(),
+    )
+}
+
+/// The QR code and link for another device, shown on this computer's page.
+fn share(share: Option<&Share>) -> Markup {
+    let Some(share) = share else { return html! {} };
+    let svg = qrcode::QrCode::new(share.link.as_bytes()).ok().map(|code| {
+        code.render::<qrcode::render::svg::Color>()
+            .min_dimensions(200, 200)
+            .dark_color(qrcode::render::svg::Color("#23201c"))
+            .light_color(qrcode::render::svg::Color("#ffffff"))
+            .build()
+    });
+    html! {
+        section.share {
+            h2 { "Open on an iPad" }
+            p.lede {
+                "Scan this with the iPad's camera to ring sales up beside the till. "
+                "Keep it to yourself: the link rings up and refunds sales."
+            }
+            @if let Some(svg) = svg { div.qr { (maud::PreEscaped(svg)) } }
+            p { code { (share.link) } }
+        }
+    }
 }
 
 /// Blank item rows on the sale form; empty ones are left out.
@@ -42,6 +86,7 @@ th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line
 th { color: var(--muted); font-weight: 500; } td.num { text-align: right; white-space: nowrap; }
 code { font-size: 0.85em; color: var(--muted); word-break: break-all; }
 .wide { overflow-x: auto; }
+.qr svg { display: block; width: 200px; height: 200px; border-radius: 8px; margin-bottom: 8px; }
 "#;
 
 /// The page around [body], with what just happened or went wrong.
@@ -67,7 +112,7 @@ fn layout(notice: Option<&str>, error: Option<&str>, body: Markup) -> Markup {
 }
 
 /// Before there's a token: where to enter one.
-pub fn token(notice: Option<&str>, error: Option<&str>) -> Markup {
+pub fn token(notice: Option<&str>, error: Option<&str>, link: Option<&Share>) -> Markup {
     layout(
         notice,
         error,
@@ -87,6 +132,7 @@ pub fn token(notice: Option<&str>, error: Option<&str>) -> Markup {
                     button.primary type="submit" { "Use it" }
                 }
             }
+            (share(link))
         },
     )
 }
@@ -121,6 +167,7 @@ pub fn index(page: &Index) -> Markup {
             form method="post" action="/token/forget" {
                 button type="submit" { "Forget token" }
             }
+            (share(page.share))
         },
     )
 }

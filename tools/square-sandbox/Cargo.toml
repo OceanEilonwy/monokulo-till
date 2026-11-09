@@ -10,6 +10,7 @@ description = "A local web page for ringing up Other: Monero sales in Square's s
 [dependencies]
 axum = "0.8.9"
 maud = { version = "0.27.0", features = ["axum"] }
+qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }
 reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "json", "query"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
