@@ -137,8 +137,24 @@ impl LedgerHost for AppLedger {
         )
     }
 
+    /// The app takes the old kept shift in, and deletes the rows of any
+    /// scope but the current one: the store or the point of sale's account
+    /// changed while it wasn't running (the engine deletes the old scope's
+    /// rows itself when it changes while running). The extension leaves
+    /// that to the app.
     fn opened(&self, ledger: &mut Ledger) {
         self.import(ledger);
+        if self.process == Process::App {
+            match ledger.keep_only_scope() {
+                Ok(0) => {}
+                Ok(n) => self
+                    .kept
+                    .log(format!("till-core: deleted {n} old scopes' sales")),
+                Err(e) => self
+                    .kept
+                    .log(format!("till-core: couldn't delete old scopes' sales: {e}")),
+            }
+        }
     }
 
     fn hold(&self) -> Box<dyn Send> {

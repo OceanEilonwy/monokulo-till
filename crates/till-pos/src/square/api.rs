@@ -23,6 +23,10 @@ pub struct Money {
 pub struct SquarePayment {
     pub id: String,
     pub created_at: String,
+    /// When Square last changed the payment (a refund, a status change):
+    /// RFC 3339.
+    #[serde(default)]
+    pub updated_at: Option<String>,
     pub status: String,
     #[serde(default)]
     pub source_type: Option<String>,
@@ -185,6 +189,38 @@ pub struct SquareLocation {
     pub status: Option<String>,
 }
 
+/// A refund of a payment, as Square lists it (`GET /v2/refunds`) or
+/// answers a refund with.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct SquareRefund {
+    pub id: String,
+    /// `PENDING`, `COMPLETED`, `REJECTED` or `FAILED`.
+    pub status: String,
+    pub amount_money: Money,
+    pub payment_id: String,
+    /// RFC 3339; absent from some answers.
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+    #[serde(default)]
+    pub location_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RefundPage {
+    #[serde(default)]
+    refunds: Vec<SquareRefund>,
+    #[serde(default)]
+    cursor: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RefundResult {
+    #[serde(default)]
+    refund: Option<SquareRefund>,
+}
+
 #[derive(Deserialize)]
 struct PaymentPage {
     #[serde(default)]
@@ -247,6 +283,37 @@ impl SquareApi {
         }
     }
 
+    /// Refunds at `location_id` made at or after `begin_time` (RFC 3339),
+    /// oldest first, whatever took them (the till, Square's own app, the
+    /// Dashboard): page after page until Square gives no cursor. Reading
+    /// them needs only `PAYMENTS_READ`.
+    pub async fn refunds(
+        &self,
+        location_id: &str,
+        begin_time: &str,
+    ) -> Result<Vec<SquareRefund>, PosError> {
+        let mut all = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let mut query = vec![
+                ("location_id", location_id),
+                ("begin_time", begin_time),
+                ("sort_order", "ASC"),
+                ("limit", "100"),
+            ];
+            if let Some(cursor) = &cursor {
+                query.push(("cursor", cursor));
+            }
+            let url = http::url(self.config.connect_base(), &["v2", "refunds"], &query);
+            let page: RefundPage = self.get(&url).await?;
+            all.extend(page.refunds);
+            match page.cursor {
+                Some(next) => cursor = Some(next),
+                None => return Ok(all),
+            }
+        }
+    }
+
     /// One order.
     pub async fn order(&self, order_id: &str) -> Result<SquareOrder, PosError> {
         let url = http::url(self.config.connect_base(), &["v2", "orders", order_id], &[]);
@@ -262,14 +329,14 @@ impl SquareApi {
     }
 
     /// Refunds a payment in full. `idempotency_key` makes a retry refund it
-    /// once.
+    /// once. The refund as Square answered with it, when it did.
     pub async fn refund(
         &self,
         payment_id: &str,
         amount: &Money,
         idempotency_key: &str,
         reason: &str,
-    ) -> Result<(), PosError> {
+    ) -> Result<Option<SquareRefund>, PosError> {
         let url = http::url(self.config.connect_base(), &["v2", "refunds"], &[]);
         let body = json!({
             "idempotency_key": idempotency_key,
@@ -277,8 +344,12 @@ impl SquareApi {
             "amount_money": {"amount": amount.amount, "currency": amount.currency},
             "reason": reason,
         });
-        self.send(self.http.post(url).json(&body)).await?;
-        Ok(())
+        let answer = self.send(self.http.post(url).json(&body)).await?;
+        // The refund is made whatever its answer says: one Square words
+        // differently only costs the till the refund's own id.
+        Ok(serde_json::from_str::<RefundResult>(&answer)
+            .ok()
+            .and_then(|r| r.refund))
     }
 
     async fn get<T: serde::de::DeserializeOwned>(&self, url: &str) -> Result<T, PosError> {

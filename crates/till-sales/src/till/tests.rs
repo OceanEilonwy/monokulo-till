@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use monokulo_client::{AppIdentity, FixedClock, PointOfSale};
 use serde_json::{Value, json};
-use till_pos::{RefundByTill, RefundInPos, SaleOrder};
+use till_pos::{ListedRefund, RefundByTill, RefundInPos, SaleOrder};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate, matchers::any};
 
 use super::*;
@@ -281,6 +281,8 @@ fn found(
         reference: Some(reference.into()),
         order_id: Some(order_id.into()),
         created_at: created_at.into(),
+        updated_at: None,
+        status: None,
         device_id: device_id.map(Into::into),
         device_name: None,
         cash: false,
@@ -399,6 +401,12 @@ struct FakeSource {
     refunded: Mutex<Vec<String>>,
     /// The POS is down: refunds fail with this.
     refusal: Mutex<Option<String>>,
+    /// The refunds the POS lists, when it lists any.
+    pos_refunds: Mutex<Option<Vec<ListedRefund>>>,
+    /// Where each listing of refunds began.
+    refunds_from: Mutex<Vec<String>>,
+    /// How many times an order was read.
+    order_reads: AtomicUsize,
 }
 
 impl FakeSource {
@@ -418,6 +426,9 @@ impl FakeSource {
             handled_ids: Mutex::default(),
             refunded: Mutex::default(),
             refusal: Mutex::default(),
+            pos_refunds: Mutex::default(),
+            refunds_from: Mutex::default(),
+            order_reads: AtomicUsize::new(0),
         })
     }
 
@@ -447,6 +458,7 @@ impl SaleSource for FakeSource {
             .collect())
     }
     async fn order(&self, _: &FoundSale) -> Result<SaleOrder, PosError> {
+        self.order_reads.fetch_add(1, Ordering::SeqCst);
         Ok(SaleOrder {
             receipt: self.receipt.clone(),
             customer_name: self.customer_name.clone(),
@@ -455,6 +467,13 @@ impl SaleSource for FakeSource {
     fn refunds(&self) -> Refunds<'_> {
         Refunds::ByTill(self)
     }
+    async fn refunds_since(&self, begin_time: &str) -> Result<Option<Vec<ListedRefund>>, PosError> {
+        self.refunds_from
+            .lock()
+            .unwrap()
+            .push(begin_time.to_owned());
+        Ok(self.pos_refunds.lock().unwrap().clone())
+    }
     fn handled(&self, sale: &FoundSale) {
         self.handled_ids.lock().unwrap().push(sale.id.clone());
     }
@@ -462,12 +481,12 @@ impl SaleSource for FakeSource {
 
 #[async_trait]
 impl RefundByTill for FakeSource {
-    async fn refund(&self, sale: &FoundSale) -> Result<(), PosError> {
+    async fn refund(&self, sale: &FoundSale) -> Result<Option<ListedRefund>, PosError> {
         if let Some(refusal) = self.refusal.lock().unwrap().clone() {
             return Err(PosError::answered(PointOfSale::Square, 503, refusal));
         }
         self.refunded.lock().unwrap().push(sale.id.clone());
-        Ok(())
+        Ok(None)
     }
 }
 
@@ -1093,6 +1112,127 @@ async fn an_unpaid_sale_is_refunded_in_the_pos() {
     till.refund("ord_1").await;
     assert_eq!(source.refunded(), ["pay_monero"]);
     assert!(only(&till).refunded());
+}
+
+fn listed_refund(id: &str, payment: &str, status: &str, at: &str) -> ListedRefund {
+    ListedRefund {
+        id: id.into(),
+        payment_id: payment.into(),
+        amount_minor: 1388,
+        status: status.into(),
+        created_at: Some(at.into()),
+    }
+}
+
+/// A refund made in Square's own app (docs/ledger.md §7) is seen on the
+/// next look, from the refunds listing: recorded for a sale the ledger
+/// has, never making one of a payment it doesn't. The listing's cursor is
+/// the ledger's, moved to the newest refund but held at one still pending,
+/// and each listing starts two minutes before it.
+#[tokio::test]
+async fn a_refund_made_in_squares_own_app_is_seen_on_the_next_look() {
+    let f = fixture().await;
+    let source = FakeSource::new(vec![sale()]);
+    let till = f.till(source.clone());
+    f.enqueue(order());
+    till.check().await;
+    let window_from = till
+        .books()
+        .with(|l| l.shift_window())
+        .unwrap()
+        .from
+        .div_euclid(1000);
+    assert_eq!(
+        source.refunds_from.lock().unwrap().as_slice(),
+        [till_pos::time::instant(window_from)],
+        "the first listing starts with the shift"
+    );
+    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired));
+    *source.pos_refunds.lock().unwrap() = Some(vec![
+        listed_refund("rf_card", "pay_card", "COMPLETED", "2026-10-22T16:15:00Z"),
+        listed_refund("rf_1", "pay_monero", "PENDING", "2026-10-22T16:20:00Z"),
+    ]);
+    till.check().await;
+    assert!(!only(&till).refunded(), "pending");
+    let card = SaleKey::pos(PointOfSale::Square, "pay_card");
+    assert!(
+        till.books().row(&card).is_none(),
+        "not a sale of the till's"
+    );
+    *source.pos_refunds.lock().unwrap() = Some(vec![
+        listed_refund("rf_1", "pay_monero", "COMPLETED", "2026-10-22T16:20:00Z"),
+        listed_refund("rf_card", "pay_card", "COMPLETED", "2026-10-22T16:25:00Z"),
+    ]);
+    till.check().await;
+    let refunded = only(&till);
+    assert!(refunded.refunded(), "{refunded:?}");
+    let row = till
+        .books()
+        .row(&SaleKey::pos(PointOfSale::Square, "pay_monero"))
+        .unwrap();
+    assert_eq!(row.shared.refund.unwrap().refund_id, "rf_1");
+    till.check().await;
+    assert_eq!(
+        source.refunds_from.lock().unwrap()[1..],
+        [
+            till_pos::time::instant(window_from),
+            "2026-10-22T16:18:00Z".to_owned(),
+            "2026-10-22T16:23:00Z".to_owned(),
+        ],
+        "with the shift until a refund is listed, then from the newest, held at the pending one"
+    );
+    assert!(source.refunded().is_empty(), "the till refunded nothing");
+}
+
+/// A payment Square changed since it was seen (its `updated_at`) replaces
+/// the one seen and has its order read again; one unchanged isn't read
+/// twice (decision 154).
+#[tokio::test]
+async fn a_payment_square_changed_has_its_order_read_again() {
+    let f = fixture().await;
+    let first = FoundSale {
+        updated_at: Some("2026-10-22T16:07:01.004Z".into()),
+        status: Some("COMPLETED".into()),
+        ..sale()
+    };
+    let source = FakeSource::with(vec![first.clone()], None, Some("Sam"));
+    let till = f.till(source.clone());
+    f.enqueue(order());
+    till.check().await;
+    assert_eq!(source.order_reads.load(Ordering::SeqCst), 1);
+    assert_eq!(only(&till).customer_name.as_deref(), Some("Sam"));
+
+    // Listed again unchanged (another run): its order isn't read again.
+    let same = FakeSource::with(vec![first.clone()], None, Some("Sam"));
+    let till = f.till(same.clone());
+    till.check().await;
+    assert_eq!(same.order_reads.load(Ordering::SeqCst), 0);
+
+    // Square changed it: the order is read again and replaces the first read.
+    let changed = FakeSource::with(
+        vec![FoundSale {
+            updated_at: Some("2026-10-22T16:12:30.250Z".into()),
+            ..first
+        }],
+        Some(receipt()),
+        Some("Sam B"),
+    );
+    let till = f.till(changed.clone());
+    till.check().await;
+    assert_eq!(changed.order_reads.load(Ordering::SeqCst), 1);
+    let shown = only(&till);
+    assert_eq!(shown.customer_name.as_deref(), Some("Sam B"));
+    assert!(shown.code.has_receipt);
+    assert_eq!(shown.order_id, "ord_1", "the same order, none made again");
+    assert_eq!(f.request_count(), 2, "the entry, then the one order");
+    let row = till
+        .books()
+        .row(&SaleKey::pos(PointOfSale::Square, "pay_monero"))
+        .unwrap();
+    assert_eq!(
+        row.shared.pos.payment.unwrap().updated_at,
+        till_pos::time::unix_millis("2026-10-22T16:12:30.250Z").unwrap()
+    );
 }
 
 #[tokio::test]
@@ -2289,18 +2429,55 @@ async fn every_till_signed_in_to_the_point_of_sale_shows_the_receipt() {
 }
 
 /// A cash sale's order is made only by a till set to its device, or to
-/// every device (docs/ledger.md §7): another counter's till lists nothing
-/// until that counter makes it.
+/// every device (docs/ledger.md §7). Another counter's till lists it as
+/// soon as its payment is seen, offered and waiting for its counter,
+/// quietly: no order made there and no alert, until the cashier there takes
+/// it in Monero, which gets the same order (its idempotency key).
 #[tokio::test]
-async fn a_cash_sale_gets_its_order_only_from_its_own_counters_till() {
+async fn another_counters_cash_sale_is_listed_quietly_and_its_order_made_only_by_its_own_till() {
     let f = fixture().await;
     let source = FakeSource::new(vec![cash_sale()]);
     let till = f.till(source.clone()).with_device_id("dev_back");
     till.check().await;
     assert_eq!(f.request_count(), 0, "no order made here");
-    assert!(till.state().sales.is_empty());
     assert_eq!(source.handled_ids(), ["pay_cash"], "and not asked again");
+    let shown = only(&till);
+    assert_eq!(shown.order_id, "cash:pay_cash");
+    assert!(shown.offered && shown.cash());
+    assert!(!shown.live(), "no code up");
+    assert!(shown.extras.other_counter);
+    let key = SaleKey::pos(PointOfSale::Square, "pay_cash");
+    let view = till.books().view(&key).unwrap();
+    assert!(view.for_its_counter && !view.alerts_here);
+    for kind in [
+        till_ledger::AlertKind::NewSale,
+        till_ledger::AlertKind::Paid,
+    ] {
+        assert_eq!(
+            till.books().with(|l| l.alert(&key, kind)).unwrap(),
+            None,
+            "never alerted here"
+        );
+    }
 
+    // The cashier here takes it in Monero after all: the order is made now,
+    // and still alerts nothing on this counter's till.
+    f.enqueue(order());
+    assert_eq!(
+        till.take_in_monero("cash:pay_cash").await.as_deref(),
+        Ok("ord_1")
+    );
+    assert_eq!(f.request_count(), 2, "the entry, then the order");
+    let taken = only(&till);
+    assert!(taken.live() && !taken.offered);
+    assert_eq!(
+        till.books()
+            .with(|l| l.alert(&key, till_ledger::AlertKind::NewSale))
+            .unwrap(),
+        None
+    );
+
+    // Its own counter's till makes the order as it finds it.
     let f = fixture().await;
     let till = f
         .till(FakeSource::new(vec![cash_sale()]))

@@ -134,6 +134,10 @@ impl Till {
     /// seconds (decision 130 in docs/decisions/android.md).
     pub const REFUND_LOOK_SECONDS: i64 = 30;
 
+    /// Refunds made this long before the refunds cursor are listed again,
+    /// in case the point of sale was slow to list them.
+    pub const REFUNDS_OVERLAP_SECONDS: i64 = 120;
+
     /// How often [`Till::follow_confirmations`] reads a seen or confirming
     /// sale again: a Monero block comes about every two minutes, so a
     /// confirmation shows within a sixth of one, for a request a sale every
@@ -295,9 +299,72 @@ impl Till {
             sign_in_again: false,
             ..s.clone()
         });
+        self.read_pos_refunds().await;
         self.look_for_refunds(&mut checking).await;
         self.books.looked();
         fresh
+    }
+
+    /// Reads the refunds the point of sale lists since this till's refunds
+    /// cursor (less [`Till::REFUNDS_OVERLAP_SECONDS`]), or since the
+    /// shift's window began before the first, and records each one of a
+    /// sale the ledger has as a `PosRefundSeen`: refunds made in Square's
+    /// own app or Dashboard as well as the till's. The cursor, kept in the
+    /// ledger, moves to the newest refund listed, but no further than the
+    /// oldest still pending, so its completion is listed again. A point of
+    /// sale that lists none (Clover), or a listing that fails, changes
+    /// nothing: the next look asks again.
+    async fn read_pos_refunds(&self) {
+        let pos = self.source.point_of_sale();
+        let name = refunds_cursor(pos);
+        let Ok((cursor, window)) = self
+            .books
+            .with(|ledger| Ok((ledger.cursor(name)?, ledger.shift_window()?)))
+        else {
+            return;
+        };
+        let kept = cursor.as_deref().and_then(till_pos::time::unix_seconds);
+        let from = match kept {
+            Some(at) => at.saturating_sub(Till::REFUNDS_OVERLAP_SECONDS),
+            None => window.from.div_euclid(1000),
+        };
+        let begin = till_pos::time::instant(from);
+        let Ok(Some(refunds)) = self.source.refunds_since(&begin).await else {
+            return;
+        };
+        let mut pending: Option<i64> = None;
+        let mut newest: Option<i64> = None;
+        for refund in &refunds {
+            let key = SaleKey::pos(pos, refund.payment_id.as_str());
+            let at = refund
+                .created_at
+                .as_deref()
+                .and_then(till_pos::time::unix_seconds);
+            let status = RefundStatus::of_square(&refund.status);
+            if let Some(at) = at {
+                newest = newest.max(Some(at));
+                if status == RefundStatus::Pending {
+                    pending = Some(pending.map_or(at, |p| p.min(at)));
+                }
+            }
+            if self.books.row(&key).is_none() {
+                // Not a sale this till knows: a card sale's refund, say.
+                continue;
+            }
+            self.record(Fact::PosRefundSeen(RefundSeen {
+                sale: key,
+                refund_id: refund.id.clone(),
+                amount_minor: refund.amount_minor,
+                status,
+            }));
+        }
+        let next = pending.or(newest).or(kept).unwrap_or(from);
+        if kept != Some(next) {
+            // A hint for listing less, never truth: one not kept lists a
+            // little more next time.
+            let next = till_pos::time::instant(next);
+            let _ = self.books.with(|ledger| ledger.set_cursor(name, &next));
+        }
     }
 
     /// One listed sale: its payment and its order's read recorded, and its
@@ -787,12 +854,19 @@ impl Till {
             at: self.now_ms(),
         });
         let outcome = match by_till.refund(&found).await {
-            Ok(()) => {
+            Ok(made) => {
+                // Under the point of sale's own id, as its refunds listing
+                // gives it to every till; its idempotency key when it
+                // answered without one.
+                let (refund_id, status) = match made {
+                    Some(made) => (made.id, RefundStatus::of_square(&made.status)),
+                    None => (refund_key(&found), RefundStatus::Completed),
+                };
                 self.record(Fact::PosRefundSeen(RefundSeen {
                     sale: key.clone(),
-                    refund_id: refund_key(&found),
+                    refund_id,
                     amount_minor: found.amount_minor,
-                    status: RefundStatus::Completed,
+                    status,
                 }));
                 Outcome::Done
             }
@@ -863,9 +937,20 @@ fn refund_key(found: &FoundSale) -> String {
         .collect()
 }
 
-/// A listed sale as the ledger's fact. A listing gives no update time, so
-/// the payment's own time stands for it: the POS only lists a payment once
-/// it's completed.
+/// Where the till's place in `pos`'s refunds listing is kept in the ledger.
+fn refunds_cursor(pos: till_pos::PointOfSale) -> &'static str {
+    match pos {
+        till_pos::PointOfSale::Square => "square.refunds",
+        till_pos::PointOfSale::Clover => "clover.refunds",
+    }
+}
+
+/// A listed sale as the ledger's fact, with the payment's status and
+/// update time as the point of sale gave them (Square's `status` and
+/// `updated_at`), so a payment it changed since replaces the one seen and
+/// has its order read again. Where the listing gives no update time
+/// (Clover), the payment's own time stands for it: the POS only lists a
+/// payment once it's completed.
 fn payment_seen(sale: &FoundSale) -> PaymentSeen {
     PaymentSeen {
         pos: sale.point_of_sale,
@@ -877,16 +962,19 @@ fn payment_seen(sale: &FoundSale) -> PaymentSeen {
         } else {
             Tender::Monero
         },
-        status: "COMPLETED".into(),
+        status: sale.status.clone().unwrap_or_else(|| "COMPLETED".into()),
         device_id: sale.device_id.as_deref().map(Into::into),
         device_name: sale.device_name.clone(),
         receipt_number: sale.reference.clone(),
         order_ref: sale.order_id.clone(),
         title: sale.title.clone(),
         created_at: sale.created_at.clone(),
-        updated_at: till_pos::time::unix_seconds(&sale.created_at)
-            .unwrap_or(0)
-            .saturating_mul(1000),
+        updated_at: sale
+            .updated_at
+            .as_deref()
+            .and_then(till_pos::time::unix_millis)
+            .or_else(|| till_pos::time::unix_millis(&sale.created_at))
+            .unwrap_or(0),
     }
 }
 

@@ -12,7 +12,9 @@ pub const SCHEMA_VERSION: i64 = 1;
 
 /// The projections' shape and rules. When `meta.projection_version`
 /// differs, every projection is rebuilt by replaying the journal (§13).
-pub const PROJECTION_VERSION: i64 = 1;
+/// 2: a sale kept from Monokulo alone is folded into the point-of-sale
+/// sale whose order it is.
+pub const PROJECTION_VERSION: i64 = 2;
 
 /// The database's file name in the engine's data directory.
 pub const FILE_NAME: &str = "till.db";

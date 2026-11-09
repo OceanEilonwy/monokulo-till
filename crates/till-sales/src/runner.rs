@@ -75,7 +75,7 @@ impl SaleSource for NoSource {
 
 #[async_trait]
 impl RefundByTill for NoSource {
-    async fn refund(&self, _: &FoundSale) -> Result<(), PosError> {
+    async fn refund(&self, _: &FoundSale) -> Result<Option<till_pos::ListedRefund>, PosError> {
         Err(PosError::NotAsked("Sign in to Square first".into()))
     }
 }
@@ -678,6 +678,8 @@ mod tests {
             reference: Some("bP9m".into()),
             order_id: Some("o_1".into()),
             created_at: "2026-10-22T22:50:00Z".into(),
+            updated_at: None,
+            status: None,
             device_id: None,
             device_name: None,
             cash: false,

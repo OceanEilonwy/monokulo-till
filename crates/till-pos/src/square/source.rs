@@ -6,8 +6,10 @@ use async_trait::async_trait;
 use monokulo_client::{Clock, PointOfSale};
 
 use super::{Money, SquareApi, SquareConfig, SquareLocation, SquarePayment, receipt};
-use crate::source::{OVERLAP_SECONDS, mark_handled};
-use crate::{CursorStore, FoundSale, PosError, RefundByTill, Refunds, SaleOrder, SaleSource};
+use crate::source::{OVERLAP_SECONDS, is_handled, mark_handled};
+use crate::{
+    CursorStore, FoundSale, ListedRefund, PosError, RefundByTill, Refunds, SaleOrder, SaleSource,
+};
 
 /// Square as a [`SaleSource`]: the till's location's payments since it
 /// started watching, kept to Other tenders named
@@ -69,8 +71,9 @@ impl SaleSource for SquareSource {
     }
 
     /// The location's Monero payments from two minutes before the cursor
-    /// (Square can list a payment late), less those handled. The first look
-    /// starts the cursor now.
+    /// (Square can list a payment late), less those handled as they are now:
+    /// one Square changed since it was handled (its `updated_at`) is given
+    /// again. The first look starts the cursor now.
     async fn new_sales(&self) -> Result<Vec<FoundSale>, PosError> {
         let since = match self.cursor.since()? {
             Some(since) => since,
@@ -92,9 +95,16 @@ impl SaleSource for SquareSource {
         let payments = self.api.payments(&self.location.id, &from).await?;
         Ok(payments
             .into_iter()
-            .filter(|p| (self.is_monero(p) || is_cash(p)) && !handled.contains(&p.id))
+            .filter(|p| self.is_monero(p) || is_cash(p))
             .map(found_sale)
+            .filter(|sale| !is_handled(&handled, sale))
             .collect())
+    }
+
+    /// The location's refunds from `begin_time`, whoever made them.
+    async fn refunds_since(&self, begin_time: &str) -> Result<Option<Vec<ListedRefund>>, PosError> {
+        let refunds = self.api.refunds(&self.location.id, begin_time).await?;
+        Ok(Some(refunds.into_iter().map(listed_refund).collect()))
     }
 
     /// The receipt and the order's recipient
@@ -124,7 +134,7 @@ impl SaleSource for SquareSource {
 impl RefundByTill for SquareSource {
     /// A full refund through Square's API, once whatever the retries: the
     /// idempotency key is `till-refund-<payment id>` (decision 21).
-    async fn refund(&self, sale: &FoundSale) -> Result<(), PosError> {
+    async fn refund(&self, sale: &FoundSale) -> Result<Option<ListedRefund>, PosError> {
         let key: String = format!("till-refund-{}", sale.id)
             .chars()
             .take(45)
@@ -133,9 +143,21 @@ impl RefundByTill for SquareSource {
             amount: sale.amount_minor,
             currency: sale.currency.clone(),
         };
-        self.api
+        Ok(self
+            .api
             .refund(&sale.id, &amount, &key, "Not paid in Monero")
-            .await
+            .await?
+            .map(listed_refund))
+    }
+}
+
+fn listed_refund(refund: super::SquareRefund) -> ListedRefund {
+    ListedRefund {
+        id: refund.id,
+        payment_id: refund.payment_id,
+        amount_minor: refund.amount_money.amount,
+        status: refund.status,
+        created_at: refund.created_at,
     }
 }
 
@@ -155,6 +177,8 @@ fn found_sale(payment: SquarePayment) -> FoundSale {
         reference: payment.receipt_number,
         order_id: payment.order_id,
         created_at: payment.created_at,
+        updated_at: payment.updated_at,
+        status: Some(payment.status),
         device_id: device.and_then(|d| d.device_id),
         device_name,
         cash,

@@ -160,8 +160,8 @@ mod tests {
 
     #[async_trait]
     impl RefundByTill for SlowSource {
-        async fn refund(&self, _: &FoundSale) -> Result<(), PosError> {
-            Ok(())
+        async fn refund(&self, _: &FoundSale) -> Result<Option<till_pos::ListedRefund>, PosError> {
+            Ok(None)
         }
     }
 
