@@ -73,19 +73,24 @@ struct PaymentBarStyle: ProgressViewStyle {
 }
 
 /// A live sale's progress (the boards' bar and its label): the bar, the
-/// engine's status ("Seen on the network") and its line under it ("Scan
-/// with any Monero wallet · 14:52 left").
+/// engine's status ("Seen on the network · 1 of 3") and its line under it
+/// ("Scan with any Monero wallet · 14:52 left"). The bar is at the
+/// engine's `fraction` where it gives one (`SaleView.progress`), else at
+/// the ring's step.
 struct PaymentProgress: View {
     let step: Int
     let status: String
     var hint: String? = nil
+    var fraction: Double? = nil
+    /// What a screen reader says for the bar.
+    var said: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ProgressView(value: PaymentSteps.fraction(step: step))
+            ProgressView(value: fraction ?? PaymentSteps.fraction(step: step))
                 .progressViewStyle(PaymentBarStyle())
                 .accessibilityLabel("Payment")
-                .accessibilityValue(status)
+                .accessibilityValue(said ?? status)
             VStack(alignment: .leading, spacing: 2) {
                 Text(status)
                     .font(.subheadline.weight(.semibold))
@@ -175,6 +180,63 @@ struct NoteCard: View {
             .padding(14)
             .background(RoundedRectangle(cornerRadius: 12).fill(Roles.ground(ground)))
             .padding(.horizontal, 16)
+    }
+}
+
+/// The engine's payment progress (`SaleView.progress`) as the bar draws
+/// it: its words with the count beside them ("Seen on the network · 1 of
+/// 3"), and how full.
+enum EngineProgress {
+    static func status(label: String, count: String) -> String {
+        count.isEmpty ? label : "\(label) · \(count)"
+    }
+
+    static func fraction(value: UInt8, total: UInt8) -> Double {
+        guard total > 0 else { return 0 }
+        return min(1, Double(value) / Double(total))
+    }
+}
+
+/// A cash sale's buttons (`CashButton`; docs/ipad-redesign.md, decisions 7
+/// and 8): Take it in Monero the primary one, Keep as cash and Paid in
+/// cash outlined, side by side where they fit.
+struct CashButtons: View {
+    let orderId: String
+    let buttons: [CashButton]
+    let send: Send
+
+    var body: some View {
+        if !buttons.isEmpty {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) { items }
+                VStack(spacing: 10) { items }
+            }
+        }
+    }
+
+    private var items: some View {
+        ForEach(Array(buttons.enumerated()), id: \.offset) { _, button in
+            if CashButtons.primary(button.action) {
+                PrimaryPress(press: button.press) { send(CashButtons.action(button.action, orderId: orderId)) }
+            } else {
+                Button(button.press.label) { send(CashButtons.action(button.action, orderId: orderId)) }
+                    .buttonStyle(.secondary)
+                    .disabled(!button.press.enabled)
+            }
+        }
+    }
+
+    /// What a cash button asks of the engine.
+    static func action(_ action: CashAction, orderId: String) -> Action {
+        switch action {
+        case .takeInMonero: .takeInMonero(orderId: orderId)
+        case .keepAsCash: .keepAsCash(orderId: orderId)
+        case .paidInCash: .paidInCash(orderId: orderId)
+        }
+    }
+
+    static func primary(_ action: CashAction) -> Bool {
+        action == .takeInMonero
     }
 }
 

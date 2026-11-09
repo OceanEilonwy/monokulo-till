@@ -4,8 +4,9 @@ import TillCore
 /// A sale's page once its code is down (D3 and the sale's other ends),
 /// drawn from the engine's `SalePageView`: whom it's for as the toolbar's
 /// title, the hero, the heading and the amount, the line, the note, every
-/// line of the order, the facts, and the page's buttons (refund at the
-/// point of sale, show the code again).
+/// line of the order, the facts, the page's buttons (refund at the point of
+/// sale, show the code again), and a cash sale's (Take it in Monero, Keep
+/// as cash, Paid in cash; the CashTill board).
 ///
 /// Paid (D3) has the Till logo, green with its tick, as its hero, "Paid ·
 /// $13.88" and Done. A sale this screen watched turn paid gets the one
@@ -14,19 +15,27 @@ import TillCore
 struct SalePageScreen: View {
     let orderId: String
     let page: SalePageView
+    /// The sale is paid (`isPaid`).
+    let paid: Bool
     var celebrate = false
     let send: Send
     /// Paid's "Back to Square" (A3), when it's offered (``BackToSquare``).
     var backToSquare: (@MainActor @Sendable () -> Void)?
 
     @State private var logo: TillLogoState = .paid
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
-    /// The page is a paid sale's.
-    static func isPaid(_ page: SalePageView) -> Bool {
-        page.icon == .tick
+    /// The sale is paid: its payment's progress, as the engine counts it
+    /// (`SaleView.progress`), is full.
+    static func isPaid(_ view: SaleView) -> Bool {
+        guard let progress = view.progress else { return false }
+        return full(value: progress.value, total: progress.total)
     }
 
-    private var paid: Bool { SalePageScreen.isPaid(page) }
+    /// `value` of `total` thirds is all of them: paid.
+    static func full(value: UInt8, total: UInt8) -> Bool {
+        total > 0 && value >= total
+    }
 
     var body: some View {
         ScrollView {
@@ -49,6 +58,8 @@ struct SalePageScreen: View {
                         send(action(button.action))
                     }
                 }
+                CashButtons(orderId: orderId, buttons: page.cash, send: send)
+                    .padding(.horizontal, 16)
             }
             .padding(.bottom, 24)
         }
@@ -79,7 +90,7 @@ struct SalePageScreen: View {
         .background(Palette.ground)
         .navigationTitle(page.title)
         .navigationSubtitle(page.titleLine)
-        .navigationBarTitleDisplayMode(.inline)
+        .toolbarTitleDisplayMode(sizeClass == .regular ? .inlineLarge : .inline)
         .task(id: orderId) {
             guard paid, celebrate else { return }
             logo = .confirming

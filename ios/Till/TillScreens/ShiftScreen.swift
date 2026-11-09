@@ -7,6 +7,11 @@ import TillCore
 /// the summary, the filter, and the sales in grouped sections, the waiting
 /// tray first. Tapping a row opens its sale; a live row swipes to the close
 /// sheet. With no sale yet the shift is the empty till (E1).
+///
+/// While this counter has a device, or sales come from more than one place,
+/// the title is the counter shown and the system's title menu chooses whose
+/// sales the list shows (C3, docs/ipad-redesign.md decision 5), on iPad and
+/// iPhone alike.
 struct ShiftScreen: View {
     let view: ShiftView
     let chips: [StatusChip]
@@ -18,8 +23,9 @@ struct ShiftScreen: View {
 
     var body: some View {
         content
-            .navigationTitle(ShiftTitle.title(view.top))
-            .navigationSubtitle(ShiftTitle.subtitle(view.top))
+            .navigationTitle(view.counters?.title ?? ShiftTitle.title(view.top))
+            .navigationSubtitle(ShiftTitle.subtitle(view.top, menu: view.counters != nil))
+            .modifier(CounterTitleMenu(menu: view.counters, send: send))
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -61,6 +67,18 @@ struct ShiftScreen: View {
                     Text(view.summary)
                         .monospacedDigit()
                         .lineLimit(1)
+                }
+                // Square's books say Cash for these (decision 9).
+                if let cash = view.cashInMonero {
+                    Label {
+                        Text(cash)
+                            .monospacedDigit()
+                            .lineLimit(1)
+                    } icon: {
+                        StatusGlyph(kind: .cash, size: 20)
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.secondary)
                 }
                 if let idle = view.idle, let start = idle.start {
                     Button(start.label) { send(.startShift) }
@@ -144,8 +162,11 @@ enum ShiftTitle {
         parts(top).last ?? "Till"
     }
 
-    static func subtitle(_ top: ShiftTop) -> String {
-        ([top.state] + parts(top).dropLast()).filter { !$0.isEmpty }.joined(separator: " · ")
+    /// Under the location: whether Till watches, and the store. Under the
+    /// title menu's counter: whether Till watches, and the whole place.
+    static func subtitle(_ top: ShiftTop, menu: Bool = false) -> String {
+        let place = menu ? parts(top) : Array(parts(top).dropLast())
+        return ([top.state] + place).filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     /// The store and the location, as the engine joins them.
@@ -231,42 +252,37 @@ struct FilterPicker: View {
     }
 }
 
-/// How a shift row reads: the name leading on one line, the amount at its
-/// end never cut, and the status line under it on one line.
+/// How a shift row reads, from the engine's fields: the customer's name
+/// leading (else "Sale #m2Qe"), the status line in the engine's tone (green
+/// for paid alone, decision 20), and the amount at the end, never cut.
 enum SaleRowLook {
-    /// The engine's "Sale #m2Qe · $8.40" (or "Sam · $8.40") as the name and
-    /// the amount, so the amount can stand apart and never truncate.
-    static func split(_ title: String) -> (name: String, amount: String?) {
-        guard let range = title.range(of: " · ", options: .backwards) else { return (title, nil) }
-        let amount = String(title[range.upperBound...])
-        guard amount.contains(where: \.isNumber) else { return (title, nil) }
-        return (String(title[..<range.lowerBound]), amount)
+    /// What leads the row: the engine's name, else its one-line title.
+    static func name(_ row: ShiftRow) -> String {
+        row.name.isEmpty ? row.title : row.name
     }
 
-    /// The status line's colour: a live sale's is muted whatever its step
-    /// (green means paid, and the link's colour taps); the rest as the
-    /// engine says.
+    /// The status line's colour, as the engine tones it.
     static func subColour(_ row: ShiftRow) -> Color {
-        row.icon == .ring ? Palette.secondary : Roles.ink(row.tone)
+        Roles.ink(row.tone)
     }
 }
 
-/// A sale's row: its status glyph, the name and the status line, and the
-/// amount.
+/// A sale's row (CounterScope): its status glyph, the name and the status
+/// line, each on one line, and the amount, with another counter's device
+/// under it.
 struct SaleRow: View {
     let row: ShiftRow
     var selected = false
     let open: @MainActor () -> Void
 
     var body: some View {
-        let title = SaleRowLook.split(row.title)
         Button {
             open()
         } label: {
             HStack(spacing: 12) {
                 StatusGlyph(kind: StatusGlyphKind.of(row.icon, step: Int(row.ring.step)), size: 24)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title.name)
+                    Text(SaleRowLook.name(row))
                         .font(.body.weight(.semibold))
                         .foregroundStyle(row.quiet ? Palette.secondary : Palette.ink)
                         .lineLimit(1)
@@ -277,14 +293,25 @@ struct SaleRow: View {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 8)
-                if let amount = title.amount {
-                    Text(amount)
-                        .font(.body)
-                        .monospacedDigit()
-                        .foregroundStyle(row.quiet ? Palette.secondary : Palette.ink)
-                        .fixedSize()
-                        .layoutPriority(1)
+                VStack(alignment: .trailing, spacing: 3) {
+                    if !row.amount.isEmpty {
+                        Text(row.amount)
+                            .font(.body)
+                            .monospacedDigit()
+                            .foregroundStyle(row.quiet ? Palette.secondary : Palette.ink)
+                    }
+                    if let device = row.device {
+                        Text(device)
+                            .font(.caption)
+                            .foregroundStyle(Palette.secondary)
+                            .lineLimit(1)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Palette.chip))
+                    }
                 }
+                .fixedSize()
+                .layoutPriority(1)
             }
             .frame(minHeight: 48)
             .contentShape(Rectangle())
@@ -292,6 +319,62 @@ struct SaleRow: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// The shift's title menu (C3): the system's menu on the toolbar's title,
+/// "Show sales from" each counter with its line and waiting count, the one
+/// shown ticked, and "All counters" apart at the end. Nothing while the
+/// engine has nothing to choose between.
+struct CounterTitleMenu: ViewModifier {
+    let menu: CounterMenu?
+    let send: Send
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let menu {
+            content.toolbarTitleMenu {
+                Section(menu.heading) {
+                    ForEach(Array(CounterTitleMenu.counters(menu).enumerated()), id: \.offset) { _, item in
+                        toggle(item)
+                    }
+                }
+                if let all = CounterTitleMenu.all(menu) {
+                    Section {
+                        toggle(all)
+                    }
+                }
+            }
+        } else {
+            content
+        }
+    }
+
+    private func toggle(_ item: CounterItem) -> some View {
+        Toggle(isOn: Binding(
+            get: { item.selected },
+            set: { _ in send(.chooseCounter(choice: item.choice)) }
+        )) {
+            Text(item.name)
+            if let line = CounterTitleMenu.line(item) {
+                Text(line)
+            }
+        }
+    }
+
+    /// Every counter but "All counters".
+    static func counters(_ menu: CounterMenu) -> [CounterItem] {
+        menu.items.filter { $0.choice != .all }
+    }
+
+    static func all(_ menu: CounterMenu) -> CounterItem? {
+        menu.items.first { $0.choice == .all }
+    }
+
+    /// An item's line in the menu: "This counter · alerts · 1 waiting".
+    static func line(_ item: CounterItem) -> String? {
+        let parts = [item.sub, item.count].compactMap { $0 }.filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }
 
