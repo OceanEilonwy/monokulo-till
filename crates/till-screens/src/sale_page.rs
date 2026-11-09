@@ -354,11 +354,7 @@ pub fn page(
                 )
             };
             model(
-                if kept {
-                    StateIcon::Close
-                } else {
-                    StateIcon::Clock
-                },
+                StateIcon::Cash,
                 Ground::Chip,
                 format!("Cash in {name}"),
                 Some(PageNote::card(note)),
@@ -366,7 +362,7 @@ pub fn page(
             )
         }
         Standing::PaidInCash => model(
-            StateIcon::Close,
+            StateIcon::Cash,
             Ground::Chip,
             format!("Cash in {name}"),
             Some(PageNote::card(format!(
@@ -572,6 +568,10 @@ pub struct SalePageView {
     /// A cash sale's buttons ([`cash_buttons`]), after [`Self::buttons`].
     #[cfg_attr(feature = "uniffi", uniffi(default = []))]
     pub cash: Vec<CashButton>,
+    /// Paid's way back to the point of sale on iOS, "Back to Square", where
+    /// the platform can open it (docs/ipad-redesign.md decision 1).
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub back_to: String,
 }
 
 /// `input`'s page at the clock's now, amounts written by `money`.
@@ -629,6 +629,7 @@ pub fn sale_page(
             .flatten(),
         buttons,
         cash: cash_buttons(sale, input.taking),
+        back_to: pos_text::back_to(header.pos),
     }
 }
 

@@ -74,6 +74,20 @@ pub struct SaleView {
     /// A cash sale's "Paid in cash" (core.md decision 116).
     #[cfg_attr(feature = "uniffi", uniffi(default = []))]
     pub cash: Vec<crate::sale_page::CashButton>,
+    /// The words around the code on iOS (core.md decision 130): "Close the
+    /// sale" for the bar's X, "Customer view", "Share" and what the share
+    /// sheet calls it ("Monero payment · $13.88"), and "Order" over what
+    /// was bought.
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub close_label: String,
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub customer_view: String,
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub share: String,
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub share_title: String,
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub order_title: String,
 }
 
 /// Android's way back to the point of sale beside "Copy address": its
@@ -120,10 +134,16 @@ pub fn sale(
     let header = header(sale, input.till, input.location.as_deref());
     let live = sale.live();
     let seconds = sale_text::seconds_left(sale.expires_at, clock.now);
+    let amount = sale_text::amount(sale, money);
     SaleView {
+        close_label: "Close the sale".into(),
+        customer_view: "Customer view".into(),
+        share: "Share".into(),
+        share_title: format!("Monero payment · {amount}"),
+        order_title: "Order".into(),
         title: sale_text::heading(sale),
         title_line: sale_text::heading_line(sale, &header.place),
-        amount: sale_text::amount(sale, money),
+        amount,
         xmr: sale_text::xmr(sale),
         code: sale.code.uri.clone(),
         code_said: code_said(sale, money),
@@ -294,6 +314,28 @@ mod tests {
         };
         let view = sale(&input(confirming, SQUARE), Device::Ipad, la(at()), &money);
         assert_eq!(view.status, "Confirming · 4 of 10");
+        assert_eq!(
+            view.progress.as_ref().unwrap().line,
+            "Confirming · 4 of 10 confirmations",
+            "decision 129: the bar's line counts them too"
+        );
+        // Decision 130: the words around the code are the engine's.
+        assert_eq!(
+            (
+                view.close_label.as_str(),
+                view.customer_view.as_str(),
+                view.share.as_str(),
+                view.share_title.as_str(),
+                view.order_title.as_str()
+            ),
+            (
+                "Close the sale",
+                "Customer view",
+                "Share",
+                "Monero payment · $13.88",
+                "Order"
+            )
+        );
         assert_eq!(view.hint, "The customer can go: it's being confirmed");
         assert_eq!(view.step, 3);
         assert_eq!(

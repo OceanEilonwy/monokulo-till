@@ -233,6 +233,15 @@ pub struct CountersSection {
     /// "Show their sales in the list".
     pub show_others: bool,
     pub show_others_footnote: String,
+    /// "Alert for", over the device choice (core.md decision 130).
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub title: String,
+    /// "Other counters", over [`Self::show_others`].
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub others_title: String,
+    /// "Show their sales in the list".
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub show_others_label: String,
 }
 
 /// Settings › Cash in Square (board CashSettings, K4).
@@ -244,6 +253,9 @@ pub struct CashSection {
     /// "Only offer Monero".
     pub offer: crate::view::Choice,
     pub footnotes: Vec<String>,
+    /// "Cash in Square".
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub title: String,
 }
 
 /// iOS's alerts, as a status row and a way to the system's settings: iOS
@@ -265,6 +277,9 @@ pub struct ShowSalesSection {
     pub choices: Vec<ShowSalesChoice>,
     /// How to set up side by side, while it's chosen.
     pub side_by_side: Option<String>,
+    /// "How sales show up".
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub title: String,
 }
 
 /// Settings, ready to draw.
@@ -299,6 +314,32 @@ pub struct SettingsView {
     /// iPad: how a new sale shows up.
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub show_sales: Option<ShowSalesSection>,
+    /// The page's and its sections' titles, and Disconnect's words (core.md
+    /// decision 130): "Settings", "Store", "Point of sale", "Alerts",
+    /// "Wake-ups", "Developer (debug builds)".
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub title: String,
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub store_title: String,
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub pos_title: String,
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub alerts_title: String,
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub wake_ups_title: String,
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub developer_title: String,
+    /// "Disconnect this device".
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub disconnect: String,
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub disconnect_footnote: String,
+    /// The question before it: "Disconnect this device?", answered
+    /// "Disconnect".
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub disconnect_ask: String,
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub disconnect_confirm: String,
 }
 
 /// "9 Nov": a day on the device's clock.
@@ -370,6 +411,9 @@ fn counters_section(
         show_others_footnote:
             "They never alert here. Open one to show its code if a customer comes to this counter."
                 .into(),
+        title: "Alert for".into(),
+        others_title: "Other counters".into(),
+        show_others_label: "Show their sales in the list".into(),
     }
 }
 
@@ -393,6 +437,7 @@ fn cash_section(c: &SaleChoices) -> CashSection {
             enabled: true,
         },
         footnotes,
+        title: "Cash in Square".into(),
     }
 }
 
@@ -505,6 +550,41 @@ pub struct IslandSection {
     pub live_activity: bool,
     /// "Show code in island", off by default.
     pub code_in_island: bool,
+    /// "Dynamic Island", over the switches "Live Activity" and "Show code
+    /// in island", and its footnote (core.md decision 130).
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub title: String,
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub live_activity_label: String,
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub code_label: String,
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub footnote: String,
+    /// Asked before the code goes in the island: "Show the code in the
+    /// island?", why, and "Show code".
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub ask_title: String,
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub ask: String,
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub ask_confirm: String,
+}
+
+impl IslandSection {
+    /// The section with these switches, and its words.
+    pub fn new(live_activity: bool, code_in_island: bool) -> IslandSection {
+        IslandSection {
+            live_activity,
+            code_in_island,
+            title: "Dynamic Island".into(),
+            live_activity_label: "Live Activity".into(),
+            code_label: "Show code in island".into(),
+            footnote: "Showing the code in the island sends each sale's payment address through the Till push service, which otherwise only sees amount and status. Live Activities end after 8 hours: start Till again each shift.".into(),
+            ask_title: "Show the code in the island?".into(),
+            ask: "Each sale's payment address will pass through the Till push service. The island's code has no receipt: the customer's wallet won't show what was bought.".into(),
+            ask_confirm: "Show code".into(),
+        }
+    }
 }
 
 /// A debug build's stand-in for a point of sale.
@@ -562,10 +642,8 @@ pub fn settings(input: &SettingsInput, device: Device, clock: DeviceClock) -> Se
                 row: wake_ups_row(&input.wake_ups, device),
             }
         },
-        island: (device == Device::Iphone).then_some(IslandSection {
-            live_activity: input.live_activity,
-            code_in_island: input.code_in_island,
-        }),
+        island: (device == Device::Iphone)
+            .then(|| IslandSection::new(input.live_activity, input.code_in_island)),
         stand_ins: if input.debug {
             PointOfSale::ALL
                 .into_iter()
@@ -592,9 +670,23 @@ pub fn settings(input: &SettingsInput, device: Device, clock: DeviceClock) -> Se
             choices: show_sales_choices(input.choices.show_sales, pos),
             side_by_side: (input.choices.show_sales == ShowSales::SideBySide)
                 .then(|| SIDE_BY_SIDE_HOW.into()),
+            title: "How sales show up".into(),
         }),
+        title: "Settings".into(),
+        store_title: "Store".into(),
+        pos_title: pos_text::POINT_OF_SALE.into(),
+        alerts_title: "Alerts".into(),
+        wake_ups_title: "Wake-ups".into(),
+        developer_title: "Developer (debug builds)".into(),
+        disconnect: "Disconnect this device".into(),
+        disconnect_footnote: DISCONNECT_FOOTNOTE.into(),
+        disconnect_ask: "Disconnect this device?".into(),
+        disconnect_confirm: "Disconnect".into(),
     }
 }
+
+/// Under Disconnect.
+pub const DISCONNECT_FOOTNOTE: &str = "Removes Till from the store's Apps: its key stops working at once. Payments already made aren't affected.";
 
 fn store_section(connection: &Connection, now: &StoreNow, live: bool) -> StoreSection {
     let unknown = now.unknown();
@@ -1161,13 +1253,16 @@ mod tests {
                 row: Fact::new("Wake-ups", "Connected").toned(Tone::Plain)
             }
         );
+        let island = view.island.unwrap();
+        assert!(island.live_activity && !island.code_in_island);
+        // Decision 130: the words that were Swift's.
+        assert_eq!(island.title, "Dynamic Island");
         assert_eq!(
-            view.island,
-            Some(IslandSection {
-                live_activity: true,
-                code_in_island: false
-            })
+            (island.ask_title.as_str(), island.ask_confirm.as_str()),
+            ("Show the code in the island?", "Show code")
         );
+        assert_eq!(view.title, "Settings");
+        assert_eq!(view.disconnect_ask, "Disconnect this device?");
 
         let timer = SettingsInput {
             wake_ups: WakeUpsInput {
@@ -1331,9 +1426,24 @@ mod tests {
             "Find this device again with a test sale"
         );
         assert!(counters.show_others);
+        // Decision 130: the section titles and the switch's label.
+        assert_eq!(
+            (
+                counters.title.as_str(),
+                counters.others_title.as_str(),
+                counters.show_others_label.as_str()
+            ),
+            (
+                "Alert for",
+                "Other counters",
+                "Show their sales in the list"
+            )
+        );
         let cash = view.cash.expect("Square has a cash tender");
         assert!(cash.as_monero.selected && !cash.offer.selected);
         assert_eq!(cash.offer.label, "Only offer Monero");
+        assert_eq!(cash.title, "Cash in Square");
+        assert_eq!(view.show_sales.as_ref().unwrap().title, "How sales show up");
         let alerts = view.alerts_status.expect("iOS's status row");
         assert_eq!(alerts.row, Fact::new("New sales and payments", "On"));
         assert_eq!(alerts.open_settings, "Open Notification Settings");
