@@ -26,7 +26,7 @@ if [[ "${1:-}" != "--sim" ]]; then
 fi
 
 # The library is built for the app's minimum version (ios-plan §5).
-export IPHONEOS_DEPLOYMENT_TARGET=27.0
+export IPHONEOS_DEPLOYMENT_TARGET=26.7
 
 cd "$repo"
 for target in "${targets[@]}"; do

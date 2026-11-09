@@ -287,11 +287,13 @@ ios/
   TillUITests/          snapshot tests of every board, for CI screenshots
 ```
 
-- **Minimum version: iOS and iPadOS 27** (owner's decision, 2026-11-08: a
-  cutting-edge product). There are no `if #available` branches and no
-  fallbacks for older versions: Liquid Glass, Slide Over through the window
-  menu, and the current ActivityKit and SwiftUI APIs are used directly.
-  The project needs Xcode 27. Before I2, check two things on iPadOS 27:
+- **Minimum version: iOS and iPadOS 26.7** (owner's decision, 2026-11-09,
+  replacing iOS 27 from 2026-11-08, so that iPads still on iPadOS 26.7 can
+  run Till). iPadOS 26.7 already has Liquid Glass and Slide Over through
+  the window menu, so the design is the same on both. The project builds
+  with Xcode 27's SDK. Any API newer than 26.7 is behind `if #available`,
+  and ios.yml tests the iPad on an iOS 26.x simulator when the runner has
+  one. Before I2, check two things on iPadOS 27:
   which devices it supports, and the exact steps to put an app in Slide
   Over, for onboarding step 6. Also check that Square Point of Sale runs
   on iOS 27.
@@ -497,7 +499,7 @@ core 0 ── core 1 ── core 2 ── core 3 ── core 4 ── core 5
    2026-11-08.
 3. ~~A design round for the §4 gap boards before I3.~~ Done and accepted:
    the canvas's "Till (redesign)" page (§4).
-4. ~~iOS 26.1 as the minimum.~~ Decided: iOS and iPadOS 27 (§5).
+4. ~~iOS 26.1 as the minimum.~~ Decided: iOS and iPadOS 26.7 (§5).
 5. The Apple Developer team, the bundle identifier (decided: `com.monokulo.till`, as Android's
    application ID), and the App Store Connect API key for CI.
 6. Whether iOS should ship without the Bell at first. iPad works on the

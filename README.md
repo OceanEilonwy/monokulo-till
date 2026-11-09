@@ -66,7 +66,7 @@ distributor such as [ntfy](https://ntfy.sh/).
 
 ### iPhone and iPad
 
-Till needs iOS or iPadOS 27. TestFlight builds come from the
+Till needs iOS or iPadOS 26.7 or newer. TestFlight builds come from the
 [iOS release](https://github.com/OceanEilonwy/monokulo-till/actions/workflows/release-ios.yml) workflow once its
 signing is set up ([docs/release.md](docs/release.md)). The Live Activity runs on iPhone, and on iPad the sale
 opens in Slide Over beside the point of sale.

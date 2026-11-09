@@ -7,7 +7,7 @@ import PackageDescription
 
 let package = Package(
     name: "TillCore",
-    platforms: [.iOS("27.0")],
+    platforms: [.iOS("26.7")],
     products: [
         .library(name: "TillCore", targets: ["TillCore"]),
     ],

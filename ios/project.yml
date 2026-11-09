@@ -5,7 +5,7 @@ name: Till
 options:
   bundleIdPrefix: com.monokulo
   deploymentTarget:
-    iOS: "27.0"
+    iOS: "26.7"
   createIntermediateGroups: true
 packages:
   TillCore:

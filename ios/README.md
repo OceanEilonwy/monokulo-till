@@ -1,7 +1,7 @@
 # Till for iPhone and iPad
 
 The SwiftUI app over the Rust core ([docs/ios-plan.md](../docs/ios-plan.md)).
-It needs Xcode 27 (iOS and iPadOS 27 is the minimum), Rust with the
+It needs Xcode 27 (iOS and iPadOS 26.7 is the minimum), Rust with the
 `aarch64-apple-ios` and `aarch64-apple-ios-sim` targets, and XcodeGen.
 
 ```sh
