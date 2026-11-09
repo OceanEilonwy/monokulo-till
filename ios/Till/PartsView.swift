@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// Phase I1's preview of the look and the shared parts (the design's Logo,
-/// LoadingMark and QR boards), for a CI snapshot: reached from ``CoreView``.
+/// A preview of the look and the shared parts (the Till logo, the status
+/// glyphs, type, the QR code, buttons and colours): reached from
+/// ``CoreView``.
 struct PartsView: View {
     /// A sample payment address, in the form the till's codes take.
     nonisolated static let sampleURI = "monero:888tNkZrPN6JsEgekjMnABU4TBzc2Dt29EPAvkRxbANsAnjyPbb3iQ1YBRk1UXcdRsiKc9dhwMVgN5S9cQUiyoogDavup3H?tx_amount=0.123456789012&tx_description=Till%20sale%2042"
@@ -9,17 +10,23 @@ struct PartsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
-                section("Logo") {
-                    HStack(spacing: 24) {
-                        Logo(size: 64, label: "Monokulo")
-                        Logo(size: 64, ring: Palette.accent)
+                section("Till logo") {
+                    HStack(spacing: 12) {
+                        ForEach(Self.states, id: \.label) { state in
+                            TillWidget(state: state, size: 56)
+                        }
+                    }
+                    HStack(spacing: 12) {
+                        ForEach(Self.states, id: \.label) { state in
+                            TillRound(state: state, size: 56)
+                        }
                     }
                 }
-                section("Loading mark") {
-                    HStack(alignment: .center, spacing: 24) {
-                        LoadingMark(size: 32, label: "Watching")
-                        LoadingMark(size: 64, label: "Watching")
-                        LoadingMark(size: 128, label: "Watching")
+                section("Status glyphs") {
+                    HStack(spacing: 16) {
+                        ForEach(Self.glyphs, id: \.self) { kind in
+                            StatusGlyph(kind: kind, size: 28)
+                        }
                     }
                 }
                 section("Type") {
@@ -38,8 +45,8 @@ struct PartsView: View {
                     VStack(spacing: 12) {
                         Button("Show the customer") {}
                             .buttonStyle(.primary)
-                        Button("Copy address") {}
-                            .glassButton()
+                        Button("Share") {}
+                            .buttonStyle(.secondary)
                     }
                 }
                 section("Colours") {
@@ -63,10 +70,13 @@ struct PartsView: View {
         .navigationTitle("Parts")
     }
 
+    private static let states: [TillLogoState] = [.idle, .waiting, .seen, .confirming, .paid]
+    private static let glyphs: [StatusGlyphKind] = [.watching, .waiting, .seen, .paid, .closed, .cash]
+
     private static let swatches: [(name: String, color: Color)] = [
         ("ground", Palette.ground), ("ink", Palette.ink), ("secondary", Palette.secondary),
         ("accent", Palette.accent), ("onAccent", Palette.onAccent), ("link", Palette.link),
-        ("paid", Palette.paid), ("danger", Palette.danger), ("hairline", Palette.hairline),
+        ("paid", Palette.paid), ("progress", Palette.progress), ("track", Palette.track), ("danger", Palette.danger), ("hairline", Palette.hairline),
         ("border", Palette.border), ("expired", Palette.expiredGround), ("expired ink", Palette.expiredInk),
     ]
 

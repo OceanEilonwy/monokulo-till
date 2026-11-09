@@ -6,29 +6,32 @@ import TillCore
 /// core's, and the headings and leads written once are here, as on Android
 /// (docs/decisions/core.md 26). On iPhone each step is a page of its own; on
 /// iPad, where the view carries a rail, the step rail stands beside the page.
+/// It sits in a navigation stack so Back is the system's toolbar button and
+/// nothing of Till's goes under iPadOS's window controls; each page scrolls
+/// across its whole width, its content held to a readable column.
 struct OnboardingScreen: View {
     let core: Core
     let onboarding: OnboardingView
 
     var body: some View {
-        if onboarding.rail.isEmpty {
-            page
-                .frame(maxWidth: 640)
-                .frame(maxWidth: .infinity)
-                .background(Palette.ground)
-        } else {
-            HStack(spacing: 0) {
-                StepRail(steps: onboarding.rail)
-                    .frame(width: 300)
-                Rectangle()
-                    .fill(Palette.hairline)
-                    .frame(width: 1)
-                    .ignoresSafeArea()
-                page
-                    .frame(maxWidth: 640)
-                    .frame(maxWidth: .infinity)
+        NavigationStack {
+            Group {
+                if onboarding.rail.isEmpty {
+                    page
+                } else {
+                    HStack(spacing: 0) {
+                        StepRail(steps: onboarding.rail)
+                            .frame(width: 300)
+                        Rectangle()
+                            .fill(Palette.hairline)
+                            .frame(width: 1)
+                            .ignoresSafeArea()
+                        page
+                    }
+                }
             }
             .background(Palette.ground)
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
 
@@ -76,12 +79,9 @@ struct StepRail: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 12) {
-                Logo(size: 36)
-                Text("Monokulo Till")
-                    .font(.headline)
-            }
-            .padding(.bottom, 32)
+            Text("Monokulo Till")
+                .font(.headline)
+                .padding(.bottom, 24)
             ForEach(steps, id: \.number) { step in
                 HStack(spacing: 14) {
                     marker(step)
@@ -98,7 +98,7 @@ struct StepRail: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 28)
-        .padding(.top, 40)
+        .padding(.top, 16)
         .frame(maxHeight: .infinity, alignment: .top)
         .foregroundStyle(Palette.ink)
         .background(Palette.card.opacity(0.5))
@@ -109,6 +109,7 @@ struct StepRail: View {
         switch step.state {
         case .done:
             DoneTick(size: 28)
+                .accessibilityHidden(true)
         case .current:
             Text(String(step.number))
                 .font(.subheadline.weight(.bold))
@@ -120,7 +121,7 @@ struct StepRail: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Palette.secondary)
                 .frame(width: 28, height: 28)
-                .overlay(Circle().stroke(Palette.border, lineWidth: 1.5))
+                .overlay(Circle().stroke(Palette.track, lineWidth: 1.5))
         }
     }
 

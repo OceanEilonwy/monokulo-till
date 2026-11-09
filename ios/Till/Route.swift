@@ -3,7 +3,7 @@ import TillCore
 /// Which of the app's screens draws the engine's `Screen` (docs/ios-plan.md
 /// §5): onboarding while setup is on screen, else the till's own screens.
 /// Until the first `Update.screen` arrives, the app is starting.
-enum Route: Equatable {
+enum Route: Hashable {
     case starting
     case onboarding
     /// The shift, the till's home.

@@ -3,7 +3,7 @@ import TillCore
 
 /// The engine's colour roles (`Tone`, `Ground`, `StateIcon`) as the
 /// palette's colours, as Android's `toneColor`, `groundColor` and
-/// `StateBadge` read them.
+/// `StateBadge` read them, for the till's words and notes.
 enum Roles {
     /// Words in `tone`: a row's line, the shift's state word.
     static func ink(_ tone: Tone) -> Color {

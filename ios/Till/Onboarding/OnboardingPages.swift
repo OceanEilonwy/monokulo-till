@@ -22,8 +22,8 @@ struct WelcomePage: View {
     var body: some View {
         StepPage(stepLabel: stepLabel) {
             VStack(spacing: 0) {
-                LoadingMark(size: 148, label: "Monokulo Till")
-                Heading(text: "Monokulo Till", size: 34, centred: true)
+                TillWidget(state: .idle, size: 148, decorative: true)
+                Heading(text: "Monokulo Till", centred: true, display: 34)
                     .padding(.top, 26)
                 Lead(
                     text: "Take Monero at your till. Till sees each new sale and shows your customer a payment code.",
@@ -130,19 +130,19 @@ struct ScanPage: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 18)
             ProblemNote(text: problem)
-        } bottom: {
             Rich.text("Dashboard open on \(here)? Tap **Copy the connect link** there, then paste it here.")
                 .font(.subheadline)
                 .foregroundStyle(Palette.secondary)
-                .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
+        } bottom: {
             Button {
                 paste()
             } label: {
                 Label("Paste the link", systemImage: "doc.on.clipboard")
-                    .frame(maxWidth: .infinity)
             }
-            .glassButton()
+            .buttonStyle(.secondary)
         }
         .task { await askForCamera() }
     }
@@ -165,7 +165,8 @@ struct ScanPage: View {
                 VStack {
                     Spacer()
                     HStack(spacing: 8) {
-                        LoadingMark(size: 22, label: "Scanning", ring: Color.white)
+                        ProgressView()
+                            .tint(Color.white)
                         Text("Looking for a connect code…")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Color.white)
@@ -388,14 +389,7 @@ struct PosCardSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                Logo(size: 36)
-                Image(systemName: "link")
-                    .foregroundStyle(Palette.secondary)
-                PosMarkTile(mark: card.mark)
-            }
-            .accessibilityHidden(true)
-            Heading(text: card.heading, size: 24)
+            Heading(text: card.heading)
             Lead(text: card.lead)
         }
         .padding(.horizontal, 20)
@@ -448,14 +442,9 @@ struct PosCardSection: View {
                     numbered(1, first)
                 }
                 if let lookAgain = card.lookAgain {
-                    Button {
-                        send(.lookAgain)
-                    } label: {
-                        Text(lookAgain.label)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .glassButton()
-                    .disabled(!lookAgain.enabled)
+                    Button(lookAgain.label) { send(.lookAgain) }
+                        .buttonStyle(.secondary)
+                        .disabled(!lookAgain.enabled)
                 }
                 ForEach(Array(card.steps.dropFirst().enumerated()), id: \.offset) { index, step in
                     numbered(index + 2, step)
@@ -465,7 +454,9 @@ struct PosCardSection: View {
                         if test.found {
                             DoneTick(size: 26)
                         } else {
-                            LoadingMark(size: 26, label: "Waiting for a test sale")
+                            ProgressView()
+                                .frame(width: 26, height: 26)
+                                .accessibilityLabel("Waiting for a test sale")
                         }
                         Text(test.text)
                             .font(.subheadline)
@@ -599,9 +590,7 @@ struct SampleAlertCard: View {
 
     var body: some View {
         HStack(alignment: alert.text == nil ? .center : .top, spacing: 12) {
-            Logo(size: 28)
-                .frame(width: 38, height: 38)
-                .background(RoundedRectangle(cornerRadius: 9).fill(Palette.ground))
+            TillWidget(state: .idle, size: 38, decorative: true)
             VStack(alignment: .leading, spacing: 2) {
                 if alert.text != nil {
                     HStack {
@@ -670,9 +659,9 @@ struct ReadyPage: View {
     var body: some View {
         StepPage(stepLabel: nil) {
             VStack(spacing: 10) {
-                Logo(size: 72)
+                TillWidget(state: .idle, size: 96, decorative: true)
                     .padding(.bottom, 10)
-                Heading(text: heading, centred: true)
+                Heading(text: heading, centred: true, display: 30)
                 Lead(text: lead, centred: true)
                     .frame(maxWidth: 330)
             }
@@ -684,10 +673,11 @@ struct ReadyPage: View {
                     if index > 0 {
                         Hairline()
                     }
+                    // Done and not done differ by shape as well as colour,
+                    // and say so aloud (the review's C1).
                     HStack(spacing: 12) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(check.done ? Palette.paid : Palette.border)
-                            .accessibilityHidden(true)
+                        Image(systemName: ReadyPage.symbol(done: check.done))
+                            .foregroundStyle(check.done ? Palette.ink : Palette.expiredInk)
                         Text(check.name)
                         Spacer(minLength: 12)
                         Text(check.value)
@@ -697,6 +687,7 @@ struct ReadyPage: View {
                     .padding(.vertical, 12)
                     .frame(minHeight: 48)
                     .accessibilityElement(children: .combine)
+                    .accessibilityValue(check.done ? "Done" : "Not set up")
                 }
             }
             .padding(.top, 40)
@@ -704,5 +695,10 @@ struct ReadyPage: View {
             Button("Start Till") { send(.startShift) }
                 .buttonStyle(.primary)
         }
+    }
+
+    /// A check's glyph: a tick done, a dashed circle not.
+    static func symbol(done: Bool) -> String {
+        done ? "checkmark.circle.fill" : "circle.dashed"
     }
 }

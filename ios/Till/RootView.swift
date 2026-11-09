@@ -18,13 +18,12 @@ struct RootView: View {
                     if core.shownBusy {
                         ProgressView()
                             .padding(.top, 8)
-                            .tint(Palette.accent)
+                            .tint(Palette.secondary)
                     }
                     ProblemNote(text: core.shownProblem)
                         .background(core.shownProblem == nil ? Color.clear : Palette.ground)
                 }
             }
-            .animation(.easeInOut(duration: 0.25), value: core.screen)
             // Universal links on the build's link host and the monokulo-till scheme.
             .onOpenURL { url in core.open(url) }
             .onChange(of: scenePhase) { _, phase in
@@ -57,10 +56,11 @@ struct RootView: View {
     }
 }
 
-/// While the engine reads what it kept: the loading mark on the ground.
+/// While the engine reads what it kept: the system's spinner on the ground.
 struct StartingView: View {
     var body: some View {
-        LoadingMark(size: 96, label: "Starting")
+        ProgressView()
+            .accessibilityLabel("Starting")
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Palette.ground)
     }
