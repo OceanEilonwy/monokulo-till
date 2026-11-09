@@ -15,7 +15,7 @@ use till_sales::TillSale;
 use crate::order_text::{OrderCard, order_card};
 use crate::sale_page::header;
 use crate::time::DeviceClock;
-use crate::view::{Device, PosMark, Press, Progress, Ring, mark, ring};
+use crate::view::{Device, PaymentProgress, PosMark, Press, Ring, mark, ring};
 use crate::{close, pos_text, sale_text};
 
 /// What the sale screen shows.
@@ -70,7 +70,7 @@ pub struct SaleView {
     /// How far the payment has come, in the Till widget's thirds, for the
     /// platform's progress bar (core.md decision 119).
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
-    pub progress: Option<Progress>,
+    pub progress: Option<PaymentProgress>,
     /// A cash sale's "Paid in cash" (core.md decision 116).
     #[cfg_attr(feature = "uniffi", uniffi(default = []))]
     pub cash: Vec<crate::sale_page::CashButton>,

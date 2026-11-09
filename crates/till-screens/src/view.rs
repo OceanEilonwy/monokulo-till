@@ -160,7 +160,7 @@ pub struct Ring {
 /// ("Seen on the network") and the count beside them ("1 of 3").
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-pub struct Progress {
+pub struct PaymentProgress {
     pub value: u8,
     pub total: u8,
     pub label: String,
@@ -169,8 +169,8 @@ pub struct Progress {
     pub said: String,
 }
 
-/// `sale`'s [`Progress`]; one that ended unpaid has none to show.
-pub fn progress(sale: &TillSale) -> Option<Progress> {
+/// `sale`'s [`PaymentProgress`]; one that ended unpaid has none to show.
+pub fn progress(sale: &TillSale) -> Option<PaymentProgress> {
     let (value, label) = match sale.phase {
         monokulo_client::SalePhase::Waiting => (0, "Waiting for payment"),
         monokulo_client::SalePhase::Partial => (0, "Part paid"),
@@ -181,7 +181,7 @@ pub fn progress(sale: &TillSale) -> Option<Progress> {
     };
     const TOTAL: u8 = 3;
     let count = format!("{value} of {TOTAL}");
-    Some(Progress {
+    Some(PaymentProgress {
         value,
         total: TOTAL,
         said: format!("{label}, {count}"),

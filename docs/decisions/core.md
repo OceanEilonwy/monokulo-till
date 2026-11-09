@@ -817,7 +817,7 @@ and copy, tones and progress.
 119. **Green is for paid alone, and progress is in thirds.** Seen and
      confirming rows are muted, the ring's arc is green only once paid,
      "Watching" and Settings' "Connected" are plain, and a paid row is
-     green. `SaleView.progress` (`Progress`) is the Till widget's thirds,
+     green. `SaleView.progress` (`PaymentProgress`) is the Till widget's thirds,
      waiting 0, seen 1, confirming 2, paid 3, with its label ("Seen on the
      network"), count ("1 of 3") and what a screen reader says.
 120. **How a new sale shows up is the engine's to keep.** `ShowSales`
