@@ -119,6 +119,14 @@ pub(crate) fn order_id(screen: &Screen) -> Option<&str> {
     }
 }
 
+/// Whether the Live Activity is also updated by pushes through the relay
+/// (its push token registered as a Monokulo push target). Not yet: the core
+/// has no client for push targets (decision 93), so every update is the
+/// device's own and its code keeps the receipt (decision 140). Once it is,
+/// the device's updates use the plain code too, so a push and an update
+/// from the app never disagree.
+const LIVE_ACTIVITY_PUSHED: bool = false;
+
 impl State {
     fn sales(&self) -> Vec<TillSale> {
         self.parts
@@ -553,6 +561,10 @@ impl State {
                 just_ended: self.just_ended.clone(),
                 // The floating window shows the code while the sale waits.
                 code_in_island: self.code_in_island_on(&model) || pip,
+                // Drawn on this device alone: the window always, the Live
+                // Activity while no push token updates it through the
+                // relay (core.md decision 140).
+                receipt: pip || !LIVE_ACTIVITY_PUSHED,
             },
             self.config.device,
         )

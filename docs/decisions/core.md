@@ -566,13 +566,18 @@ on from 1; the Android app's own choices are in [android.md](android.md).
 
 94. **`SaleView.back_to_pos` names the point of sale it opens**
     (`BackToPos { press, mark: PosMark }`): Android opened Square whatever
-    the label said. It opens Square Point of Sale (`com.squareup`) for
-    `PosMark::Square`. For `PosMark::Clover` it steps back
-    (`moveTaskToBack`): Till runs on the Clover device, over the Register
-    it was opened from, and we haven't confirmed a launcher package for
-    Clover's Register app. Today the engine offers the button only on a
-    till on Square (decision 135 of android.md), so the Clover branch is
-    for when that changes. iOS never gets the button.
+    the label said. It opens Square Point of Sale (`com.squareup` on
+    Android, `square-commerce-v1://` on iOS) for `PosMark::Square`. The
+    engine offers it on a till on Square, for that till's own sales, on
+    every device: Android beside "Copy address", iOS on Paid on iPhone and
+    iPad alike, shown only where `canOpenURL` says Square is installed and
+    Square isn't already beside Till (amended 2026-11-09, decision 141;
+    it used to leave iOS out, and iPad drew it anyway). There is no "Back
+    to Clover": Clover runs on its own device and Till on a separate phone
+    or iPad beside it (android.md 135, decision 142), so there is no
+    Clover app to switch to and the engine never offers the button on a
+    till on Clover. `PosMark::Clover` stays in the record only because the
+    mark is shared; Android's `backToPos` does nothing for it.
 95. **The engine owns the bubble's paid moment** (android.md 158 moves
     here). The overlay ran a second five-second timer beside the engine's
     `PAID_DWELL`. Now the engine keeps a `bubble::PaidMoment` (`None`,
@@ -725,9 +730,10 @@ and copy, tones and progress.
 110. **Every found sale carries the device that took it.** `FoundSale`
      has `device_id` (as before) and `device_name`, both from Square's
      `device_details` (`device_name` on one line, blank as none). Clover's
-     payments name only the device's id (`device.id`; its name would need
-     the devices endpoint), so a Clover sale's menu line says "Device" and
-     the end of the id. Both stay on the device, in the saved shift.
+     payments name only the device's id (`device.id`); its name comes from
+     Clover's devices endpoint (decision 142), and only until that answers
+     does a Clover sale's menu line say "Device" and the end of the id.
+     Both stay on the device, in the saved shift.
 111. **New view fields cross UniFFI with defaults.** Every field added to a
      record the platforms construct or that the iOS rework reads (`Press`,
      `PosStep`, `ShiftRow`, `ShiftView`, `SettingsView`, `SaleView`,
@@ -780,7 +786,8 @@ and copy, tones and progress.
      counters' sales" is on (the default, `counter.others`), else on this
      counter. The summary, chips and rows follow the choice; the menu's
      counts are over every sale.
-115. **Settings C5.** `SettingsView.counters` (Square, signed in): "This
+115. **Settings C5.** `SettingsView.counters` (Square or Clover, signed
+     in; Clover's since decision 142): "This
      device: Front iPad" with when the test sale named it, "Every device at
      Front Counter" naming the devices seen, "Find this device again with a
      test sale" (`Action::FindDevice`: the next sale found that names a
@@ -990,3 +997,55 @@ label while a payment confirms.
      which it shares with the Live Activity widget: that draws Monokulo's
      pushes, which carry no words, so the vocabulary stays with the
      widget's code.
+
+## Review fixes before the redesign reaches main (2026-11-09)
+
+Three findings from a review of the product decisions. The other four
+(ending a shift on iOS and a new shift each day, iPad's ended and paid
+notices, the paid moment for another counter's sale opened on purpose, and
+a new code for an expired sale) move into the core's rebuild as a fact
+journal and are not done here.
+
+140. **What the device draws itself keeps the receipt in its code.**
+     Decisions 125 and 128 gave the iPad's floating window, and 40 the
+     iPhone's "Show code in island", the plain payment URI, because content
+     that goes through the push relay must never carry what was bought. A
+     window drawn on the device, and a Live Activity the app alone updates,
+     never go through the relay. So `LiveActivityInput.receipt` (true for
+     the floating window always, and for the Live Activity while no push
+     token updates it: `LIVE_ACTIVITY_PUSHED`, false until the core can
+     register Monokulo push targets, decision 93) gives `payment_uri` the
+     sale's own code with its receipt. Once Monokulo pushes the activity
+     through the relay, the app's updates use the plain URI too, so a push
+     and an update never disagree. Below about 200 pt the window draws no
+     code anyway (ipad-redesign.md decision 2). Settings' island footnote
+     and question now say that the code, with what was bought, shows on the
+     lock screen, instead of the push service the code doesn't yet go
+     through.
+141. **Back to Square on every iOS device.** Decision 94 left iOS out while
+     ipad-redesign.md decision 1 drew it on iPad from Swift's own rule. The
+     engine now offers `SaleView.back_to_pos` and `SalePageView.back_to` on
+     a till on Square, for its own sales, on Android, iPhone and iPad alike
+     (`back_to` is empty otherwise). iOS shows it on Paid where `canOpenURL`
+     says Square is installed and Till and Square aren't side by side
+     (`BackToSquare.shown(offered:showSales:squareInstalled:)`), with no
+     iPad check. Decision 94 is amended to match.
+142. **Clover runs on its own device; Till on a separate phone or iPad
+     beside it** (the owner, 2026-11-09). There is no Clover app on Till's
+     device to switch to, so there is no "Back to Clover" (android.md 135,
+     decision 94, whose Register wording was wrong). Like a Square counter,
+     a Clover counter's device is learned from the test sale (step 4 no
+     longer keeps it for Square alone) or "Find this device again", and
+     Settings offers the counters section (Alert for, Find this device
+     again, Show their sales in the list) on Clover too, in Clover's words;
+     cash stays Square's (decision 116). Clover's payments name only a
+     device id, so when a sale or this counter names a device Clover's list
+     hasn't, the engine reads `GET /v3/merchants/{mId}/devices` once a run
+     (`CloverApi::devices`) and keeps the names under `clover.devices`
+     (forgotten with the store); `Counters.names` gives them to
+     `counters::device_name`, so the menu says "Front counter" rather than
+     "Device 3F2A". A device with no name is called by its model and the
+     end of its serial ("Clover Mini 4F2A"). The devices endpoint needs
+     Merchant read, which the till's Clover app already asks for
+     (development.md), so no new permission; a refused read leaves the
+     devices unnamed and is logged.
