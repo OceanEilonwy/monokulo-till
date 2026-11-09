@@ -30,6 +30,8 @@ import com.monokulo.till.ui.Fixed
 import com.monokulo.till.ui.qrBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.monokulo.till.engine.EngineStore
+import uniffi.till_app.Action
 import uniffi.till_app.CopyKind
 import uniffi.till_app.endedSummary
 import uniffi.till_screens.Face
@@ -146,7 +148,7 @@ class SaleNotifications(private val context: Context) {
                 val intent = when (button.action) {
                     NoticeAction.SHOW_CODE -> showCode
                     NoticeAction.FULL_SCREEN -> openApp(face.orderId)
-                    NoticeAction.COPY_ADDRESS -> copy(face.orderId, face.address)
+                    NoticeAction.COPY_ADDRESS -> copy(face.orderId)
                 }
                 builder.addAction(0, button.label, intent)
             }
@@ -283,12 +285,12 @@ class SaleNotifications(private val context: Context) {
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
 
-    /** "Copy address": the sale's [address], as its ongoing face carries it. */
-    private fun copy(orderId: String, address: String): PendingIntent = PendingIntent.getBroadcast(
+    /** "Copy address": the engine copies [orderId]'s address, as it does from the app and the panel. */
+    private fun copy(orderId: String): PendingIntent = PendingIntent.getBroadcast(
         context,
         orderId.hashCode(),
         Intent(context, CopyReceiver::class.java)
-            .putExtra(CopyReceiver.EXTRA_ADDRESS, address),
+            .putExtra(CopyReceiver.EXTRA_ORDER, orderId),
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
 
@@ -351,14 +353,18 @@ class SaleNotifications(private val context: Context) {
     }
 }
 
-/** The notification's "Copy address". */
+/**
+ * The notification's "Copy address": the engine is asked ([Action.CopyAddress]) and answers with the copy
+ * ([uniffi.till_app.Effect.CopyText]), which [com.monokulo.till.TillService.follow] puts on the clipboard
+ * (docs/decisions/core.md 105).
+ */
 class CopyReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        val address = intent.getStringExtra(EXTRA_ADDRESS) ?: return
-        SaleNotifications.copyText(context, address, CopyKind.ADDRESS)
+        val orderId = intent.getStringExtra(EXTRA_ORDER) ?: return
+        EngineStore.send(Action.CopyAddress(orderId))
     }
 
     companion object {
-        const val EXTRA_ADDRESS = "address"
+        const val EXTRA_ORDER = "order"
     }
 }

@@ -56,7 +56,7 @@ class SettingsActions(
     /** The bubble switch: kept, and Android's page to allow it when it isn't. */
     val onBubble: (Boolean) -> Unit,
     /** Copies the store wallet's whole address. */
-    val onCopyAddress: (String) -> Unit,
+    val onCopyAddress: () -> Unit,
     /** "Get ntfy": a UnifiedPush app to install. */
     val onGetDistributor: () -> Unit,
     /** A UnifiedPush app's name, by its package, as Android names it. */
@@ -116,7 +116,7 @@ fun SettingsScreen(s: SettingsView, a: SettingsActions) = Page(
                             fact.label, fact.value, mono = true,
                             trailing = {
                                 RoundIconButton(
-                                    MkIcons.Copy, "Copy wallet address", { a.onCopyAddress(address) },
+                                    MkIcons.Copy, "Copy wallet address", a.onCopyAddress,
                                     Modifier.intoRowPadding(), iconSize = 20.dp,
                                 )
                             },

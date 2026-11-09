@@ -1021,6 +1021,58 @@ fn settings_says_when_orbot_isnt_running_for_a_till_on_tor() {
     assert!(footnote.ends_with("or turn this off."), "{footnote}");
 }
 
+/// Decision 105: Settings' "Copy wallet address" goes through the engine,
+/// which copies the store's whole address as every other copy does.
+#[tokio::test(flavor = "multi_thread")]
+async fn settings_copies_the_stores_whole_wallet_address_through_the_engine() {
+    let monokulo = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            r#"{"_links":{"self":{"href":"/api/v1"},"mk:store":{"href":"/api/v1/store"},"mk:app":{"href":"/api/v1/app"}}}"#,
+            "application/prs.hal-forms+json",
+        ))
+        .mount(&monokulo)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/store"))
+        .respond_with(json(
+            r#"{"name":"The Bean Room","base_currency":"USD","wallet":{"name":"Shop","network":"mainnet","address":"4AwholeADDRESS"}}"#,
+        ))
+        .mount(&monokulo)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/app"))
+        .respond_with(json(r#"{"app_id":"a1","device_name":"Front"}"#))
+        .mount(&monokulo)
+        .await;
+    let platform = FakePlatform::with(&[("setup.done", "true")]);
+    platform.set(
+        "connection",
+        &format!(r#"{{"app_key":"ak_1","api":"{}/api/v1"}}"#, monokulo.uri()),
+    );
+    let (engine, rx, _) = start(config(None), platform);
+    screen(&rx, Screen::Till);
+    engine.send(Action::OpenSettings);
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view })
+            if view
+                .store
+                .as_ref()
+                .is_some_and(|s| s.wallet_address.is_some()) =>
+        {
+            Some(())
+        }
+        _ => None,
+    });
+    engine.send(Action::CopyWalletAddress);
+    let copied = wait_for(&rx, |heard| match heard {
+        Heard::Effect(Effect::CopyText { text, kind }) => Some((text.clone(), *kind)),
+        _ => None,
+    });
+    assert_eq!(copied, ("4AwholeADDRESS".into(), CopyKind::Address));
+}
+
 /// Decision 103: the platform hands over shared text whole, and the engine
 /// finds the store's connect link in it.
 #[test]

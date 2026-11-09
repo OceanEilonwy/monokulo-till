@@ -737,6 +737,21 @@ impl State {
                     });
                 }
             }
+            Action::CopyWalletAddress => {
+                let address = self.parts.as_ref().and_then(|p| {
+                    p.live
+                        .now()
+                        .store
+                        .and_then(|store| store.wallet)
+                        .map(|wallet| wallet.address)
+                });
+                if let Some(text) = address {
+                    self.effect(Effect::CopyText {
+                        text,
+                        kind: CopyKind::Address,
+                    });
+                }
+            }
             Action::OpenSettings => self.open_settings(),
             Action::OpenPointOfSale => {
                 self.from_settings = true;

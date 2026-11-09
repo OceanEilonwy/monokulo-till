@@ -467,6 +467,9 @@ pub enum Action {
     CopyAmount {
         order_id: String,
     },
+    /// Settings' "Copy wallet address": the store's whole wallet address
+    /// is copied (core.md decision 105).
+    CopyWalletAddress,
     OpenSettings,
     /// Settings' "Change the point of sale": step 4, back to Settings once
     /// the new sign-in is done.

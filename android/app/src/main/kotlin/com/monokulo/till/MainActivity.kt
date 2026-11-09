@@ -63,9 +63,7 @@ import com.monokulo.till.ui.mk
 import com.monokulo.till.ui.pos
 import com.monokulo.till.ui.rememberShiftPlace
 import kotlinx.coroutines.launch
-import com.monokulo.till.notify.SaleNotifications
 import uniffi.till_app.Action
-import uniffi.till_app.CopyKind
 import uniffi.till_app.Effect
 import uniffi.till_app.RefundSheetView
 import uniffi.till_app.Update
@@ -282,7 +280,7 @@ class MainActivity : ComponentActivity() {
                 send(Action.SetBubble(on))
                 if (on && !Settings.canDrawOverlays(this)) openOverlaySettings()
             },
-            onCopyAddress = ::copy,
+            onCopyAddress = { send(Action.CopyWalletAddress) },
             onGetDistributor = { openInTab(NTFY) },
             distributorName = { pkg ->
                 runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg)
@@ -347,7 +345,6 @@ class MainActivity : ComponentActivity() {
 
     private fun permissionsMayHaveChanged() = (application as TillApp).permissionsMayHaveChanged()
 
-    private fun copy(text: String) = SaleNotifications.copyText(this, text, CopyKind.ADDRESS)
 
     private fun openInTab(url: String) {
         runCatching { CustomTabsIntent.Builder().build().launchUrl(this, url.toUri()) }

@@ -663,3 +663,13 @@ on from 1; the Android app's own choices are in [android.md](android.md).
      without one). Android's shift badge used to dig the mark out of
      `SettingsView`'s point-of-sale section. iOS's top bar shows the
      Monokulo logo, not the point of sale's mark, so it doesn't use it.
+105. **Every copy goes through the engine** as an action that comes back
+     as `Effect::CopyText`. Settings' "Copy wallet address" is the new
+     `Action::CopyWalletAddress` (the store's whole address as last read),
+     on Android and iOS alike. The ongoing notification's "Copy address"
+     now sends `Action::CopyAddress` with the sale's order id instead of
+     carrying the address in its intent. Android's `TillService.follow`
+     puts every copy on the clipboard, and iOS's `perform` does the same.
+     One edge: if the receiver wakes a process whose kept state can't be
+     read yet, the copy is dropped with the other actions that wait for
+     it.
