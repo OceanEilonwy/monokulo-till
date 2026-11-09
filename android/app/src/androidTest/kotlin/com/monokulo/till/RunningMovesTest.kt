@@ -40,7 +40,7 @@ class RunningMovesTest {
     @get:Rule
     val compose = createAndroidComposeRule<ComponentActivity>()
 
-    private val moves = RunningMoves(compose, testSale("a1", expiresAt = 1_600).copy(receipt = sampleReceipt()))
+    private val moves = RunningMoves(compose, testSale("a1", expiresAt = 1_600).copy(receipt = true))
 
     @Test fun aRowGrowsIntoItsSaleLight() = rowGrow(dark = false)
 
@@ -91,7 +91,7 @@ class RunningMovesTest {
 
     @Test fun backFromALiveSaleLeavesWithItsCodeDark() = leavesWithItsCode("back-live", dark = true) { it }
 
-    @Test fun aSaleExpiringAsItIsLeftLeavesWithItsCode() = leavesWithItsCode("expired-left", dark = false) { it.copy(phase = SalePhase.Expired, endedAt = 1_100) }
+    @Test fun aSaleExpiringAsItIsLeftLeavesWithItsCode() = leavesWithItsCode("expired-left", dark = false) { it.copy(phase = SalePhase.EXPIRED, endedAt = 1_100) }
 
     @Test fun aSaleRefundedAsItIsLeftLeavesWithItsCode() = leavesWithItsCode("refunded-left", dark = true) { it.copy(refundedAt = 1_100, closedAt = 1_100) }
 
@@ -143,7 +143,7 @@ class RunningMovesTest {
      */
     private fun paidOnCode(dark: Boolean) {
         moves.start(Screen.Code("a1"), dark)
-        val frames = moves.run(Screen.Sale("a1"), groundKey = codeGround("a1"), change = { moves.shown = moves.sale.copy(phase = SalePhase.Paid, paidAt = 1_100) })
+        val frames = moves.run(Screen.Sale("a1"), groundKey = codeGround("a1"), change = { moves.shown = moves.sale.copy(phase = SalePhase.PAID, paidAt = 1_100) })
         val failures = mutableListOf<String>()
         val moving = frames.drop(1).dropLast(RunningMoves.SETTLE_FRAMES).filter { it.p < 1f }
         for (f in moving) {
@@ -283,7 +283,7 @@ class RunningMovesTest {
     @Test fun aPaidSaleStepsBackIntoItsRowDark() = paidStepBack(dark = true)
 
     private fun paidStepBack(dark: Boolean) {
-        moves.shown = moves.sale.copy(phase = SalePhase.Paid, paidAt = 1_100)
+        moves.shown = moves.sale.copy(phase = SalePhase.PAID, paidAt = 1_100)
         moves.start(Screen.Sale("a1"), dark)
         check("paid-step-back", dark, moves.run(Screen.Till, groundKey = "sale/a1"), Move.RowGrow, glyphs = false, grows = true)
     }
@@ -304,7 +304,7 @@ class RunningMovesTest {
      */
     private fun paidFold(dark: Boolean) {
         moves.start(Screen.Sale("a1"), dark)
-        val frames = moves.runFor(FOLD_MS, { moves.shown = moves.sale.copy(phase = SalePhase.Paid, paidAt = 1_100) })
+        val frames = moves.runFor(FOLD_MS, { moves.shown = moves.sale.copy(phase = SalePhase.PAID, paidAt = 1_100) })
         val failures = mutableListOf<String>()
         if (dark) failures += flashes(frames)
         val card = frames.first().codes.first()
@@ -1057,10 +1057,10 @@ class RunningMovesTest {
     @Test fun thePaidStepBackIsTheBackDark() = paidStepBackIsBack(dark = true)
 
     private fun paidStepBackIsBack(dark: Boolean) {
-        val earlier = testSale("p9", SalePhase.Paid, paidAt = 900)
+        val earlier = testSale("p9", SalePhase.PAID, paidAt = 900)
         moves.shift = listOf(moves.sales[0], moves.sale, moves.sales[2], earlier)
         moves.start(Screen.Sale("a1"), dark)
-        val paid = moves.sale.copy(phase = SalePhase.Paid, paidAt = 1_100)
+        val paid = moves.sale.copy(phase = SalePhase.PAID, paidAt = 1_100)
         moves.runFor(FOLD_MS) {
             moves.shown = paid
             moves.shift = listOf(moves.sales[0], paid, moves.sales[2], earlier)
@@ -1096,7 +1096,7 @@ class RunningMovesTest {
      * paid row under Earlier. A shift long enough to scroll, as the designer's (18 paid).
      */
     @Test fun thePaidStepBackFromTheFirstTrayRowKeepsTheListAtItsTop() {
-        val earlier = List(18) { testSale("p${it + 10}", SalePhase.Paid, paidAt = 900L - it) }
+        val earlier = List(18) { testSale("p${it + 10}", SalePhase.PAID, paidAt = 900L - it) }
         val waiting = listOf(moves.sales[0], moves.sales[2], testSale("c3", expiresAt = 1_600), testSale("c4", expiresAt = 1_600))
         moves.shift = listOf(moves.sale) + waiting + earlier
         moves.start(Screen.Till, dark = false)
@@ -1107,7 +1107,7 @@ class RunningMovesTest {
         val open = moves.run(Screen.Sale("a1"), groundKey = "sale/a1")
         fun titleOf(f: RunningMoves.Frame) = f.words[Screen.Till]?.firstOrNull { it.first == "This shift" }?.second
         val top = titleOf(open.first()) ?: error("no title on the shift before the tap")
-        val paid = moves.sale.copy(phase = SalePhase.Paid, paidAt = 1_100)
+        val paid = moves.sale.copy(phase = SalePhase.PAID, paidAt = 1_100)
         moves.runFor(FOLD_MS) {
             moves.shown = paid
             moves.shift = waiting + paid + earlier
@@ -1128,8 +1128,8 @@ class RunningMovesTest {
 
     /** Under Still the step-back is the Back's 120 ms crossfade: no surface moves. */
     @Test fun thePaidStepBackUnderStillIsACrossfade() {
-        moves.shift = listOf(moves.sales[0], moves.sale.copy(phase = SalePhase.Paid, paidAt = 1_100), moves.sales[2])
-        moves.shown = moves.sale.copy(phase = SalePhase.Paid, paidAt = 1_100)
+        moves.shift = listOf(moves.sales[0], moves.sale.copy(phase = SalePhase.PAID, paidAt = 1_100), moves.sales[2])
+        moves.shown = moves.sale.copy(phase = SalePhase.PAID, paidAt = 1_100)
         moves.start(Screen.Sale("a1"), dark = false, Motion.Still)
         val frames = moves.run(Screen.Till, groundKey = "sale/a1")
         assertTrue(frames.all { it.ground == null }, "no ground moves under Still")
@@ -1149,7 +1149,7 @@ class RunningMovesTest {
 
     private fun tickInLastShare(dark: Boolean) {
         moves.start(Screen.Sale("a1"), dark)
-        val frames = moves.runFor(FOLD_MS) { moves.shown = moves.sale.copy(phase = SalePhase.Paid, paidAt = 1_100) }
+        val frames = moves.runFor(FOLD_MS) { moves.shown = moves.sale.copy(phase = SalePhase.PAID, paidAt = 1_100) }
         val card = frames.first().codes.first()
         val rest = frames.last().hero ?: error("no hero at rest")
         val failures = mutableListOf<String>()

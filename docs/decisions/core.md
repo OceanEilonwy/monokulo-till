@@ -693,3 +693,15 @@ on from 1; the Android app's own choices are in [android.md](android.md).
      `MainActivity` wrote "Back to the sale". The panel's own "Back to the
      code" and "Show the code" headings stay in its screen, as words
      written once. iOS's order screen has neither bar nor labelled back.
+108. **The on-device tests' sales are the engine's fixtures.**
+     `till_app::preview_sales` exports `PreviewSale` (with UniFFI
+     defaults: $8.40 of this till's on Square, waiting, unless the test
+     says otherwise; the design's sample receipt behind `receipt: true`),
+     `PreviewPhase`, `preview_sales_json` (the saved shift's JSON, written
+     by `shift_json::encode`), `preview_sale_live` and
+     `preview_phase_step`. Android's `SavedShift.kt`, a 124-line hand copy
+     of `TillSale`'s serde schema, is gone, along with the app's
+     kotlinx-serialization plugin and test dependency, which only it used.
+     `CustomerNameTitleTest` stays: besides the wording (which
+     `sale_text`'s tests cover), it checks that the bar is one TalkBack
+     heading, which only a device can.

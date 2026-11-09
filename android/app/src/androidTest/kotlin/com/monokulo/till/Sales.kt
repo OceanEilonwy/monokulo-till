@@ -21,6 +21,11 @@ import com.monokulo.till.ui.SaleFace
 import com.monokulo.till.ui.TillActions
 import com.monokulo.till.engine.Money
 import uniffi.till_app.Platform
+import uniffi.till_app.PreviewPhase
+import uniffi.till_app.PreviewSale
+import uniffi.till_app.previewPhaseStep
+import uniffi.till_app.previewSaleLive
+import uniffi.till_app.previewSalesJson
 import uniffi.till_app.Pos
 import uniffi.till_app.TillPreview
 import uniffi.till_app.Update
@@ -33,26 +38,26 @@ import uniffi.till_screens.ShiftEntry
 import uniffi.till_screens.ShiftFilter
 import uniffi.till_screens.ShiftView
 
+/*
+ * The on-device tests' sales are the engine's own fixtures (`till_app::preview_sales`, docs/decisions/core.md 108):
+ * a [PreviewSale] the engine turns into the saved shift's JSON, so they can't drift from `TillSale`'s schema.
+ */
+typealias TillSale = PreviewSale
+typealias SalePhase = PreviewPhase
+
+/** Whether [this] sale's code is up, as the engine's `TillSale::live` says. */
+val PreviewSale.live: Boolean get() = previewSaleLive(this)
+
+/** Which of the ring's four steps the phase is at, as the engine's `sale_text::step` counts: 0 once it ended unpaid. */
+val PreviewPhase.step: Int get() = previewPhaseStep(this).toInt()
+
 /** A sale of this till's for the screens under test, live until [expiresAt] unless [phase] says otherwise. */
 fun testSale(
     id: String,
-    phase: SalePhase = SalePhase.Waiting,
+    phase: SalePhase = SalePhase.WAITING,
     expiresAt: Long = Long.MAX_VALUE / 2,
     paidAt: Long? = null,
-) = TillSale(
-    orderId = id,
-    amount = "8.40",
-    currency = "USD",
-    reference = id,
-    code = PaymentCode("monero:4abc?tx_amount=0.0336&tx_description=$id", hasReceipt = false),
-    phase = phase,
-    expiresAt = expiresAt,
-    xmr = "0.0336",
-    address = "4abc",
-    found = FoundSale("p_$id", 840, "USD", id, "o", "2026-10-22T22:50:00Z", null),
-    createdAt = 1_761_000_000,
-    paidAt = paidAt,
-)
+) = PreviewSale(orderId = id, phase = phase, expiresAt = expiresAt, paidAt = paidAt)
 
 /**
  * [content] in the till's theme with [motion] whatever the emulator's
@@ -65,25 +70,6 @@ fun Till(motion: Motion = Motion.Full, dark: Boolean? = null, content: @Composab
     // this till reads "Front · this till", not as one rung up at a point of sale the till has changed from.
     CompositionLocalProvider(LocalMotion provides motion, LocalPointOfSale provides PosMark.SQUARE, content = content)
 }
-
-/** The design's order: 15 items on 8 lines, so the sale's card shows three and "+5 more". */
-fun sampleReceipt() = Receipt(
-    receipt = Receipt.Info("k4Rt", "2026-10-22T16:07:00-07:00"),
-    merchant = Receipt.Merchant("The Bean Room", "US"),
-    lineItems = listOf(
-        Receipt.LineItem("Flat white", 2.0, 4.5, 9.0),
-        Receipt.LineItem("Oat latte", 1.0, 5.25, 5.25),
-        Receipt.LineItem("Almond croissant", 3.0, 3.75, 11.25),
-        Receipt.LineItem("Banana bread", 1.0, 4.5, 4.5),
-        Receipt.LineItem("Cold brew", 2.0, 5.0, 10.0),
-        Receipt.LineItem("Chai", 1.0, 4.75, 4.75),
-        Receipt.LineItem("Choc chip cookie", 4.0, 2.5, 10.0),
-        Receipt.LineItem("House blend beans, 250 g", 1.0, 18.0, 18.0),
-    ),
-    tax = Receipt.Tax(listOf(Receipt.TaxLine(0.08875, 6.46))),
-    total = 79.21,
-    currency = "USD",
-)
 
 /** Money written as the device writes it, for the engine's previews; it keeps nothing. */
 object TestPlatform : Platform {
@@ -106,7 +92,7 @@ fun preview(
     refunding: Boolean = false,
     refundProblem: String? = null,
 ) = TillPreview(
-    salesJson = shiftJson(sales),
+    salesJson = previewSalesJson(sales),
     now = now,
     till = Pos.SQUARE,
     store = "Corner shop",

@@ -51,7 +51,7 @@ class CodeCardTest {
 
     @Test
     fun paidTheFootSaysWhatCameIn() {
-        val sale = testSale("a", SalePhase.Paid, paidAt = 990)
+        val sale = testSale("a", SalePhase.PAID, paidAt = 990)
         val now = mutableLongStateOf(1_000)
         compose.setContent { Till { StatusFoot(saleFace(sale).view) } }
         compose.onNodeWithText("Paid", useUnmergedTree = true).assertExists()

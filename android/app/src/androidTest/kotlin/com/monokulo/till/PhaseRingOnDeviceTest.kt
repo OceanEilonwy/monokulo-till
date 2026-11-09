@@ -39,7 +39,7 @@ class PhaseRingOnDeviceTest {
     /** The closed ring is the theme's paid green: the light theme's here, which these rings are drawn in. */
     private val paid = LightTokens.paid
 
-    private var phase by mutableStateOf(SalePhase.Waiting)
+    private var phase by mutableStateOf(SalePhase.WAITING)
     private var confirmations by mutableStateOf<Int?>(null)
     private val required = 10
 
@@ -79,7 +79,7 @@ class PhaseRingOnDeviceTest {
 
     @Test
     fun aRingThatAppearsAtSeenIsAlreadyItsShortGreenArc() {
-        ring(Motion.Full, SalePhase.Seen, have = 0)
+        ring(Motion.Full, SalePhase.SEEN, have = 0)
         val image = frame()
         assertColour(paid, image.at(20.0), "0.12 of the ring, green, on the first frame")
         assertColour(track, image.at(90.0), "and no more")
@@ -87,7 +87,7 @@ class PhaseRingOnDeviceTest {
 
     @Test
     fun waitingIsAStillOrangeQuarter() {
-        ring(Motion.Full, SalePhase.Waiting)
+        ring(Motion.Full, SalePhase.WAITING)
         val first = frame()
         assertColour(fill, first.at(60.0), "the quarter in the fill")
         compose.mainClock.advanceTimeBy(800)
@@ -98,7 +98,7 @@ class PhaseRingOnDeviceTest {
 
     @Test
     fun aConfirmationLengthensTheArcOnTheSweep() {
-        ring(Motion.Full, SalePhase.Confirming, have = 1)
+        ring(Motion.Full, SalePhase.CONFIRMING, have = 1)
         confirmations = 4
         // A whole turn: the arc is back at the top, and the 600 ms sweep long done.
         compose.mainClock.advanceTimeBy(Motion.SPIN_MS.toLong())
@@ -109,7 +109,7 @@ class PhaseRingOnDeviceTest {
 
     @Test
     fun theArcTurnsWhileConfirming() {
-        ring(Motion.Full, SalePhase.Confirming, have = 4)
+        ring(Motion.Full, SalePhase.CONFIRMING, have = 4)
         assertColour(paid, frame().at(90.0), "from the top to 170 degrees")
         compose.mainClock.advanceTimeBy(Motion.SPIN_MS / 2L)
         val half = frame()
@@ -119,9 +119,9 @@ class PhaseRingOnDeviceTest {
 
     @Test
     fun paidClosesTheRingInThePaidColourAndStops() {
-        ring(Motion.Full, SalePhase.Confirming, have = 9)
+        ring(Motion.Full, SalePhase.CONFIRMING, have = 9)
         compose.mainClock.advanceTimeBy(300)
-        phase = SalePhase.Paid
+        phase = SalePhase.PAID
         compose.mainClock.advanceTimeBy(2_000)
         val image = frame()
         for (degrees in listOf(45.0, 135.0, 225.0, 315.0)) assertColour(paid, image.at(degrees), "closed at $degrees")
@@ -147,14 +147,14 @@ class PhaseRingOnDeviceTest {
 
     @Test
     fun seenAndTheNextSaleNeverDrawTheRingInAMixOfTheirColours() {
-        ring(Motion.Full, SalePhase.Waiting)
-        phase = SalePhase.Confirming
+        ring(Motion.Full, SalePhase.WAITING)
+        phase = SalePhase.CONFIRMING
         confirmations = 1
         assertNoMixedHue("turning green on the way")
-        phase = SalePhase.Paid
+        phase = SalePhase.PAID
         assertNoMixedHue("closing on paid")
         assertColour(paid, frame().at(45.0), "closed in the paid colour")
-        phase = SalePhase.Waiting
+        phase = SalePhase.WAITING
         confirmations = null
         assertNoMixedHue("the next sale's ring")
         assertColour(fill, frame().at(45.0), "back to the fill")
@@ -162,7 +162,7 @@ class PhaseRingOnDeviceTest {
 
     @Test
     fun underStillMotionTheArcNeverTurnsAndALengthIsDrawnOnTheNextFrame() {
-        ring(Motion.Still, SalePhase.Confirming, have = 1)
+        ring(Motion.Still, SalePhase.CONFIRMING, have = 1)
         confirmations = 4
         compose.mainClock.advanceTimeByFrame()
         compose.mainClock.advanceTimeByFrame()

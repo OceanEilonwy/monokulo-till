@@ -41,7 +41,7 @@ class ReceiptFoldTest {
     @get:Rule
     val compose = createComposeRule()
 
-    private val sale = testSale("a1", expiresAt = 1_600).copy(receipt = sampleReceipt())
+    private val sale = testSale("a1", expiresAt = 1_600).copy(receipt = true)
 
     /** The screen's clock, held: a sale's countdown never runs out (and its ring never spins) under the test. */
     private val now = mutableLongStateOf(1_000)
@@ -150,7 +150,7 @@ class ReceiptFoldTest {
 
     @Test
     fun onAPhoneASalesPageFoldsItsCardAndATapOpensIt() {
-        val paid = sale.copy(phase = SalePhase.Paid, paidAt = 990)
+        val paid = sale.copy(phase = SalePhase.PAID, paidAt = 990)
         compose.mainClock.autoAdvance = false
         compose.setContent {
             DeviceConfigurationOverride(DeviceConfigurationOverride.ForcedSize(DpSize(412.dp, 760.dp))) {

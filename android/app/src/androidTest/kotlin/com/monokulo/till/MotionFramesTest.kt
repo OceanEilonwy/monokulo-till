@@ -55,7 +55,7 @@ class MotionFramesTest {
     @get:Rule
     val compose = createComposeRule()
 
-    private val sale = testSale("a1", expiresAt = 1_600).copy(receipt = sampleReceipt())
+    private val sale = testSale("a1", expiresAt = 1_600).copy(receipt = true)
     private val sales = listOf(testSale("z0", expiresAt = 1_600), sale, testSale("b2", expiresAt = 1_600))
     private val now = mutableLongStateOf(1_000)
     private lateinit var scope: CoroutineScope
@@ -259,7 +259,7 @@ class MotionFramesTest {
     fun aSalePaidOnScreenClosesItsCodeIntoTheHero() {
         stage(Screen.Sale("a1"))
         val card = bounds("Payment code for")
-        shown = sale.copy(phase = SalePhase.Paid, paidAt = 1_100)
+        shown = sale.copy(phase = SalePhase.PAID, paidAt = 1_100)
         compose.mainClock.advanceTimeByFrame()
         val widths = mutableListOf<Float>()
         val failures = mutableListOf<String>()
@@ -288,7 +288,7 @@ class MotionFramesTest {
     @Test
     fun aSaleEndedOnScreenClosesItsCodeIntoTheEndedHero() {
         stage(Screen.Sale("a1"))
-        shown = sale.copy(phase = SalePhase.Cancelled)
+        shown = sale.copy(phase = SalePhase.CANCELLED)
         compose.mainClock.advanceTimeByFrame()
         val failures = mutableListOf<String>()
         var at = 0L
@@ -369,7 +369,7 @@ class MotionFramesTest {
     @Test
     fun thePaidFoldLandsOnThePageAsItIsUnderStill() {
         stage(Screen.Sale("a1"))
-        shown = sale.copy(phase = SalePhase.Paid, paidAt = 1_100)
+        shown = sale.copy(phase = SalePhase.PAID, paidAt = 1_100)
         compose.mainClock.advanceTimeBy(1_500)
         assertSameAsStill("paid")
     }

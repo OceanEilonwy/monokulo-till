@@ -205,19 +205,19 @@ class OverlayFramesTest {
     @Test
     fun thePaidFold() {
         panel(raised = 1f)
-        seek("paid-fold") { sale = testSale("f1", SalePhase.Paid, expiresAt = expires) }
+        seek("paid-fold") { sale = testSale("f1", SalePhase.PAID, expiresAt = expires) }
     }
 
     @Test
     fun theNextSaleGrowingOutOfThePaidTick() {
-        sale = testSale("f1", SalePhase.Paid, expiresAt = expires)
+        sale = testSale("f1", SalePhase.PAID, expiresAt = expires)
         panel(raised = 1f)
         seek("next-sale", opaqueFrom = 1) { sale = testSale("f2", expiresAt = expires) }
     }
 
     @Test
     fun theTabletsCodeComingBackFromTheOrder() {
-        sale = sale.copy(receipt = sampleReceipt())
+        sale = sale.copy(receipt = true)
         page = PanelPage.Order
         panel(raised = 1f, tablet = true)
         compose.mainClock.advanceTimeBy(1_000)
@@ -226,7 +226,7 @@ class OverlayFramesTest {
 
     @Test
     fun thePhonesCodeComingBackFromTheOrderUnderStill() {
-        sale = sale.copy(receipt = sampleReceipt())
+        sale = sale.copy(receipt = true)
         page = PanelPage.Order
         panel(raised = 1f, presets = Motion.Still)
         compose.mainClock.advanceTimeBy(1_000)
@@ -237,7 +237,7 @@ class OverlayFramesTest {
     @Test
     fun theOrderLineArrivingAfterTheSale() {
         panel(raised = 1f)
-        seek("late-order", opaqueFrom = 1) { sale = sale.copy(receipt = sampleReceipt()) }
+        seek("late-order", opaqueFrom = 1) { sale = sale.copy(receipt = true) }
     }
 
     @Test
@@ -331,7 +331,7 @@ class OverlayFramesTest {
         val card = surfaceWidth(window())
         val hero = (88 * density).toInt()
         assertTrue(abs(card - 264 * density) < 6 * density, "at rest the surface is the code's card: $card px")
-        sale = testSale("f1", SalePhase.Paid, expiresAt = expires)
+        sale = testSale("f1", SalePhase.PAID, expiresAt = expires)
         val widths = mutableListOf<Int>()
         repeat(45) {
             compose.mainClock.advanceTimeByFrame()
@@ -366,7 +366,7 @@ class OverlayFramesTest {
      */
     @Test
     fun theNextSalesHeaderNeverMeetsTheLastSalesAmount() {
-        val paid = testSale("f1", SalePhase.Paid, expiresAt = expires)
+        val paid = testSale("f1", SalePhase.PAID, expiresAt = expires)
         // A long reference, so the next header reaches past where the last one's words end and its ink is its own there.
         val next = testSale("f2", expiresAt = expires).copy(amount = "9.80", xmr = "0.0392", reference = "f2 Back counter tab")
         sale = paid

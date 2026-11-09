@@ -159,7 +159,7 @@ class SwipeToCloseTest {
 
     @Test
     fun aSwipeUpTheRowsStillScrollsTheList() {
-        val sales = List(24) { testSale("p$it", SalePhase.Paid, paidAt = 990) }.let { listOf(testSale("w1", expiresAt = 1_900)) + it }
+        val sales = List(24) { testSale("p$it", SalePhase.PAID, paidAt = 990) }.let { listOf(testSale("w1", expiresAt = 1_900)) + it }
         show(sales)
         val before = compose.onNodeWithText(title(sales[3])).fetchSemanticsNode().boundsInRoot.top
         row(sales[0]).performTouchInput { swipeUp() }
@@ -173,7 +173,7 @@ class SwipeToCloseTest {
 
     @Test
     fun onlyARowWhosePageHasTheXSwipes() {
-        val paid = testSale("p1", SalePhase.Paid, paidAt = 990)
+        val paid = testSale("p1", SalePhase.PAID, paidAt = 990)
         show(listOf(testSale("w1", expiresAt = 1_900), paid))
         swipe(paid, to = 0.1f)
         compose.waitForIdle()

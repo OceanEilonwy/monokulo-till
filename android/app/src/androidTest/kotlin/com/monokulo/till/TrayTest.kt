@@ -58,7 +58,7 @@ class TrayTest {
 
     /** [n] live sales, newest first ("w<n>" to "w1"), then a paid one and an expired one. */
     private fun busy(n: Int) = List(n) { testSale("w${n - it}", expiresAt = 1_600) } +
-        listOf(testSale("p1", SalePhase.Paid, paidAt = 900), testSale("e1", SalePhase.Expired, expiresAt = 900))
+        listOf(testSale("p1", SalePhase.PAID, paidAt = 900), testSale("e1", SalePhase.EXPIRED, expiresAt = 900))
 
     private fun title(sale: TillSale) = rowTitle(sale)
 
@@ -129,7 +129,7 @@ class TrayTest {
     fun noLiveSaleNoTrayAndNoHeaders() {
         show(busy(0))
         assertTrue(!exists(TRAY_HEADER, substring = true) && !exists(EARLIER) && !folds())
-        assertTrue(shows(testSale("p1", SalePhase.Paid, paidAt = 900)), "the list reads as it always has")
+        assertTrue(shows(testSale("p1", SalePhase.PAID, paidAt = 900)), "the list reads as it always has")
     }
 
     @Test
@@ -178,7 +178,7 @@ class TrayTest {
         val w2 = start[1]
         val from = top(w2)
         compose.mainClock.autoAdvance = false
-        val paid = testSale("w2", SalePhase.Paid, paidAt = 1_000)
+        val paid = testSale("w2", SalePhase.PAID, paidAt = 1_000)
         // The till keeps the shift newest first by when each sale started: w2 stays where it was in the list.
         sales = listOf(start[0], paid, start[2]) + start.drop(3)
         compose.mainClock.advanceTimeByFrame()
@@ -201,7 +201,7 @@ class TrayTest {
         compose.waitForIdle()
         assertTrue(exists("Waiting for payment, 1 sale"))
         compose.mainClock.autoAdvance = false
-        sales = listOf(testSale("w1", SalePhase.Paid, paidAt = 1_000)) + start.drop(1)
+        sales = listOf(testSale("w1", SalePhase.PAID, paidAt = 1_000)) + start.drop(1)
         compose.mainClock.advanceTimeByFrame()
         compose.mainClock.advanceTimeBy(1_000)
         assertTrue(!exists(TRAY_HEADER, substring = true) && !exists(EARLIER))
@@ -303,7 +303,7 @@ class TrayTest {
     @Test
     fun aDragUpFromTheStackScrollsTheList() {
         val sales = busy(4)
-        show(sales + List(15) { testSale("q$it", SalePhase.Paid, paidAt = 800L - it) })
+        show(sales + List(15) { testSale("q$it", SalePhase.PAID, paidAt = 800L - it) })
         val from = top(sales[0])
         val far = with(compose.density) { 120.dp.toPx() }
         compose.onNodeWithContentDescription("Show 1 more waiting sale").performTouchInput { swipeUp(centerY, centerY - far, durationMillis = 500) }
@@ -319,7 +319,7 @@ class TrayTest {
     @Test
     fun foldingAScrolledTrayKeepsTheFoldRowWhereItIs() {
         // A shift long enough under the tray that the list can hold the fold row anywhere: the paid sales of the day.
-        show(busy(21) + List(15) { testSale("q$it", SalePhase.Paid, paidAt = 800L - it) })
+        show(busy(21) + List(15) { testSale("q$it", SalePhase.PAID, paidAt = 800L - it) })
         compose.onNodeWithContentDescription("Show 18 more waiting sales").performClick()
         compose.waitForIdle()
         compose.onNode(hasScrollToIndexAction()).performScrollToKey("w6")
@@ -344,7 +344,7 @@ class TrayTest {
      */
     @Test
     fun aFilterChosenAfterAKeptFoldStillMovesItsRows() {
-        val sales = busy(21) + List(15) { testSale("q$it", SalePhase.Paid, paidAt = 800L - it) }
+        val sales = busy(21) + List(15) { testSale("q$it", SalePhase.PAID, paidAt = 800L - it) }
         show(sales)
         compose.onNodeWithContentDescription("Show 18 more waiting sales").performClick()
         compose.waitForIdle()

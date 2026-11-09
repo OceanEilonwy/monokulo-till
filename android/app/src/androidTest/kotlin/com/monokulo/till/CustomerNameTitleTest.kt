@@ -24,7 +24,7 @@ class CustomerNameTitleTest {
     fun aLiveSaleIsTitledByTheCustomer() = titled(testSale("m2Qe").copy(customerName = "Ana López"))
 
     @Test
-    fun aPaidSaleIsTitledByTheCustomer() = titled(testSale("m2Qe", phase = SalePhase.Paid, paidAt = 1_761_000_100).copy(customerName = "Ana López"))
+    fun aPaidSaleIsTitledByTheCustomer() = titled(testSale("m2Qe", phase = SalePhase.PAID, paidAt = 1_761_000_100).copy(customerName = "Ana López"))
 
     @Test
     fun aSaleNamingNoOneKeepsItsNumber() {

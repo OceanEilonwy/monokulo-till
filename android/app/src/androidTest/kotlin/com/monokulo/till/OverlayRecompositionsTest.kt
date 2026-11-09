@@ -31,7 +31,7 @@ class OverlayRecompositionsTest {
     private val recompositions = Recompositions()
     private val actions = PanelActions({}, {}, {}, {}, {}, {}, {}, {})
     private val expires = System.currentTimeMillis() / 1000 + 15 * 60
-    private var sale by mutableStateOf(testSale("r1", SalePhase.Confirming, expiresAt = expires))
+    private var sale by mutableStateOf(testSale("r1", SalePhase.CONFIRMING, expiresAt = expires))
     private var page by mutableStateOf<PanelPage>(PanelPage.Code)
     private lateinit var motion: PanelMotion
 
@@ -81,7 +81,7 @@ class OverlayRecompositionsTest {
     @Test
     fun thePaidFold() {
         panel(raised = 1f)
-        assertNothingRecomposesMidMove("paid fold") { sale = testSale("r1", SalePhase.Paid, expiresAt = expires) }
+        assertNothingRecomposesMidMove("paid fold") { sale = testSale("r1", SalePhase.PAID, expiresAt = expires) }
     }
 
     @Test
@@ -93,7 +93,7 @@ class OverlayRecompositionsTest {
     @Test
     fun theLateOrderLine() {
         panel(raised = 1f)
-        assertNothingRecomposesMidMove("late order line") { sale = sale.copy(receipt = sampleReceipt()) }
+        assertNothingRecomposesMidMove("late order line") { sale = sale.copy(receipt = true) }
     }
 
     private var look by mutableStateOf(BubbleLook.LIT)

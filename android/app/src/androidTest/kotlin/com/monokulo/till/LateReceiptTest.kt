@@ -40,14 +40,14 @@ class LateReceiptTest {
     fun aLateReceiptFadesItsCardInAndRecomposesNeitherTheCodeNorThePill() {
         val rung = testSale("a1", expiresAt = 1_600)
         // As Square first tells it: the device it was rung up on, no receipt yet.
-        var sale by mutableStateOf(rung.copy(found = null, receipt = null, deviceName = "Register 2"))
+        var sale by mutableStateOf(rung.copy(found = false, receipt = false, deviceName = "Register 2"))
         val now = mutableLongStateOf(1_000)
         compose.setContent { Till { SaleScreen(saleFace(sale, now = now.longValue), noActions) } }
         compose.waitForIdle()
         compose.onNodeWithText("From Register 2").assertExists()
         compose.mainClock.autoAdvance = false
 
-        sale = rung.copy(receipt = sampleReceipt())
+        sale = rung.copy(receipt = true)
         compose.mainClock.advanceTimeByFrame()
         compose.mainClock.advanceTimeByFrame()
         // The arrival itself recomposes what shows the receipt; the fade's frames recompose nothing.

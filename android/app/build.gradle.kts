@@ -1,7 +1,6 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
-    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -106,7 +105,6 @@ dependencies {
     testImplementation(libs.kotlin.test.junit)
     testImplementation(libs.junit)
     // The on-device tests write their sales as a saved shift for the engine's previews.
-    androidTestImplementation(libs.kotlinx.serialization.json)
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.kotlin.test.junit)
     androidTestImplementation(libs.compose.ui.test.junit4)

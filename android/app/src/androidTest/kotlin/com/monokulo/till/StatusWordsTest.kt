@@ -24,7 +24,7 @@ class StatusWordsTest {
         compose.waitForIdle()
         compose.mainClock.autoAdvance = false
 
-        sale = sale.copy(phase = SalePhase.Seen)
+        sale = sale.copy(phase = SalePhase.SEEN)
         compose.mainClock.advanceTimeByFrame()
         compose.mainClock.advanceTimeBy(100)
         compose.onAllNodesWithText("Waiting for payment", useUnmergedTree = true).assertCountEquals(1)
@@ -42,7 +42,7 @@ class StatusWordsTest {
         compose.waitForIdle()
         compose.mainClock.autoAdvance = false
 
-        sale = sale.copy(phase = SalePhase.Seen)
+        sale = sale.copy(phase = SalePhase.SEEN)
         compose.mainClock.advanceTimeByFrame()
         compose.mainClock.advanceTimeBy(150)
         compose.onAllNodesWithText("Waiting for payment", useUnmergedTree = true).assertCountEquals(0)

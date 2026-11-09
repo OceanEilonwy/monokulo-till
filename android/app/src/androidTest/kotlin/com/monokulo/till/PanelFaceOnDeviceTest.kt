@@ -38,17 +38,14 @@ class PanelFaceOnDeviceTest {
     private fun sale(id: String, phase: SalePhase) = TillSale(
         orderId = id,
         amount = "79.21",
-        currency = "USD",
         reference = "k4Rt",
-        code = PaymentCode("monero:4abc?tx_amount=0.31684&id=$id", hasReceipt = false),
         phase = phase,
         expiresAt = System.currentTimeMillis() / 1000 + 600,
         xmr = "0.31684",
-        address = "4abc",
-        found = FoundSale("p1", 7921, "USD", "k4Rt", "ord", "2026-10-22T23:07:00Z", null),
+        createdAt = 0,
     )
 
-    private var shown by mutableStateOf(sale("1", SalePhase.Waiting))
+    private var shown by mutableStateOf(sale("1", SalePhase.WAITING))
 
     private val actions = PanelActions({}, {}, {}, {}, {}, {}, {}, {})
 
@@ -72,7 +69,7 @@ class PanelFaceOnDeviceTest {
     fun theCodeIsItsDesignedSizeAtRestAndOnEveryFrameOfTheFold() {
         panel(wide = false)
         assertCodeAt(264)
-        shown = sale("1", SalePhase.Paid)
+        shown = sale("1", SalePhase.PAID)
         repeat(30) {
             compose.mainClock.advanceTimeBy(20)
             assertCodeAt(264)
@@ -80,7 +77,7 @@ class PanelFaceOnDeviceTest {
         compose.mainClock.advanceTimeBy(1_000)
         compose.onNodeWithText("Paid").assertExists()
         compose.onNodeWithText("Done").assertExists()
-        shown = sale("2", SalePhase.Waiting)
+        shown = sale("2", SalePhase.WAITING)
         repeat(30) {
             compose.mainClock.advanceTimeBy(20)
             assertCodeAt(264)
@@ -102,7 +99,7 @@ class PanelFaceOnDeviceTest {
     fun theFoldStartsOnThePaymentsFrameAndTheStatusRowNeverSaysPaid() {
         panel(wide = false)
         val rest = slotHeight()
-        shown = sale("1", SalePhase.Paid)
+        shown = sale("1", SalePhase.PAID)
         var folding = -1
         repeat(40) { frame ->
             compose.mainClock.advanceTimeByFrame()
@@ -116,9 +113,9 @@ class PanelFaceOnDeviceTest {
     @Test
     fun theNextSalesWordsAreNeverClippedToTheOldWordsWidth() {
         panel(wide = false)
-        shown = sale("1", SalePhase.Paid)
+        shown = sale("1", SalePhase.PAID)
         compose.mainClock.advanceTimeBy(2_000)
-        shown = sale("2", SalePhase.Waiting)
+        shown = sale("2", SalePhase.WAITING)
         repeat(40) { frame ->
             compose.mainClock.advanceTimeByFrame()
             compose.onAllNodesWithText("Waiting for payment", useUnmergedTree = true).fetchSemanticsNodes().forEach { words ->
