@@ -29,6 +29,17 @@ fi
 export IPHONEOS_DEPLOYMENT_TARGET=26.7
 
 cd "$repo"
+# Cargo doesn't rebuild compiled dependencies when the deployment target
+# changes, and the linker then warns that their objects are for a newer iOS
+# than the app's. So the iOS targets' builds start over when it changes.
+stamp="$repo/target/ios-deployment-target"
+if [[ "$(cat "$stamp" 2>/dev/null)" != "$IPHONEOS_DEPLOYMENT_TARGET" ]]; then
+    for target in aarch64-apple-ios-sim aarch64-apple-ios; do
+        rm -rf "$repo/target/$target"
+    done
+    mkdir -p "$repo/target"
+    echo "$IPHONEOS_DEPLOYMENT_TARGET" > "$stamp"
+fi
 for target in "${targets[@]}"; do
     cargo build --locked --release -p till-ffi --target "$target"
 done

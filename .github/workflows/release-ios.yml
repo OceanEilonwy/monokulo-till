@@ -123,9 +123,14 @@ jobs:
           rustup toolchain install stable --profile minimal
           rustup default stable
           rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+      # The core's deployment target, in the cache's key: a cache of
+      # dependencies built for another iOS would link with warnings.
+      - name: Deployment target
+        id: deployment
+        run: echo "target=$(sed -n 's/^export IPHONEOS_DEPLOYMENT_TARGET=//p' ios/Scripts/build-core.sh)" >> "$GITHUB_OUTPUT"
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ios-release
+          shared-key: ios-release-${{ steps.deployment.outputs.target }}
       - name: XcodeGen
         run: brew install xcodegen && xcodegen --version
       # Both slices: the device's for the archive, the simulator's so the
