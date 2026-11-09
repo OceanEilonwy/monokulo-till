@@ -8,12 +8,15 @@ import com.monokulo.till.overlay.haloRadius
 import com.monokulo.till.ui.Fixed
 import com.monokulo.till.ui.LensLook
 import com.monokulo.till.ui.MarkGeometry
+import com.monokulo.till.ui.TillGeometry
 import com.monokulo.till.ui.Motion
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 /**
- * The mark's rings, border arc and greens (`docs/motion.md` §12.5, §13.5):
+ * The mark's rings, the bubble's terminal and greens (`docs/motion.md` §12.5, §13.5):
  * the facets' list order is the lens's rings from the core out, which the
  * bubble's spread colours one after another, so the list must stay the
  * SVG's 1 + 6 + 12 + 12 and each ring one shade of it.
@@ -38,14 +41,6 @@ class MarkGeometryTest {
     }
 
     @Test
-    fun `the chasing segment is the canvas's 30 percent of the border, from 12 o'clock`() {
-        assertEquals(0.30f, MarkGeometry.ARC_SHARE)
-        assertEquals(-90f, MarkGeometry.ARC_START, "12 o'clock in the draw's angles, clockwise from 3")
-        val border = 2 * Math.PI * MarkGeometry.BORDER_RADIUS
-        assertEquals(34.0, border * MarkGeometry.ARC_SHARE, 0.1, "34 of the border's 113.1 u, as the canvas's dash")
-    }
-
-    @Test
     fun `the green lens is the fixed greens, the core darkest`() {
         assertEquals(Fixed.Paid, LensLook.Green[0])
         assertEquals(Fixed.PaidMid, LensLook.Green[1])
@@ -54,18 +49,49 @@ class MarkGeometryTest {
     }
 
     /**
-     * The bubble's 56 dp disc round its 46 dp mark: the border's outer edge,
-     * in the mark's 64-unit box scaled 1.42, leaves about 7 dp of the disc
-     * (the design's board 7), and the pulse's halo, 16 dp past the disc at
-     * its widest, still ends inside the bubble's window.
+     * The bubble's 56 dp disc is the canvas's 100-unit disc: the screen's
+     * border, its outer edge (the 24..72 square and half its stroke)
+     * scaled 1.22, leaves about 10 dp of the disc beside it, and the
+     * pulse's halo, 16 dp past the disc at its widest, still ends inside the
+     * bubble's window.
      */
     @Test
-    fun `the bubble's rim is about 7 dp and its halo fits its window`() {
-        val edge = BubbleMark.value / 64f * 1.42f * (MarkGeometry.BORDER_RADIUS + MarkGeometry.BORDER_STROKE / 2)
+    fun `the bubble's rim is about 10 dp and its halo fits its window`() {
+        assertEquals(BubbleSize, BubbleMark, "the mark fills the disc: the canvas draws the screen small in it")
+        val edge = BubbleMark.value / TillGeometry.BOX * TillGeometry.SCALE * (24f + TillGeometry.BORDER_STROKE / 2)
         val rim = BubbleSize.value / 2 - edge
-        assertEquals(7f, rim, 0.5f, "the disc round the border is $rim dp")
+        assertEquals(9.9f, rim, 0.5f, "the disc beside the border is $rim dp")
         assertEquals(Panel.BUBBLE_WINDOW_DP.toFloat(), BubbleSize.value + 2 * BubblePadding.value, "the window is the disc and its padding")
         val halo = haloRadius(BubbleSize.value, BubblePadding.value, p = 1f)
         assertEquals(Panel.BUBBLE_WINDOW_DP / 2f, halo, "the halo's widest ring touches the window's edge, unclipped")
+    }
+
+    /** The canvas's states on Till's: idle and waiting fill nothing, seen a third, confirming two thirds, paid the whole border. */
+    @Test
+    fun `the border fills a third a step, the sale ring's steps`() {
+        assertEquals(0, TillGeometry.steps(idle = true, paid = false, step = 3), "idle shows no progress whatever the sale")
+        assertEquals(0, TillGeometry.steps(idle = false, paid = false, step = 1), "waiting")
+        assertEquals(0, TillGeometry.steps(idle = false, paid = false, step = 0), "a sale that ended unpaid but still lit")
+        assertEquals(1, TillGeometry.steps(idle = false, paid = false, step = 2), "seen")
+        assertEquals(2, TillGeometry.steps(idle = false, paid = false, step = 3), "confirming")
+        assertEquals(TillGeometry.STEPS, TillGeometry.steps(idle = false, paid = true, step = 3), "paid, the look says so before the sale's step catches up")
+        assertEquals(TillGeometry.STEPS, TillGeometry.steps(idle = false, paid = false, step = 4))
+    }
+
+    @Test
+    fun `the orange segment runs only while the code waits for its scan`() {
+        assertTrue(TillGeometry.runs(idle = false, paid = false, step = 1))
+        assertTrue(TillGeometry.runs(idle = false, paid = false, step = 0))
+        assertFalse(TillGeometry.runs(idle = true, paid = false, step = 1), "idle")
+        assertFalse(TillGeometry.runs(idle = false, paid = false, step = 2), "seen: the fill says so")
+        assertFalse(TillGeometry.runs(idle = false, paid = false, step = 3), "confirming")
+        assertFalse(TillGeometry.runs(idle = false, paid = true, step = 4), "paid")
+    }
+
+    @Test
+    fun `the screen is the icon's, the border its own rounded square`() {
+        assertEquals(1.22f, TillGeometry.SCALE)
+        assertEquals(0.22f, TillGeometry.RUN_SHARE)
+        assertTrue(TillGeometry.BORDER.startsWith("M48,27H"), "the border starts at 12 o'clock and runs clockwise")
     }
 }

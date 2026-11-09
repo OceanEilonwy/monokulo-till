@@ -33,11 +33,11 @@ struct TillLiveActivity: Widget {
                     ExpandedBottom(state: context.state, location: context.attributes.location)
                 }
             } compactLeading: {
-                PhaseGlyph(phase: context.state.phase, size: 22)
+                PhaseGlyph(phase: context.state.phase, size: 22, form: .round)
             } compactTrailing: {
                 CompactTrailing(state: context.state)
             } minimal: {
-                PhaseGlyph(phase: context.state.phase, size: 22)
+                PhaseGlyph(phase: context.state.phase, size: 22, form: .round)
             }
             .widgetURL(TillActivityLink.url(orderId: context.state.orderId))
             .keylineTint(WidgetPalette.link)
@@ -45,23 +45,22 @@ struct TillLiveActivity: Widget {
     }
 }
 
-/// The phase's glyph: the mark while watching or waiting, the tick once
-/// paid, the clock once the code ran out.
+/// The phase's glyph: Till's terminal while watching, waiting or paid (the
+/// round form in the island's circles, the square one where it has room),
+/// the clock once the code ran out. [dark] is the charcoal body: the island
+/// is always dark, the lock screen follows the device.
 struct PhaseGlyph: View {
+    enum Form {
+        case round, square
+    }
+
     let phase: TillActivityAttributes.ContentState.Phase
     var size: CGFloat
-    var ring: Color = WidgetPalette.cream
+    var form: Form = .square
+    var dark: Bool = true
 
     var body: some View {
         switch phase {
-        case .paid:
-            Image(systemName: "checkmark.circle.fill")
-                .resizable()
-                .scaledToFit()
-                .frame(width: size, height: size)
-                .symbolRenderingMode(.palette)
-                .foregroundStyle(Color.black, WidgetPalette.green)
-                .accessibilityLabel("Paid")
         case .expired:
             Image(systemName: "clock")
                 .resizable()
@@ -69,8 +68,11 @@ struct PhaseGlyph: View {
                 .frame(width: size, height: size)
                 .foregroundStyle(WidgetPalette.expired)
                 .accessibilityLabel("No payment yet")
-        case .idle, .waiting, .seen, .confirming:
-            WidgetMark(size: size, ring: ring)
+        case .idle, .waiting, .seen, .confirming, .paid:
+            switch form {
+            case .round: WidgetRound(status: TillStatus(phase), size: size, dark: dark)
+            case .square: WidgetTerminal(status: TillStatus(phase), size: size, dark: dark)
+            }
         }
     }
 }
@@ -196,7 +198,7 @@ struct LockScreenView: View {
         let ink = dark ? WidgetPalette.darkInk : WidgetPalette.ink
         let secondary = dark ? WidgetPalette.darkSecondary : WidgetPalette.secondary
         HStack(alignment: .center, spacing: 14) {
-            PhaseGlyph(phase: state.phase, size: 44, ring: ink)
+            PhaseGlyph(phase: state.phase, size: 44, dark: dark)
             VStack(alignment: .leading, spacing: 2) {
                 if let headline = state.headline {
                     Text(headline)

@@ -77,18 +77,10 @@ object Fixed {
     /** The paid bubble's lens: its lightest facets, [PaidMid] its middle ones, [Paid] its core (decision 267). */
     val PaidLight = Color(0xFF2EA052)
     val PaidMid = Color(0xFF238A43)
-    /** The waiting bubble's border: the pale track an [Ink] segment chases round. */
-    val ChaseTrack = Color(0xFFD8D2C7)
-    /** The idle bubble's border, round its grey mark. */
-    val IdleBorder = Color(0xFF565656)
-    /** The bubble's disc in dark mode, so it doesn't glare over a dark app: the dark theme's card grey. */
-    val BubbleDark = Color(0xFF2A2825)
-    /** On [BubbleDark]: the waiting border's track, and the light segment ([BubbleDarkInk]) chasing round it. */
-    val BubbleDarkTrack = Color(0xFF4A4743)
-    /** On [BubbleDark], where [Ink] is on white: the chasing segment and the whole border, waiting still or paid. */
-    val BubbleDarkInk = Color(0xFFECE8DF)
-    /** The idle bubble's border on [BubbleDark]. */
-    val BubbleDarkIdleBorder = Color(0xFF8C8577)
+    /** The terminal bubble's screen border, unfilled, on its ink disc ([Ink]) in light mode (`TillRound`'s dim). */
+    val TerminalDim = Color(0xFF4A4740)
+    /** The terminal bubble's disc in dark mode: the dark icon's charcoal body, on which the border track is [Ink]. */
+    val TerminalCharcoal = Color(0xFF3A3733)
     val Track = Color(0xFFE4DFD5)
     val Outline = Color(0xFF8C8577)
     /** The QR card and the enlarged code's screen; a glyph on [Ink]. */

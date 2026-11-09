@@ -40,10 +40,10 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import com.monokulo.till.overlay.BUBBLE_MARK_TAG
 import com.monokulo.till.overlay.BubbleFace
 import com.monokulo.till.ui.LensLook
-import com.monokulo.till.ui.MarkGeometry
-import kotlin.math.cos
+import com.monokulo.till.ui.TillGeometry
+import androidx.compose.ui.graphics.asAndroidPath
+import androidx.compose.ui.graphics.vector.PathParser
 import kotlin.math.roundToInt
-import kotlin.math.sin
 import org.junit.Rule
 import org.junit.Test
 import java.io.File
@@ -561,17 +561,19 @@ class OverlayFramesTest {
         assertEquals(rest.top, back.top, 1f, "raised again, the card is at its place")
     }
 
-    // The bubble as the logo (`docs/motion.md` §12.5, B5 c): its border's chase, the paid spread and tick, Still, its label.
+    // The bubble as the terminal (`docs/motion.md` §12.5, Monokulo's "Keys count" round form): the running segment, the border's fill per step, the paid spread and tick, Still, its label.
 
     private var look by mutableStateOf(BubbleLook.IDLE)
+    private var step by mutableStateOf(1)
 
     /** The free bubble over Square's white, in [look] from its first frame, on the test clock; light unless [dark]. */
-    private fun bubble(from: BubbleLook, presets: Motion = Motion.Full, label: String? = null, dark: Boolean = false) {
+    private fun bubble(from: BubbleLook, presets: Motion = Motion.Full, label: String? = null, dark: Boolean = false, at: Int = 1) {
         look = from
+        step = at
         compose.mainClock.autoAdvance = false
         compose.setContent {
             Till(presets, dark = dark) {
-                Box(Modifier.background(Fixed.White)) { BubbleFace(look, label = label) }
+                Box(Modifier.background(Fixed.White)) { BubbleFace(look, label = label, step = step) }
             }
         }
         compose.mainClock.advanceTimeByFrame()
@@ -579,18 +581,21 @@ class OverlayFramesTest {
 
     private fun mark(): Bitmap = compose.onNodeWithTag(BUBBLE_MARK_TAG, useUnmergedTree = true).captureToImage().asAndroidBitmap()
 
-    /** The pixel at mark units ([u], [v]) of the SVG's box, as `mark()` draws it: the lens scaled 1.42 about (30, 28). */
-    private fun Bitmap.atMark(u: Float, v: Float): Int {
-        val unit = width / 64f
-        val x = (unit * (32f + 1.42f * (u - 30f))).roundToInt().coerceIn(0, width - 1)
-        val y = (unit * (32f + 1.42f * (v - 28f))).roundToInt().coerceIn(0, height - 1)
+    /** The pixel at ([u], [v]) of the canvas's 120 grid, as `till()` draws it: the screen scaled 1.22 about (48, 51) in the disc's 100-unit box. */
+    private fun Bitmap.atTill(u: Float, v: Float): Int {
+        val unit = width / TillGeometry.BOX
+        val x = (unit * (TillGeometry.BOX / 2 + TillGeometry.SCALE * (u - TillGeometry.SCREEN_X))).roundToInt().coerceIn(0, width - 1)
+        val y = (unit * (TillGeometry.BOX / 2 + TillGeometry.SCALE * (v - TillGeometry.SCREEN_Y))).roundToInt().coerceIn(0, height - 1)
         return getPixel(x, y)
     }
 
-    /** The middle of the border's stroke at [degrees] clockwise from 12 o'clock. */
-    private fun Bitmap.onBorder(degrees: Float): Int {
-        val a = Math.toRadians(degrees.toDouble())
-        return atMark(30f + 18f * sin(a).toFloat(), 28f - 18f * cos(a).toFloat())
+    private val borderPath = android.graphics.PathMeasure(PathParser().parsePathString(TillGeometry.BORDER).toPath().asAndroidPath(), false)
+
+    /** The middle of the border's stroke [along] (0..1, wrapping) of the way round from 12 o'clock, clockwise. */
+    private fun Bitmap.onBorder(along: Float): Int {
+        val at = floatArrayOf(0f, 0f)
+        borderPath.getPosTan((((along % 1f) + 1f) % 1f) * borderPath.length, at, null)
+        return atTill(at[0], at[1])
     }
 
     private fun near(pixel: Int, colour: androidx.compose.ui.graphics.Color, within: Float = 0.12f): Boolean =
@@ -600,91 +605,111 @@ class OverlayFramesTest {
     private fun nearer(pixel: Int, a: androidx.compose.ui.graphics.Color, b: androidx.compose.ui.graphics.Color): Boolean =
         apart(pixel, a.toArgb()) < apart(pixel, b.toArgb())
 
-    /** Every tenth degree round the border is one colour, [colour]: no arc on it. */
-    private fun assertWholeBorder(image: Bitmap, colour: androidx.compose.ui.graphics.Color, what: String) {
-        for (d in 0 until 360 step 10) {
-            val p = image.onBorder(d.toFloat())
-            assertTrue(near(p, colour), "$what: the border at $d° is ${Integer.toHexString(p)}, not ${Integer.toHexString(colour.toArgb())}")
+    /** Every 20th of the border, from [from] to [to] of the way round, is one colour, [colour]. */
+    private fun assertBorder(image: Bitmap, from: Float, to: Float, colour: androidx.compose.ui.graphics.Color, what: String) {
+        var along = from + 0.01f
+        while (along < to - 0.01f) {
+            val p = image.onBorder(along)
+            assertTrue(near(p, colour), "$what: the border at $along is ${Integer.toHexString(p)}, not ${Integer.toHexString(colour.toArgb())}")
+            along += 0.05f
         }
     }
 
     /**
-     * Waiting, an ink third chases clockwise round the pale track from 12
-     * o'clock, a turn every [Motion.CHASE_MS]: at three points of the turn
-     * the arc's middle is ink and the border across from it the track.
+     * Waiting for the scan, an orange segment runs clockwise round the dim
+     * track from 12 o'clock, a turn every [Motion.CHASE_MS]: at three points
+     * of the turn the segment's middle is orange and the border across from
+     * it and just behind it is the track.
      */
     @Test
-    fun theWaitingBubblesBorderChasesClockwise() {
+    fun theWaitingBubblesSegmentRunsClockwise() {
         bubble(BubbleLook.LIT)
         val turn = Motion.CHASE_MS.toFloat()
-        val middle = MarkGeometry.ARC_SHARE * 360f / 2
         var at = 0L
         for (third in 0..2) {
             val to = (turn * third / 3).toLong()
             compose.mainClock.advanceTimeBy(to - at)
             at = to
             val image = mark()
-            val start = 360f * to / turn
-            save("bubble-chase", third, image)
-            assertTrue(near(image.onBorder(start + middle), Fixed.Ink), "${to} ms: the arc's middle at ${start + middle}° is ${Integer.toHexString(image.onBorder(start + middle))}, not ink")
-            assertTrue(near(image.onBorder(start + middle + 180f), Fixed.ChaseTrack), "${to} ms: across from the arc is the pale track")
-            assertTrue(near(image.onBorder(start - 40f), Fixed.ChaseTrack), "${to} ms: behind the arc is the track: it chases clockwise")
+            val start = to / turn
+            val middle = start + TillGeometry.RUN_SHARE / 2
+            save("bubble-run", third, image)
+            assertTrue(near(image.onBorder(middle), Fixed.Accent), "${to} ms: the segment's middle at $middle is ${Integer.toHexString(image.onBorder(middle))}, not orange")
+            assertTrue(near(image.onBorder(middle + 0.5f), Fixed.TerminalDim), "${to} ms: across from the segment is the dim track")
+            assertTrue(near(image.onBorder(start - 0.08f), Fixed.TerminalDim), "${to} ms: behind the segment is the track: it runs clockwise")
         }
     }
 
-    /** In night mode the disc is dark and a light segment chases round a dark track; paid, the border is whole light ink. */
+    /** The border fills a third when the payment is seen and two thirds confirming, clockwise from 12 o'clock, in orange; nothing runs. */
     @Test
-    fun inDarkModeALightArcChasesRoundADarkDisc() {
+    fun theBorderFillsAThirdAStep() {
+        bubble(BubbleLook.LIT, at = 2)
+        compose.mainClock.advanceTimeBy(1_500)
+        val seen = mark()
+        save("bubble-step", 2, seen)
+        assertBorder(seen, 0f, 1f / 3, Fixed.Accent, "seen")
+        assertBorder(seen, 1f / 3 + 0.04f, 1f, Fixed.TerminalDim, "seen")
+        step = 3
+        compose.mainClock.advanceTimeBy(1_500)
+        val confirming = mark()
+        save("bubble-step", 3, confirming)
+        assertBorder(confirming, 0f, 2f / 3, Fixed.Accent, "confirming")
+        assertBorder(confirming, 2f / 3 + 0.04f, 1f, Fixed.TerminalDim, "confirming")
+    }
+
+    /** In night mode the disc is the dark icon's charcoal and the unfilled border is ink; paid, the border is whole green. */
+    @Test
+    fun inDarkModeTheDiscIsCharcoalAndTheTrackInk() {
         bubble(BubbleLook.LIT, dark = true)
         compose.mainClock.advanceTimeBy(Motion.CHASE_MS / 3L)
-        val middle = 360f / 3 + MarkGeometry.ARC_SHARE * 180f
         val image = mark()
         save("bubble-dark", 0, image)
-        assertTrue(near(image.onBorder(middle), Fixed.BubbleDarkInk), "the arc's middle is ${Integer.toHexString(image.onBorder(middle))}, not light ink")
-        assertTrue(near(image.onBorder(middle + 180f), Fixed.BubbleDarkTrack), "across from it is the dark track")
-        // Up and right of the lens, past the border's edge and inside the disc.
-        assertTrue(near(image.atMark(46f, 12f), Fixed.BubbleDark), "between the border and the disc's edge is the dark disc, not white")
+        val start = 1f / 3
+        assertTrue(near(image.onBorder(start + 0.5f), Fixed.Ink), "across from the segment is the ink track, not ${Integer.toHexString(image.onBorder(start + 0.5f))}")
+        // Up and left of the screen, past the border's edge and inside the disc.
+        val corner = (image.width * 0.17f).roundToInt()
+        assertTrue(near(image.getPixel(corner, corner), Fixed.TerminalCharcoal), "between the border and the disc's edge is the charcoal disc, not white")
         look = BubbleLook.PAID
-        compose.mainClock.advanceTimeBy(1_000)
+        compose.mainClock.advanceTimeBy(1_500)
         val paid = mark()
         save("bubble-dark", 1, paid)
-        assertWholeBorder(paid, Fixed.BubbleDarkInk, "dark, paid")
-        assertTrue(near(paid.atMark(34.56f, 25.81f), Fixed.White, 0.15f), "the tick is still white")
+        assertBorder(paid, 0f, 1f, Fixed.PaidLight, "dark, paid")
+        assertTrue(near(paid.atTill(58.5f, 43.5f), Fixed.White, 0.15f), "the tick is still white")
     }
 
     @Test
-    fun theIdleBubbleHasAWholeGreyBorderAndNoArc() {
+    fun theIdleBubbleHasAGreyScreenAndAWholeDimBorder() {
         bubble(BubbleLook.IDLE)
         repeat(3) {
             compose.mainClock.advanceTimeBy(Motion.CHASE_MS / 3L)
-            // The whole bubble at 55 % over white: its grey border, faded, the same all round.
+            // The whole bubble at 55 % over white: its dim border, faded, the same all round, and no fill or segment on it.
             val image = mark()
-            assertWholeBorder(image, androidx.compose.ui.graphics.lerp(Fixed.White, Fixed.IdleBorder, 0.55f), "idle")
+            assertBorder(image, 0f, 1f, androidx.compose.ui.graphics.lerp(Fixed.White, Fixed.TerminalDim, 0.55f), "idle")
         }
     }
 
     /**
-     * Paid: the lens turns green from the core out, the core first and the
-     * rim last, then a white tick draws along its path over the green; the
-     * border is whole ink, with no arc.
+     * Paid: the screen turns green from the centre out, the centre square
+     * first and the triangles a step behind, then a white tick draws along
+     * its path over the green; the border fills round to whole green.
      */
     @Test
-    fun paidFillsTheLensFromTheCoreOutThenDrawsTheTick() {
+    fun paidTurnsTheScreenGreenFromTheCentreOutThenDrawsTheTick() {
         bubble(BubbleLook.LIT)
         compose.mainClock.advanceTimeBy(Motion.CHASE_MS / 3L)
         look = BubbleLook.PAID
         compose.mainClock.advanceTimeByFrame()
         val start = compose.mainClock.currentTime
-        // A point of the core clear of the tick, one of the rim (the twelfth ring's), and three along the tick.
-        fun core(image: Bitmap) = image.atMark(30f, 25f)
-        fun rim(image: Bitmap) = image.atMark(44f, 30f)
-        val tickPoints = listOf(24.82f to 29.82f, 30.43f to 30.08f, 34.56f to 25.81f)
-        fun anyTick(image: Bitmap) = tickPoints.any { (u, v) -> near(image.atMark(u, v), Fixed.White, 0.15f) }
-        fun wholeTick(image: Bitmap) = tickPoints.all { (u, v) -> near(image.atMark(u, v), Fixed.White, 0.15f) }
-        val rimOrange = LensLook.Orange[3]
-        val rimGreen = LensLook.Green[3]
-        var coreGreenAt = -1L
-        var rimGreenAt = -1L
+        // A point of the centre square clear of the tick, one of the top triangle, and three along the tick.
+        fun centre(image: Bitmap) = image.atTill(50f, 48f)
+        fun triangle(image: Bitmap) = image.atTill(48f, 33f)
+        val tickPoints = listOf(40.5f to 54.5f, 44.5f to 58.5f, 54.5f to 47.8f)
+        fun anyTick(image: Bitmap) = tickPoints.any { (u, v) -> near(image.atTill(u, v), Fixed.White, 0.15f) }
+        fun wholeTick(image: Bitmap) = tickPoints.all { (u, v) -> near(image.atTill(u, v), Fixed.White, 0.15f) }
+        val triangleOrange = LensLook.Orange[1]
+        val triangleGreen = LensLook.Green[1]
+        var centreGreenAt = -1L
+        var triangleGreenAt = -1L
         var tickAt = -1L
         var wholeAt = -1L
         var i = 0
@@ -693,23 +718,23 @@ class OverlayFramesTest {
             val image = mark()
             if (t in 0..400 && i % 4 == 0) save("bubble-paid", (t / 16).toInt(), image)
             i++
-            if (coreGreenAt < 0 && near(core(image), LensLook.Green[0], 0.06f)) coreGreenAt = t
-            if (rimGreenAt < 0 && near(rim(image), rimGreen, 0.06f)) rimGreenAt = t
+            if (centreGreenAt < 0 && near(centre(image), LensLook.Green[0], 0.06f)) centreGreenAt = t
+            if (triangleGreenAt < 0 && near(triangle(image), triangleGreen, 0.06f)) triangleGreenAt = t
             if (tickAt < 0 && anyTick(image)) {
                 tickAt = t
-                assertTrue(near(core(image), LensLook.Green[0], 0.06f), "$t ms: the tick is drawn on a core still turning green")
+                assertTrue(near(centre(image), LensLook.Green[0], 0.06f), "$t ms: the tick is drawn on a centre still turning green")
             }
             if (wholeAt < 0 && wholeTick(image)) wholeAt = t
-            if (t in 150..200) assertTrue(nearer(rim(image), rimOrange, rimGreen), "$t ms: the core is green while the rim is still orange")
+            if (t in 120..130) assertTrue(nearer(triangle(image), triangleOrange, triangleGreen), "$t ms: the centre is mostly green while the triangles are still orange")
             compose.mainClock.advanceTimeByFrame()
         }
-        assertTrue(coreGreenAt in 150..240, "the core is green as its 200 ms fade ends: $coreGreenAt ms")
-        assertTrue(rimGreenAt in 340..420, "the rim, 180 ms behind it, by 380 ms: $rimGreenAt ms")
-        assertTrue(tickAt >= 200, "the tick waits for the core: first drawn at $tickAt ms")
+        assertTrue(centreGreenAt in 150..240, "the centre is green as its 200 ms fade ends: $centreGreenAt ms")
+        assertTrue(triangleGreenAt in centreGreenAt..320, "the triangles, 60 ms behind it: $triangleGreenAt ms")
+        assertTrue(tickAt >= 200, "the tick waits for the centre: first drawn at $tickAt ms")
         assertTrue(wholeAt in tickAt..800, "and is drawn whole by 800 ms: $wholeAt ms")
         val done = mark()
         save("bubble-paid", 99, done)
-        assertWholeBorder(done, Fixed.Ink, "paid")
+        assertBorder(done, 0f, 1f, Fixed.PaidLight, "paid")
     }
 
     /** How light [pixel] is, 0 to 1. */
@@ -719,21 +744,21 @@ class OverlayFramesTest {
     /**
      * Paid to Idle, the tick leaves by fading whole (decision 293): on every
      * frame its three points, start, corner and end, are each as far from
-     * white as the others, lighter than the lens beside them while it is
+     * white as the others, lighter than the screen beside them while it is
      * still most of the way shown, and lighter frame by frame less; no point
-     * goes to the lens while another is still white, as an un-drawn tick's
+     * goes to the screen while another is still white, as an un-drawn tick's
      * end would. Gone with the quick fade.
      */
     @Test
     fun paidToIdleFadesTheTickWholeNeverUndrawsIt() {
         bubble(BubbleLook.PAID)
         compose.mainClock.advanceTimeBy(1_000)
-        // Along the tick, and beside each, 2.6 units off its line inside the V, the lens with no tick on it.
-        val along = listOf(24.82f to 29.82f, 30.43f to 30.08f, 34.56f to 25.81f)
-        val beside = listOf(26.66f to 27.98f, 28.56f to 28.27f, 32.69f to 24.0f)
+        // Along the tick, and beside each, about 4 units off its line inside the V, the screen with no tick on it.
+        val along = listOf(40.5f to 54.5f, 44.5f to 58.5f, 54.5f to 47.8f)
+        val beside = listOf(43.3f to 51.7f, 44.5f to 53.5f, 51.6f to 45.1f)
         fun shown(image: Bitmap): List<Float> = along.indices.map { i ->
-            val on = lightness(image.atMark(along[i].first, along[i].second))
-            val off = lightness(image.atMark(beside[i].first, beside[i].second))
+            val on = lightness(image.atTill(along[i].first, along[i].second))
+            val off = lightness(image.atTill(beside[i].first, beside[i].second))
             ((on - off) / (1f - off).coerceAtLeast(0.01f)).coerceIn(0f, 1f)
         }
         val whole = shown(mark())
@@ -758,40 +783,44 @@ class OverlayFramesTest {
         assertTrue(last < 0.1f, "and is gone after the quick fade: $last")
     }
 
-    /** A payment landing mid-turn holds the arc where it was as it fades into the darkening border: no jump to 12 o'clock. */
+    /** A payment landing mid-turn holds the segment where it was as it fades: no jump to 12 o'clock. */
     @Test
-    fun paidMidTurnFadesTheArcWhereItIs() {
+    fun paidMidTurnFadesTheSegmentWhereItIs() {
         bubble(BubbleLook.LIT)
         val third = Motion.CHASE_MS / 3L
         compose.mainClock.advanceTimeBy(third)
-        val middle = 360f * third / Motion.CHASE_MS + MarkGeometry.ARC_SHARE * 180f
+        val middle = 1f / 3 + TillGeometry.RUN_SHARE / 2
         look = BubbleLook.PAID
         repeat(3) { compose.mainClock.advanceTimeByFrame() }
         val image = mark()
-        assertTrue(nearer(image.onBorder(middle), Fixed.Ink, Fixed.ChaseTrack), "the arc is still at ${middle}° as it fades")
-        assertTrue(nearer(image.onBorder(middle + 180f), Fixed.ChaseTrack, Fixed.Ink), "and the track across from it is still turning to ink")
-        assertTrue(nearer(image.onBorder(MarkGeometry.ARC_SHARE * 180f), Fixed.ChaseTrack, Fixed.Ink), "and there is no arc back at 12 o'clock")
+        assertTrue(nearer(image.onBorder(middle), Fixed.Accent, Fixed.TerminalDim), "the segment is still at $middle as it fades")
+        assertTrue(nearer(image.onBorder(middle + 0.5f), Fixed.TerminalDim, Fixed.Accent), "and the track across from it is still the track")
     }
 
-    /** Under Still the waiting bubble's border is whole ink, with no chase and no loop, and paid is green with the tick whole after one quick fade. */
+    /** Under Still the waiting bubble has no segment and no loop, its screen orange on the dim track, and paid is green with the tick and the border whole after one quick fade. */
     @Test
-    fun underStillTheWaitingBorderIsWholeInkAndNothingLoops() {
+    fun underStillNothingRunsAndTheColoursSayTheState() {
         val recompositions = Recompositions()
         try {
             bubble(BubbleLook.LIT, Motion.Still)
             compose.mainClock.advanceTimeBy(200)
             val waiting = mark()
             save("bubble-still", 0, waiting)
-            assertWholeBorder(waiting, Fixed.Ink, "still, waiting")
+            assertBorder(waiting, 0f, 1f, Fixed.TerminalDim, "still, waiting")
+            assertTrue(near(waiting.atTill(50f, 48f), LensLook.Orange[0], 0.06f), "the screen is orange")
             assertEquals(0, recompositions.count(INFINITE), "no infinite transition is made under Still")
+            step = 2
+            compose.mainClock.advanceTimeBy(200)
+            val seen = mark()
+            assertBorder(seen, 0f, 1f / 3, Fixed.Accent, "still, seen")
             look = BubbleLook.PAID
             compose.mainClock.advanceTimeByFrame()
             compose.mainClock.advanceTimeBy(140)
             val paid = mark()
             save("bubble-still", 1, paid)
-            assertTrue(near(paid.atMark(30f, 25f), LensLook.Green[0], 0.06f) && near(paid.atMark(44f, 30f), LensLook.Green[3], 0.06f), "one quick fade turns the whole lens")
-            assertTrue(near(paid.atMark(34.56f, 25.81f), Fixed.White, 0.15f), "the tick is whole")
-            assertWholeBorder(paid, Fixed.Ink, "still, paid")
+            assertTrue(near(paid.atTill(50f, 48f), LensLook.Green[0], 0.06f) && near(paid.atTill(48f, 33f), LensLook.Green[1], 0.06f), "one quick fade turns the whole screen")
+            assertTrue(near(paid.atTill(58.5f, 43.5f), Fixed.White, 0.15f), "the tick is whole")
+            assertBorder(paid, 0f, 1f, Fixed.PaidLight, "still, paid")
         } finally {
             recompositions.close()
         }
