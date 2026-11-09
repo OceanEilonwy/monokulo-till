@@ -39,6 +39,12 @@ jobs:
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      # The points of sale's public application ids and environments:
+      # variables of the testflight environment (docs/release.md).
+      TILL_SQUARE_APPLICATION_ID: ${{ vars.TILL_SQUARE_APPLICATION_ID }}
+      TILL_SQUARE_SANDBOX: ${{ vars.TILL_SQUARE_SANDBOX || 'false' }}
+      TILL_CLOVER_APPLICATION_ID: ${{ vars.TILL_CLOVER_APPLICATION_ID }}
+      TILL_CLOVER_ENVIRONMENT: ${{ vars.TILL_CLOVER_ENVIRONMENT || 'north_america' }}
       BUILD_NUMBER: ${{ github.run_number }}
     steps:
       # Before anything costs macOS minutes: every secret and the variable,
@@ -61,6 +67,15 @@ jobs:
           need ASC_ISSUER_ID "$ASC_ISSUER_ID" "a secret of the testflight environment" '^[0-9a-f-]{36}$' "an App Store Connect issuer ID (a UUID)"
           need ASC_KEY_P8 "$ASC_KEY_P8" "a secret of the testflight environment" 'BEGIN PRIVATE KEY' "the text of an AuthKey_….p8 file"
           need APPLE_TEAM_ID "$APPLE_TEAM_ID" "a repository variable (Settings › Secrets and variables › Actions › Variables)" '^[A-Z0-9]{10}$' "an Apple Developer team ID (10 letters and digits)"
+          need TILL_SQUARE_APPLICATION_ID "$TILL_SQUARE_APPLICATION_ID" "a variable of the testflight environment" '^(sandbox-)?sq0id[a-z]-[A-Za-z0-9_-]+$' "a Square application id (sq0idp-… or sandbox-sq0idb-…)"
+          need TILL_SQUARE_SANDBOX "$TILL_SQUARE_SANDBOX" "a variable of the testflight environment" '^(true|false)$' "true or false"
+          need TILL_CLOVER_APPLICATION_ID "$TILL_CLOVER_APPLICATION_ID" "a variable of the testflight environment" '^[A-Z0-9]{10,16}$' "a Clover App ID (letters and digits)"
+          need TILL_CLOVER_ENVIRONMENT "$TILL_CLOVER_ENVIRONMENT" "a variable of the testflight environment" '^(north_america|europe|latin_america|sandbox)$' "north_america, europe, latin_america or sandbox"
+          case "$TILL_SQUARE_APPLICATION_ID:$TILL_SQUARE_SANDBOX" in
+            sandbox-*:false|sq0id*:true)
+              echo "::error::TILL_SQUARE_SANDBOX ($TILL_SQUARE_SANDBOX) doesn't match the application id's environment (docs/release.md)"
+              missing=1 ;;
+          esac
           [ "$missing" = 0 ] || exit 1
           echo "LOGS=$RUNNER_TEMP/logs" >> "$GITHUB_ENV"
           # The name xcodebuild's -authenticationKeyPath expects.
@@ -140,6 +155,10 @@ jobs:
             -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             TILL_TEAM_ID="$APPLE_TEAM_ID" \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            TILL_SQUARE_APPLICATION_ID="$TILL_SQUARE_APPLICATION_ID" \
+            TILL_SQUARE_SANDBOX="$TILL_SQUARE_SANDBOX" \
+            TILL_CLOVER_APPLICATION_ID="$TILL_CLOVER_APPLICATION_ID" \
+            TILL_CLOVER_ENVIRONMENT="$TILL_CLOVER_ENVIRONMENT" \
             2>&1 | tee "$LOGS/archive.log"
       # ExportOptions.plist with this team, and a copy that exports an .ipa
       # here instead of uploading.

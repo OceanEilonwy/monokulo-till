@@ -59,13 +59,13 @@ enum TillShared {
             hours24: !format.contains("a"),
             square: SquareSetup(
                 applicationId: Build.squareApplicationId,
-                sandbox: false,
+                sandbox: Build.squareSandbox,
                 redirectUri: "https://till.monokulo.com/square",
                 baseUrl: nil
             ),
             clover: CloverSetup(
                 applicationId: Build.cloverApplicationId,
-                environment: "north_america",
+                environment: Build.cloverEnvironment,
                 redirectUri: "https://till.monokulo.com/clover",
                 baseUrl: nil
             ),

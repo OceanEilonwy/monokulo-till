@@ -69,6 +69,31 @@ This page lists the one-time setup, in order (docs/ios-plan.md §5, phase I7).
    gh secret set ASC_ISSUER_ID --env testflight --body 00000000-0000-0000-0000-000000000000
    gh secret set ASC_KEY_P8 --env testflight < AuthKey_2X9R4HXF34.p8
    ```
+4. **Variables** in the `testflight` environment: the points of sale's
+   public application ids, which the build puts in the app's Info.plist
+   (`ios/Till/Build.swift`). Both sign in with PKCE, so there's no secret.
+   | Variable | Value |
+   | --- | --- |
+   | `TILL_SQUARE_APPLICATION_ID` | the Square application's id, `sq0idp-…` (or `sandbox-sq0idb-…`) |
+   | `TILL_SQUARE_SANDBOX` | `true` for a sandbox id, else `false` |
+   | `TILL_CLOVER_APPLICATION_ID` | the Clover app's App ID |
+   | `TILL_CLOVER_ENVIRONMENT` | `north_america`, `europe`, `latin_america` or `sandbox` |
+
+   ```sh
+   gh variable set TILL_SQUARE_APPLICATION_ID --env testflight --body sq0idp-…
+   gh variable set TILL_SQUARE_SANDBOX --env testflight --body false
+   gh variable set TILL_CLOVER_APPLICATION_ID --env testflight --body …
+   gh variable set TILL_CLOVER_ENVIRONMENT --env testflight --body north_america
+   ```
+   The Square application's OAuth redirect URL (for the environment the id
+   belongs to) must be `https://till.monokulo.com/square`, and the Clover
+   app's Site URL `https://till.monokulo.com/clover`: the iOS app signs in
+   through those universal links. Square allows one redirect URL per
+   environment, so a sandbox application set up for Android debug builds
+   (`/square/debug/`) has to change to `/square` for an iOS build, and back.
+   These are not the Bell's webhook URLs (`/v1/square/production/webhook` on
+   the Bell's own host), which are set on Square's webhook subscription.
+
    The workflow's first step stops with an error naming any of these that is
    missing or malformed, before any macOS minutes are spent on a build.
 

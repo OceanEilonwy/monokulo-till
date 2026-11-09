@@ -27,6 +27,15 @@ settings:
     CODE_SIGN_STYLE: Automatic
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     SWIFT_STRICT_CONCURRENCY: complete
+    # The points of sale's public application ids (the till signs in with
+    # PKCE, so no secret is ever in the app), read by Build.swift from the
+    # app's and the extension's Info.plist. release-ios.yml passes the
+    # testflight environment's TILL_* variables (docs/release.md); these
+    # placeholders are for builds that never sign in, such as ios.yml's.
+    TILL_SQUARE_APPLICATION_ID: sq0idp-REPLACE-ME
+    TILL_SQUARE_SANDBOX: "false"
+    TILL_CLOVER_APPLICATION_ID: REPLACE-ME-CLOVER
+    TILL_CLOVER_ENVIRONMENT: north_america
 targets:
   Till:
     type: application

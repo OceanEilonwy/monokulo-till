@@ -26,5 +26,17 @@
 	-->
 	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
 	<true/>
+	<!--
+	The points of sale's application ids and environments, from the build
+	settings of the same names (project.yml, release-ios.yml), for Build.swift.
+	-->
+	<key>TillSquareApplicationId</key>
+	<string>$(TILL_SQUARE_APPLICATION_ID)</string>
+	<key>TillSquareSandbox</key>
+	<string>$(TILL_SQUARE_SANDBOX)</string>
+	<key>TillCloverApplicationId</key>
+	<string>$(TILL_CLOVER_APPLICATION_ID)</string>
+	<key>TillCloverEnvironment</key>
+	<string>$(TILL_CLOVER_ENVIRONMENT)</string>
 </dict>
 </plist>
