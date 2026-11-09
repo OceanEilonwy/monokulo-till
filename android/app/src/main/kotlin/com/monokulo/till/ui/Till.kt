@@ -40,10 +40,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.LongState
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -69,7 +67,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import androidx.compose.ui.unit.sp
@@ -97,7 +94,6 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.constrainWidth
 import kotlin.math.roundToInt
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.takeWhile
 import uniffi.till_app.Action
@@ -121,50 +117,6 @@ import uniffi.till_screens.PosMark
  * (Every word that names it is the engine's.)
  */
 val LocalPointOfSale = compositionLocalOf<PosMark?> { null }
-
-/** Seconds from [now] until [expiresAt], Unix seconds both; 0 once it's passed. */
-fun secondsLeft(expiresAt: Long, now: Long): Long = (expiresAt - now).coerceAtLeast(0)
-
-/**
- * The time now, Unix seconds, ticking on each second's boundary: one clock
- * for a whole screen (`docs/motion.md` amendment 10), made at its root and
- * handed down, and read only by the [Countdown]s that show it, so a tick
- * recomposes those texts and nothing above them. A [LongState], so reading
- * it doesn't box.
- */
-@Composable
-fun rememberNowSeconds(): LongState {
-    val now = remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
-    LaunchedEffect(now) {
-        while (true) {
-            val ms = System.currentTimeMillis()
-            now.longValue = ms / 1000
-            delay(1000 - ms % 1000)
-        }
-    }
-    return now
-}
-
-/**
- * A line with a countdown in it: [words] for the seconds left until
- * [expiresAt] at [now], in [tabular] figures so the digits tick without
- * the words moving. The clock is read here, so a tick recomposes this text
- * alone.
- */
-@Composable
-fun Countdown(
-    now: LongState,
-    expiresAt: Long,
-    modifier: Modifier = Modifier,
-    fontSize: TextUnit = TextUnit.Unspecified,
-    color: Color = Color.Unspecified,
-    maxLines: Int = Int.MAX_VALUE,
-    overflow: TextOverflow = TextOverflow.Clip,
-    words: (secondsLeft: Long) -> String,
-) = Text(
-    words(secondsLeft(expiresAt, now.longValue)), modifier, color = color, fontSize = fontSize,
-    overflow = overflow, maxLines = maxLines, style = LocalTextStyle.current.merge(tabular),
-)
 
 /**
  * A sale's screens as the engine drew them ([Update.Sale]): its live

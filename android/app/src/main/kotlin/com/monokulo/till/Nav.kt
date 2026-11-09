@@ -276,9 +276,6 @@ class Stage internal constructor(
      */
     fun shown(): Float = shownState.value
 
-    /** [shown] while the screens change by [move]; 1 otherwise, as at rest. */
-    fun shownDuring(move: Move): Float = if (moving() == move) shownState.value else 1f
-
     /**
      * This screen's face of a surface while the screens change by [move]:
      * the arriving face fades in over the first [Motion.crossfadeOnTrack]

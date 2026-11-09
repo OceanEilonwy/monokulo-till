@@ -5,7 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -317,10 +316,6 @@ fun Notice(text: String?, modifier: Modifier = Modifier) {
             .border(1.dp, mk.edge, RoundedCornerShape(12.dp)).padding(14.dp),
     )
 }
-
-/** Splits [content] across two panes when the window is wide (a tablet, or a wide free-form window). */
-@Composable
-fun Adaptive(wide: @Composable (Boolean) -> Unit) = BoxWithConstraints { wide(maxWidth >= 840.dp) }
 
 /** The one confirming buzz a payment gets (`docs/motion.md` §6); the system's haptic settings apply. */
 fun android.view.View.confirm() {
