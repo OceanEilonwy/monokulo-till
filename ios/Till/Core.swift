@@ -148,7 +148,7 @@ final class Core {
             shift = view
             pip?.shift(
                 place: TillActivityAttributes.location(place: view.top.place),
-                cash: PipCashOffer.first(in: view.entries)
+                cash: PipCashOffer.of(view.offeredCash)
             )
         case .sale(let orderId, let view, let page, let code, let order):
             sale = SaleScreens(orderId: orderId, view: view, page: page, code: code, order: order)

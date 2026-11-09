@@ -2,9 +2,9 @@ import SwiftUI
 import TillCore
 
 /// Setting up the till (the Onb*, PadOnb* and PhonePos boards), drawn from
-/// the engine's `OnboardingView`: every word that state chooses is the
-/// core's, and the headings and leads written once are here, as on Android
-/// (docs/decisions/core.md 26). On iPhone each step is a page of its own,
+/// the engine's `OnboardingView`: every word is the core's, the headings
+/// and leads written once too (docs/decisions/core.md 130, which ends 26's
+/// split on iOS). On iPhone each step is a page of its own,
 /// under a thin bar of how far setup has come; on iPad, where the view
 /// carries a rail, the step rail stands beside the page.
 /// It sits in a navigation stack so Back is the system's toolbar button and
@@ -55,34 +55,34 @@ struct OnboardingScreen: View {
     @ViewBuilder
     private var steps: some View {
         switch onboarding.page {
-        case .welcome(let feature):
-            WelcomePage(feature: feature, send: send)
+        case .welcome:
+            WelcomePage(view: onboarding, send: send)
         case .scan(let problem):
-            ScanPage(problem: problem, send: send)
+            ScanPage(view: onboarding, problem: problem, send: send)
         case .confirm(let host, let encrypted, let facts, let connect, let cancel, let problem):
             ConfirmPage(
                 host: host, encrypted: encrypted, facts: facts, connect: connect, cancel: cancel,
-                problem: problem, send: send
+                problem: problem, view: onboarding, send: send
             )
         case .connected(let title, let host, let encrypted, let problem, let facts, let next, let retry, let footnote):
             ConnectedPage(
                 title: title, host: host, encrypted: encrypted, problem: problem, facts: facts,
-                next: next, retry: retry, footnote: footnote, send: send
+                next: next, retry: retry, footnote: footnote, view: onboarding, send: send
             )
         case .pointOfSale(let view):
-            PointOfSalePage(step: view, send: send)
-        case .locations(let lead, let locations, let none):
-            LocationsPage(lead: lead, locations: locations, none: none, send: send)
+            PointOfSalePage(step: view, view: onboarding, send: send)
+        case .locations(_, let locations, let none):
+            LocationsPage(view: onboarding, locations: locations, none: none, send: send)
         case .counter(let view):
             CounterPage(view: view, send: send)
         case .alerts(let sale, let paid, let next, let notNow):
-            AlertsPage(sale: sale, paid: paid, next: next, notNow: notNow, send: send)
+            AlertsPage(view: onboarding, sale: sale, paid: paid, next: next, notNow: notNow, send: send)
         case .float(let heading, let lead, _, let next, let notificationsOnly):
             FloatPage(heading: heading, lead: lead, next: next, notificationsOnly: notificationsOnly, send: send)
         case .showSales(let view):
             ShowSalesPage(view: view, send: send)
         case .ready(let heading, let lead, let checks):
-            ReadyPage(heading: heading, lead: lead, checks: checks, send: send)
+            ReadyPage(heading: heading, lead: lead, checks: checks, start: onboarding.start, send: send)
         }
     }
 }

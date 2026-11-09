@@ -6,63 +6,61 @@ import UIKit
 /// How a page hands the cashier's actions to the engine.
 typealias Send = @MainActor (Action) -> Void
 
-/// Words a page writes once, as Android's screens do.
-enum Words {
-    /// What Till can do with a store, said before connecting (till-screens'
-    /// `CAN_DO`, which Connected's footnote carries itself).
-    static let canDo = "Till can see this store's orders and create payment codes. It can't spend from or change the wallet. Only connect a server you run or trust."
-}
-
-/// Step 1 (OnbWelcome, PadOnb1).
+/// Step 1 (OnbWelcome, PadOnb1): the engine's heading, lead, features
+/// and "Get started" (core.md decision 130).
 struct WelcomePage: View {
-    let feature: String
+    let view: OnboardingView
     let send: Send
 
     var body: some View {
         StepPage {
             VStack(spacing: 0) {
                 TillWidget(state: .idle, size: 148, decorative: true)
-                Heading(text: "Monokulo Till", centred: true, display: 34)
+                Heading(text: view.heading, centred: true, display: 34)
                     .padding(.top, 26)
-                Lead(
-                    text: "Take Monero at your till. Till sees each new sale and shows your customer a payment code.",
-                    centred: true
-                )
-                .frame(maxWidth: 320)
-                .padding(.top, 18)
+                Lead(text: view.lead, centred: true)
+                    .frame(maxWidth: 320)
+                    .padding(.top, 18)
             }
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 24)
             .padding(.top, 48)
             VStack(alignment: .leading, spacing: 22) {
-                Feature(symbol: "bag", title: "Sees Monero sales", text: feature)
-                Feature(
-                    symbol: "qrcode", title: "Shows a payment code",
-                    text: "Turn the screen round and the customer scans with their wallet."
-                )
-                Feature(
-                    symbol: "checkmark.circle", title: "Confirms the money arrived",
-                    text: "Till tells you when the payment lands, and flags any that don't."
-                )
+                ForEach(Array(view.features.enumerated()), id: \.offset) { _, feature in
+                    FeatureRow(feature: feature)
+                }
             }
             .padding(.horizontal, 24)
             .padding(.top, 40)
         } bottom: {
-            Button("Get started") { send(.next) }
-                .buttonStyle(.primary)
+            if let start = view.start {
+                PrimaryPress(press: start) { send(.next) }
+            }
+        }
+    }
+}
+
+/// Each of Welcome's features' symbol.
+enum FeatureLook {
+    static func symbol(_ mark: FeatureMark) -> String {
+        switch mark {
+        case .sales: "bag"
+        case .code: "qrcode"
+        case .confirmed: "checkmark.circle"
         }
     }
 }
 
 /// One of Welcome's three features.
-struct Feature: View {
-    let symbol: String
-    let title: String
-    let text: String
+struct FeatureRow: View {
+    let feature: Feature
+
+    private var title: String { feature.title }
+    private var text: String { feature.text }
 
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
-            Image(systemName: symbol)
+            Image(systemName: FeatureLook.symbol(feature.mark))
                 .font(.title2)
                 .foregroundStyle(Palette.link)
                 .frame(width: 30)
@@ -109,6 +107,7 @@ struct NumberedCard: View {
 /// code, or the link is pasted. Either goes to the engine, which says why
 /// one wasn't taken.
 struct ScanPage: View {
+    let view: OnboardingView
     let problem: String?
     let send: Send
 
@@ -117,37 +116,30 @@ struct ScanPage: View {
 
     var body: some View {
         StepPage(back: { send(.back) }) {
-            PageTop(heading: "Connect a store", lead: "Till connects from your Monokulo dashboard, wherever you host it.")
-            NumberedCard(steps: [
-                "In your Monokulo dashboard, open the store's **Settings › Connections**",
-                "Under **Apps**, choose **Connect an app**, then **Show the code**",
-                "Point this camera at the code it shows",
-            ])
-            .padding(.top, 18)
+            PageTop(heading: view.heading, lead: view.lead)
+            NumberedCard(steps: view.scan?.steps ?? [])
+                .padding(.top, 18)
             viewfinder
                 .padding(.horizontal, 16)
                 .padding(.top, 18)
             ProblemNote(text: problem)
-            Rich.text("Dashboard open on \(here)? Tap **Copy the connect link** there, then paste it here.")
-                .font(.subheadline)
-                .foregroundStyle(Palette.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 20)
-                .padding(.top, 18)
+            if let hint = view.scan?.pasteHint {
+                Rich.text(hint)
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 18)
+            }
         } bottom: {
             Button {
                 paste()
             } label: {
-                Label("Paste the link", systemImage: "doc.on.clipboard")
+                Label(view.scan?.paste ?? "", systemImage: "doc.on.clipboard")
             }
             .buttonStyle(.secondary)
         }
         .task { await askForCamera() }
-    }
-
-    /// "this iPhone" or "this iPad".
-    private var here: String {
-        UIDevice.current.userInterfaceIdiom == .pad ? "this iPad" : "this iPhone"
     }
 
     private var viewfinder: some View {
@@ -165,7 +157,7 @@ struct ScanPage: View {
                     HStack(spacing: 8) {
                         ProgressView()
                             .tint(Color.white)
-                        Text("Looking for a connect code…")
+                        Text(view.scan?.looking ?? "")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Color.white)
                     }
@@ -175,11 +167,11 @@ struct ScanPage: View {
                 }
             } else {
                 VStack(spacing: 12) {
-                    Text("Allow the camera to scan the code, or paste the link below.")
+                    Text(view.scan?.cameraAsk ?? "")
                         .font(.subheadline)
                         .foregroundStyle(Color.white)
                         .multilineTextAlignment(.center)
-                    Button("Allow the camera") { allowCamera() }
+                    Button(view.scan?.allowCamera ?? "") { allowCamera() }
                         .buttonStyle(.primary)
                         .frame(maxWidth: 240)
                 }
@@ -219,14 +211,15 @@ struct ConfirmPage: View {
     let connect: Press
     let cancel: Press
     let problem: String?
+    let view: OnboardingView
     let send: Send
 
     var body: some View {
         StepPage {
-            SheetTop(title: "Connect to this store?", host: host, encrypted: encrypted)
-            SectionLabel(text: "This device will take payments for")
+            SheetTop(title: view.heading, host: host, encrypted: encrypted)
+            SectionLabel(text: view.section)
             FactCard(facts: facts)
-            Footnote(text: Words.canDo)
+            Footnote(text: view.footnote)
             ProblemNote(text: problem)
         } bottom: {
             PrimaryPress(press: connect) { send(.connect) }
@@ -245,18 +238,21 @@ struct ConnectedPage: View {
     let next: Press
     let retry: Bool
     let footnote: String
+    let view: OnboardingView
     let send: Send
 
     var body: some View {
         StepPage {
             SheetTop(title: title, host: host, encrypted: encrypted)
             ProblemNote(text: problem)
-            SectionLabel(text: "This device takes payments for")
+            SectionLabel(text: view.section)
             FactCard(facts: facts)
             Footnote(text: footnote)
         } bottom: {
             PrimaryPress(press: next) { send(retry ? .readStore : .next) }
-            LinkButton(label: "Wrong store: disconnect") { send(.disconnect) }
+            if let disconnect = view.disconnect {
+                LinkButton(label: disconnect.label) { send(.disconnect) }
+            }
         }
     }
 }
@@ -303,6 +299,8 @@ func redirectUri(_ mark: PosMark?, square: String, clover: String) -> String {
 /// the choice and the card together, with Back.
 struct PointOfSalePage: View {
     let step: PosStep
+    /// The page's heading and lead, as the engine words each stage.
+    let view: OnboardingView
     let send: Send
 
     private var back: (@MainActor () -> Void)? {
@@ -314,23 +312,23 @@ struct PointOfSalePage: View {
         StepPage(back: back) {
             switch step.stage {
             case .some(.choose):
-                PageTop(heading: PosWords.chooseHeading, lead: PosWords.chooseLead)
+                PageTop(heading: view.heading, lead: view.lead)
                 PosChoiceTiles(choices: step.choices, send: send)
                     .padding(.top, 20)
             case .some(.signIn):
                 if let card = step.card {
-                    PosAccountSection(card: card, send: send)
+                    PosAccountSection(card: card, heading: view.heading, lead: view.lead, send: send)
                 }
             case .some(.testSale):
                 if let card = step.card {
-                    PosConnectedLine(card: card, send: send)
-                    PageTop(heading: PosWords.testHeading, lead: PosWords.testLead(card.mark))
+                    PosConnectedLine(line: step.connected, changeLocation: card.changeLocation, send: send)
+                    PageTop(heading: view.heading, lead: view.lead)
                     PosTillSteps(card: card, testRow: false, send: send)
                     ProblemNote(text: card.problem)
                 }
             case .none:
-                PageTop(heading: "Connect your point of sale")
-                SectionLabel(text: "Point of sale")
+                PageTop(heading: view.heading)
+                SectionLabel(text: view.section)
                 Card {
                     ForEach(Array(step.choices.enumerated()), id: \.offset) { index, choice in
                         if index > 0 {
@@ -366,28 +364,6 @@ struct PointOfSalePage: View {
     }
 }
 
-/// Step 4's headings and leads that no state chooses, written once here as
-/// the boards word them.
-enum PosWords {
-    static let chooseHeading = "Which point of sale do you use?"
-    static let chooseLead = "Till signs in to it to see each Monero sale the moment you ring it up."
-    static let testHeading = "Try a test sale"
-
-    static func testLead(_ mark: PosMark) -> String {
-        "This checks that \(StatusChip.name(mark)) tells Till about Monero sales. It takes about a minute."
-    }
-
-    /// O3's line over the heading: "Connected to The Bean Room · Front
-    /// Counter".
-    static func connected(_ card: PosCard) -> String? {
-        guard case .connected(let who) = card.account else { return nil }
-        var parts = ["Connected to \(who)"]
-        if let place = card.place?.value, !place.isEmpty, place != who {
-            parts.append(place)
-        }
-        return parts.joined(separator: " · ")
-    }
-}
 
 /// O1's choice: each point of sale as a tile, side by side where they fit.
 struct PosChoiceTiles: View {
@@ -447,21 +423,23 @@ struct PosChoiceTiles: View {
     }
 }
 
-/// O3's line over its heading: connected, to whom and where, on one line,
-/// and Change when the location can change.
+/// O3's line over its heading, the engine's `PosStep.connected`:
+/// connected, to whom and where, on one line, and Change when the location
+/// can change.
 struct PosConnectedLine: View {
-    let card: PosCard
+    let line: String?
+    let changeLocation: Bool
     let send: Send
 
     var body: some View {
-        if let line = PosWords.connected(card) {
+        if let line {
             HStack(spacing: 10) {
                 DoneTick(size: 22)
                 Text(line)
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
                 Spacer(minLength: 8)
-                if card.changeLocation {
+                if changeLocation {
                     Button("Change") { send(.changeLocation) }
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Palette.link)
@@ -574,16 +552,19 @@ struct PosChoiceRow: View {
     }
 }
 
-/// The chosen point of sale's card (O2): its heading and lead, the
-/// sign-in, its location or merchant, and what Till may do there.
+/// The chosen point of sale's card (O2): its heading and lead (O2's own,
+/// "Sign in to Square", where the engine words the page), the sign-in,
+/// its location or merchant, and what Till may do there.
 struct PosAccountSection: View {
     let card: PosCard
+    var heading: String? = nil
+    var lead: String? = nil
     let send: Send
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Heading(text: card.heading)
-            Lead(text: card.lead)
+            Heading(text: heading ?? card.heading)
+            Lead(text: lead ?? card.lead)
         }
         .padding(.horizontal, 20)
         .padding(.top, 24)
@@ -596,7 +577,7 @@ struct PosAccountSection: View {
                 HStack(spacing: 12) {
                     DoneTick()
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Connected")
+                        Text(card.connected)
                         Text(who)
                             .font(.subheadline)
                             .foregroundStyle(Palette.secondary)
@@ -690,13 +671,13 @@ struct PosTillSteps: View {
 
 /// Step 4, when Square has more than one location.
 struct LocationsPage: View {
-    let lead: String
+    let view: OnboardingView
     let locations: [LocationRow]
     let noLocations: Fact?
     let send: Send
 
-    init(lead: String, locations: [LocationRow], none: Fact?, send: @escaping Send) {
-        self.lead = lead
+    init(view: OnboardingView, locations: [LocationRow], none: Fact?, send: @escaping Send) {
+        self.view = view
         self.locations = locations
         self.noLocations = none
         self.send = send
@@ -704,8 +685,8 @@ struct LocationsPage: View {
 
     var body: some View {
         StepPage(back: { send(.back) }) {
-            PageTop(heading: "Which location is this till at?", lead: lead)
-            SectionLabel(text: "Locations")
+            PageTop(heading: view.heading, lead: view.lead)
+            SectionLabel(text: view.section)
             if let noLocations {
                 FactCard(facts: [noLocations])
             } else {
@@ -733,6 +714,7 @@ struct LocationsPage: View {
 
 /// Step 5 (OnbAlerts, PadOnb5): alerts, with two as they will look.
 struct AlertsPage: View {
+    let view: OnboardingView
     let sale: SampleAlert
     let paid: SampleAlert
     let next: Press
@@ -743,10 +725,7 @@ struct AlertsPage: View {
 
     var body: some View {
         StepPage(back: { send(.back) }) {
-            PageTop(
-                heading: "Hear every new sale",
-                lead: "When Till is in the background, an alert tells you a customer is ready to pay."
-            )
+            PageTop(heading: view.heading, lead: view.lead)
             VStack(spacing: 10) {
                 SampleAlertCard(alert: sale, faint: false)
                 SampleAlertCard(alert: paid, faint: true)
@@ -980,6 +959,8 @@ struct ReadyPage: View {
     let heading: String
     let lead: String
     let checks: [Check]
+    /// "Start Till".
+    let start: Press?
     let send: Send
 
     var body: some View {
@@ -1018,8 +999,9 @@ struct ReadyPage: View {
             }
             .padding(.top, 40)
         } bottom: {
-            Button("Start Till") { send(.startShift) }
-                .buttonStyle(.primary)
+            if let start {
+                PrimaryPress(press: start) { send(.startShift) }
+            }
         }
     }
 

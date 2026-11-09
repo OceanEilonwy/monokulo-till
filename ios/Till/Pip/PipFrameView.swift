@@ -31,7 +31,7 @@ struct PipFrameView: View {
                 PipStrip(size: size, ground: PipColours.strip) {
                     StatusGlyph(kind: .cash, size: size.height * 0.44)
                 } words: {
-                    PipStripWords(title: offer.title, line: PipCashOffer.line, size: size)
+                    PipStripWords(title: offer.title, line: offer.line, size: size)
                 }
             case .sale(let sale):
                 PipSquare(sale: sale, side: min(size.width, size.height), now: now)

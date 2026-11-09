@@ -100,22 +100,10 @@ struct OnboardingTests {
         #expect(SetupProgress.fraction(StepProgress(value: 1, total: 0)) == 0)
     }
 
-    @Test func theTestSalesLineSaysWhereTillIsConnected() {
-        let card = PosCard(
-            mark: .square, heading: "Connect Square", lead: "", accountTitle: "Square account",
-            account: .connected(who: "The Bean Room"),
-            place: Fact(label: "Location", value: "Front Counter", tone: .plain, mono: false),
-            changeLocation: true, permissions: "", problem: nil, atTheTill: "", stepsTitle: "", steps: [],
-            lookAgain: nil, testSale: nil, footnote: nil
-        )
-        #expect(PosWords.connected(card) == "Connected to The Bean Room · Front Counter")
-        let clover = PosCard(
-            mark: .clover, heading: "", lead: "", accountTitle: "", account: .connected(who: "Corner Cafe"),
-            place: nil, changeLocation: false, permissions: "", problem: nil, atTheTill: "", stepsTitle: "",
-            steps: [], lookAgain: nil, testSale: nil, footnote: nil
-        )
-        #expect(PosWords.connected(clover) == "Connected to Corner Cafe")
-        #expect(PosWords.testLead(.clover) == "This checks that Clover tells Till about Monero sales. It takes about a minute.")
+    @Test func welcomesFeaturesHaveTheirSymbols() {
+        #expect(FeatureLook.symbol(.sales) == "bag")
+        #expect(FeatureLook.symbol(.code) == "qrcode")
+        #expect(FeatureLook.symbol(.confirmed) == "checkmark.circle")
     }
 
     @Test func boldRunsAreReadFromDoubleAsterisks() {

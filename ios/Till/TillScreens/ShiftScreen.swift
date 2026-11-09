@@ -14,7 +14,6 @@ import TillCore
 /// iPhone alike.
 struct ShiftScreen: View {
     let view: ShiftView
-    let chips: [StatusChip]
     /// In the split view's sidebar, beside the open sale.
     let sidebar: Bool
     /// The sale open beside the sidebar, marked in the list.
@@ -43,7 +42,7 @@ struct ShiftScreen: View {
         if let disconnected = view.disconnected {
             DisconnectedPanel(disconnected: disconnected) { send(.forget) }
         } else if view.chips.isEmpty && view.entries.isEmpty {
-            EmptyTill(idle: view.idle, chips: chips, problem: view.problem, signInAgain: view.signInAgain, send: send)
+            EmptyTill(idle: view.idle, chips: view.status, problem: view.problem, signInAgain: view.signInAgain, send: send)
         } else {
             list
         }
@@ -63,7 +62,7 @@ struct ShiftScreen: View {
                 .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
             }
             Section {
-                LabeledContent("This shift") {
+                LabeledContent(view.summaryLabel) {
                     Text(view.summary)
                         .monospacedDigit()
                         .lineLimit(1)
@@ -265,6 +264,13 @@ enum SaleRowLook {
     static func subColour(_ row: ShiftRow) -> Color {
         Roles.ink(row.tone)
     }
+
+    /// A small banknote beside the amount: a cash sale whose own glyph
+    /// says something else, such as one paid in Monero, which Square's
+    /// books still call cash (core.md decision 126).
+    static func cashMark(_ row: ShiftRow) -> Bool {
+        row.cash && row.icon != .cash
+    }
 }
 
 /// A sale's row (CounterScope): its status glyph, the name and the status
@@ -295,10 +301,15 @@ struct SaleRow: View {
                 Spacer(minLength: 8)
                 VStack(alignment: .trailing, spacing: 3) {
                     if !row.amount.isEmpty {
-                        Text(row.amount)
-                            .font(.body)
-                            .monospacedDigit()
-                            .foregroundStyle(row.quiet ? Palette.secondary : Palette.ink)
+                        HStack(spacing: 4) {
+                            if SaleRowLook.cashMark(row) {
+                                StatusGlyph(kind: .cash, size: 16)
+                            }
+                            Text(row.amount)
+                                .font(.body)
+                                .monospacedDigit()
+                                .foregroundStyle(row.quiet ? Palette.secondary : Palette.ink)
+                        }
                     }
                     if let device = row.device {
                         Text(device)
@@ -378,45 +389,23 @@ struct CounterTitleMenu: ViewModifier {
     }
 }
 
-/// One of the empty till's status chips: "Watching Square", "Alerts on",
-/// "Instant with the Bell".
-struct StatusChip: Equatable {
-    enum Glyph: Equatable {
-        case watching
-        case symbol(String)
+/// How the engine's status chips (`ShiftView.status`: "Watching Square",
+/// "Alerts on", "Instant with the Bell") are drawn: each kind's glyph, and
+/// the warn colour when the engine warns.
+enum StatusChipLook {
+    /// The SF Symbol for `kind`; nil for watching, which is drawn.
+    static func symbol(_ kind: StatusChipKind) -> String? {
+        switch kind {
+        case .watching: nil
+        case .notWatching: "pause.circle"
+        case .alertsOn: "bell"
+        case .alertsOff: "bell.slash"
+        case .bell: "bolt"
+        }
     }
 
-    let glyph: Glyph
-    let text: String
-    /// Drawn in the warn colour: something is off.
-    var warn = false
-
-    /// The chips for what the engine publishes now: whether Till is
-    /// watching, whether alerts are allowed, and whether a Bell wakes it.
-    static func chips(top: ShiftTop?, alerts: Bool?, bell: Bool?) -> [StatusChip] {
-        var chips: [StatusChip] = []
-        if let top, !top.state.isEmpty {
-            // The engine's watching tone: watching, and its point of sale named.
-            let watching = top.tone == .paid
-            let pos = watching ? top.mark.map { " " + StatusChip.name($0) } ?? "" : ""
-            chips.append(StatusChip(glyph: watching ? .watching : .symbol("pause.circle"), text: top.state + pos))
-        }
-        if let alerts {
-            chips.append(alerts
-                ? StatusChip(glyph: .symbol("bell"), text: "Alerts on")
-                : StatusChip(glyph: .symbol("bell.slash"), text: "Alerts off", warn: true))
-        }
-        if bell == true {
-            chips.append(StatusChip(glyph: .symbol("bolt"), text: "Instant with the Bell"))
-        }
-        return chips
-    }
-
-    static func name(_ mark: PosMark) -> String {
-        switch mark {
-        case .square: "Square"
-        case .clover: "Clover"
-        }
+    static func warn(_ chip: StatusChip) -> Bool {
+        chip.tone == .warn
     }
 }
 
@@ -436,17 +425,16 @@ struct StatusChips: View {
     private var items: some View {
         ForEach(Array(chips.enumerated()), id: \.offset) { _, chip in
             HStack(spacing: 8) {
-                switch chip.glyph {
-                case .watching:
-                    StatusGlyph(kind: .watching, size: 18)
-                case .symbol(let name):
+                if let name = StatusChipLook.symbol(chip.kind) {
                     Image(systemName: name)
                         .font(.subheadline)
-                        .foregroundStyle(chip.warn ? Palette.expiredInk : Palette.ink)
+                        .foregroundStyle(StatusChipLook.warn(chip) ? Palette.expiredInk : Palette.ink)
+                } else {
+                    StatusGlyph(kind: .watching, size: 18)
                 }
                 Text(chip.text)
                     .font(.subheadline)
-                    .foregroundStyle(chip.warn ? Palette.expiredInk : Palette.ink)
+                    .foregroundStyle(StatusChipLook.warn(chip) ? Palette.expiredInk : Palette.ink)
                     .lineLimit(1)
             }
             .padding(.horizontal, 14)
@@ -458,19 +446,24 @@ struct StatusChips: View {
 
 /// The empty till (E1, E2): one centred block, the Till logo idle, what
 /// the engine says next and how a sale appears, the status chips, and
-/// "Start watching" while no shift is on.
+/// "Start watching" while no shift is on. Beside a shift that has sales
+/// (E2) it's the engine's `ShiftView.ready`, without chips.
 struct EmptyTill: View {
     let idle: ShiftIdle?
+    var ready: ShiftReady? = nil
     let chips: [StatusChip]
     var problem: String? = nil
     var signInAgain: Press? = nil
     let send: Send
 
-    /// E2's heading, beside a shift that has sales, where the engine has no
-    /// idle panel to say it (docs/ipad-redesign.md, decision 15).
-    static let ready = "Ready for the next sale"
+    /// The heading and the line under it: the idle panel's, else E2's.
+    static func words(idle: ShiftIdle?, ready: ShiftReady?) -> (title: String, line: String?) {
+        if let idle { return (idle.title, idle.hint) }
+        return (ready?.title ?? "", ready?.line)
+    }
 
     var body: some View {
+        let words = EmptyTill.words(idle: idle, ready: ready)
         GeometryReader { box in
             ScrollView {
                 VStack(spacing: 16) {
@@ -481,12 +474,12 @@ struct EmptyTill: View {
                     }
                     Spacer(minLength: 0)
                     TillWidget(state: .idle, size: 128, decorative: true)
-                    Text(idle?.title ?? EmptyTill.ready)
+                    Text(words.title)
                         .font(.title.weight(.bold))
                         .multilineTextAlignment(.center)
                         .padding(.top, 8)
                         .accessibilityAddTraits(.isHeader)
-                    if let hint = idle?.hint {
+                    if let hint = words.line {
                         Text(hint)
                             .font(.body)
                             .foregroundStyle(Palette.secondary)
@@ -494,7 +487,7 @@ struct EmptyTill: View {
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: 440)
                     }
-                    if !chips.isEmpty {
+                    if idle != nil && !chips.isEmpty {
                         StatusChips(chips: chips)
                             .padding(.top, 12)
                     }
