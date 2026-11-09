@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 8a520279f9a64ef60e4fd5584f23d0389d865b215790809d01fa577f91af8aab # shrinks to picks = [7, 3, 3, 3, 3, 3, 3, 9, 3, 9, 9, 3, 5, 9, 3, 3, 3, 3], shuffle = 13821621594949205949

@@ -1,0 +1,31 @@
+[package]
+name = "till-ledger"
+version = "0.1.0"
+description = "The till's ledger: sales as facts in an encrypted journal, merged into per-sale projections shared by the app and the iOS extension"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+getrandom = "0.3.4"
+# The trading day starts at 04:00 local (§9), in the device's time zone.
+jiff = "0.2.16"
+monokulo-client.workspace = true
+orf-codec.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+till-pos.workspace = true
+
+# SQLCipher, bundled (docs/ledger.md §4, §11), from the workspace: on Apple
+# platforms it uses CommonCrypto; till-ffi adds the vendored OpenSSL for
+# Android (core.md 150); Linux CI links the system's libcrypto. Never system
+# SQLite: `Ledger::open` refuses a library without `PRAGMA cipher_version`.
+[dependencies.rusqlite]
+workspace = true
+
+[dev-dependencies]
+proptest = "1.12.0"
+tempfile = "3.27.0"
