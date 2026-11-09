@@ -326,7 +326,7 @@ impl Ledger {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let learning = meta_get(&tx, "learning")?.is_some();
         let settings = read_view_settings(&tx)?;
-        let mut due: Vec<(SaleRow, AlertKind, bool)> = Vec::new();
+        let mut found: Vec<(SaleRow, AlertKind, bool)> = Vec::new();
         {
             let mut stmt = tx.prepare(
                 "SELECT sale_key, kind, state FROM alerts WHERE scope = ?1
@@ -346,9 +346,17 @@ impl Ledger {
                     continue;
                 };
                 if let Some(sale) = load_row(&tx, &self.scope, &key)? {
-                    due.push((sale, kind, state == "pending"));
+                    found.push((sale, kind, state == "pending"));
                 }
             }
+        }
+        // A new sale no longer live (paid, closed, ended) before anyone
+        // showed it is told already: posted, not delivered.
+        let (stale, mut due): (Vec<_>, Vec<_>) = found
+            .into_iter()
+            .partition(|(row, kind, _)| *kind == AlertKind::NewSale && !row.view(&settings).live);
+        for (row, kind, _) in stale {
+            post_silently(&tx, &self.scope, &row.sale, kind, now)?;
         }
         if policy == ClaimPolicy::NewestNewSale {
             due.retain(|(_, kind, _)| *kind == AlertKind::NewSale);
@@ -358,16 +366,7 @@ impl Ledger {
         let mut claims = Vec::new();
         for (row, kind, redelivery) in due {
             if learning {
-                set_alert(&tx, &self.scope, &row.sale, kind, "posted", None, None)?;
-                journal_alert_fact(
-                    &tx,
-                    &self.scope,
-                    now,
-                    &Fact::AlertPosted {
-                        sale: row.sale.clone(),
-                        kind,
-                    },
-                )?;
+                post_silently(&tx, &self.scope, &row.sale, kind, now)?;
                 continue;
             }
             let claim = claim(&tx, &self.scope, self.process, &row, kind, now, &settings)?;
@@ -1061,6 +1060,26 @@ fn read_alerts(
     Ok(out)
 }
 
+/// Marks `kind` posted for `sale` without delivering it, journalled.
+fn post_silently(
+    conn: &Connection,
+    scope: &Scope,
+    sale: &SaleKey,
+    kind: AlertKind,
+    at: i64,
+) -> Result<(), LedgerError> {
+    set_alert(conn, scope, sale, kind, "posted", None, None)?;
+    journal_alert_fact(
+        conn,
+        scope,
+        at,
+        &Fact::AlertPosted {
+            sale: sale.clone(),
+            kind,
+        },
+    )
+}
+
 /// Claims `kind` for `row`: `pending`, by this process, now, journalled.
 fn claim(
     conn: &Connection,
@@ -1316,16 +1335,7 @@ fn apply(
             }
             applied.effects.push(effect.clone());
             if live.learning {
-                set_alert(conn, scope, &sale, effect.kind, "posted", None, None)?;
-                journal_alert_fact(
-                    conn,
-                    scope,
-                    at,
-                    &Fact::AlertPosted {
-                        sale: sale.clone(),
-                        kind: effect.kind,
-                    },
-                )?;
+                post_silently(conn, scope, &sale, effect.kind, at)?;
             } else if live.process == Process::App {
                 applied.claimed.push(claim(
                     conn,

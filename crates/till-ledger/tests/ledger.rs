@@ -457,6 +457,29 @@ fn the_extension_claims_only_the_newest_new_sale_and_leaves_the_rest() {
     assert_ne!(rest[0].sale, shown[0].sale);
 }
 
+#[test]
+fn a_new_sale_paid_before_anyone_showed_it_is_not_shown() {
+    let fx = Fixture::new();
+    let mut ext = fx.open(Process::Extension);
+    let mut app = fx.open(Process::App);
+    ext.record(payment("p1", "front", Tender::Monero, 1))
+        .unwrap();
+    ext.record(created("p1", "o1", 1)).unwrap();
+    ext.record(observed("o1", SalePhase::Paid, true)).unwrap();
+    let claims = app.claim_due(ClaimPolicy::All).unwrap();
+    assert_eq!(
+        claims.iter().map(|c| c.kind).collect::<Vec<_>>(),
+        [AlertKind::Paid]
+    );
+    assert_eq!(
+        app.alert(&sale("p1"), AlertKind::NewSale)
+            .unwrap()
+            .unwrap()
+            .state,
+        "posted"
+    );
+}
+
 /// §15.7: a late Paid on an expired, cancelled, partly paid, closed or
 /// refunded sale shows as Paid, flagged where needed, and alerts.
 #[test]
