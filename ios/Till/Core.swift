@@ -122,7 +122,7 @@ final class Core {
         case .work(let busy, let problem):
             self.busy = busy
             self.problem = problem
-        case .nav(let byItself, _, _): self.byItself = byItself
+        case .nav(let byItself, _, _, _, _): self.byItself = byItself
         case .shift(let view): shift = view
         case .sale(let orderId, let view, let page, let code, let order):
             sale = SaleScreens(orderId: orderId, view: view, page: page, code: code, order: order)

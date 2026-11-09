@@ -7,7 +7,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class NavTest {
-    private fun move(from: Screen, to: Screen, byItself: Boolean = false, still: Boolean = false) = Nav.move(from, to, byItself, still)
+    private fun move(from: Screen, to: Screen, byItself: Boolean = false, still: Boolean = false, way: Way = Way.None) =
+        Nav.move(from, to, byItself, still, way)
 
     @Test
     fun `a tapped row grows into its sale, and the sale shrinks back into it`() {
@@ -39,12 +40,15 @@ class NavTest {
     }
 
     @Test
-    fun `onboarding slides forward through its steps and back the other way`() {
-        assertEquals(Move.Slide(forward = true), move(Screen.Welcome, Screen.Scan))
-        assertEquals(Move.Slide(forward = false), move(Screen.Scan, Screen.Welcome))
-        assertEquals(Move.Slide(forward = true), move(Screen.Float, Screen.Ready))
-        assertEquals(Move.Slide(forward = true), move(Screen.Ready, Screen.Till), "starting the first shift")
-        assertEquals(Move.Slide(forward = false), move(Screen.Alerts, Screen.PointOfSale))
+    fun `setup's steps slide the way the engine says the change goes`() {
+        // Which pairs are steps, and which way, is the engine's (`engine::till::direction`, docs/decisions/core.md 101).
+        val forward = Way(back = false, steps = true)
+        val backward = Way(back = true, steps = true)
+        assertEquals(Move.Slide(forward = true), move(Screen.Welcome, Screen.Scan, way = forward))
+        assertEquals(Move.Slide(forward = false), move(Screen.Scan, Screen.Welcome, way = backward))
+        assertEquals(Move.Slide(forward = true), move(Screen.Ready, Screen.Till, way = forward), "starting the first shift")
+        assertEquals(Move.Crossfade, move(Screen.Welcome, Screen.Scan), "not steps: a crossfade")
+        assertEquals(Move.RowGrow, move(Screen.Sale("a"), Screen.Till, way = Way(back = true, steps = false)))
     }
 
     @Test
@@ -55,17 +59,6 @@ class NavTest {
         )) {
             assertEquals(Move.Crossfade, move(from, to, still = true), "$from to $to")
         }
-    }
-
-    @Test
-    fun `back is toward the shift, and backwards through setup`() {
-        assertTrue(Nav.isBack(Screen.Sale("a"), Screen.Till))
-        assertTrue(Nav.isBack(Screen.Code("a"), Screen.Sale("a")))
-        assertTrue(Nav.isBack(Screen.Settings, Screen.Till))
-        assertTrue(Nav.isBack(Screen.Scan, Screen.Welcome))
-        assertFalse(Nav.isBack(Screen.Till, Screen.Sale("a")))
-        assertFalse(Nav.isBack(Screen.Sale("a"), Screen.Order("a")))
-        assertFalse(Nav.isBack(Screen.Welcome, Screen.Scan))
     }
 
     /**

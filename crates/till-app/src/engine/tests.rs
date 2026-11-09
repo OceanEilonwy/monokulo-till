@@ -1203,6 +1203,70 @@ fn back_is_the_apps_everywhere_but_welcome_the_shift_and_setups_step_4() {
     );
 }
 
+/// Ported from Android's `NavTest` (decision 101): back is toward the
+/// shift, and backwards through setup, whose steps slide.
+#[test]
+fn back_is_toward_the_shift_and_backwards_through_setup() {
+    use super::till::direction;
+    let sale = |id: &str| Screen::Sale {
+        order_id: id.into(),
+    };
+    let back = |from: Screen, to: Screen| direction(&from, &to).0;
+    assert!(back(sale("a"), Screen::Till));
+    assert!(back(
+        Screen::Code {
+            order_id: "a".into()
+        },
+        sale("a")
+    ));
+    assert!(back(Screen::Settings, Screen::Till));
+    assert!(back(Screen::Scan, Screen::Welcome));
+    assert!(!back(Screen::Till, sale("a")));
+    assert!(!back(
+        sale("a"),
+        Screen::Order {
+            order_id: "a".into()
+        }
+    ));
+    assert!(!back(Screen::Welcome, Screen::Scan));
+
+    let steps = |from: Screen, to: Screen| direction(&from, &to);
+    assert_eq!(steps(Screen::Welcome, Screen::Scan), (false, true));
+    assert_eq!(steps(Screen::Scan, Screen::Welcome), (true, true));
+    assert_eq!(steps(Screen::Float, Screen::Ready), (false, true));
+    assert_eq!(
+        steps(Screen::Ready, Screen::Till),
+        (false, true),
+        "starting the first shift"
+    );
+    assert_eq!(steps(Screen::Alerts, Screen::PointOfSale), (true, true));
+    assert!(!steps(sale("a"), Screen::Till).1, "a sale isn't a step");
+    assert!(!steps(Screen::Till, Screen::Settings).1);
+}
+
+/// The Nav before a screen says which way the change to it went.
+#[test]
+fn the_nav_before_a_screen_says_which_way_it_went() {
+    let (engine, rx, _) = start(config(None), Arc::new(FakePlatform::default()));
+    screen(&rx, Screen::Welcome);
+    engine.send(Action::Next);
+    let way = |rx: &Receiver<Heard>, wanted: Screen| {
+        let mut way = None;
+        wait_for(rx, |heard| match heard {
+            Heard::Update(Update::Nav { back, steps, .. }) => {
+                way = Some((*back, *steps));
+                None
+            }
+            Heard::Update(Update::Screen { screen }) if *screen == wanted => Some(()),
+            _ => None,
+        });
+        way
+    };
+    assert_eq!(way(&rx, Screen::Scan), Some((false, true)));
+    engine.send(Action::Back);
+    assert_eq!(way(&rx, Screen::Welcome), Some((true, true)));
+}
+
 #[test]
 fn the_till_and_the_sales_screens_map_to_places_and_back() {
     use super::till::{place, screen as of_place};

@@ -574,11 +574,16 @@ pub enum Update {
     /// (`None` where Back shows none); and whether the system's Back is the
     /// app's there at all (`back_enabled`): everywhere but Welcome, the
     /// shift and step 4 during setup, where Back leaves the app (android.md
-    /// decision 77, core.md 98). Sent before the screen it describes.
+    /// decision 77, core.md 98); and which way the change to it goes from
+    /// the screen before (core.md 101): `back` toward the shift or back
+    /// through setup, and `steps` when both are steps of setup, which slide.
+    /// Sent before the screen it describes.
     Nav {
         by_itself: bool,
         back_target: Option<Screen>,
         back_enabled: bool,
+        back: bool,
+        steps: bool,
     },
     /// The shift, as `till_screens::shift` draws it, once the till is set up.
     Shift { view: ShiftView },

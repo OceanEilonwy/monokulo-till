@@ -161,7 +161,7 @@ class MainActivity : ComponentActivity() {
         // The till's point of sale names its marks; the engine says it in Settings.
         val pos by remember { derivedStateOf { tillPointOfSale(flows.settings.value) } }
         CompositionLocalProvider(LocalPointOfSale provides pos, LocalReceiptFolds provides model.receiptFolds) {
-            TillStage(stage, cameUpByItself = { flows.nav.value.byItself }, scrub) { s ->
+            TillStage(stage, cameUpByItself = { flows.nav.value.byItself }, scrub, way = { flows.nav.value.way }) { s ->
                 when (s) {
                     Screen.Till, is Screen.Sale, is Screen.Code, is Screen.Order -> TillScreens(s, flows, actions, shiftPlace)
                     else -> SetupScreens(s, flows)

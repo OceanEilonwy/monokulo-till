@@ -140,6 +140,10 @@ struct Parts {
     runner: TillRunner,
 }
 
+/// `Update::Nav`'s fields: by itself, the back target, Back enabled, back,
+/// steps.
+type NavSlice = (bool, Option<Screen>, bool, bool, bool);
+
 /// What was last published, slice by slice.
 #[derive(Default)]
 struct Published {
@@ -150,7 +154,7 @@ struct Published {
     onboarding: Option<OnboardingView>,
     settings: Option<SettingsView>,
     wake_ups: Option<WakeUpsView>,
-    nav: Option<(bool, Option<Screen>, bool)>,
+    nav: Option<NavSlice>,
     shift: Option<till_screens::ShiftView>,
     sale: Option<Update>,
     close: Option<(Option<String>, Option<till_screens::CloseView>)>,
@@ -1845,12 +1849,31 @@ impl State {
         send!(core, CORE_VERSION.to_owned(), |version| Update::Core {
             version
         });
-        let nav = (self.by_itself, self.back_target(), self.back_enabled());
-        send!(nav, nav, |(by_itself, back_target, back_enabled)| {
+        // Which way the change goes, from the screen last published; with
+        // the screen unchanged, the way the last change went stands.
+        let (back, steps) = match &self.published.screen {
+            Some(from) if *from != self.screen => till::direction(from, &self.screen),
+            _ => self
+                .published
+                .nav
+                .as_ref()
+                .map_or((false, false), |nav| (nav.3, nav.4)),
+        };
+        let nav = (
+            self.by_itself,
+            self.back_target(),
+            self.back_enabled(),
+            back,
+            steps,
+        );
+        send!(nav, nav, |nav: NavSlice| {
+            let (by_itself, back_target, back_enabled, back, steps) = nav;
             Update::Nav {
                 by_itself,
                 back_target,
                 back_enabled,
+                back,
+                steps,
             }
         });
         send!(screen, self.screen.clone(), |screen| Update::Screen {

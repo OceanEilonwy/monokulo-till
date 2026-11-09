@@ -65,6 +65,48 @@ pub(crate) fn screen(place: TillPlace) -> Option<Screen> {
     })
 }
 
+/// Where a sale's screens sit: the shift under its sales, a sale under its
+/// code and order, Settings over them all.
+fn depth(screen: &Screen) -> Option<u8> {
+    match screen {
+        Screen::Till => Some(0),
+        Screen::Sale { .. } => Some(1),
+        Screen::Code { .. } | Screen::Order { .. } => Some(2),
+        Screen::Settings => Some(3),
+        _ => None,
+    }
+}
+
+/// Setup's order, the shift last.
+fn setup_step(screen: &Screen) -> Option<u8> {
+    Some(match screen {
+        Screen::Welcome => 0,
+        Screen::Scan => 1,
+        Screen::Confirm => 2,
+        Screen::Connected => 3,
+        Screen::PointOfSale => 4,
+        Screen::Locations => 5,
+        Screen::Alerts => 6,
+        Screen::Float => 7,
+        Screen::Ready => 8,
+        Screen::Till => 9,
+        _ => return None,
+    })
+}
+
+/// Which way going `from` to `to` goes (core.md decision 101): `back` up
+/// from a sale to the shift, from a code to its sale, from Settings, or
+/// backwards through setup; and `steps` when both are steps of setup (the
+/// shift its last), which slide one way or the other.
+pub(crate) fn direction(from: &Screen, to: &Screen) -> (bool, bool) {
+    let back = match (depth(from), depth(to)) {
+        (Some(a), Some(b)) => b < a,
+        _ => setup_step(to).unwrap_or(0) < setup_step(from).unwrap_or(0),
+    };
+    let steps = matches!((setup_step(from), setup_step(to)), (Some(a), Some(b)) if a != b);
+    (back, steps)
+}
+
 /// The sale a screen shows, if it shows one.
 pub(crate) fn order_id(screen: &Screen) -> Option<&str> {
     match screen {

@@ -634,3 +634,13 @@ on from 1; the Android app's own choices are in [android.md](android.md).
      drawn without a sale. Android keeps the sweep, the turn and the
      colour fade. iOS's `RingGlyph` now draws `fill` in the accent, or in
      the paid green once `green`, instead of quarters by step.
+101. **`Update::Nav` says which way the change goes**: `back` (toward the
+     shift, from a code to its sale, from Settings, or backwards through
+     setup) and `steps` (both screens are steps of setup, the shift last,
+     so they slide). Both are worked out from the screen last published
+     (`engine::till::direction`, with `NavTest`'s cases ported). `Nav.kt`
+     no longer keeps the depth and setup-order tables: `HeldMove` reads
+     the engine's `Way` when a change starts, uses it for the slide and
+     for which screen goes underneath, and treats a back gesture's preview
+     as going back, since the engine hasn't heard of it yet. iOS's
+     navigation is its own and ignores the fields.
