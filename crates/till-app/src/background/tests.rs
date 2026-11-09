@@ -316,3 +316,48 @@ async fn a_look_alerts_this_counters_sale_another_till_announced_first() {
     let again = look(config(&square), platform, 10_000).await;
     assert!(again.alerts.is_empty());
 }
+
+/// The "From iPad" sale on the owner's iPad (core.md decision 133): the
+/// extension's deadline came after Monokulo made the order, while Square's
+/// order was read for the receipt. The payment was already marked handled
+/// then, so no look found it again, and the app learned the order from
+/// Monokulo as another till's. Now it's marked handled only once its sale
+/// is kept, and the next look finishes it with the same order.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_deadline_while_squares_order_is_read_leaves_the_payment_for_the_next_look() {
+    let (monokulo, square) = (monokulo().await, square(Duration::ZERO).await);
+    Mock::given(method("GET"))
+        .and(path("/v2/orders/ord_sq_1"))
+        .respond_with(ResponseTemplate::new(503).set_delay(Duration::from_secs(60)))
+        .mount(&square)
+        .await;
+    let platform = signed_in_till(&monokulo);
+    let http = reqwest::Client::builder()
+        .pool_max_idle_per_host(0)
+        .build()
+        .unwrap();
+    let cut = check(
+        config(&square),
+        platform.clone(),
+        http,
+        Arc::new(FixedClock::at(1_761_149_280)),
+        Duration::from_secs(3),
+    )
+    .await;
+    assert!(!cut.finished);
+    assert!(
+        monokulo
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .any(|request| request.url.path() == "/api/v1/orders"),
+        "the order was made before the deadline"
+    );
+    assert_eq!(
+        platform.get("square.handled").as_deref(),
+        Some("[]"),
+        "but the payment wasn't marked handled"
+    );
+    assert_eq!(platform.get("shift.sales"), None);
+}

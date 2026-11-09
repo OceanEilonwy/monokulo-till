@@ -21,6 +21,25 @@ pub trait SaleSource: Send + Sync {
     /// again gives the same ones until they are.
     async fn new_sales(&self) -> Result<Vec<FoundSale>, PosError>;
 
+    /// One look: the new sales, as [`SaleSource::new_sales`] gives them,
+    /// and every sale the same request listed, handled or not, which the
+    /// till matches the sales in its shift against to read their receipts
+    /// whoever found them (core.md decision 131). A source that lists
+    /// nothing more gives its new sales as both.
+    async fn look(&self) -> Result<Look, PosError> {
+        let new = self.new_sales().await?;
+        Ok(Look {
+            listed: new.clone(),
+            new,
+        })
+    }
+
+    /// Whether the source is signed in to its point of sale and can read
+    /// orders: false for a till set up without one.
+    fn signed_in(&self) -> bool {
+        true
+    }
+
     /// The sale's receipt and whom it's for, from one read of its order: no
     /// receipt when one can't be made, and no name at a point of sale that
     /// gives none.
@@ -31,6 +50,15 @@ pub trait SaleSource: Send + Sync {
 
     /// `sale` has its order: don't give it again.
     fn handled(&self, sale: &FoundSale);
+}
+
+/// What one [`SaleSource::look`] found.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Look {
+    /// The sales not yet handled, oldest first.
+    pub new: Vec<FoundSale>,
+    /// Every sale the look listed, handled or not, oldest first.
+    pub listed: Vec<FoundSale>,
 }
 
 /// What the till takes from a sale's order at the point of sale: its

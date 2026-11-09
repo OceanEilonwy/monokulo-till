@@ -337,6 +337,10 @@ impl RunnerSide for Side {
             w.recheck();
         }
     }
+
+    fn log(&self, line: String) {
+        Side::log(self, line);
+    }
 }
 
 #[async_trait]

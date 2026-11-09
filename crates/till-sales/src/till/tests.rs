@@ -772,7 +772,7 @@ async fn a_check_counts_the_sales_no_check_found_before_another_devices_included
         ..sale()
     };
     let source = FakeSource::new(vec![sale(), other]);
-    let till = f.till(source.clone()).with_device_id("dev_front");
+    let till = f.till(source.clone());
     f.enqueue(recorded_order_problem(&openapi, "engine-unavailable"));
     assert_eq!(
         till.check().await,
@@ -859,7 +859,7 @@ async fn an_ended_sign_in_keeps_saying_why_until_the_cashier_signs_in_and_a_sale
 async fn without_a_receipt_the_plain_code_is_shown() {
     let f = fixture().await;
     let source = FakeSource::new(vec![sale()]);
-    let till = f.till(source.clone()).with_device_id("dev_front");
+    let till = f.till(source.clone());
     f.enqueue(order());
     till.check().await;
     let shown = only(&till);
@@ -946,7 +946,6 @@ async fn with_cash_offered_a_cash_sale_waits_quietly_until_its_taken_in_monero()
     let f = fixture().await;
     let source = FakeSource::with(vec![cash_sale()], Some(receipt()), Some("Sam"));
     let till = f.till(source.clone()).with_options(&TillOptions {
-        device_id: None,
         cash_as_monero: false,
     });
     till.check().await;
@@ -989,7 +988,6 @@ async fn a_cash_sale_whose_order_fails_stays_offered_and_says_why() {
     let f = fixture().await;
     let source = FakeSource::new(vec![cash_sale()]);
     let till = f.till(source.clone()).with_options(&TillOptions {
-        device_id: None,
         cash_as_monero: false,
     });
     till.check().await;
@@ -1000,7 +998,7 @@ async fn a_cash_sale_whose_order_fails_stays_offered_and_says_why() {
 }
 
 #[tokio::test]
-async fn another_devices_sale_is_taken_with_its_name_but_without_its_receipt() {
+async fn another_devices_sale_is_taken_with_its_name_and_its_receipt() {
     let f = fixture().await;
     let other = FoundSale {
         id: "pay_2".into(),
@@ -1011,7 +1009,6 @@ async fn another_devices_sale_is_taken_with_its_name_but_without_its_receipt() {
     };
     let source = FakeSource::with(vec![sale(), other], Some(receipt()), Some("Sam"));
     let till = f.till(source.clone()).with_options(&TillOptions {
-        device_id: Some("dev_front".into()),
         cash_as_monero: true,
     });
     f.enqueue(order());
@@ -1021,10 +1018,10 @@ async fn another_devices_sale_is_taken_with_its_name_but_without_its_receipt() {
     assert_eq!(state.sales.len(), 2, "{:?}", state.sales);
     let theirs = state.sale("ord_2").unwrap();
     assert!(
-        theirs.receipt.is_none(),
-        "the receipt stays at that counter"
+        theirs.receipt.is_some(),
+        "every till reads the receipt (decision 131)"
     );
-    assert!(!theirs.code.has_receipt);
+    assert!(theirs.code.has_receipt);
     assert_eq!(theirs.customer_name.as_deref(), Some("Sam"));
     assert_eq!(theirs.pos_device(), Some(("dev_back", Some("Bar iPad"))));
     let mine = state.sale("ord_1").unwrap();
@@ -2384,4 +2381,304 @@ async fn a_confirming_sale_is_read_again_at_once_and_then_every_20_s_until_its_p
     tokio::time::sleep(10 * Till::CONFIRMATIONS_READ).await;
     assert_eq!(f.request_count(), 5, "paid, it's read no more");
     following.abort();
+}
+
+/// Square as both of this device's tills see it (the app's, and iOS's
+/// Notification Service Extension's): one location's payments, every
+/// device's, listed whether handled or not, and one cursor of handled
+/// payments, which the two share as they share the kept cursor. Its order
+/// reads can fail or hang.
+#[derive(Default)]
+struct SharedSquare {
+    sales: Mutex<Vec<FoundSale>>,
+    handled_ids: Mutex<Vec<String>>,
+    order_fails: Mutex<bool>,
+    order_hangs: Mutex<bool>,
+    order_reads: AtomicUsize,
+}
+
+impl SharedSquare {
+    fn new(sales: Vec<FoundSale>) -> Arc<SharedSquare> {
+        Arc::new(SharedSquare {
+            sales: Mutex::new(sales),
+            ..SharedSquare::default()
+        })
+    }
+
+    fn handled_ids(&self) -> Vec<String> {
+        self.handled_ids.lock().unwrap().clone()
+    }
+
+    fn reads(&self) -> usize {
+        self.order_reads.load(Ordering::SeqCst)
+    }
+}
+
+#[async_trait]
+impl SaleSource for SharedSquare {
+    fn point_of_sale(&self) -> PointOfSale {
+        PointOfSale::Square
+    }
+    async fn new_sales(&self) -> Result<Vec<FoundSale>, PosError> {
+        Ok(self.look().await?.new)
+    }
+    async fn look(&self) -> Result<till_pos::Look, PosError> {
+        let handled = self.handled_ids();
+        let listed = self.sales.lock().unwrap().clone();
+        let new = listed
+            .iter()
+            .filter(|sale| !handled.contains(&sale.id))
+            .cloned()
+            .collect();
+        Ok(till_pos::Look { new, listed })
+    }
+    async fn order(&self, _: &FoundSale) -> Result<SaleOrder, PosError> {
+        self.order_reads.fetch_add(1, Ordering::SeqCst);
+        if *self.order_hangs.lock().unwrap() {
+            return pending().await;
+        }
+        if *self.order_fails.lock().unwrap() {
+            return Err(PosError::answered(
+                PointOfSale::Square,
+                503,
+                "Square is busy",
+            ));
+        }
+        Ok(SaleOrder {
+            receipt: Some(receipt()),
+            customer_name: Some("Sam".into()),
+        })
+    }
+    fn refunds(&self) -> Refunds<'_> {
+        Refunds::InPos(self)
+    }
+    fn handled(&self, sale: &FoundSale) {
+        self.handled_ids.lock().unwrap().push(sale.id.clone());
+    }
+}
+
+#[async_trait]
+impl RefundInPos for SharedSquare {
+    async fn refunded(&self, _: &FoundSale) -> Result<bool, PosError> {
+        Ok(false)
+    }
+}
+
+/// `ord_1`'s `sale.waiting`, as Monokulo sends it to every till of the
+/// store, naming the device whose till made it.
+fn waiting_from(device_name: &str) -> SaleEvent {
+    sale_event(
+        "sale.waiting",
+        "ord_1",
+        "13.88",
+        "USD",
+        "8Bx",
+        80000000000,
+        Some("bP9m"),
+        1761312000,
+        device_name,
+        5,
+    )
+}
+
+#[tokio::test]
+async fn a_check_cut_short_before_the_sale_is_kept_leaves_it_to_be_found_again() {
+    let f = fixture().await;
+    let square = SharedSquare::new(vec![sale()]);
+    *square.order_hangs.lock().unwrap() = true;
+    let shift = MemoryShift::of(None);
+    let till = f.till(square.clone()).with_store(shift.clone());
+    f.enqueue(order());
+    let cut = tokio::time::timeout(Duration::from_millis(300), till.check()).await;
+    assert!(
+        cut.is_err(),
+        "the deadline came while Square's order was read"
+    );
+    assert!(
+        square.handled_ids().is_empty(),
+        "the payment isn't marked handled before its sale is kept"
+    );
+    assert!(till.state().sales.is_empty());
+
+    // The next look (the app's, or the next extension run) finishes it.
+    *square.order_hangs.lock().unwrap() = false;
+    let next = f.till(square.clone()).with_store(shift.clone());
+    f.enqueue(order());
+    next.check().await;
+    let kept = only(&next);
+    assert!(kept.found.is_some(), "this till's own sale");
+    assert!(kept.code.has_receipt);
+    assert_eq!(kept.customer_name.as_deref(), Some("Sam"));
+    assert_eq!(square.handled_ids(), ["pay_monero"]);
+    assert_eq!(shift.reloaded(), next.state().sales);
+    let keys: Vec<Value> = f
+        .queue
+        .seen
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|request| request.method.as_str() == "POST")
+        .map(|request| {
+            serde_json::from_slice::<Value>(&request.body).unwrap()["idempotency_key"].clone()
+        })
+        .collect();
+    assert_eq!(keys.len(), 2);
+    assert_eq!(keys[0], keys[1], "the same order, made again by its key");
+}
+
+#[tokio::test]
+async fn the_apps_till_takes_in_the_sale_its_extension_kept_rather_than_showing_it_as_another_tills()
+ {
+    let f = fixture().await;
+    let square = SharedSquare::new(vec![sale()]);
+    let shift = MemoryShift::of(None);
+    // The app's till, running since before the sale.
+    let app = f.till(square.clone()).with_store(shift.clone());
+    // Monokulo's event for the order the extension is making reaches the
+    // app before the extension has kept the sale: shown as another till's
+    // for now, as the owner's iPad showed "From iPad".
+    app.on_event(&waiting_from("iPad"));
+    assert_eq!(only(&app).found, None);
+    assert_eq!(only(&app).device_name.as_deref(), Some("iPad"));
+    // The extension's look: the order, the receipt, kept, then handled.
+    let extension = f.till(square.clone()).with_store(shift.clone());
+    f.enqueue(order());
+    extension.check().await;
+    assert_eq!(square.handled_ids(), ["pay_monero"]);
+    let requests = f.request_count();
+
+    app.check().await;
+    let shown = only(&app);
+    assert!(shown.found.is_some(), "this device's own sale after all");
+    assert_eq!(shown.device_name, None, "no longer from another till");
+    assert!(shown.code.has_receipt);
+    assert_eq!(shown.customer_name.as_deref(), Some("Sam"));
+    assert_eq!(
+        f.request_count(),
+        requests,
+        "nothing more asked of Monokulo"
+    );
+    assert!(
+        shift.reloaded()[0].found.is_some(),
+        "the app's save keeps what the extension found"
+    );
+}
+
+#[tokio::test]
+async fn an_event_for_a_sale_the_extension_already_kept_is_taken_in_at_once() {
+    let f = fixture().await;
+    let square = SharedSquare::new(vec![sale()]);
+    let shift = MemoryShift::of(None);
+    let app = f.till(square.clone()).with_store(shift.clone());
+    let extension = f.till(square.clone()).with_store(shift.clone());
+    f.enqueue(order());
+    extension.check().await;
+    app.on_event(&waiting_from("iPad"));
+    let shown = only(&app);
+    assert!(shown.found.is_some());
+    assert!(shown.code.has_receipt);
+    assert_eq!(shown.device_name, None);
+}
+
+#[tokio::test]
+async fn a_sale_learned_from_monokulo_gets_its_receipt_from_the_payment_square_lists() {
+    let f = fixture().await;
+    let square = SharedSquare::new(vec![FoundSale {
+        device_id: Some("dev_back".into()),
+        device_name: Some("Bar iPad".into()),
+        ..sale()
+    }]);
+    // Handled already here: this device's other process made its order and
+    // its kept record was lost, or this till restarted since.
+    square.handled_ids.lock().unwrap().push("pay_monero".into());
+    let till = f.till(square.clone());
+    till.on_event(&waiting_from("Bar iPad"));
+    let requests = f.request_count();
+    till.check().await;
+    let shown = only(&till);
+    assert_eq!(
+        shown.found, None,
+        "the sale stays another till's to alert and refund"
+    );
+    assert!(shown.code.has_receipt, "every till reads the receipt");
+    assert_eq!(shown.receipt, Some(receipt()));
+    assert_eq!(shown.customer_name.as_deref(), Some("Sam"));
+    assert_eq!(shown.receipt_note, None);
+    assert_eq!(f.request_count(), requests, "nothing sent to Monokulo");
+}
+
+#[tokio::test]
+async fn a_failed_order_read_says_why_and_is_read_again_while_the_sale_waits() {
+    let f = fixture().await;
+    let square = SharedSquare::new(vec![sale()]);
+    *square.order_fails.lock().unwrap() = true;
+    let clock = Arc::new(clock(1_761_000_000));
+    let logged = Arc::new(Mutex::new(Vec::<String>::new()));
+    let log = logged.clone();
+    let till = f
+        .till(square.clone())
+        .with_clock(clock.clone())
+        .with_log(Arc::new(move |line| log.lock().unwrap().push(line)));
+    f.enqueue(order());
+    till.check().await;
+    let shown = only(&till);
+    assert!(!shown.code.has_receipt);
+    assert_eq!(
+        shown.receipt_note.as_deref(),
+        Some("No receipt in the code: Square didn't return the order")
+    );
+    assert_eq!(square.handled_ids(), ["pay_monero"], "its order is kept");
+    let lines = logged.lock().unwrap().clone();
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("bP9m") && line.contains("Square is busy")),
+        "{lines:?}"
+    );
+    till.check().await;
+    assert_eq!(square.reads(), 1, "not read again at once");
+
+    *square.order_fails.lock().unwrap() = false;
+    clock.advance(Till::RECEIPT_RETRY_SECONDS);
+    till.check().await;
+    let shown = only(&till);
+    assert_eq!(square.reads(), 2);
+    assert!(
+        shown.code.has_receipt,
+        "the code takes the receipt while it waits"
+    );
+    assert_eq!(shown.receipt_note, None);
+    assert_eq!(shown.customer_name.as_deref(), Some("Sam"));
+    till.check().await;
+    assert_eq!(square.reads(), 2, "not read once it has its receipt");
+}
+
+#[tokio::test]
+async fn a_code_already_scanned_keeps_its_code_when_the_order_reads_later() {
+    let f = fixture().await;
+    let square = SharedSquare::new(vec![sale()]);
+    *square.order_fails.lock().unwrap() = true;
+    let clock = Arc::new(clock(1_761_000_000));
+    let till = f.till(square.clone()).with_clock(clock.clone());
+    f.enqueue(order());
+    till.check().await;
+    let code = only(&till).code;
+    till.on_event(&ord_1("sale.seen", 6));
+    *square.order_fails.lock().unwrap() = false;
+    clock.advance(Till::RECEIPT_RETRY_SECONDS);
+    till.check().await;
+    assert_eq!(square.reads(), 1, "a scanned code isn't read for again");
+    assert_eq!(only(&till).code, code);
+}
+
+#[tokio::test]
+async fn a_till_with_no_point_of_sale_says_why_its_codes_have_no_receipt() {
+    let f = fixture().await;
+    let till = f.till(Arc::new(crate::NoSource));
+    till.on_event(&waiting_from("Front iPad"));
+    till.check().await;
+    assert_eq!(
+        only(&till).receipt_note.as_deref(),
+        Some("This till isn't signed in to Square, so it can't read the order")
+    );
 }

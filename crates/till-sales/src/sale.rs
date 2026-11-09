@@ -166,6 +166,12 @@ pub struct TillSale {
     /// as the point of sale already has the cash.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub paid_in_cash_at: Option<i64>,
+    /// Why its code has no receipt, in the till's words ("No receipt in
+    /// the code: Square didn't return the order"), while it has none and
+    /// the till tried or couldn't try: the sale page's line (core.md
+    /// decision 132). `None` once a receipt is read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receipt_note: Option<String>,
 }
 
 fn is_false(b: &bool) -> bool {

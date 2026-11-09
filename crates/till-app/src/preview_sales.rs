@@ -185,6 +185,7 @@ impl PreviewSale {
             offered: false,
             kept_as_cash_at: None,
             paid_in_cash_at: None,
+            receipt_note: None,
         }
     }
 }

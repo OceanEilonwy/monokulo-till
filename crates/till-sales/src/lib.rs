@@ -41,4 +41,4 @@ pub use runner::{NoSource, RunnerSide, RunnerState, TillRunner};
 pub use sale::{PaymentCode, TillSale, TillState};
 pub use shift::{Interval, OnChecked, Shift, WakeCause};
 pub use standing::Standing;
-pub use till::{OrderStatus, ShiftStore, Till, TillOptions};
+pub use till::{OrderStatus, ShiftStore, Till, TillLog, TillOptions};

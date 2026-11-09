@@ -56,16 +56,19 @@ The board names below (A1, P2, O3 …) are the canvas's.
    (`device_details.device_id`, `device_name`). The onboarding test sale is
    rung up on this counter's Square, so Till learns this counter's device
    from it (C4) and asks "Only sales on Front iPad (recommended)" or "Every
-   sale at Front Counter". `Till::with_device_id`
-   (`crates/till-sales/src/till.rs`) already filters by device but nothing
-   calls it yet.
+   sale at Front Counter". The engine's counters (`Counters`) decide by
+   device which sales alert; the till itself treats every device's sales
+   alike (core.md decision 131).
 5. Sales from other devices never alert, start a Live Activity or grow the
    PiP window. They stay visible: the **title menu** (C3) is the chosen way,
    on iPad and iPhone. Its title is the device being shown ("Front iPad ▾");
    the menu lists this counter (with "This counter · alerts"), each other
    device with its waiting count, and "All counters". Opening another
-   counter's sale shows its code, without the receipt, which stays on the
-   till that found it.
+   counter's sale shows its code with its receipt: every till signed in to
+   the point of sale reads the order itself (core.md decision 131, which
+   replaced "without the receipt, which stays on the till that found
+   it"). Alerts, refunds and the cash actions stay with the till that
+   found the sale.
 6. Settings (C5): "Alert for: This device: Front iPad / Every device at Front
    Counter", "Find this device again with a test sale", and "Show other
    counters' sales in the list". If the test was skipped, Till takes every

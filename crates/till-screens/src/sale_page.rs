@@ -322,13 +322,14 @@ pub fn page(
                 None => "Another till rang this sale up.".into(),
             };
             SalePageModel {
-                order: false,
+                // Read here too when this till could (core.md decision 131).
+                order: sale.receipt.is_some(),
                 ..model(
                     StateIcon::Close,
                     Ground::Chip,
                     format!("{xmr} · not paid"),
                     Some(PageNote::card(format!(
-                        "{who} Its {name} sale and what was bought stay on that till, so refund it there if the customer isn't paying. A late payment still shows here."
+                        "{who} Its {name} sale stays on that till, so refund it there if the customer isn't paying. A late payment still shows here."
                     ))),
                     facts(vec![
                         other.map(|other| Fact::new("Till", other)),
@@ -564,8 +565,14 @@ pub struct SalePageView {
     pub amount_muted: bool,
     pub line: String,
     pub note: Option<PageNote>,
-    /// What was bought, every line: this till's own sale with a receipt.
+    /// What was bought, every line: a sale with a receipt, whoever found
+    /// it (core.md decision 131).
     pub order: Option<OrderCard>,
+    /// Why there's no receipt, as one plain line, while the sale has none
+    /// and the till knows why: "No receipt in the code: Square didn't
+    /// return the order" (core.md decision 132).
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub receipt_note: Option<String>,
     pub facts: Vec<Fact>,
     pub refund_problem: Option<String>,
     pub buttons: Vec<PageButton>,
@@ -621,6 +628,7 @@ pub fn sale_page(
         } else {
             None
         },
+        receipt_note: sale.receipt_note.clone().filter(|_| sale.receipt.is_none()),
         facts: model.facts,
         refund_problem: model
             .actions

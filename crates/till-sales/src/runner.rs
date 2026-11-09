@@ -71,6 +71,10 @@ impl SaleSource for NoSource {
     }
 
     fn handled(&self, _: &FoundSale) {}
+
+    fn signed_in(&self) -> bool {
+        false
+    }
 }
 
 #[async_trait]
@@ -124,6 +128,10 @@ pub trait RunnerSide: Send + Sync {
     fn till_options(&self) -> TillOptions {
         TillOptions::default()
     }
+
+    /// Writes `line` to the app's log: why a sale's code has no receipt,
+    /// say. Never a receipt or a name.
+    fn log(&self, _line: String) {}
 }
 
 /// What the runner holds while it has a till.
@@ -402,10 +410,12 @@ impl Inner {
         let source = self.side.source().unwrap_or_else(|| Arc::new(NoSource));
         let pos = source.point_of_sale();
         self.state.send_modify(|s| s.source = pos);
+        let side = self.side.clone();
         Arc::new(
             Till::new(source, self.monokulo.clone(), connection)
                 .with_options(&self.side.till_options())
                 .with_clock(self.clock.clone())
+                .with_log(Arc::new(move |line| side.log(line)))
                 .with_store(self.side.shift_store()),
         )
     }

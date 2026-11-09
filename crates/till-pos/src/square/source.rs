@@ -7,7 +7,7 @@ use monokulo_client::{Clock, PointOfSale};
 
 use super::{Money, SquareApi, SquareConfig, SquareLocation, SquarePayment, receipt};
 use crate::source::{OVERLAP_SECONDS, mark_handled};
-use crate::{CursorStore, FoundSale, PosError, RefundByTill, Refunds, SaleOrder, SaleSource};
+use crate::{CursorStore, FoundSale, Look, PosError, RefundByTill, Refunds, SaleOrder, SaleSource};
 
 /// Square as a [`SaleSource`]: the till's location's payments since it
 /// started watching, kept to Other tenders named
@@ -72,6 +72,14 @@ impl SaleSource for SquareSource {
     /// (Square can list a payment late), less those handled. The first look
     /// starts the cursor now.
     async fn new_sales(&self) -> Result<Vec<FoundSale>, PosError> {
+        Ok(self.look().await?.new)
+    }
+
+    /// The same request's Monero and cash payments, handled or not, as
+    /// well: another device's sale, or one this device's other process
+    /// (iOS's Notification Service Extension) handled, still has its
+    /// order read for its receipt (core.md decision 131).
+    async fn look(&self) -> Result<Look, PosError> {
         let since = match self.cursor.since()? {
             Some(since) => since,
             None => {
@@ -90,11 +98,17 @@ impl SaleSource for SquareSource {
         );
         let handled = self.cursor.handled()?;
         let payments = self.api.payments(&self.location.id, &from).await?;
-        Ok(payments
+        let listed: Vec<FoundSale> = payments
             .into_iter()
-            .filter(|p| (self.is_monero(p) || is_cash(p)) && !handled.contains(&p.id))
+            .filter(|p| self.is_monero(p) || is_cash(p))
             .map(found_sale)
-            .collect())
+            .collect();
+        let new = listed
+            .iter()
+            .filter(|sale| !handled.contains(&sale.id))
+            .cloned()
+            .collect();
+        Ok(Look { new, listed })
     }
 
     /// The receipt and the order's recipient

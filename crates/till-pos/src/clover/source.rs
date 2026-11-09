@@ -8,7 +8,7 @@ use monokulo_client::{Clock, PointOfSale};
 use super::{CloverApi, CloverConfig, CloverMerchant, CloverPayment, CloverTender, receipt};
 use crate::source::{OVERLAP_SECONDS, mark_handled};
 use crate::{
-    CursorStore, FoundSale, PosError, RefundInPos, Refunds, SaleOrder, SaleSource, StoreError,
+    CursorStore, FoundSale, Look, PosError, RefundInPos, Refunds, SaleOrder, SaleSource, StoreError,
 };
 
 /// Where the Monero tender's id is remembered, per merchant: Clover gives
@@ -128,7 +128,7 @@ impl CloverSource {
             .copied()
     }
 
-    async fn look(&self, at: i64) -> Result<Vec<FoundSale>, PosError> {
+    async fn list(&self, at: i64) -> Result<Look, PosError> {
         let merchant = &self.merchant.id;
         // Not made yet (the card asks the cashier to): found by its label,
         // never made from here.
@@ -139,7 +139,7 @@ impl CloverSource {
                     self.tenders.save(merchant, Some(&tender.id));
                     tender.id.clone()
                 }
-                None => return Ok(Vec::new()),
+                None => return Ok(Look::default()),
             },
         };
         let since = match self.cursor.since()? {
@@ -163,10 +163,16 @@ impl CloverSource {
             .payments(merchant, &tender_id, from_ms)
             .await?
             .into_iter()
-            .filter(|p| is_monero(p, &tender_id) && !handled.contains(&p.id))
+            .filter(|p| is_monero(p, &tender_id))
             .collect();
         payments.sort_by_key(|p| p.created_time);
-        Ok(payments.into_iter().map(|p| self.found_sale(p)).collect())
+        let listed: Vec<FoundSale> = payments.into_iter().map(|p| self.found_sale(p)).collect();
+        let new = listed
+            .iter()
+            .filter(|sale| !handled.contains(&sale.id))
+            .cloned()
+            .collect();
+        Ok(Look { new, listed })
     }
 
     fn found_sale(&self, payment: CloverPayment) -> FoundSale {
@@ -210,6 +216,12 @@ impl SaleSource for CloverSource {
     /// further back than Clover allows), less those handled, oldest first.
     /// Nothing is asked while Clover's last `429` holds the till back.
     async fn new_sales(&self) -> Result<Vec<FoundSale>, PosError> {
+        Ok(SaleSource::look(self).await?.new)
+    }
+
+    /// The same request's Monero payments, handled or not, as well (core.md
+    /// decision 131).
+    async fn look(&self) -> Result<Look, PosError> {
         let at = self.clock.now();
         if self
             .hold_until
@@ -217,9 +229,9 @@ impl SaleSource for CloverSource {
             .unwrap()
             .is_some_and(|until| until > at)
         {
-            return Ok(Vec::new());
+            return Ok(Look::default());
         }
-        let looked = self.look(at).await;
+        let looked = self.list(at).await;
         if let Err(e) = &looked
             && e.status() == Some(429)
         {

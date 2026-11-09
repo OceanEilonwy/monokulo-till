@@ -108,6 +108,9 @@ fun SaleDetail(
                         )
                     }
                     page.order?.let { Box(words) { OrderCard(it, room) } }
+                    page.receiptNote?.let {
+                        Text(it, fontSize = 13.sp, color = mk.muted, textAlign = TextAlign.Center, modifier = words.fillMaxWidth())
+                    }
                     if (page.facts.isNotEmpty()) Box(words) { Facts(page.facts) }
                 }
                 if (page.buttons.isNotEmpty()) {

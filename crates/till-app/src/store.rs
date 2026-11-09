@@ -664,7 +664,6 @@ impl Model {
     /// counter's device, and cash.
     pub fn till_options(&self) -> till_sales::TillOptions {
         till_sales::TillOptions {
-            device_id: self.counter_device.as_ref().map(|d| d.id.clone()),
             cash_as_monero: self.cash_as_monero,
         }
     }

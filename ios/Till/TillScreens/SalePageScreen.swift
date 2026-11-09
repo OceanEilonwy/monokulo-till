@@ -47,6 +47,13 @@ struct SalePageScreen: View {
                 if let order = page.order {
                     OrderCardSection(card: order)
                 }
+                if let why = page.receiptNote {
+                    Text(why)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16)
+                }
                 if !page.facts.isEmpty {
                     FactCard(facts: page.facts)
                 }

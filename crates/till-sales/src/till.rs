@@ -1,6 +1,6 @@
 //! The till's state machine (Android: `Till.kt`).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::future::pending;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -16,6 +16,11 @@ use till_pos::{
 use tokio::sync::watch;
 
 use crate::{PaymentCode, TillSale, TillState};
+
+/// Where the till writes what the cashier never sees but whoever looks
+/// into a problem wants: why a sale's code has no receipt, say. Never a
+/// receipt or a name.
+pub type TillLog = Arc<dyn Fn(String) + Send + Sync>;
 
 #[cfg(test)]
 mod tests;
@@ -36,21 +41,19 @@ pub trait ShiftStore: Send + Sync {
     fn save(&self, sales: &[TillSale]);
 }
 
-/// How the cashier set the till up (core.md decisions 113 and 116): this
-/// counter's point-of-sale device, when known, and whether a cash sale is
-/// treated as Monero as it's found.
+/// How the cashier set the till up (core.md decision 116): whether a cash
+/// sale is treated as Monero as it's found. This counter's device no
+/// longer changes what the till does with a sale (decision 131): which
+/// sales alert is the engine's to say.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TillOptions {
-    pub device_id: Option<String>,
     pub cash_as_monero: bool,
 }
 
 impl Default for TillOptions {
-    /// Every device's sales, and cash treated as Monero: the till before
-    /// it's told otherwise.
+    /// Cash treated as Monero: the till before it's told otherwise.
     fn default() -> TillOptions {
         TillOptions {
-            device_id: None,
             cash_as_monero: true,
         }
     }
@@ -114,6 +117,24 @@ struct Checking {
     /// When the timer last asked the POS about pending refunds
     /// ([`Till::REFUND_LOOK_SECONDS`]).
     last_refund_look_at: Option<i64>,
+    /// When each sale's order last failed to read at the point of sale, by
+    /// order id: it's tried again [`Till::RECEIPT_RETRY_SECONDS`] later.
+    receipt_failed_at: HashMap<String, i64>,
+    /// The sales whose order was read and had nothing to list, by order
+    /// id: not read again.
+    nothing_to_list: HashSet<String>,
+}
+
+impl Checking {
+    /// Notes how the read of `order_id`'s POS order at `at` went: failed,
+    /// it's tried again later; with nothing to list, never again.
+    fn after(&mut self, order_id: &str, read: &Read, at: i64) {
+        if read.failed {
+            self.receipt_failed_at.insert(order_id.to_owned(), at);
+        } else if read.order.receipt.is_none() {
+            self.nothing_to_list.insert(order_id.to_owned());
+        }
+    }
 }
 
 /// The till (docs/design.md §1): turns the POS's Monero sales into Monokulo
@@ -128,11 +149,11 @@ pub struct Till {
     source: Arc<dyn SaleSource>,
     monokulo: MonokuloApi,
     connection: Connection,
-    device_id: Option<String>,
     /// A cash sale gets its order and code as it's found, as a Monero
     /// one does; else it's offered ([`TillSale::offered`]).
     cash_as_monero: bool,
     clock: Arc<dyn Clock>,
+    log: Option<TillLog>,
     store: Option<Arc<dyn ShiftStore>>,
     /// The store's shift couldn't be read, so nothing is saved over it.
     unread: bool,
@@ -160,6 +181,11 @@ impl Till {
     /// lapsed by hadn't reached a code's end yet.
     pub const LAPSE_RETRY: Duration = Duration::from_secs(1);
 
+    /// How long a waiting sale whose order the point of sale didn't return
+    /// waits before its order is read again, in seconds (core.md decision
+    /// 132): a check runs every 2 s without a Bell.
+    pub const RECEIPT_RETRY_SECONDS: i64 = 10;
+
     /// A till over `source`, making orders at `connection`'s store. It takes
     /// every device's sales as its own, treats cash as Monero, reads the
     /// device's clock and saves nothing until told otherwise
@@ -169,9 +195,9 @@ impl Till {
             source,
             monokulo,
             connection,
-            device_id: None,
             cash_as_monero: true,
             clock: Arc::new(SystemClock),
+            log: None,
             store: None,
             unread: false,
             state: watch::Sender::new(TillState::default()),
@@ -180,36 +206,26 @@ impl Till {
         }
     }
 
-    /// The same till, at the counter whose point-of-sale device is
-    /// `device_id` (core.md decision 113). Another device's sales are still
-    /// taken, so they can be listed and their code shown if the customer
-    /// comes here, but without the receipt, which stays with the till at
-    /// that counter; whether one alerts is the engine's to say.
-    pub fn with_device_id(self, device_id: impl Into<String>) -> Till {
-        Till {
-            device_id: Some(device_id.into()),
-            ..self
-        }
-    }
-
     /// The same till, set up as `options` say.
     pub fn with_options(self, options: &TillOptions) -> Till {
-        let till = Till {
+        Till {
             cash_as_monero: options.cash_as_monero,
             ..self
-        };
-        match &options.device_id {
-            Some(device_id) => till.with_device_id(device_id.clone()),
-            None => till,
         }
     }
 
-    /// Whether `sale` was taken on a device other than this counter's.
-    fn elsewhere(&self, sale: &FoundSale) -> bool {
-        matches!(
-            (&self.device_id, &sale.device_id),
-            (Some(mine), Some(theirs)) if mine != theirs
-        )
+    /// The same till, writing to `log` why a sale's code has no receipt.
+    pub fn with_log(self, log: TillLog) -> Till {
+        Till {
+            log: Some(log),
+            ..self
+        }
+    }
+
+    fn log(&self, line: String) {
+        if let Some(log) = &self.log {
+            log(line);
+        }
     }
 
     /// The same till, stamping the cashier's marks and a resync's with
@@ -324,27 +340,41 @@ impl Till {
     /// another device's included (the Bell rings for every sale at the
     /// location): a sale whose order failed, found again, isn't counted
     /// twice. 0 when the POS couldn't be read.
+    ///
+    /// A sale is marked handled at the point of sale only once it's kept
+    /// in the shift, with its order and what was read of its POS order, so
+    /// a check cut short (the iOS extension's deadline) leaves it to be
+    /// found again, and its order is the same one (core.md decision 133).
+    /// Before looking, the sales another process of this device kept in
+    /// the shift are taken in ([`Till::take_in_kept`]); after, every
+    /// waiting sale without a receipt has its order read, whoever found it
+    /// (decisions 131 and 132).
     pub async fn check(&self) -> usize {
         let mut checking = self.checking.lock().await;
-        let found = match self.source.new_sales().await {
-            Ok(found) => found,
+        self.take_in_kept();
+        let look = match self.source.look().await {
+            Ok(look) => look,
             Err(e) => {
                 self.change(|s| with_pos_problem(s, &e));
                 return 0;
             }
         };
+        if !self.source.signed_in() {
+            self.say_why_no_receipts();
+        }
+        let found = &look.new;
         let fresh = found
             .iter()
             .filter(|sale| !checking.last_found.contains(&sale.id))
             .count();
         checking.last_found = found.iter().map(|sale| sale.id.clone()).collect();
         let mut problem = None;
-        for sale in &found {
+        for sale in found {
             if sale.cash && !self.cash_as_monero {
                 // Offered quietly: no order until the cashier takes it.
-                let read = self.source.order(sale).await.ok();
-                self.source.handled(sale);
+                let read = self.read_order(sale).await;
                 self.offer(sale, read);
+                self.source.handled(sale);
                 continue;
             }
             let order = match self.create_order(sale).await {
@@ -354,27 +384,141 @@ impl Till {
                     continue;
                 }
             };
+            let read = self.read_order(sale).await;
+            checking.after(&order.order_id, &read, self.clock.now());
+            self.add(&order, read, sale);
+            // Only now: cut short before this, the sale is found again.
             self.source.handled(sale);
-            let mut read = self.source.order(sale).await.ok();
-            if self.elsewhere(sale)
-                && let Some(read) = &mut read
-            {
-                // The receipt stays with the till at that counter.
-                read.receipt = None;
-            }
-            let code = PaymentCode::of(
-                &order.payment_uri(),
-                read.as_ref().and_then(|read| read.receipt.as_ref()),
-            );
-            self.add(&order, code, read, sale);
         }
         self.change(|s| TillState {
             problem: problem.clone(),
             sign_in_again: false,
             ..s.clone()
         });
+        self.read_receipts(&look.listed, &mut checking).await;
         self.look_for_refunds(&mut checking).await;
         fresh
+    }
+
+    /// One read of `sale`'s order at the point of sale, and why there's no
+    /// receipt when the read gives none, logged when it failed.
+    async fn read_order(&self, sale: &FoundSale) -> Read {
+        let pos = sale.point_of_sale.display_name();
+        let reference = sale.reference.as_deref().unwrap_or("with no number");
+        match self.source.order(sale).await {
+            Ok(order) if order.receipt.is_some() => Read {
+                order,
+                note: None,
+                failed: false,
+            },
+            Ok(order) => {
+                self.log(format!(
+                    "till-core: no receipt for sale {reference}: {pos}'s order had nothing to list"
+                ));
+                Read {
+                    order,
+                    note: Some(format!(
+                        "No receipt in the code: {pos}'s order had nothing to list"
+                    )),
+                    failed: false,
+                }
+            }
+            Err(e) => {
+                self.log(format!(
+                    "till-core: no receipt for sale {reference}: {pos} didn't return its order: {e}"
+                ));
+                Read {
+                    order: SaleOrder::default(),
+                    note: Some(format!(
+                        "No receipt in the code: {pos} didn't return the order"
+                    )),
+                    failed: true,
+                }
+            }
+        }
+    }
+
+    /// Reads the order of every waiting sale whose code has no receipt yet
+    /// at the point of sale, whoever found it (core.md decision 131): this
+    /// till's own (a read that failed is tried again after
+    /// [`Till::RECEIPT_RETRY_SECONDS`]), another counter's, or one learned
+    /// from Monokulo, matched to `listed` by its receipt number, amount and
+    /// currency. The code takes the receipt while its sale waits; once its
+    /// payment is seen, the code has been scanned and stays as it was.
+    async fn read_receipts(&self, listed: &[FoundSale], checking: &mut Checking) {
+        let now = self.clock.now();
+        checking
+            .receipt_failed_at
+            .retain(|_, at| now - *at < Till::RECEIPT_RETRY_SECONDS);
+        let wanted: Vec<(String, Option<FoundSale>)> = self
+            .state
+            .borrow()
+            .sales
+            .iter()
+            .filter(|sale| wants_receipt(sale))
+            .filter(|sale| {
+                !checking.receipt_failed_at.contains_key(&sale.order_id)
+                    && !checking.nothing_to_list.contains(&sale.order_id)
+            })
+            .map(|sale| {
+                let pos_sale = sale
+                    .found
+                    .clone()
+                    .or_else(|| listed.iter().find(|found| matches(sale, found)).cloned());
+                (sale.order_id.clone(), pos_sale)
+            })
+            .collect();
+        for (order_id, pos_sale) in wanted {
+            let Some(pos_sale) = pos_sale else {
+                continue;
+            };
+            let read = self.read_order(&pos_sale).await;
+            checking.after(&order_id, &read, now);
+            self.change_sale(&order_id, |sale| with_read(sale, &read));
+        }
+    }
+
+    /// Says on each waiting sale without a receipt that this till can't
+    /// read orders: it isn't signed in to a point of sale.
+    fn say_why_no_receipts(&self) {
+        let pos = self.source.point_of_sale().display_name();
+        let note = format!("This till isn't signed in to {pos}, so it can't read the order");
+        self.change(|s| TillState {
+            sales: s
+                .sales
+                .iter()
+                .map(|sale| {
+                    if wants_receipt(sale) && sale.receipt_note.is_none() {
+                        TillSale {
+                            receipt_note: Some(note.clone()),
+                            ..sale.clone()
+                        }
+                    } else {
+                        sale.clone()
+                    }
+                })
+                .collect(),
+            ..s.clone()
+        });
+    }
+
+    /// Takes in what another process of this device kept in the shift
+    /// since this till read it (core.md decision 133): on iOS the
+    /// Notification Service Extension runs its own till over the same
+    /// kept shift and point-of-sale cursor, so a sale it found is handled
+    /// there and this till's look never finds it. A kept sale this till
+    /// doesn't have is added (unless its POS sale is already here under
+    /// another order, as an offered cash sale taken in Monero is), and one
+    /// it has without its POS sale or receipt takes them from the kept
+    /// one; this till's own steps (seen, paid, closed) stay.
+    pub fn take_in_kept(&self) {
+        let (Some(store), false) = (&self.store, self.unread) else {
+            return;
+        };
+        let Ok(kept) = store.load() else {
+            return;
+        };
+        self.change(|s| taken_in(s, &kept));
     }
 
     /// Asks the POS whether the sales the cashier was told to refund there
@@ -434,6 +578,10 @@ impl Till {
         let Some(phase) = event.phase() else {
             return;
         };
+        if phase == SalePhase::Waiting && self.state.borrow().sale(&event.order_id).is_none() {
+            // This device's other process may have made it and kept it.
+            self.take_in_kept();
+        }
         self.change(|s| {
             if s.sales.iter().any(|sale| sale.order_id == event.order_id) {
                 TillState {
@@ -454,7 +602,8 @@ impl Till {
                     ..s.clone()
                 }
             } else if phase == SalePhase::Waiting {
-                // Another till's sale: shown with the plain code (no receipt here).
+                // Another till's sale, or this device's other process's not
+                // yet kept: the plain code until a check reads its order.
                 let mut sales = Vec::with_capacity(s.sales.len() + 1);
                 sales.push(event_sale(event));
                 sales.extend(s.sales.iter().cloned());
@@ -652,15 +801,12 @@ impl Till {
     /// Lists a cash sale quietly, with no order, for the cashier to take in
     /// Monero or keep as cash (core.md decision 116). One already listed
     /// (or already taken) stays as it is.
-    fn offer(&self, found: &FoundSale, read: Option<SaleOrder>) {
+    fn offer(&self, found: &FoundSale, read: Read) {
         let order_id = format!("{}{}", TillSale::OFFERED, found.id);
         let created_at =
             till_pos::time::unix_seconds(&found.created_at).unwrap_or_else(|| self.clock.now());
-        let (receipt, customer_name) = match read {
-            Some(read) => (read.receipt, read.customer_name),
-            None => (None, None),
-        };
-        let receipt = receipt.filter(|_| !self.elsewhere(found));
+        let (receipt, customer_name, receipt_note) =
+            (read.order.receipt, read.order.customer_name, read.note);
         self.change(|s| {
             let taken = s
                 .sales
@@ -697,6 +843,7 @@ impl Till {
                 offered: true,
                 kept_as_cash_at: None,
                 paid_in_cash_at: None,
+                receipt_note: receipt_note.clone(),
             };
             let mut sales = Vec::with_capacity(s.sales.len() + 1);
             sales.push(sale);
@@ -727,12 +874,15 @@ impl Till {
                 return Err(e);
             }
         };
-        let code = PaymentCode::of(&order.payment_uri(), offered.receipt.as_ref());
-        let read = SaleOrder {
-            receipt: offered.receipt.clone(),
-            customer_name: offered.customer_name.clone(),
+        let read = Read {
+            order: SaleOrder {
+                receipt: offered.receipt.clone(),
+                customer_name: offered.customer_name.clone(),
+            },
+            note: offered.receipt_note.clone(),
+            failed: false,
         };
-        self.add(&order, code, Some(read), &found);
+        self.add(&order, read, &found);
         self.change(|s| TillState {
             sales: s
                 .sales
@@ -866,19 +1016,29 @@ impl Till {
         true
     }
 
-    fn add(&self, order: &Order, code: PaymentCode, read: Option<SaleOrder>, found: &FoundSale) {
+    /// Keeps `order` as the sale `found` (what was read of its POS order,
+    /// or why nothing was), replacing the sale with its id. A receipt or
+    /// name the sale already had (another process of this device read
+    /// it) is kept when this read gave none.
+    fn add(&self, order: &Order, read: Read, found: &FoundSale) {
         // Another till may have made this order already, and the store's
         // events may have moved it on (paid, even): keep what they said, and
         // when, else the order's own. Read and replaced in the one change, so
         // a close or a refund stamped meanwhile on another thread isn't lost.
         let created_at =
             till_pos::time::unix_seconds(&found.created_at).unwrap_or_else(|| self.clock.now());
-        let (receipt, customer_name) = match read {
-            Some(read) => (read.receipt, read.customer_name),
-            None => (None, None),
-        };
+        let (receipt, customer_name, note) =
+            (read.order.receipt, read.order.customer_name, read.note);
         self.change(|s| {
             let known = s.sale(&order.order_id);
+            let receipt = receipt
+                .clone()
+                .or_else(|| known.and_then(|known| known.receipt.clone()));
+            let customer_name = customer_name
+                .clone()
+                .or_else(|| known.and_then(|known| known.customer_name.clone()));
+            let receipt_note = note.clone().filter(|_| receipt.is_none());
+            let code = PaymentCode::of(&order.payment_uri(), receipt.as_ref());
             let sale = TillSale {
                 order_id: order.order_id.clone(),
                 amount: order
@@ -890,14 +1050,14 @@ impl Till {
                     .clone()
                     .unwrap_or_else(|| found.currency.clone()),
                 reference: order.merchant_order_id.clone(),
-                code: code.clone(),
+                code,
                 phase: known.map_or(order.phase(), |known| known.phase),
                 expires_at: order.expires_at,
                 xmr: payment_uri::xmr(order.piconero),
                 address: order.address.clone(),
                 found: Some(found.clone()),
-                receipt: receipt.clone(),
-                customer_name: customer_name.clone(),
+                receipt,
+                customer_name,
                 device_name: None,
                 url: Some(order.url.clone()).filter(|url| !url.is_empty()),
                 settled: known.is_none() && order.is_final,
@@ -917,6 +1077,7 @@ impl Till {
                 offered: false,
                 kept_as_cash_at: None,
                 paid_in_cash_at: known.and_then(|known| known.paid_in_cash_at),
+                receipt_note,
             };
             let mut sales = Vec::with_capacity(s.sales.len() + 1);
             sales.push(sale);
@@ -1082,5 +1243,111 @@ fn event_sale(event: &SaleEvent) -> TillSale {
         offered: false,
         kept_as_cash_at: None,
         paid_in_cash_at: None,
+        receipt_note: None,
     }
+}
+
+/// Whether `sale`'s order is worth reading for a receipt: its code is up
+/// and unscanned (waiting, its payment not seen), it has an order, and no
+/// receipt yet.
+fn wants_receipt(sale: &TillSale) -> bool {
+    sale.phase == SalePhase::Waiting
+        && sale.seen_at.is_none()
+        && !sale.offered
+        && !sale.settled
+        && sale.receipt.is_none()
+        && !sale.code.uri.is_empty()
+}
+
+/// Whether `found`, a payment the point of sale listed, is `sale`'s: the
+/// same receipt number, amount and currency. Square prints a receipt
+/// number on each payment and Monokulo's order carries it as
+/// `merchant_order_id`; Clover prints none, so its sales never match.
+fn matches(sale: &TillSale, found: &FoundSale) -> bool {
+    sale.reference.is_some()
+        && sale.reference == found.reference
+        && sale.currency == found.currency
+        && sale.amount == decimal_amount(found.amount_minor, &found.currency)
+}
+
+/// `sale` after a read of its order: with the receipt and name, its code
+/// carrying the receipt while it still waits unscanned, or with why not.
+fn with_read(sale: &TillSale, read: &Read) -> TillSale {
+    let customer_name = sale
+        .customer_name
+        .clone()
+        .or_else(|| read.order.customer_name.clone());
+    match &read.order.receipt {
+        Some(receipt) if wants_receipt(sale) => TillSale {
+            code: PaymentCode::of(&sale.code.uri, Some(receipt)),
+            receipt: Some(receipt.clone()),
+            customer_name,
+            receipt_note: None,
+            ..sale.clone()
+        },
+        Some(_) => sale.clone(),
+        None => TillSale {
+            customer_name,
+            receipt_note: read.note.clone(),
+            ..sale.clone()
+        },
+    }
+}
+
+/// What one read of a sale's order at the point of sale gave: the
+/// receipt and name, why there's no receipt when there isn't, and whether
+/// the read failed (and is tried again later).
+struct Read {
+    order: SaleOrder,
+    note: Option<String>,
+    failed: bool,
+}
+
+/// `s` with what another process of this device kept in `kept`
+/// ([`Till::take_in_kept`]).
+fn taken_in(s: &TillState, kept: &[TillSale]) -> TillState {
+    let mut sales = s.sales.clone();
+    for k in kept {
+        if let Some(mine) = sales.iter_mut().find(|sale| sale.order_id == k.order_id) {
+            if mine.found.is_none() && k.found.is_some() {
+                mine.found = k.found.clone();
+                mine.device_name = k.device_name.clone();
+                mine.created_at = k.created_at;
+            }
+            if mine.receipt.is_none() && k.receipt.is_some() {
+                mine.receipt = k.receipt.clone();
+                mine.receipt_note = None;
+                if !mine.code.has_receipt
+                    && k.code.has_receipt
+                    && wants_receipt(&TillSale {
+                        receipt: None,
+                        ..mine.clone()
+                    })
+                {
+                    mine.code = k.code.clone();
+                }
+            }
+            if mine.customer_name.is_none() {
+                mine.customer_name = k.customer_name.clone();
+            }
+            continue;
+        }
+        let Some(found) = &k.found else {
+            // Another till's sale, kept there from its event: Monokulo
+            // tells this till of it too.
+            continue;
+        };
+        if sales
+            .iter()
+            .any(|sale| sale.found.as_ref().is_some_and(|f| f.id == found.id))
+        {
+            continue;
+        }
+        let at = sales
+            .iter()
+            .position(|sale| sale.created_at < k.created_at)
+            .unwrap_or(sales.len());
+        sales.insert(at, k.clone());
+    }
+    TillState { sales, ..s.clone() }
 }

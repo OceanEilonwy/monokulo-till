@@ -915,3 +915,80 @@ and 8, and what the engine adds for it.
      section. iOS's alert for a new sale is still claimed as decision
      123 says, but not posted while the window is up, as the window
      shows the sale itself: the claim counts it as told.
+
+## Receipts on every till, and the sale the extension made (2026-11-09)
+
+The owner's iPad showed a sale rung up on the Square sandbox (an order
+with line items, then the Monero tender) with the plain code, no items on
+its page, and "From iPad": this iPad made the Monokulo order, but its
+shift took the sale for another till's.
+
+131. **Every till reads the receipt, whoever found the sale.** This
+     supersedes decision 113's "without the receipt, which stays with that
+     counter's till" and ipad-redesign.md decision 5's "without the
+     receipt": any till signed in to the same point of sale can read any
+     sale's order itself. A till reads the point of sale's order for each
+     waiting sale in its shift whose code has no receipt: by its own
+     `found` record, or, for a sale another counter found or that it
+     learned from Monokulo's events, by matching the sale's receipt
+     number, amount and currency (`merchant_order_id` on Monokulo's order
+     is Square's `receipt_number`) to the payments its source already
+     lists for the location (`SaleSource::look`, which now gives every
+     payment the request listed, handled or not, beside the new ones).
+     Nothing new is sent to Monokulo. Clover prints no receipt number, so
+     a Clover sale found elsewhere is still not matched. The receipt is
+     the same on every till (built from the same order), so once read for
+     a sale that still waits unscanned (`Waiting`, its payment not seen)
+     its code takes it and every till shows the same code; once the
+     payment is seen, the code isn't changed. What was bought shows on
+     the sale's page whenever there's a receipt, another till's sale
+     included. `found` (ownership) still decides what needs one owner,
+     and all of it does: the alert (decision 123's claim and
+     `Counters::quiet`), the refund (it needs the payment's id), the Live
+     Activity and floating window (this till's sales), and the cash
+     actions (whether a sale was cash is `found.cash`, and "Take it in
+     Monero" makes the order from it). A matched payment isn't kept as
+     `found`, so none of those change. `TillOptions.device_id` and
+     `Till::with_device_id` are gone: the device only ever stripped
+     receipts in the till; the counters read it from the model.
+132. **Why a code has no receipt is said on the sale's page.** A sale
+     keeps `receipt_note` while it has no receipt and the till knows why,
+     and `SalePageView.receipt_note` is one plain line under the order's
+     place: "No receipt in the code: Square didn't return the order" (the
+     read failed; logged with Square's error and the sale's number, never
+     what was bought), "No receipt in the code: Square's order had
+     nothing to list", or, on a till with no point of sale signed in
+     ("Set up later"), "This till isn't signed in to Square, so it can't
+     read the order". A failed read is tried again on the checks while
+     the sale waits, at most every 10 s (`Till::RECEIPT_RETRY_SECONDS`);
+     an order with nothing to list isn't read again. Before, a failed read
+     added the sale with no receipt and nothing retried it. iOS and
+     Android draw the line as muted text.
+133. **A payment is marked handled only once its sale is kept, and the
+     app takes in what the extension kept.** Two mechanisms gave "From
+     iPad", both reproduced by tests. First, `Till::check` marked the
+     payment handled right after making the Monokulo order and before
+     reading Square's order and keeping the sale; iOS's Notification
+     Service Extension runs a check under a deadline, so one cut short
+     there left an order in Monokulo and a payment no look would find
+     again. Now the order is made, Square's order read, the sale kept
+     (with `found`), and only then the payment marked handled; a check
+     cut short anywhere before leaves the payment to the next look, which
+     gets the same order by its idempotency key. Second, the extension
+     and the app each run a till over the same kept shift and the same
+     point-of-sale cursor: a sale the extension found is handled in the
+     shared cursor, so the app's look never finds it, and the app's till,
+     which read the shift once as it started, learned the order only from
+     Monokulo's `sale.waiting` (with this device's name), as another
+     till's, and then saved that over the extension's record. Now the
+     till takes in the kept shift (`Till::take_in_kept`) before each
+     check and when an event names an order it doesn't have: a kept sale
+     it lacks is added (unless its payment is already here under another
+     order), and its own copy without `found`, a receipt or a name takes
+     them from the kept one, keeping its own steps. The extension claimed
+     the alert as it kept the sale, so the app's claim for it loses and
+     nothing alerts twice (decision 123). With decision 131 the receipt no
+     longer depends on any of this; ownership (alerts, refunds) does. A
+     remaining edge: the extension saves its whole shift as it read it
+     at its start, so a change the app made during the extension's run
+     is on disk again only at the app's next change.
