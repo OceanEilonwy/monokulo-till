@@ -8,7 +8,6 @@ use std::sync::Arc;
 use monokulo_client::{Connection, PointOfSale};
 use till_bell::{BellAddress, WakeUpChoice, WakeUpStore};
 use till_pos::{CursorStore, TokenStore};
-use till_sales::ShiftStore;
 
 use super::*;
 use crate::testing::FakePlatform;
@@ -167,7 +166,7 @@ fn every_key_stores_kt_writes_reads_into_the_model() {
             .as_deref(),
         Some("TND1")
     );
-    let shift = ShiftKept::new(s, log).load().unwrap();
+    let shift = s.shift_sales().unwrap();
     assert_eq!(shift.len(), 1);
     assert_eq!(shift[0].order_id, "ord_2");
 }
@@ -193,7 +192,7 @@ fn the_model_writes_every_key_back_as_stores_kt_wrote_it() {
             .save(&from.since().unwrap().unwrap(), &from.handled().unwrap());
     }
     Tenders::new(write.clone(), log.clone()).save("MID1", Some("TND1"));
-    ShiftKept::new(write, log.clone()).save(&ShiftKept::new(read, log).load().unwrap());
+    write.set_shift_sales(&read.shift_sales().unwrap()).unwrap();
 
     assert_eq!(rust.all(), kotlin.all(), "byte for byte, and no key more");
 }
@@ -437,17 +436,16 @@ fn what_is_read_through_says_when_it_couldnt_be_read() {
         Arc::new(move |line| lines.lock().unwrap().push(line))
     };
     let s = store(&platform);
-    let shift = ShiftKept::new(s.clone(), log.clone());
     let cursor = PosCursor::new(s.clone(), PointOfSale::Square, log.clone());
-    let tenders = Tenders::new(s, log);
+    let tenders = Tenders::new(s.clone(), log);
     platform.fail(true);
-    assert!(shift.load().is_err());
+    assert!(s.shift_sales().is_err());
     assert!(cursor.since().is_err());
     assert!(cursor.handled().is_err());
     assert!(tenders.tender_id("MID1").is_err());
-    assert_eq!(lines.lock().unwrap().len(), 4, "each logged");
+    assert_eq!(lines.lock().unwrap().len(), 3, "each logged");
     platform.fail(false);
-    assert_eq!(shift.load().unwrap().len(), 1, "and all still there");
+    assert_eq!(s.shift_sales().unwrap().len(), 1, "and all still there");
     assert_eq!(tenders.tender_id("MID1").unwrap().as_deref(), Some("TND1"));
 }
 

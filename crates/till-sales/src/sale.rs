@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use monokulo_client::SalePhase;
 use orf_codec::Receipt;
 use serde::{Deserialize, Serialize};
+use till_ledger::SaleView;
 use till_pos::FoundSale;
 
 use crate::kotlin_json;
@@ -166,6 +167,57 @@ pub struct TillSale {
     /// as the point of sale already has the cash.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub paid_in_cash_at: Option<i64>,
+    /// What only the ledger knows (docs/ledger.md §5, §7): the sale's
+    /// orders when it had more than one, and its warnings. Empty for a sale
+    /// read from a kept shift or a fixture, and left out of their JSON.
+    #[serde(default, skip_serializing_if = "SaleExtras::is_empty")]
+    pub extras: SaleExtras,
+}
+
+/// One of a sale's orders, as its page lists the earlier ones.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttemptLine {
+    /// 1 for the first code, n for the code the (n-1)th New code made.
+    pub attempt: u8,
+    pub order_id: String,
+    pub phase: SalePhase,
+    /// Another code was paid, so this one is over.
+    pub superseded: bool,
+}
+
+/// What the ledger adds to a sale (docs/ledger.md §5, §7).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaleExtras {
+    /// The ledger's key for the sale (`sq:<payment>`, `mk:<order>`).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub sale_key: String,
+    /// Every order the sale has had, oldest first, when it has had more
+    /// than one (New code).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attempts: Vec<AttemptLine>,
+    /// Two of its codes were paid: one must be refunded.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub paid_twice: bool,
+    /// Paid after it was refunded in the point of sale.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub paid_after_refund: bool,
+    /// Paid after the cashier closed it.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub paid_after_close: bool,
+    /// Another counter's sale, with this counter's device chosen.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub other_counter: bool,
+    /// The code ran out by this device's clock before Monokulo said so.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub clock_lapsed: bool,
+}
+
+impl SaleExtras {
+    pub fn is_empty(&self) -> bool {
+        *self == SaleExtras::default()
+    }
 }
 
 fn is_false(b: &bool) -> bool {
@@ -180,6 +232,84 @@ impl TillSale {
     /// What an offered cash sale's `order_id` starts with, before the
     /// payment's id: no Monokulo order id does.
     pub const OFFERED: &'static str = "cash:";
+
+    /// The ledger's view of a sale as the screens take it: field for field,
+    /// but that a code this device's clock says ran out shows as expired
+    /// ("No payment yet") before Monokulo says so (docs/ledger.md §5).
+    pub fn of_view(v: &SaleView) -> TillSale {
+        let lapsed = v.clock_lapsed && v.phase != SalePhase::Paid;
+        TillSale {
+            order_id: v.order_id.clone(),
+            amount: v.amount.clone(),
+            currency: v.currency.clone(),
+            reference: v.reference.clone(),
+            code: PaymentCode {
+                uri: v.code.uri.clone(),
+                has_receipt: v.code.has_receipt,
+                why: v.code.why.clone(),
+            },
+            phase: if lapsed { SalePhase::Expired } else { v.phase },
+            expires_at: v.expires_at,
+            xmr: v.xmr.clone(),
+            address: v.address.clone(),
+            found: v.found.clone(),
+            receipt: v.receipt.clone(),
+            customer_name: v.customer_name.clone(),
+            device_name: v.device_name.clone(),
+            url: v.url.clone(),
+            settled: v.settled,
+            created_at: v.created_at,
+            seen_at: v.seen_at,
+            paid_at: v.paid_at,
+            ended_at: v
+                .ended_at
+                .or_else(|| lapsed.then_some(v.expires_at).filter(|&at| at > 0)),
+            closed_at: v.closed_at,
+            refunded_at: v.refunded_at,
+            refund_pending_at: v.refund_pending_at,
+            confirmations: v.confirmations,
+            confirmations_required: v.confirmations_required,
+            offered: v.offered,
+            kept_as_cash_at: v.kept_as_cash_at,
+            paid_in_cash_at: v.paid_in_cash_at,
+            extras: SaleExtras {
+                sale_key: v.sale.text(),
+                attempts: if v.attempts.len() > 1 {
+                    v.attempts
+                        .iter()
+                        .map(|a| AttemptLine {
+                            attempt: a.attempt,
+                            order_id: a.order_id.clone(),
+                            phase: a.phase,
+                            superseded: a.superseded,
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                },
+                paid_twice: v.paid_twice,
+                paid_after_refund: v.paid_after_refund,
+                paid_after_close: v.paid_after_close,
+                other_counter: v.other_counter,
+                clock_lapsed: lapsed,
+            },
+        }
+    }
+
+    /// Unpaid, its code over by Monokulo's word or this device's clock, and
+    /// not refunded, closed or settled in cash: the cashier may make it a
+    /// new code ("New code", docs/ledger.md §7), when the till can see its
+    /// point-of-sale payment.
+    pub fn may_new_code(&self) -> bool {
+        self.found.is_some()
+            && !self.offered
+            && matches!(self.phase, SalePhase::Expired | SalePhase::Cancelled)
+            && self.closed_at.is_none()
+            && self.refunded_at.is_none()
+            && self.refund_pending_at.is_none()
+            && self.paid_in_cash_at.is_none()
+            && self.kept_as_cash_at.is_none()
+    }
 
     /// Worth reading again: Monokulo may still move it on. An offered cash
     /// sale has no order to read.
@@ -221,7 +351,14 @@ impl TillSale {
 /// went wrong.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TillState {
+    /// What the ledger holds for the shift, newest first: never changed
+    /// here but by reading the ledger again ([`crate::Books`]).
     pub sales: Vec<TillSale>,
+    /// The ledger's views of the same sales, in the same order.
+    pub views: Vec<SaleView>,
+    /// When the shift's window starts, Unix seconds: the later of the
+    /// shift's start and the trading day's (04:00 local, docs/ledger.md §9).
+    pub shift_from: Option<i64>,
     pub problem: Option<String>,
     /// The POS sign-in has ended: the cashier must sign in again.
     pub sign_in_again: bool,

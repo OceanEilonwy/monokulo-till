@@ -21,9 +21,9 @@
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
 
-mod alerted;
 mod background;
 mod engine;
+mod ledger;
 pub mod lifecycle;
 mod phases;
 mod preview;
@@ -594,6 +594,11 @@ pub enum Action {
     PaidInCash {
         order_id: String,
     },
+    /// "New code" on a sale whose code ran out unpaid (docs/ledger.md §7):
+    /// its next order is made, and the sale opens on its code.
+    NewCode {
+        order_id: String,
+    },
     /// iOS's APNs device token, the bytes in hex, each time iOS gives one
     /// (every launch, from `registerForRemoteNotifications`); `None` when
     /// iOS couldn't register for remote notifications. With a
@@ -839,6 +844,9 @@ fn runtime() -> &'static tokio::runtime::Runtime {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct Engine {
     tx: UnboundedSender<engine::Msg>,
+    /// The engine's books, once it has made them: what [`Engine::suspend`]
+    /// closes from the platform's own thread.
+    books: engine::BooksSlot,
 }
 
 impl Engine {
@@ -859,6 +867,7 @@ impl Engine {
         listener: Arc<dyn EngineListener>,
         options: engine::Options,
     ) -> Arc<Engine> {
+        let books = engine::BooksSlot::default();
         let tx = engine::spawn(
             runtime().handle(),
             config,
@@ -866,8 +875,9 @@ impl Engine {
             push,
             listener,
             options,
+            books.clone(),
         );
-        Arc::new(Engine { tx })
+        Arc::new(Engine { tx, books })
     }
 }
 

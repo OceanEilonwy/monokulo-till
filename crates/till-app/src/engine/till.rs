@@ -343,7 +343,7 @@ impl State {
             disconnected: runner.disconnected,
             problem: runner.till.problem.or(runner.stream_problem),
             sign_in_again: runner.till.sign_in_again,
-            started_at: model.shift_started_at,
+            started_at: runner.till.shift_from.or(model.shift_started_at),
             filter: self.filter,
             folded: self.folded,
             counters: self.counters(),

@@ -68,9 +68,8 @@ impl Drop for Hold {
     }
 }
 
-// The engine's lifecycle calls. Stubs until the ledger is in the engine
-// (branch ledger-integration implements them); the platforms already call
-// them where they belong.
+// The engine's lifecycle calls (docs/ledger.md §11): the platforms call
+// them where the OS tells them; the core decides what they mean.
 #[cfg_attr(feature = "uniffi", uniffi::export)]
 impl Engine {
     /// The app is going to the background and may be suspended once this
@@ -78,17 +77,28 @@ impl Engine {
     /// ledger. Blocks until then, so the platform calls it off the main
     /// thread, inside a background hold. A later write reopens the ledger
     /// under its own [`hold`].
-    pub fn suspend(&self) {}
+    pub fn suspend(&self) {
+        let books = self.books.lock().ok().and_then(|slot| slot.clone());
+        if let Some(books) = books {
+            books.suspend();
+        }
+        let _ = self.tx.send(crate::engine::Msg::Suspended);
+    }
 
-    /// The app is in front again (after [`Engine::suspend`]): the engine may
-    /// reopen the ledger and re-read what the extension wrote meanwhile.
+    /// The app is in front again (after [`Engine::suspend`]): the engine
+    /// reopens the ledger and re-reads what the extension wrote meanwhile.
     /// Never blocks.
-    pub fn resume(&self) {}
+    pub fn resume(&self) {
+        let _ = self.tx.send(crate::engine::Msg::LedgerChanged);
+    }
 
     /// Another process (iOS's Notification Service Extension) finished a
     /// round that may have written the ledger: the engine re-reads its
-    /// projections and publishes what changed. Never blocks.
-    pub fn ledger_changed(&self) {}
+    /// projections, claims what the extension left it, and publishes what
+    /// changed. Never blocks.
+    pub fn ledger_changed(&self) {
+        let _ = self.tx.send(crate::engine::Msg::LedgerChanged);
+    }
 }
 
 #[cfg(test)]

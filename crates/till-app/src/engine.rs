@@ -8,17 +8,19 @@
 use std::collections::BTreeSet;
 use std::future::Future;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, Mutex, Weak};
+use std::time::Duration;
 
 use monokulo_client::connect_code;
 use monokulo_client::{
     Clock, ConnectCode, Connection, MonokuloApi, PointOfSale, SystemClock, problems, tor,
 };
 use till_bell::{BellAddress, BellApi, BellWakeUps, WakeUpChoice, WakeUpStatus, is_ding};
+use till_ledger::{AlertKind, Claim, ClaimPolicy, Fact, Process, Scope, ShiftMark};
 use till_pos::clover::TenderState;
 use till_pos::square::SquareLocation;
 use till_pos::{Pkce, PosError};
-use till_sales::{LiveStore, PosSwitch, Standing, TillRunner, TillSale};
+use till_sales::{Books, LiveStore, PosSwitch, Standing, TillRunner, TillSale};
 use till_screens::bubble::PaidMoment;
 use till_screens::close::{self, CloseThen};
 use till_screens::onboarding::{
@@ -37,7 +39,7 @@ use tokio::sync::watch;
 
 mod till;
 
-use crate::phases::{Change, Money, NewSales, Phases};
+use crate::phases::Money;
 use crate::push::PlatformPush;
 use crate::relay::{DeviceToken, RelayPush};
 use crate::side::Side;
@@ -63,7 +65,23 @@ pub(crate) enum Msg {
     /// Tests change the state, as a timer's end would.
     #[cfg(test)]
     Poke(Apply),
+    /// Alerts this process claimed in the ledger, to deliver.
+    Claims(Vec<Claim>),
+    /// Another process wrote the ledger, or the app is in front again:
+    /// read it again.
+    LedgerChanged,
+    /// The platform closed the ledger: the app may be suspended.
+    Suspended,
 }
+
+/// The engine's books, shared with [`crate::Engine`] so the platform's
+/// `suspend` can close the ledger from its own thread.
+pub(crate) type BooksSlot = Arc<Mutex<Option<Arc<Books>>>>;
+
+/// How long a `Foreground` heartbeat says the app is in front for, and how
+/// often it's written while it is (docs/ledger.md §6).
+const FOREGROUND_FOR: Duration = Duration::from_secs(10);
+const HEARTBEAT: Duration = Duration::from_secs(4);
 
 pub(crate) type Apply = Box<dyn FnOnce(&mut State) + Send>;
 
@@ -86,6 +104,7 @@ pub(crate) fn spawn(
     push: Arc<dyn PushPlatform>,
     listener: Arc<dyn EngineListener>,
     options: Options,
+    books: BooksSlot,
 ) -> UnboundedSender<Msg> {
     let (tx, mut rx) = unbounded_channel();
     let mut state = State::new(
@@ -97,6 +116,7 @@ pub(crate) fn spawn(
         listener,
         options,
     );
+    state.books_slot = books;
     runtime.spawn(async move {
         state.step(|s| s.start());
         state.after();
@@ -263,9 +283,15 @@ pub(crate) struct State {
     ticking: bool,
     utc_offset: i32,
     hours_24: bool,
-    phases: Phases,
-    /// Which sales are due their alert (core.md decision 123).
-    new_sales: NewSales,
+    /// The sales listed at the last look: one gone from the list has its
+    /// notification cleared.
+    listed: Option<BTreeSet<String>>,
+    /// The ledger's scope as last seen: when the store or the point of
+    /// sale's account changes, the old scope's rows go (docs/ledger.md §4).
+    scope: Option<Scope>,
+    /// Bumped to stop the `Foreground` heartbeat's loop.
+    heartbeat: u64,
+    books_slot: BooksSlot,
     published: Published,
 }
 
@@ -334,8 +360,10 @@ impl State {
             bubble_focus: None,
             panel_up: false,
             ticking: false,
-            phases: Phases::default(),
-            new_sales: NewSales::default(),
+            listed: None,
+            scope: None,
+            heartbeat: 0,
+            books_slot: BooksSlot::default(),
             published: Published::default(),
         }
     }
@@ -378,6 +406,9 @@ impl State {
                     p.runner.disconnected();
                 }
             }
+            Msg::Claims(claims) => self.step(|s| s.deliver(claims)),
+            Msg::LedgerChanged => self.step(|s| s.ledger_changed()),
+            Msg::Suspended => {}
             Msg::Stop => {}
         }
     }
@@ -385,6 +416,7 @@ impl State {
     /// After each batch: what changed about the sales, then every slice.
     fn after(&mut self) {
         self.step(|s| {
+            s.rescope();
             s.learn_found_device();
             s.name_clover_devices();
             s.follow();
@@ -468,9 +500,20 @@ impl State {
         let side = Arc::new(Side::new(
             self.config.clone(),
             kept.clone(),
+            self.platform.clone(),
+            Process::App,
             http.clone(),
             self.clock.clone(),
         )?);
+        {
+            let tx = self.tx.clone();
+            side.ledger().deliver_to(Arc::new(move |claims| {
+                let _ = tx.send(Msg::Claims(claims));
+            }));
+        }
+        if let Ok(mut slot) = self.books_slot.lock() {
+            *slot = Some(side.books().clone());
+        }
         let monokulo = MonokuloApi::new(http.clone(), side.identity(), self.clock.clone());
         let monokulo_bell = BellAddress::parse(&self.config.bell_url, self.config.debug)
             .ok_or_else(|| {
@@ -545,6 +588,15 @@ impl State {
         let Some(p) = &self.parts else { return };
         let model = p.side.model();
         p.live.read(model.connection.as_ref());
+        self.scope = Some(crate::ledger::scope_of(&model));
+        self.keep_settings();
+        if let Some(p) = &self.parts {
+            p.side.books().refresh();
+            if let Err(e) = p.side.books().with(|l| l.maintain()) {
+                self.log(format!("till-core: the ledger's upkeep: {e}"));
+            }
+        }
+        let Some(p) = &self.parts else { return };
         if model.shift_on && model.connection.is_some() {
             p.runner.start();
         } else {
@@ -571,8 +623,7 @@ impl State {
         p.runner = TillRunner::new(p.side.clone(), p.monokulo.clone(), self.clock.clone());
         let rx = p.runner.subscribe();
         self.watch(rx);
-        self.phases = Phases::default();
-        self.new_sales = NewSales::default();
+        self.listed = None;
     }
 
     fn model(&self) -> Option<crate::store::Model> {
@@ -657,7 +708,13 @@ impl State {
     fn handle(&mut self, action: Action) {
         match action {
             Action::Opened => self.opened(),
-            Action::Backgrounded => self.visible = false,
+            Action::Backgrounded => {
+                self.visible = false;
+                self.heartbeat += 1;
+                // Behind now: a payment is a notice, not the paid moment.
+                let now = self.now_ms();
+                self.record(Fact::Foreground { until: now });
+            }
             Action::ClockChanged {
                 utc_offset,
                 hours_24,
@@ -885,25 +942,32 @@ impl State {
                 }
             }
             Action::SetAlertFor { every_device } => {
-                self.keep(|m| m.alert_every = every_device);
+                if self.keep(|m| m.alert_every = every_device) {
+                    self.keep_settings();
+                }
             }
             Action::FindDevice => self.find_device(),
             Action::SetShowOtherCounters { on } => {
                 if self.keep(|m| m.show_others = on) {
                     // The list opens as the setting now says.
                     self.counter = None;
+                    self.keep_settings();
                 }
             }
             Action::ChooseCounter { choice } => self.counter = Some(choice),
             Action::SetCashAsMonero { on } => {
                 if self.keep(|m| m.cash_as_monero = on) {
+                    self.keep_settings();
                     self.restart();
                 }
             }
             Action::ChooseShowSales { mode } => {
-                self.keep(|m| m.show_sales = mode);
+                if self.keep(|m| m.show_sales = mode) {
+                    self.keep_settings();
+                }
             }
             Action::TakeInMonero { order_id } => self.take_in_monero(order_id),
+            Action::NewCode { order_id } => self.new_code(order_id),
             Action::KeepAsCash { order_id } => {
                 if let Some(p) = &self.parts {
                     p.runner.keep_as_cash(&order_id);
@@ -1029,6 +1093,7 @@ impl State {
             })
         }) {
             self.counter = None;
+            self.keep_settings();
             self.restart();
         }
     }
@@ -1068,6 +1133,28 @@ impl State {
         });
     }
 
+    /// "New code": the expired sale's next order is made, and the sale opens
+    /// on its code.
+    fn new_code(&mut self, order_id: String) {
+        if self.taking.contains(&order_id) {
+            return;
+        }
+        let Some(till) = self.parts.as_ref().and_then(|p| p.runner.till()) else {
+            return;
+        };
+        self.taking.insert(order_id.clone());
+        self.task(async move {
+            let made = till.new_code(&order_id).await;
+            apply(move |s| {
+                s.taking.remove(&order_id);
+                match made {
+                    Ok(new) => s.open(new),
+                    Err(e) => s.problem = Some(e),
+                }
+            })
+        });
+    }
+
     /// The app came forward: everything is published again, what couldn't
     /// be read is read again, the store read live, an unreachable Bell
     /// tried now (decision 123), the shift started if it should be running
@@ -1090,8 +1177,14 @@ impl State {
             self.build();
             return;
         }
-        self.reload_shift();
+        // What the extension wrote while the app was behind.
+        self.ledger_changed();
+        self.heartbeat += 1;
+        self.beat(self.heartbeat);
         let Some(p) = &self.parts else { return };
+        if let Err(e) = p.side.books().with(|l| l.maintain()) {
+            self.log(format!("till-core: the ledger's upkeep: {e}"));
+        }
         let model = p.side.model();
         p.live.read(model.connection.as_ref());
         retry_wake_ups(&p.wake_ups);
@@ -1101,30 +1194,134 @@ impl State {
         p.runner.wake();
     }
 
-    /// Reads the kept shift again when it has a sale the till hasn't.
-    fn reload_shift(&mut self) {
+    /// Another process wrote the ledger (iOS's extension), or the app is in
+    /// front again: its projections are read again and what it left this
+    /// process to deliver is claimed.
+    fn ledger_changed(&mut self) {
         let Some(p) = &self.parts else { return };
-        let Ok(kept) = p.side.store().shift_sales() else {
-            return;
-        };
-        let shown: BTreeSet<String> = p
-            .runner
-            .state()
-            .till
-            .sales
-            .into_iter()
-            .map(|sale| sale.order_id)
-            .collect();
-        if kept.iter().all(|sale| shown.contains(&sale.order_id)) {
+        let books = p.side.books().clone();
+        books.refresh();
+        let claims = books.claim_due(ClaimPolicy::All);
+        self.deliver(claims);
+    }
+
+    /// While the app is in front, the ledger hears so every few seconds
+    /// (`Foreground`), so a payment is the paid moment rather than a notice.
+    fn beat(&mut self, token: u64) {
+        if !self.visible || token != self.heartbeat {
             return;
         }
-        if p.runner.state().running {
-            self.restart();
-        } else {
-            self.new_runner();
-            if let Some(p) = &self.parts {
-                p.runner.show_saved();
+        let until = self.now_ms() + FOREGROUND_FOR.as_millis() as i64;
+        self.record(Fact::Foreground { until });
+        self.task(async move {
+            tokio::time::sleep(HEARTBEAT).await;
+            apply(move |s| s.beat(token))
+        });
+    }
+
+    fn now_ms(&self) -> i64 {
+        self.clock.now().saturating_mul(1000)
+    }
+
+    /// Records `fact` in the engine's books.
+    fn record(&self, fact: Fact) {
+        if let Some(p) = &self.parts {
+            p.side.books().record(fact);
+        }
+    }
+
+    /// Keeps the settings the ledger's views and alerts read (docs/ledger.md
+    /// §2): this counter's device, every device, cash as Monero, and how
+    /// sales show up and whether other counters' are listed.
+    fn keep_settings(&self) {
+        let Some(p) = &self.parts else { return };
+        let model = p.side.model();
+        let at = self.now_ms();
+        p.side.books().keep_options(&model.till_options(), at);
+        p.side.books().keep_settings(
+            &[
+                ("counter.others", Some(model.show_others.to_string())),
+                ("sales.show", Some(format!("{:?}", model.show_sales))),
+            ],
+            at,
+        );
+    }
+
+    /// The store or the point of sale's account changed: the old scope's
+    /// rows are deleted and the ledger reads the new one's (docs/ledger.md
+    /// §4: signing out, forgetting the store, another point of sale).
+    fn rescope(&mut self) {
+        let Some(p) = &self.parts else { return };
+        let scope = crate::ledger::scope_of(&p.side.model());
+        if self.scope.as_ref() == Some(&scope) {
+            return;
+        }
+        if self.scope.is_some() {
+            p.side.books().rescope();
+        }
+        self.scope = Some(scope);
+    }
+
+    /// Delivers what this process claimed in the ledger (docs/ledger.md
+    /// §6), then says so: a new sale's alert while the app is behind; a
+    /// payment's paid moment and haptic, with a notice while behind; a
+    /// code that ran out unpaid. Notices are posted on Android, on iPad
+    /// and on an iPhone without the Live Activity (the owner's fix 2).
+    fn deliver(&mut self, claims: Vec<Claim>) {
+        if claims.is_empty() {
+            return;
+        }
+        let Some(p) = &self.parts else { return };
+        let books = p.side.books().clone();
+        let model = p.side.model();
+        let till = model.point_of_sale;
+        let money = Money(self.platform.clone());
+        let android = self.config.device == Device::Android;
+        let notices = android || !self.live_activity_on(&model);
+        let quiet = self.visible;
+        for claim in claims {
+            let sale = TillSale::of_view(&claim.view);
+            let order_id = sale.order_id.clone();
+            match claim.kind {
+                AlertKind::NewSale => {
+                    if !self.visible {
+                        self.alert_for = Some(order_id);
+                    }
+                }
+                AlertKind::Paid | AlertKind::PaidMoment => {
+                    self.just_paid(order_id.clone());
+                    if self.visible {
+                        self.effect(Effect::Haptic {
+                            haptic: Haptic::Paid,
+                        });
+                    }
+                    if notices && (claim.kind == AlertKind::Paid || android) {
+                        self.effect(Effect::Notify {
+                            order_id,
+                            notice: notification::paid_notice(&sale, &money),
+                            paid: true,
+                            timeout_ms: notification::notice_timeout(true),
+                            quiet,
+                        });
+                    }
+                }
+                AlertKind::Ended => {
+                    if sale.found.is_some() {
+                        self.just_ended(order_id.clone());
+                    }
+                    if notices {
+                        let pos = pos_text::of(&sale, till);
+                        self.effect(Effect::Notify {
+                            order_id,
+                            notice: notification::unpaid_notice(&sale, pos, &money),
+                            paid: false,
+                            timeout_ms: notification::notice_timeout(false),
+                            quiet,
+                        });
+                    }
+                }
             }
+            books.posted(&claim);
         }
     }
 
@@ -1584,18 +1781,19 @@ impl State {
         let side = p.side.clone();
         let was = side.model().shift_on;
         if on && !was {
-            match side.store().shift_sales() {
-                Ok(sales) => {
-                    let carried: Vec<TillSale> =
-                        sales.into_iter().filter(TillSale::needs_action).collect();
-                    if let Err(e) = side.store().set_shift_sales(&carried) {
-                        self.log(format!("till-core: couldn't start a new shift: {e}"));
-                    }
-                }
-                Err(e) => self.log(format!("till-core: couldn't read the last shift: {e}")),
-            }
+            // A new window (docs/ledger.md §9): the sales that still need
+            // the cashier stay listed.
             let now = self.clock.now();
             self.keep(|m| m.shift_started_at = Some(now));
+            self.record(Fact::ShiftMarked {
+                mark: ShiftMark::Started,
+                at: now.saturating_mul(1000),
+            });
+            if let Some(p) = &self.parts
+                && let Err(e) = p.side.books().with(|l| l.maintain())
+            {
+                self.log(format!("till-core: the ledger's upkeep: {e}"));
+            }
         }
         if !on
             && was
@@ -1874,79 +2072,34 @@ impl State {
             return;
         }
         if relayed {
-            self.reload_shift();
+            // The extension looked first and wrote what it found.
+            self.ledger_changed();
         }
         if let Some(p) = &self.parts {
             p.runner.ding();
         }
     }
 
-    /// What changed about the sales since the last look: a new sale is
-    /// alerted while the app isn't in front, a payment buzzes while it is,
-    /// and on Android a sale that ended gets its own notification (iOS's
-    /// only notification is the new sale's alert, decision 41).
+    /// What changed about the sales since the last look that the ledger
+    /// doesn't say: a sale gone from the list has its notification cleared,
+    /// and the ledger hears which sale is open on screen (it gets the paid
+    /// moment even when it's another counter's: the owner's fix 3).
     fn follow(&mut self) {
         let Some(p) = &self.parts else { return };
-        // The till's own state, not the runner's copy of it: a till starts
-        // with the kept shift, which the first look learns without telling.
-        let state = p.runner.till().map(|till| till.state()).unwrap_or_default();
-        let till = p.side.model().point_of_sale;
-        let money = Money(self.platform.clone());
-        let quiet = self.visible;
-        let android = self.config.device == Device::Android;
-        // Another counter's sales never alert, buzz or take the island
-        // here (core.md decision 113).
-        let counters = self.counters();
-        // One alert per sale per till, kept across restarts and shared with
-        // iOS's extension (decision 123); one seen on screen counts as told.
-        let due = self
-            .new_sales
-            .next(&state.sales, |sale| counters.quiet(sale), p.side.alerted());
-        if !self.visible
-            && let Some(newest) = due.into_iter().next()
-        {
-            self.alert_for = Some(newest);
-        }
-        for (order_id, change) in self.phases.next(&state.sales) {
-            let sale = state.sale(&order_id);
-            if sale.is_some_and(|sale| counters.quiet(sale)) && change != Change::Gone {
-                continue;
-            }
-            match (change, sale) {
-                (Change::Paid, Some(sale)) => {
-                    self.just_paid(order_id.clone());
-                    if android {
-                        self.effect(Effect::Notify {
-                            order_id,
-                            notice: notification::paid_notice(sale, &money),
-                            paid: true,
-                            timeout_ms: notification::notice_timeout(true),
-                            quiet,
-                        });
-                    }
-                    if self.visible {
-                        self.effect(Effect::Haptic {
-                            haptic: Haptic::Paid,
-                        });
-                    }
-                }
-                (Change::Unpaid, Some(sale)) => {
-                    if sale.found.is_some() {
-                        self.just_ended(order_id.clone());
-                    }
-                    if android {
-                        let pos = pos_text::of(sale, till);
-                        self.effect(Effect::Notify {
-                            order_id,
-                            notice: notification::unpaid_notice(sale, pos, &money),
-                            paid: false,
-                            timeout_ms: notification::notice_timeout(false),
-                            quiet,
-                        });
-                    }
-                }
-                (Change::Gone, _) => self.effect(Effect::ClearNotification { id: order_id }),
-                _ => {}
+        let books = p.side.books().clone();
+        let open = till::order_id(&self.screen).and_then(|id| books.sale_key(id));
+        books.set_open_sale(open);
+        let now: BTreeSet<String> = p
+            .runner
+            .state()
+            .till
+            .sales
+            .into_iter()
+            .map(|sale| sale.order_id)
+            .collect();
+        if let Some(before) = self.listed.replace(now.clone()) {
+            for gone in before.difference(&now) {
+                self.effect(Effect::ClearNotification { id: gone.clone() });
             }
         }
     }
