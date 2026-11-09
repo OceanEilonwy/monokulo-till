@@ -313,6 +313,8 @@ class MainActivity : ComponentActivity() {
             is Effect.Haptic -> window.decorView.confirm()
             // TillService.follow copies, and posts the notifications, whether or not Till is on screen.
             is Effect.CopyText, is Effect.Notify, is Effect.ClearNotification -> Unit
+            // The overlay collapses its own panel; Till on screen has none up.
+            is Effect.LowerPanel -> Unit
         }
     }
 

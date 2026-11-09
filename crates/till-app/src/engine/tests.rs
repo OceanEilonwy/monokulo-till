@@ -743,6 +743,75 @@ async fn the_bubbles_panel_counts_down_while_it_is_up_and_its_place_is_kept() {
     assert_eq!(platform.get("bubble.y").as_deref(), Some("900"));
 }
 
+/// Decision 95: the bubble's paid moment is the engine's. A payment holds
+/// the bubble green for the dwell; with the panel up on that sale and no
+/// code waiting, the dwell's end asks Android to collapse the panel, and
+/// the bubble stays green until the panel has gone. The dwell's timer is
+/// stood in for by calling its end.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_bubbles_paid_moment_holds_green_through_the_collapse_it_asks_for() {
+    use till_screens::bubble::{BubbleLook, PaidMoment};
+    let monokulo = monokulo().await;
+    let square = square().await;
+    let android = EngineConfig {
+        device: Device::Android,
+        ..config(Some(&square))
+    };
+    let (engine, rx, _) = start(android, signed_in_till(&monokulo));
+    engine.send(Action::Permissions {
+        alerts: true,
+        bubble: true,
+    });
+    engine.send(Action::Backgrounded);
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Bubble { view }) if view.shown && view.panel.is_some() => Some(()),
+        _ => None,
+    });
+    engine.send(Action::PanelShown { up: true });
+
+    // A code still waiting when the dwell ends: the panel moves on to it,
+    // no collapse.
+    engine.poke(|s| s.just_paid("ord_1".into()));
+    assert_eq!(engine.peek(|s| s.paid_moment), PaidMoment::Held);
+    engine.poke(|s| s.paid_dwell_ended("ord_1"));
+    assert_eq!(engine.peek(|s| s.paid_moment), PaidMoment::None);
+
+    // Nothing waiting: the dwell's end collapses the panel.
+    engine.send(Action::Close {
+        order_id: "ord_1".into(),
+        choice: CloseChoice::CloseForNow,
+    });
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Bubble { view }) if view.look == BubbleLook::Idle => Some(()),
+        _ => None,
+    });
+    engine.poke(|s| s.just_paid("ord_1".into()));
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Bubble { view }) if view.look == BubbleLook::Paid => Some(()),
+        _ => None,
+    });
+    engine.poke(|s| s.paid_dwell_ended("ord_1"));
+    wait_for(&rx, |heard| match heard {
+        Heard::Effect(Effect::LowerPanel) => Some(()),
+        Heard::Update(Update::Bubble { view }) => {
+            assert_eq!(
+                view.look,
+                BubbleLook::Paid,
+                "green until the collapse lands"
+            );
+            None
+        }
+        _ => None,
+    });
+    assert_eq!(engine.peek(|s| s.paid_moment), PaidMoment::Lowering);
+    engine.send(Action::PanelShown { up: false });
+    let after = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Bubble { view }) => Some(view.look),
+        _ => None,
+    });
+    assert_eq!(after, BubbleLook::Idle, "landed: the green fades");
+}
+
 #[test]
 fn choosing_wake_ups_keeps_the_choice_in_stores_kts_key() {
     let platform = Arc::new(FakePlatform::default());

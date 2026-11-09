@@ -18,6 +18,7 @@ use till_pos::clover::TenderState;
 use till_pos::square::SquareLocation;
 use till_pos::{Pkce, PosError};
 use till_sales::{LiveStore, PosSwitch, Standing, TillRunner, TillSale};
+use till_screens::bubble::PaidMoment;
 use till_screens::onboarding::{CloverTender, OnboardingInput, PosSetup, ScanProblem, Step};
 use till_screens::settings::{PosState, SettingsInput, StoreNow};
 use till_screens::shift::ShiftFilter;
@@ -55,6 +56,9 @@ pub(crate) enum Msg {
     /// Tests look at the state.
     #[cfg(test)]
     Peek(Box<dyn FnOnce(&State) + Send>),
+    /// Tests change the state, as a timer's end would.
+    #[cfg(test)]
+    Poke(Apply),
 }
 
 pub(crate) type Apply = Box<dyn FnOnce(&mut State) + Send>;
@@ -220,6 +224,8 @@ pub(crate) struct State {
     /// The sale that arrived while the app wasn't in front, alerted in the
     /// next notification update only.
     alert_for: Option<String>,
+    /// Where the bubble's paid moment is (decision 95).
+    paid_moment: PaidMoment,
     /// The sale the bubble showed last.
     bubble_focus: Option<String>,
     /// Android's bubble panel is up, as the platform last said.
@@ -288,6 +294,7 @@ impl State {
             just_ended: None,
             just_ended_token: 0,
             alert_for: None,
+            paid_moment: PaidMoment::None,
             bubble_focus: None,
             panel_up: false,
             ticking: false,
@@ -327,6 +334,8 @@ impl State {
             Msg::Changed => {}
             #[cfg(test)]
             Msg::Peek(look) => look(self),
+            #[cfg(test)]
+            Msg::Poke(change) => self.step(change),
             Msg::Disconnected => {
                 if let Some(p) = &self.parts {
                     p.runner.disconnected();
@@ -621,7 +630,7 @@ impl State {
                 self.bubble_allowed = bubble;
             }
             Action::TorProbed { running } => self.tor_running = Some(running),
-            Action::PanelShown { up } => self.panel_up = up,
+            Action::PanelShown { up } => self.panel_shown(up),
             action if self.parts.is_none() => {
                 self.log(format!(
                     "till-core: nothing kept could be read, so {action:?} waits"

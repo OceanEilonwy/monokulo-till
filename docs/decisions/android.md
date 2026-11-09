@@ -1832,7 +1832,8 @@ design unchanged.
     the cashier raises on a sale that was paid earlier (nothing else
     live) no longer lowers itself after five seconds; it stays until Done,
     as any panel the cashier raised does. The dwell is for a payment that
-    lands, not for looking back at one.
+    lands, not for looking back at one. (Superseded by core.md 95: the
+    engine now holds the moment and asks for the collapse.)
 159. **The panel's code folds into its hero in place; the order crossfades
     in for now** (M5, dev1, round 1). Live to paid or ended, the code's
     slot stays: its height follows one `motion.surface` progress in a

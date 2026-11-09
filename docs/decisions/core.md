@@ -572,3 +572,17 @@ on from 1; the Android app's own choices are in [android.md](android.md).
     Clover's Register app. Today the engine offers the button only on a
     till on Square (decision 135 of android.md), so the Clover branch is
     for when that changes. iOS never gets the button.
+95. **The engine owns the bubble's paid moment** (android.md 158 moves
+    here). The overlay ran a second five-second timer beside the engine's
+    `PAID_DWELL`. Now the engine keeps a `bubble::PaidMoment` (`None`,
+    `Held`, `HeldDown`, `Lowering`; the pure `bubble::paid_next`, with
+    Android's `PanelTest` cases ported). A payment starts `Held`. When the
+    dwell ends with the panel still up on that sale and no code waiting,
+    the engine sends `Effect::LowerPanel`, and `BubbleView.look` stays
+    `Paid` until Android says the panel's window has gone. No new action
+    was needed for that: `Action::PanelShown { up: false }` is already sent
+    exactly when the collapse lands, or when the panel goes without one.
+    A panel lowered during the dwell (`HeldDown`) keeps the bubble green
+    to the dwell's end, with no collapse then. `bubble::landed` is gone:
+    the engine's own paid change, checked against the bubble's focus,
+    replaces it. Android keeps only the collapse's animation.

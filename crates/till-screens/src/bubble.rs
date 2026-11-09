@@ -202,15 +202,82 @@ pub fn pulses(look: BubbleLook, phase: SalePhase, panel_up: bool) -> bool {
     look == BubbleLook::Lit && !panel_up && matches!(phase, SalePhase::Waiting | SalePhase::Partial)
 }
 
-/// Whether the sale the panel showed, `shown`, live at the last look
-/// (`was_live`), has just been paid: the panel then shows it paid for the
-/// paid dwell before moving on to the next sale waiting.
-pub fn landed(sales: &[TillSale], shown: Option<&str>, was_live: bool) -> bool {
-    was_live
-        && sales
-            .iter()
-            .find(|sale| Some(sale.order_id.as_str()) == shown)
-            .is_some_and(|sale| sale.phase == SalePhase::Paid)
+/// Where the bubble's paid moment is (`docs/motion.md` M9, android.md
+/// decision 158): held for the paid dwell after a payment lands, the bubble
+/// green and the panel showing the sale paid; then, with the panel still
+/// up on that sale and no other code waiting, the panel collapses into the
+/// green bubble, which fades to lit or idle only once the collapse has
+/// landed. The engine keeps it; Android only animates the collapse it asks
+/// for and says when the panel has gone (decision 95 of core.md).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PaidMoment {
+    #[default]
+    None,
+    /// The dwell: green, and the panel holds the paid sale.
+    Held,
+    /// The dwell, the panel lowered meanwhile (Done, the grabber, a tap
+    /// beside it): green to the dwell's end, with no collapse then.
+    HeldDown,
+    /// The dwell is over and the panel collapses into the still green
+    /// bubble.
+    Lowering,
+}
+
+impl PaidMoment {
+    /// Whether the bubble is green and the panel holds the paid sale.
+    pub fn paid(self) -> bool {
+        self != PaidMoment::None
+    }
+}
+
+/// What moves a paid moment on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PaidEvent {
+    /// A payment landed.
+    Paid,
+    /// The paid dwell went by.
+    DwellEnded,
+    /// The panel went back into the bubble: its collapse landed, or it went
+    /// without one (Android's `Action::PanelShown { up: false }`).
+    PanelDown,
+}
+
+/// The next paid moment, and whether the panel is to collapse now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PaidStep {
+    pub moment: PaidMoment,
+    pub lower: bool,
+}
+
+impl From<PaidMoment> for PaidStep {
+    fn from(moment: PaidMoment) -> PaidStep {
+        PaidStep {
+            moment,
+            lower: false,
+        }
+    }
+}
+
+/// The moment after `event`, with `on_panel` whether the panel is up on the
+/// sale just paid, and `next_waiting` whether another sale's code is up.
+pub fn paid_next(
+    moment: PaidMoment,
+    event: PaidEvent,
+    on_panel: bool,
+    next_waiting: bool,
+) -> PaidStep {
+    use PaidMoment::*;
+    match (event, moment) {
+        (PaidEvent::Paid, _) => Held.into(),
+        (PaidEvent::DwellEnded, Held) if on_panel && !next_waiting => PaidStep {
+            moment: Lowering,
+            lower: true,
+        },
+        (PaidEvent::DwellEnded, Held | HeldDown) => None.into(),
+        (PaidEvent::PanelDown, Held) => HeldDown.into(),
+        (PaidEvent::PanelDown, Lowering) => None.into(),
+        (_, moment) => moment.into(),
+    }
 }
 
 /// What the panel's middle shows (Android's `PanelFace` and the folded
@@ -479,7 +546,8 @@ mod tests {
 /// Ported from Android's `PanelTest`: its words, where the sale is from,
 /// the ended sale's rule, the pulse, the hero and whether the overlay is
 /// up. Its geometry and motion (the raise, the grabber, the windows'
-/// handoff, the paid moment) stay with Android's drawing.
+/// handoff, the collapse) stay with Android's drawing; the paid moment is
+/// the engine's now, its three tests below.
 #[cfg(test)]
 mod panel_tests {
     use super::*;
@@ -605,10 +673,6 @@ mod panel_tests {
             sale(Paid, true, None, "1044"),
             sale(Waiting, true, None, "1043"),
         ];
-        assert!(
-            landed(&paid, Some("1044"), true),
-            "it was live a moment ago, now paid"
-        );
         assert_eq!(
             focus(&paid, Some("1044"), true).as_deref(),
             Some("1044"),
@@ -619,13 +683,81 @@ mod panel_tests {
             Some("1043"),
             "then the next one waiting"
         );
-        assert!(
-            !landed(&paid, Some("1044"), false),
-            "already paid at the last look: not news"
+    }
+
+    /// Ported from Android's `PanelTest` (the paid moment's three), which
+    /// the overlay ran on its own timer before the engine owned it.
+    #[test]
+    fn a_paid_moment_is_held_for_the_dwell_then_the_panel_collapses_into_the_green_bubble_which_fades_once_it_lands()
+     {
+        use PaidMoment::*;
+        let held = paid_next(None, PaidEvent::Paid, true, false);
+        assert_eq!(held, Held.into());
+        assert!(held.moment.paid(), "the bubble is green");
+        let dwelt = paid_next(Held, PaidEvent::DwellEnded, true, false);
+        assert_eq!(
+            dwelt,
+            PaidStep {
+                moment: Lowering,
+                lower: true
+            },
+            "the panel collapses"
         );
-        assert!(
-            !landed(&paid, Some("1043"), true),
-            "another sale, still waiting"
+        assert!(dwelt.moment.paid(), "into a bubble still green");
+        assert_eq!(
+            paid_next(Lowering, PaidEvent::PanelDown, false, false),
+            None.into()
+        );
+    }
+
+    #[test]
+    fn done_during_the_dwell_keeps_the_bubble_green_to_its_end_without_a_second_collapse() {
+        use PaidMoment::*;
+        let done = paid_next(Held, PaidEvent::PanelDown, false, false);
+        assert_eq!(done, HeldDown.into(), "the cashier's lower is the collapse");
+        assert!(done.moment.paid(), "still green till the dwell ends");
+        assert_eq!(
+            paid_next(HeldDown, PaidEvent::DwellEnded, true, false),
+            None.into(),
+            "raised again meanwhile: no collapse the cashier didn't ask for"
+        );
+        assert_eq!(
+            paid_next(HeldDown, PaidEvent::PanelDown, false, false),
+            HeldDown.into()
+        );
+    }
+
+    #[test]
+    fn with_another_sale_waiting_or_no_panel_up_the_moment_ends_at_the_dwell_without_a_collapse() {
+        use PaidMoment::*;
+        assert_eq!(
+            paid_next(Held, PaidEvent::DwellEnded, true, true),
+            None.into(),
+            "the next code comes up in the panel"
+        );
+        assert_eq!(
+            paid_next(Held, PaidEvent::DwellEnded, false, false),
+            None.into(),
+            "the bubble alone: green for the dwell, then it fades"
+        );
+        assert_eq!(
+            paid_next(Lowering, PaidEvent::Paid, false, false),
+            Held.into(),
+            "another payment mid-collapse: green again"
+        );
+        assert_eq!(
+            paid_next(Lowering, PaidEvent::DwellEnded, false, false),
+            Lowering.into(),
+            "a late dwell changes nothing"
+        );
+        assert_eq!(
+            paid_next(None, PaidEvent::PanelDown, false, false),
+            None.into(),
+            "a collapse with nothing paid"
+        );
+        assert_eq!(
+            paid_next(None, PaidEvent::DwellEnded, true, false),
+            None.into()
         );
     }
 

@@ -45,13 +45,13 @@ import com.monokulo.till.ui.TillTheme
 import com.monokulo.till.ui.Motion
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 import uniffi.till_app.Action
+import uniffi.till_app.Effect
 import uniffi.till_screens.BubbleTap
 import uniffi.till_screens.BubbleLook
 
@@ -103,7 +103,6 @@ class Overlay(
     private val state = MutableStateFlow(OverlayState())
     private val panelOpen = MutableStateFlow(false)
     private val page = MutableStateFlow<PanelPage>(PanelPage.Code)
-    private val justPaid = MutableStateFlow(false)
     private var bubble: BubbleFrame? = null
     private var bubbleIn: Presence? = null
     private var panel: View? = null
@@ -115,12 +114,7 @@ class Overlay(
     /** The last usable and open shown, shown again when the configuration changes. */
     private var showing: Pair<Boolean, Boolean>? = null
     private var job: Job? = null
-    /** Where the last payment's moment is (M9): one dwell, ended early by Done, its end the panel's collapse landing. */
-    private var moment = PaidMoment.None
-    private var dwell: Job? = null
     private var focus: String? = null
-    /** Whether [focus] was live at the last look, to see it turn paid. */
-    private var focusLive = false
     /** Whether the overlay was usable at the last look, to log each change. */
     private var wasUsable: Boolean? = null
     /** What the engine was last told of the panel ([Action.PanelShown]): its one-second timer and the pulse follow it. */
@@ -133,19 +127,17 @@ class Overlay(
         owner.start()
         job = scope.launch {
             val panel = combine(panelOpen, page) { open, page -> open to page }
-            combine(EngineStore.bubble, panel, justPaid) { view, (open, shown), paid ->
+            // The paid moment's collapse (M9): the engine says when, and keeps the bubble green until it lands.
+            launch { EngineStore.effects.collect { if (it is Effect.LowerPanel) lower() } }
+            combine(EngineStore.bubble, panel) { view, (open, shown) ->
                 val previous = focus
                 val sale = view?.let(PanelSale::of)
-                // The panel's own sale just paid: it stays up, paid, for the dwell before the panel moves on.
-                val landed = Panel.landed(sale, previous, focusLive)
-                if (landed) paid()
                 focus = view?.orderId
                 if (view != null) place.follow(view.left, view.y)
-                focusLive = sale?.face == PanelFace.Code
                 // The whole order is about the sale whose code is up: another sale, or this one ending, brings the code back.
                 if (focus != previous || sale?.face != PanelFace.Code || sale.order == null) page.value = PanelPage.Code
-                // Green until the paid moment's collapse lands, which can outlast the engine's own few seconds.
-                val look = if (paid || landed) BubbleLook.PAID else view?.look ?: BubbleLook.IDLE
+                // Green through the paid moment, its collapse included: the engine's (docs/decisions/core.md 95).
+                val look = view?.look ?: BubbleLook.IDLE
                 state.value = OverlayState(
                     look, sale, sale?.where.orEmpty(), if (sale?.face == PanelFace.Code) shown else PanelPage.Code,
                     buzzes = view?.buzzes ?: true,
@@ -171,8 +163,6 @@ class Overlay(
 
     fun stop() {
         job?.cancel()
-        dwell?.cancel()
-        moment = PaidMoment.None
         // The service is going: no exits to wait for.
         bubble?.let { runCatching { wm.removeViewImmediate(it) } }
         panel?.let { runCatching { wm.removeViewImmediate(it) } }
@@ -191,37 +181,6 @@ class Overlay(
         if (up == panelShown) return
         panelShown = up
         EngineStore.send(Action.PanelShown(up))
-    }
-
-    /**
-     * A sale was just paid: the bubble is green and the panel shows it paid
-     * for [Motion.Dwell.PAID_MS], then the panel collapses into the green
-     * bubble, which goes back to lit or idle once the collapse has landed;
-     * with another sale waiting, the panel moves on to it instead.
-     */
-    fun paid() = moment(PaidEvent.Paid)
-
-    /** Moves the paid moment on by [event]: the one dwell, the bubble's green, and the collapse at its end. */
-    private fun moment(event: PaidEvent) {
-        val step = PaidMoments.next(
-            moment, event,
-            panelUp = windows.panel == Life.Up,
-            // Another sale's code is up once the engine's paid seconds are over: the bubble is lit for it.
-            nextWaiting = EngineStore.bubble.value?.look == BubbleLook.LIT,
-        )
-        moment = step.moment
-        if (event == PaidEvent.Paid) {
-            dwell?.cancel()
-            // The overlay's one timer: the panel's own went with it.
-            dwell = scope.launch {
-                delay(Motion.Dwell.PAID_MS)
-                moment(PaidEvent.DwellEnded)
-            }
-        } else if (moment != PaidMoment.Held) {
-            dwell?.cancel()
-        }
-        justPaid.value = moment.paid
-        if (step.lower) lower()
     }
 
     /** The notification's "Show code": opens the panel; false when the overlay can't be shown. */
@@ -261,15 +220,9 @@ class Overlay(
                 WindowAct.AddPanel -> addPanel(windows.wide, open = false)
                 WindowAct.AddPanelOpen -> addPanel(windows.wide, open = true)
                 WindowAct.OpenPanel -> panelMotion?.raise?.enter()
-                WindowAct.ClosePanel -> panelMotion?.raise?.exit(step.closeVelocity, landsAt = Panel.IN_BUBBLE) {
-                    on(WindowEvent.PanelLanded)
-                    // The paid moment ends where the collapse lands: the green bubble fades from here.
-                    moment(PaidEvent.ExitLanded)
-                }
-                WindowAct.RemovePanel -> {
-                    removePanel()
-                    moment(PaidEvent.ExitLanded)
-                }
+                // The collapse lands, then the panel's window goes: told the panel is down, the engine fades a paid green.
+                WindowAct.ClosePanel -> panelMotion?.raise?.exit(step.closeVelocity, landsAt = Panel.IN_BUBBLE) { on(WindowEvent.PanelLanded) }
+                WindowAct.RemovePanel -> removePanel()
             }
         }
         tellPanelShown()
@@ -298,8 +251,6 @@ class Overlay(
 
     /** Lowers the panel to the bubble, its code face up for next time. */
     private fun lower() {
-        // Done, the grabber or a tap beside the panel during the dwell ends it with the same collapse.
-        if (windows.panel == Life.Up) moment(PaidEvent.Lowered)
         panelOpen.value = false
         page.value = PanelPage.Code
     }

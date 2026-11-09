@@ -383,6 +383,8 @@ pub enum Action {
     /// Android's bubble panel rose (`up`) or went back into the bubble. While
     /// it is up the panel's countdown is redrawn each second though the app
     /// is in the back (decision 56), and the free bubble doesn't pulse.
+    /// Down, after the panel's window has gone (its collapse landed, or it
+    /// went without one): that ends a paid moment's green (decision 95).
     PanelShown {
         up: bool,
     },
@@ -624,6 +626,8 @@ pub struct BubbleView {
     /// Its height on screen, in pixels, as last let go; `None` until it has
     /// been moved (Android puts it a third of the way down).
     pub y: Option<i32>,
+    /// Green from a payment through the paid dwell, and through the
+    /// collapse at its end until the panel has gone (decision 95).
     pub look: BubbleLook,
     /// The sale the bubble and its panel are about.
     pub order_id: Option<String>,
@@ -678,6 +682,11 @@ pub enum Effect {
     Haptic {
         haptic: Haptic,
     },
+    /// Android: the paid dwell is over with the bubble's panel still up on
+    /// the sale just paid and no other code waiting, so the panel collapses
+    /// into the bubble. The bubble stays green until the platform says the
+    /// panel has gone ([`Action::PanelShown`] with `up: false`).
+    LowerPanel,
     /// Put `text` on the clipboard; `kind` says what it is, for the
     /// platform's confirmation ("Address copied") and for marking an
     /// address sensitive, without reading the text.
@@ -790,6 +799,12 @@ impl Engine {
         })));
         rx.recv_timeout(std::time::Duration::from_secs(10))
             .expect("the engine answers")
+    }
+
+    /// Changes the engine's state with `change` on its task, as the end of
+    /// one of its timers would; what changed is published after.
+    pub(crate) fn poke(&self, change: impl FnOnce(&mut engine::State) + Send + 'static) {
+        let _ = self.tx.send(engine::Msg::Poke(Box::new(change)));
     }
 }
 

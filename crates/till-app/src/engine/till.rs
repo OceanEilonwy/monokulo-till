@@ -6,7 +6,7 @@
 use std::time::Duration;
 
 use till_sales::TillSale;
-use till_screens::bubble::{self, PanelInput};
+use till_screens::bubble::{self, PaidEvent, PanelInput};
 use till_screens::close::{self, CloseInput};
 use till_screens::code::{self, CodeInput};
 use till_screens::live_activity::{self, LiveActivityInput, LiveActivityState};
@@ -23,7 +23,7 @@ use till_screens::{CloseView, Device, NotificationView, ShiftView};
 
 use super::{Parts, State, apply};
 use crate::phases::Money;
-use crate::{BubbleView, RefundSheetView, Screen};
+use crate::{BubbleView, Effect, RefundSheetView, Screen};
 
 /// How long a sale paid on screen stays before it steps back to the shift,
 /// and how long the bubble and the ongoing notification show it as paid
@@ -135,19 +135,52 @@ impl State {
     }
 
     /// A payment landed on `order_id`: the bubble and the ongoing
-    /// notification show it as paid for [`PAID_DWELL`].
+    /// notification show it as paid for [`PAID_DWELL`], and the bubble's
+    /// paid moment begins (decision 95).
     pub(super) fn just_paid(&mut self, order_id: String) {
-        self.just_paid = Some(order_id);
+        self.just_paid = Some(order_id.clone());
         self.just_paid_token += 1;
+        self.paid_moment =
+            bubble::paid_next(self.paid_moment, PaidEvent::Paid, false, false).moment;
         let token = self.just_paid_token;
         self.task(async move {
             tokio::time::sleep(PAID_DWELL).await;
             apply(move |s| {
                 if s.just_paid_token == token {
                     s.just_paid = None;
+                    s.paid_dwell_ended(&order_id);
                 }
             })
         });
+    }
+
+    /// The paid dwell for `order_id` went by: with the panel still up on
+    /// it and no other code waiting, the panel collapses into the bubble,
+    /// green until Android says the collapse landed
+    /// ([`State::panel_shown`]).
+    pub(super) fn paid_dwell_ended(&mut self, order_id: &str) {
+        let on_panel = self.panel_up && self.bubble_focus.as_deref() == Some(order_id);
+        let next_waiting = self.sales().iter().any(TillSale::live);
+        let step = bubble::paid_next(
+            self.paid_moment,
+            PaidEvent::DwellEnded,
+            on_panel,
+            next_waiting,
+        );
+        self.paid_moment = step.moment;
+        if step.lower {
+            self.effect(Effect::LowerPanel);
+        }
+    }
+
+    /// Android's panel rose, or went back into the bubble: its countdown
+    /// and the pulse follow it, and a paid moment's collapse has landed.
+    pub(super) fn panel_shown(&mut self, up: bool) {
+        self.panel_up = up;
+        if !up {
+            self.paid_moment =
+                bubble::paid_next(self.paid_moment, PaidEvent::PanelDown, false, false).moment;
+        }
     }
 
     /// The till's own sale `order_id` ended unpaid: the Live Activity
@@ -337,7 +370,8 @@ impl State {
         let model = p.side.model();
         let runner = p.runner.state();
         let sales = &runner.till.sales;
-        let just_paid = self.just_paid.is_some();
+        // Green, on the sale just paid, through the moment's collapse too.
+        let just_paid = self.paid_moment.paid();
         let focus = bubble::focus(sales, self.bubble_focus.as_deref(), just_paid);
         let sale = focus
             .as_deref()

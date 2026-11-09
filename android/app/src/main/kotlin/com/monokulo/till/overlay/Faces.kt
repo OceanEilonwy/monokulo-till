@@ -170,15 +170,6 @@ object Panel {
         velocity >= fling || (height > 0f && drag > height / 4f)
 
     /**
-     * Whether the sale the panel showed, [shown], live at the last look
-     * ([wasLive]), has just been paid ([now] is the panel's sale now): the panel then shows it paid for
-     * [Motion.Dwell.PAID_MS] before moving on to the next sale
-     * waiting, so the cashier sees the payment land where they're looking.
-     */
-    fun landed(now: PanelSale?, shown: String?, wasLive: Boolean): Boolean =
-        wasLive && now?.orderId == shown && now?.face == PanelFace.Paid
-
-    /**
      * How fast the panel's collapse starts when the grabber lets it go: the
      * finger's [velocity] down (px a second) as progress a second over the
      * card's [height], negative because the panel's progress falls toward 0.
