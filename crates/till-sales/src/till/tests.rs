@@ -14,11 +14,12 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use monokulo_client::{AppIdentity, FixedClock, PointOfSale};
 use serde_json::{Value, json};
-use till_pos::{RefundByTill, RefundInPos};
+use till_pos::{RefundByTill, RefundInPos, SaleOrder};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate, matchers::any};
 
 use super::*;
-use crate::{Standing, shift_json};
+use crate::books::testing::TestHost;
+use crate::{SaleExtras, Standing};
 
 /// What the stand-in answers, in order, and every request it saw.
 #[derive(Default)]
@@ -75,6 +76,9 @@ fn read_back(status: &str, confirmations: u32, code: u16) -> ResponseTemplate {
 }
 
 struct Fixture {
+    /// Where the ledger is kept: every till made shares it, as each run of
+    /// the app does.
+    dir: tempfile::TempDir,
     server: MockServer,
     queue: Arc<Queue>,
     taken: AtomicUsize,
@@ -109,6 +113,7 @@ async fn fixture() -> Fixture {
     );
     let connection = Connection::new("ak_1", format!("{}/api/v1", server.uri()));
     let fixture = Fixture {
+        dir: tempfile::tempdir().unwrap(),
         server,
         queue,
         taken: AtomicUsize::new(0),
@@ -124,8 +129,33 @@ impl Fixture {
         self.queue.answers.lock().unwrap().push_back(answer);
     }
 
+    /// A till over `source`, as a run of the app makes it: its books over
+    /// the fixture's ledger, read as it starts.
     fn till(&self, source: Arc<dyn SaleSource>) -> Till {
-        Till::new(source, self.monokulo.clone(), self.connection.clone())
+        let till = Till::new(
+            source,
+            self.monokulo.clone(),
+            self.connection.clone(),
+            self.books(),
+        )
+        .with_clock(Arc::new(clock(0)));
+        till.books().refresh();
+        till
+    }
+
+    /// A till with no point of sale signed in: Monokulo's events make its
+    /// sales.
+    fn till_without_pos(&self) -> Till {
+        self.till(FakeSource::new(vec![])).without_pos()
+    }
+
+    fn books(&self) -> Arc<Books> {
+        Arc::new(Books::new(TestHost::new(self.dir.path()), None))
+    }
+
+    /// The sales as the next run reads them from the ledger.
+    fn reloaded(&self) -> Vec<TillSale> {
+        self.till(FakeSource::new(vec![])).state().sales
     }
 
     fn url(&self, path: &str) -> String {
@@ -252,6 +282,8 @@ fn found(
         order_id: Some(order_id.into()),
         created_at: created_at.into(),
         device_id: device_id.map(Into::into),
+        device_name: None,
+        cash: false,
         title: None,
         point_of_sale: PointOfSale::Square,
     }
@@ -561,54 +593,6 @@ impl<S: SaleSource> SaleSource for Failing<S> {
     }
 }
 
-/// A saved shift in memory, kept as the JSON the app writes, so what's
-/// saved must round-trip.
-#[derive(Default)]
-struct MemoryShift {
-    saved: Mutex<Option<String>>,
-    saves: AtomicUsize,
-}
-
-impl MemoryShift {
-    fn new() -> Arc<MemoryShift> {
-        Arc::default()
-    }
-
-    fn of(saved: Option<String>) -> Arc<MemoryShift> {
-        Arc::new(MemoryShift {
-            saved: Mutex::new(saved),
-            saves: AtomicUsize::new(0),
-        })
-    }
-
-    fn saved(&self) -> Option<String> {
-        self.saved.lock().unwrap().clone()
-    }
-
-    fn saves(&self) -> usize {
-        self.saves.load(Ordering::SeqCst)
-    }
-
-    /// What was saved, read back as a new run would.
-    fn reloaded(&self) -> Vec<TillSale> {
-        MemoryShift::of(self.saved()).load().unwrap()
-    }
-}
-
-impl ShiftStore for MemoryShift {
-    fn load(&self) -> Result<Vec<TillSale>, till_pos::StoreError> {
-        Ok(self
-            .saved()
-            .map(|saved| shift_json::decode(&saved).unwrap())
-            .unwrap_or_default())
-    }
-
-    fn save(&self, sales: &[TillSale]) {
-        self.saves.fetch_add(1, Ordering::SeqCst);
-        *self.saved.lock().unwrap() = Some(shift_json::encode(sales));
-    }
-}
-
 fn only(till: &Till) -> TillSale {
     let state = till.state();
     assert_eq!(state.sales.len(), 1, "{:?}", state.sales);
@@ -672,18 +656,15 @@ async fn a_monero_sale_becomes_an_order_whose_code_carries_its_receipt() {
 #[tokio::test]
 async fn whom_a_sale_is_for_stays_on_the_till_and_in_its_saved_shift() {
     let f = fixture().await;
-    let shift = MemoryShift::new();
-    let till = f
-        .till(FakeSource::with(
-            vec![sale()],
-            Some(receipt()),
-            Some("Ana López"),
-        ))
-        .with_store(shift.clone());
+    let till = f.till(FakeSource::with(
+        vec![sale()],
+        Some(receipt()),
+        Some("Ana López"),
+    ));
     f.enqueue(order());
     till.check().await;
     assert_eq!(only(&till).customer_name.as_deref(), Some("Ana López"));
-    let again = f.till(FakeSource::new(vec![])).with_store(shift.clone());
+    let again = f.till(FakeSource::new(vec![]));
     assert_eq!(only(&again).customer_name.as_deref(), Some("Ana López"));
     f.take_request();
     let sent = body(&f.take_request());
@@ -692,44 +673,6 @@ async fn whom_a_sale_is_for_stays_on_the_till_and_in_its_saved_shift() {
         "the name never goes to Monokulo: {sent}"
     );
     assert!(!only(&till).code.uri.contains("Ana"), "nor into the code");
-}
-
-/// A store whose shift can't be read (the Keychain locked): its saves are
-/// counted, and there should be none.
-#[derive(Default)]
-struct UnreadableShift {
-    saves: AtomicUsize,
-}
-
-impl ShiftStore for UnreadableShift {
-    fn load(&self) -> Result<Vec<TillSale>, till_pos::StoreError> {
-        Err(till_pos::StoreError("the Keychain is locked".into()))
-    }
-
-    fn save(&self, _: &[TillSale]) {
-        self.saves.fetch_add(1, Ordering::SeqCst);
-    }
-}
-
-/// Decision 42: a shift the store couldn't read is never saved over, though
-/// the till goes on making orders.
-#[tokio::test]
-async fn a_shift_that_cant_be_read_is_never_saved_over() {
-    let f = fixture().await;
-    let shift = Arc::new(UnreadableShift::default());
-    let till = f
-        .till(FakeSource::new(vec![sale()]))
-        .with_store(shift.clone());
-    assert!(till.shift_unread());
-    assert!(till.state().sales.is_empty());
-    f.enqueue(order());
-    till.check().await;
-    assert_eq!(till.state().sales.len(), 1, "the sale is still made");
-    assert_eq!(shift.saves.load(Ordering::SeqCst), 0);
-    let readable = f
-        .till(FakeSource::new(vec![]))
-        .with_store(MemoryShift::new());
-    assert!(!readable.shift_unread());
 }
 
 #[tokio::test]
@@ -765,6 +708,8 @@ async fn a_check_counts_the_sales_no_check_found_before_another_devices_included
     let other = FoundSale {
         id: "pay_2".into(),
         device_id: Some("dev_back".into()),
+        device_name: None,
+        cash: false,
         ..sale()
     };
     let source = FakeSource::new(vec![sale(), other]);
@@ -785,6 +730,8 @@ async fn a_check_counts_the_sales_no_check_found_before_another_devices_included
     source.sales.lock().unwrap().push(FoundSale {
         id: "pay_3".into(),
         device_id: Some("dev_back".into()),
+        device_name: None,
+        cash: false,
         ..sale()
     });
     assert_eq!(till.check().await, 1);
@@ -850,22 +797,184 @@ async fn an_ended_sign_in_keeps_saying_why_until_the_cashier_signs_in_and_a_sale
 }
 
 #[tokio::test]
-async fn without_a_receipt_the_plain_code_is_shown_and_another_devices_sales_are_left_alone() {
+async fn without_a_receipt_the_plain_code_is_shown() {
     let f = fixture().await;
-    let other = FoundSale {
-        id: "pay_2".into(),
-        device_id: Some("dev_back".into()),
-        ..sale()
-    };
-    let source = FakeSource::new(vec![sale(), other]);
+    let source = FakeSource::new(vec![sale()]);
     let till = f.till(source.clone()).with_device_id("dev_front");
     f.enqueue(order());
     till.check().await;
     let shown = only(&till);
     assert!(!shown.code.has_receipt);
     assert_eq!(shown.code.uri, "monero:8Bx?tx_amount=0.08");
-    assert_eq!(source.handled_ids(), ["pay_monero", "pay_2"]);
+    assert_eq!(source.handled_ids(), ["pay_monero"]);
     assert_eq!(f.request_count(), 2, "the entry, then one order");
+}
+
+/// The order for another sale, `ord_2`.
+fn second_order() -> ResponseTemplate {
+    ResponseTemplate::new(201).set_body_raw(
+        r#"{"order_id":"ord_2","status":"pending","is_final":false,"address":"8Cz","xmr_amount_piconero":20000000000,
+           "amount":"5.00","currency":"USD","merchant_order_id":"p4Xr","expires_at":1761312000,
+           "_links":{"self":{"href":"/api/v1/orders/ord_2"}}}"#,
+        "application/json",
+    )
+}
+
+/// [`sale`] rung up as cash.
+fn cash_sale() -> FoundSale {
+    FoundSale {
+        id: "pay_cash".into(),
+        cash: true,
+        ..sale()
+    }
+}
+
+#[tokio::test]
+async fn a_cash_sale_is_treated_as_monero_by_default_and_never_refunded() {
+    let f = fixture().await;
+    let source = FakeSource::with(vec![cash_sale()], Some(receipt()), Some("Sam"));
+    let till = f.till(source.clone());
+    f.enqueue(order());
+    till.check().await;
+    let shown = only(&till);
+    assert!(shown.cash());
+    assert!(
+        shown.live(),
+        "it alerts and shows its code like a Monero sale"
+    );
+    assert!(shown.code.has_receipt);
+    assert_eq!(shown.customer_name.as_deref(), Some("Sam"));
+    till.close("ord_1");
+    till.refund("ord_1").await;
+    assert!(
+        source.refunded().is_empty(),
+        "cash is never refunded in Square"
+    );
+    assert_eq!(only(&till).refund_pending_at, None);
+}
+
+#[tokio::test]
+async fn paid_in_cash_closes_a_cash_sale_with_nothing_to_refund() {
+    let f = fixture().await;
+    let source = FakeSource::new(vec![
+        cash_sale(),
+        FoundSale {
+            id: "pay_2".into(),
+            ..sale()
+        },
+    ]);
+    let till = f.till(source.clone());
+    f.enqueue(order());
+    f.enqueue(second_order());
+    till.check().await;
+    till.paid_in_cash("ord_1");
+    let state = till.state();
+    let cash = state.sale("ord_1").unwrap();
+    assert_eq!(cash.standing(), Standing::PaidInCash);
+    assert!(!cash.live());
+    assert!(!cash.needs_action());
+    till.paid_in_cash("ord_2");
+    assert_eq!(
+        till.state().sale("ord_2").unwrap().paid_in_cash_at,
+        None,
+        "only a cash sale"
+    );
+    assert!(source.refunded().is_empty());
+}
+
+#[tokio::test]
+async fn with_cash_offered_a_cash_sale_waits_quietly_until_its_taken_in_monero() {
+    let f = fixture().await;
+    let source = FakeSource::with(vec![cash_sale()], Some(receipt()), Some("Sam"));
+    let till = f.till(source.clone()).with_options(&TillOptions {
+        device_id: None,
+        every_device: false,
+        cash_as_monero: false,
+    });
+    till.check().await;
+    assert_eq!(f.request_count(), 0, "no order until it's taken");
+    assert_eq!(source.handled_ids(), ["pay_cash"]);
+    let offered = only(&till);
+    assert_eq!(offered.order_id, "cash:pay_cash");
+    assert!(offered.offered);
+    assert_eq!(offered.standing(), Standing::CashOffer { kept: false });
+    assert!(!offered.live() && !offered.needs_action() && !offered.open());
+    assert_eq!(offered.customer_name.as_deref(), Some("Sam"));
+    assert_eq!(offered.amount, "13.88");
+    till.keep_as_cash("cash:pay_cash");
+    assert_eq!(only(&till).standing(), Standing::CashOffer { kept: true });
+
+    f.enqueue(order());
+    assert_eq!(
+        till.take_in_monero("cash:pay_cash").await.as_deref(),
+        Ok("ord_1")
+    );
+    let taken = only(&till);
+    assert_eq!(taken.order_id, "ord_1", "the order takes the offer's place");
+    assert!(taken.cash() && taken.live() && !taken.offered);
+    assert!(taken.code.has_receipt);
+    assert_eq!(taken.customer_name.as_deref(), Some("Sam"));
+    let body: Value = serde_json::from_slice(&f.queue.seen.lock().unwrap()[1].body).unwrap();
+    assert!(
+        !body.to_string().contains("Sam"),
+        "names never go to Monokulo"
+    );
+    assert_eq!(
+        till.take_in_monero("ord_1").await.as_deref(),
+        Ok("ord_1"),
+        "taken already"
+    );
+}
+
+#[tokio::test]
+async fn a_cash_sale_whose_order_fails_stays_offered_and_says_why() {
+    let f = fixture().await;
+    let source = FakeSource::new(vec![cash_sale()]);
+    let till = f.till(source.clone()).with_options(&TillOptions {
+        device_id: None,
+        every_device: false,
+        cash_as_monero: false,
+    });
+    till.check().await;
+    f.enqueue(ResponseTemplate::new(503));
+    assert!(till.take_in_monero("cash:pay_cash").await.is_err());
+    assert!(only(&till).offered);
+    assert!(till.state().problem.is_some());
+}
+
+#[tokio::test]
+async fn another_devices_sale_is_taken_with_its_name_and_its_receipt() {
+    let f = fixture().await;
+    let other = FoundSale {
+        id: "pay_2".into(),
+        device_id: Some("dev_back".into()),
+        device_name: Some("Bar iPad".into()),
+        cash: false,
+        ..sale()
+    };
+    let source = FakeSource::with(vec![sale(), other], Some(receipt()), Some("Sam"));
+    let till = f.till(source.clone()).with_options(&TillOptions {
+        device_id: Some("dev_front".into()),
+        every_device: false,
+        cash_as_monero: true,
+    });
+    f.enqueue(order());
+    f.enqueue(second_order());
+    till.check().await;
+    let state = till.state();
+    assert_eq!(state.sales.len(), 2, "{:?}", state.sales);
+    let theirs = state.sale("ord_2").unwrap();
+    assert!(
+        theirs.receipt.is_some(),
+        "every till signed in to the point of sale builds the receipt (docs/ledger.md §8)"
+    );
+    assert!(theirs.code.has_receipt);
+    assert_eq!(theirs.customer_name.as_deref(), Some("Sam"));
+    assert_eq!(theirs.pos_device(), Some(("dev_back", Some("Bar iPad"))));
+    let mine = state.sale("ord_1").unwrap();
+    assert!(mine.code.has_receipt);
+    assert!(mine.receipt.is_some());
+    assert_eq!(source.handled_ids(), ["pay_monero", "pay_2"]);
 }
 
 #[tokio::test]
@@ -874,6 +983,24 @@ async fn events_move_sales_along_and_other_tills_sales_appear_without_receipts()
     let till = f.till(FakeSource::with(vec![sale()], Some(receipt()), None));
     f.enqueue(order());
     till.check().await;
+    // On a till signed in to the point of sale, another till's order waits
+    // for this till's own look at the point of sale (docs/ledger.md §3).
+    till.on_event(&sale_event(
+        "sale.waiting",
+        "ord_9",
+        "5.00",
+        "USD",
+        "8Cy",
+        30000000000,
+        None,
+        99,
+        "Back",
+        1,
+    ));
+    assert_eq!(till.state().sales.len(), 1);
+    // A till with no point of sale shows it from the event.
+    let f = fixture().await;
+    let till = f.till_without_pos();
     let event = |name: &str, order: &str| SaleEvent {
         order_url: Some(format!(
             "https://pay.example/monokulo/api/v1/orders/{order}"
@@ -891,8 +1018,6 @@ async fn events_move_sales_along_and_other_tills_sales_appear_without_receipts()
             1,
         )
     };
-    till.on_event(&event("sale.paid", "ord_1"));
-    assert_eq!(only(&till).phase, SalePhase::Paid);
     till.on_event(&event("sale.waiting", "ord_2"));
     let theirs = till.state().sales[0].clone();
     assert_eq!(theirs.order_id, "ord_2");
@@ -909,9 +1034,15 @@ async fn events_move_sales_along_and_other_tills_sales_appear_without_receipts()
         Some("https://pay.example/monokulo/api/v1/orders/ord_2"),
         "read again at its event's mk:order link"
     );
+    till.on_event(&event("sale.paid", "ord_2"));
+    assert_eq!(only(&till).phase, SalePhase::Paid);
+    assert_eq!(
+        only(&till).code.why.as_deref(),
+        Some(till_ledger::view::WHY_NO_POS)
+    );
     // An update for a sale never seen here is ignored.
     till.on_event(&event("sale.paid", "ord_3"));
-    assert_eq!(till.state().sales.len(), 2);
+    assert_eq!(till.state().sales.len(), 1);
 }
 
 #[tokio::test]
@@ -981,6 +1112,8 @@ async fn a_paid_sale_is_never_refunded_nor_a_refunded_one_twice() {
     );
     assert!(source.refunded().is_empty());
 
+    // Another device, with its own ledger.
+    let f = fixture().await;
     let other = FakeSource::new(vec![sale()]);
     let again = f.till(other.clone());
     f.enqueue(order());
@@ -1231,6 +1364,7 @@ async fn closing_a_sale_for_now_takes_its_code_down_and_keeps_it_in_the_shift_wh
         "Square has it as Monero: refund it or wait"
     );
     assert!(closed.open(), "Monokulo still watches it");
+    clock.set(2_000);
     till.on_event(&ord_1("sale.paid", 2_000));
     let paid = only(&till);
     assert_eq!(
@@ -1240,7 +1374,7 @@ async fn closing_a_sale_for_now_takes_its_code_down_and_keeps_it_in_the_shift_wh
             after_refund: false
         }
     );
-    assert_eq!(paid.paid_at, Some(2_000), "paid at the event's time");
+    assert_eq!(paid.paid_at, Some(2_000), "paid when this till heard of it");
     assert!(!paid.needs_action());
 }
 
@@ -1294,11 +1428,7 @@ async fn where_the_cashier_refunds_in_the_pos_refunding_marks_the_sale_to_refund
     let f = fixture().await;
     let clock = clock(10);
     let source = InPosSource::new(vec![clover_sale()]);
-    let shift = MemoryShift::new();
-    let till = f
-        .till(source.clone())
-        .with_clock(Arc::new(clock.clone()))
-        .with_store(shift.clone());
+    let till = f.till(source.clone()).with_clock(Arc::new(clock.clone()));
     f.enqueue(order());
     till.check().await;
     till.close("ord_1");
@@ -1324,7 +1454,7 @@ async fn where_the_cashier_refunds_in_the_pos_refunding_marks_the_sale_to_refund
         "told once, when first told"
     );
     assert_eq!(
-        only(&f.till(source.clone()).with_store(shift.clone())).standing(),
+        only(&f.till(source.clone())).standing(),
         Standing::RefundInPos,
         "and saved"
     );
@@ -1382,11 +1512,7 @@ async fn a_sale_told_to_refund_in_a_pos_the_till_no_longer_uses_is_refunded_on_t
     let f = fixture().await;
     let clock = clock(10);
     let clover = InPosSource::new(vec![clover_sale()]);
-    let shift = MemoryShift::new();
-    let till = f
-        .till(clover.clone())
-        .with_clock(Arc::new(clock.clone()))
-        .with_store(shift.clone());
+    let till = f.till(clover.clone()).with_clock(Arc::new(clock.clone()));
     f.enqueue(order());
     till.check().await;
     till.on_status("ord_1", OrderStatus::of(SalePhase::Expired));
@@ -1395,10 +1521,7 @@ async fn a_sale_told_to_refund_in_a_pos_the_till_no_longer_uses_is_refunded_on_t
     // The cashier changed the point of sale to Square: the shift's sales stay, Clover can't be asked.
     let square = FakeSource::new(vec![]);
     clock.set(100);
-    let again = f
-        .till(square.clone())
-        .with_clock(Arc::new(clock.clone()))
-        .with_store(shift.clone());
+    let again = f.till(square.clone()).with_clock(Arc::new(clock.clone()));
     assert_eq!(only(&again).standing(), Standing::RefundInPos);
     again.check().await;
     assert_eq!(clover.looks(), 0, "the timer asks no POS");
@@ -1420,11 +1543,7 @@ async fn a_sale_told_to_refund_in_a_pos_the_till_no_longer_uses_is_refunded_on_t
         "and nothing is refunded at Square"
     );
     assert_eq!(clover.looks(), 0);
-    assert_eq!(
-        shift.reloaded()[0].standing(),
-        Standing::Refunded,
-        "and saved"
-    );
+    assert_eq!(f.reloaded()[0].standing(), Standing::Refunded, "and saved");
 }
 
 #[tokio::test]
@@ -1432,22 +1551,15 @@ async fn a_clover_sale_refunded_after_a_change_to_square_is_marked_to_refund_in_
  {
     let f = fixture().await;
     let clock = clock(10);
-    let shift = MemoryShift::new();
     let clover = InPosSource::new(vec![clover_sale()]);
-    let till = f
-        .till(clover.clone())
-        .with_clock(Arc::new(clock.clone()))
-        .with_store(shift.clone());
+    let till = f.till(clover.clone()).with_clock(Arc::new(clock.clone()));
     f.enqueue(order());
     till.check().await;
     till.on_status("ord_1", OrderStatus::of(SalePhase::Expired));
     // The cashier changed the point of sale to Square before refunding it.
     let square = FakeSource::new(vec![]);
     clock.set(50);
-    let again = f
-        .till(square.clone())
-        .with_clock(Arc::new(clock.clone()))
-        .with_store(shift.clone());
+    let again = f.till(square.clone()).with_clock(Arc::new(clock.clone()));
     again.refund("ord_1").await;
     assert!(
         square.refunded().is_empty(),
@@ -1467,32 +1579,23 @@ async fn a_clover_sale_refunded_after_a_change_to_square_is_marked_to_refund_in_
     assert_eq!(refunded.refunded_at, Some(60));
     assert!(square.refunded().is_empty());
     assert_eq!(clover.looks(), 0);
-    assert_eq!(
-        shift.reloaded()[0].standing(),
-        Standing::Refunded,
-        "and saved"
-    );
+    assert_eq!(f.reloaded()[0].standing(), Standing::Refunded, "and saved");
 }
 
 #[tokio::test]
 async fn a_square_sale_refunded_after_a_change_to_clover_is_never_asked_about_at_clover() {
     let f = fixture().await;
     let clock = clock(10);
-    let shift = MemoryShift::new();
     let till = f
         .till(FakeSource::new(vec![sale()]))
-        .with_clock(Arc::new(clock.clone()))
-        .with_store(shift.clone());
+        .with_clock(Arc::new(clock.clone()));
     f.enqueue(order());
     till.check().await;
     till.on_status("ord_1", OrderStatus::of(SalePhase::Expired));
     // The cashier changed the point of sale to Clover before refunding it.
     let clover = InPosSource::new(vec![]);
     clock.set(100);
-    let again = f
-        .till(clover.clone())
-        .with_clock(Arc::new(clock.clone()))
-        .with_store(shift.clone());
+    let again = f.till(clover.clone()).with_clock(Arc::new(clock.clone()));
     again.refund("ord_1").await;
     assert_eq!(
         only(&again).standing(),
@@ -1515,11 +1618,7 @@ async fn a_square_sale_refunded_after_a_change_to_clover_is_never_asked_about_at
     assert_eq!(clover.looks(), 0);
     assert_eq!(only(&again).standing(), Standing::Refunded);
     assert_eq!(only(&again).refunded_at, Some(200));
-    assert_eq!(
-        shift.reloaded()[0].standing(),
-        Standing::Refunded,
-        "and saved"
-    );
+    assert_eq!(f.reloaded()[0].standing(), Standing::Refunded, "and saved");
 }
 
 #[tokio::test]
@@ -1607,7 +1706,7 @@ async fn an_expired_or_reversed_sale_needs_action_until_refunded_while_another_t
     till.check().await;
     till.on_status("ord_1", OrderStatus::of(SalePhase::Seen));
     clock.set(200);
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired));
+    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired).settled(true));
     let expired = only(&till);
     assert_eq!(expired.standing(), Standing::Expired);
     assert_eq!(
@@ -1622,7 +1721,10 @@ async fn an_expired_or_reversed_sale_needs_action_until_refunded_while_another_t
     assert_eq!(only(&till).ended_at, Some(200), "ended once");
     till.refund("ord_1").await;
     assert_eq!(only(&till).standing(), Standing::Refunded);
-    // Another till's sale: this till can't refund it, so it never needs action here.
+    // Another till's sale, on a till with no point of sale: it can't refund
+    // it, so it never needs action here.
+    let till = f.till_without_pos().with_clock(Arc::new(clock.clone()));
+    clock.set(300);
     till.on_event(&sale_event(
         "sale.waiting",
         "ord_2",
@@ -1635,6 +1737,7 @@ async fn an_expired_or_reversed_sale_needs_action_until_refunded_while_another_t
         "Back till",
         300,
     ));
+    clock.set(310);
     till.on_event(&sale_event(
         "sale.seen",
         "ord_2",
@@ -1647,6 +1750,8 @@ async fn an_expired_or_reversed_sale_needs_action_until_refunded_while_another_t
         "Back till",
         310,
     ));
+    clock.set(320);
+    till.on_status("ord_2", OrderStatus::of(SalePhase::Expired).settled(true));
     till.on_event(&sale_event(
         "sale.expired",
         "ord_2",
@@ -1678,24 +1783,16 @@ async fn an_expired_or_reversed_sale_needs_action_until_refunded_while_another_t
 }
 
 #[tokio::test]
-async fn a_till_started_on_a_saved_shift_shows_its_sales_marks_and_receipts_and_saves_every_change()
-{
+async fn a_till_started_on_the_ledger_shows_its_sales_marks_and_receipts() {
     let f = fixture().await;
-    let shift = MemoryShift::new();
     let first = f
         .till(FakeSource::with(vec![sale()], Some(receipt()), None))
-        .with_clock(Arc::new(clock(50)))
-        .with_store(shift.clone());
+        .with_clock(Arc::new(clock(50)));
     f.enqueue(order());
     first.check().await;
     first.close("ord_1");
-    assert!(shift.saves() >= 2, "the new sale, then its close");
-    assert!(
-        !shift.saved().unwrap().contains("problem"),
-        "only the sales are saved"
-    );
-    // Android ended the process: the next run starts from what was saved.
-    let again = f.till(FakeSource::new(vec![])).with_store(shift.clone());
+    // Android ended the process: the next run reads the ledger.
+    let again = f.till(FakeSource::new(vec![]));
     let shown = only(&again);
     assert_eq!(shown.order_id, "ord_1");
     assert_eq!(shown.closed_at, Some(50));
@@ -1708,56 +1805,40 @@ async fn a_till_started_on_a_saved_shift_shows_its_sales_marks_and_receipts_and_
     assert_eq!(shown.found, Some(sale()), "and it can still be refunded");
     assert!(shown.code.has_receipt);
     // A check that finds nothing changes nothing, so writes nothing.
-    let saves = shift.saves();
+    let journal = again.books().with(|l| l.journal()).unwrap().len();
     again.check().await;
-    assert_eq!(shift.saves(), saves);
+    assert_eq!(again.books().with(|l| l.journal()).unwrap().len(), journal);
     again.on_status("ord_1", OrderStatus::of(SalePhase::Expired).settled(true));
-    assert_eq!(shift.reloaded()[0].standing(), Standing::Expired);
+    assert_eq!(f.reloaded()[0].standing(), Standing::Expired);
 }
 
 #[tokio::test]
-async fn a_saved_sale_keeps_the_point_of_sale_that_took_it_and_one_saved_before_clover_joined_reads_as_squares()
- {
+async fn a_sale_keeps_the_point_of_sale_that_took_it() {
     let f = fixture().await;
-    let shift = MemoryShift::new();
     let clover = FoundSale {
         id: "PAY_MONERO_1".into(),
         point_of_sale: PointOfSale::Clover,
         ..sale()
     };
-    let till = f
-        .till(FakeSource::with(vec![clover], Some(receipt()), None))
-        .with_store(shift.clone());
+    let till = f.till(FakeSource::with(vec![clover], Some(receipt()), None));
     f.enqueue(order());
     till.check().await;
     assert_eq!(
-        shift.reloaded()[0]
+        f.reloaded()[0]
             .found
             .as_ref()
             .map(|found| found.point_of_sale),
         Some(PointOfSale::Clover)
     );
-    // A shift saved by a Square-only build has no pointOfSale in its found sale.
-    let before = shift
-        .saved()
-        .unwrap()
-        .replace(r#","pointOfSale":"Clover""#, "");
-    assert!(!before.contains("pointOfSale"));
-    assert_eq!(
-        MemoryShift::of(Some(before)).load().unwrap()[0]
-            .found
-            .as_ref()
-            .map(|found| found.point_of_sale),
-        Some(PointOfSale::Square)
-    );
 }
 
 #[tokio::test]
-async fn a_shift_keeps_its_newest_sales_up_to_the_cap() {
+async fn the_shift_lists_its_sales_newest_first() {
     let f = fixture().await;
-    let shift = MemoryShift::new();
-    let till = f.till(FakeSource::new(vec![])).with_store(shift.clone());
-    for i in 0..Till::MAX_SALES + 3 {
+    let clock = clock(10);
+    let till = f.till_without_pos().with_clock(Arc::new(clock.clone()));
+    for i in 0..3 {
+        clock.advance(10);
         till.on_event(&sale_event(
             "sale.waiting",
             &format!("ord_{i}"),
@@ -1771,38 +1852,14 @@ async fn a_shift_keeps_its_newest_sales_up_to_the_cap() {
             i as i64,
         ));
     }
-    let sales = till.state().sales;
-    assert_eq!(sales.len(), Till::MAX_SALES);
-    assert_eq!(
-        sales[0].order_id,
-        format!("ord_{}", Till::MAX_SALES + 2),
-        "newest first"
-    );
-    assert_eq!(
-        sales.last().unwrap().order_id,
-        "ord_3",
-        "the oldest three dropped off"
-    );
-    assert_eq!(shift.reloaded().len(), Till::MAX_SALES);
-    // A saved shift longer than the cap (an older build's) is cut down as it loads.
-    let long = MemoryShift::new();
-    let doubled: Vec<TillSale> = sales
-        .iter()
-        .cloned()
-        .chain(sales.iter().map(|sale| TillSale {
-            order_id: format!("{}b", sale.order_id),
-            ..sale.clone()
-        }))
+    let ids: Vec<String> = till
+        .state()
+        .sales
+        .into_iter()
+        .map(|sale| sale.order_id)
         .collect();
-    long.save(&doubled);
-    assert_eq!(
-        f.till(FakeSource::new(vec![]))
-            .with_store(long)
-            .state()
-            .sales
-            .len(),
-        Till::MAX_SALES
-    );
+    assert_eq!(ids, ["ord_2", "ord_1", "ord_0"]);
+    assert_eq!(f.reloaded().len(), 3);
 }
 
 #[tokio::test]
@@ -1849,12 +1906,14 @@ async fn a_closed_sale_keeps_its_marks_and_times_through_the_stream_and_a_resync
         .with_clock(Arc::new(clock.clone()));
     f.enqueue(order());
     till.check().await;
+    clock.set(5);
     till.on_event(&ord_1("sale.seen", 5));
     clock.set(20);
     till.close("ord_1");
     clock.set(30);
     till.on_status("ord_1", OrderStatus::of(SalePhase::Seen));
-    till.on_event(&ord_1("sale.expired", 40));
+    clock.set(40);
+    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired).settled(true));
     let shown = only(&till);
     assert_eq!(shown.seen_at, Some(5));
     assert_eq!(shown.closed_at, Some(20));
@@ -1870,15 +1929,15 @@ async fn a_closed_sale_keeps_its_marks_and_times_through_the_stream_and_a_resync
 async fn a_reversed_sale_stays_reversed_through_a_resync_that_reads_pending_and_in_the_saved_shift()
 {
     let f = fixture().await;
-    let shift = MemoryShift::new();
     let clock = clock(10);
     let till = f
         .till(FakeSource::with(vec![sale()], Some(receipt()), None))
-        .with_clock(Arc::new(clock.clone()))
-        .with_store(shift.clone());
+        .with_clock(Arc::new(clock.clone()));
     f.enqueue(order());
     till.check().await;
+    clock.set(5);
     till.on_event(&ord_1("sale.seen", 5));
+    clock.set(7);
     till.on_event(&ord_1("sale.double_spend", 7));
     assert_eq!(only(&till).standing(), Standing::Reversed);
     // The app was restarted: the next run loads the saved shift, and the stream's resync reads the
@@ -1886,8 +1945,7 @@ async fn a_reversed_sale_stays_reversed_through_a_resync_that_reads_pending_and_
     clock.set(20);
     let again = f
         .till(FakeSource::new(vec![]))
-        .with_clock(Arc::new(clock.clone()))
-        .with_store(shift.clone());
+        .with_clock(Arc::new(clock.clone()));
     again.on_status(
         "ord_1",
         OrderStatus::of(Order::phase_of("pending")).settled(false),
@@ -1901,7 +1959,7 @@ async fn a_reversed_sale_stays_reversed_through_a_resync_that_reads_pending_and_
     assert!(!shown.live(), "no code, bubble or chip");
     assert!(shown.needs_action());
     assert_eq!(shown.ended_at, Some(7));
-    assert_eq!(shift.reloaded()[0].standing(), Standing::Reversed);
+    assert_eq!(f.reloaded()[0].standing(), Standing::Reversed);
     // Nor does it read as expired once its code runs out: it still mustn't be handed over.
     again.on_status("ord_1", OrderStatus::of(SalePhase::Expired).settled(false));
     assert_eq!(only(&again).standing(), Standing::Reversed);
@@ -1924,7 +1982,7 @@ async fn an_expired_sale_never_goes_back_to_waiting_whatever_a_resync_reads() {
         .with_clock(Arc::new(clock(10)));
     f.enqueue(order());
     till.check().await;
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired));
+    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired).settled(true));
     till.on_status("ord_1", OrderStatus::of(SalePhase::Waiting));
     till.on_status("ord_1", OrderStatus::of(SalePhase::Seen));
     assert_eq!(only(&till).standing(), Standing::Expired);
@@ -2027,6 +2085,10 @@ async fn a_code_is_ended_on_time_even_when_the_tills_clock_reads_a_second_behind
         TillSale {
             phase: SalePhase::Expired,
             ended_at: lapsed.ended_at,
+            extras: SaleExtras {
+                clock_lapsed: true,
+                ..before.extras.clone()
+            },
             ..before
         },
         lapsed,
@@ -2039,33 +2101,23 @@ async fn a_code_is_ended_on_time_even_when_the_tills_clock_reads_a_second_behind
 #[tokio::test]
 async fn stopping_watching_closes_every_live_sale_which_a_late_payment_still_pays() {
     let f = fixture().await;
+    // Half a minute after the sale was rung up.
+    let at = till_pos::time::unix_seconds("2026-10-22T16:07:30Z").unwrap();
     let till = f
         .till(FakeSource::new(vec![sale()]))
-        .with_clock(Arc::new(clock(30)));
+        .with_clock(Arc::new(clock(at)));
     f.enqueue(order());
     till.check().await;
-    till.on_event(&sale_event(
-        "sale.waiting",
-        "ord_2",
-        "5.00",
-        "USD",
-        "8Cy",
-        30000000000,
-        None,
-        99,
-        "Back till",
-        20,
-    ));
     till.close_live();
-    let state = till.state();
-    let [theirs, ours] = &state.sales[..] else {
-        panic!("two sales: {:?}", state.sales)
-    };
+    let ours = only(&till);
     assert_eq!(ours.standing(), Standing::Closed);
-    assert_eq!(ours.closed_at, Some(30));
+    assert_eq!(ours.closed_at, Some(at));
     assert!(ours.needs_action(), "to refund");
-    assert_eq!(theirs.standing(), Standing::OtherTill);
-    assert!(!theirs.live());
+    assert_eq!(
+        till.books().with(|l| l.shift_window()).unwrap().until,
+        Some(at * 1000),
+        "and the shift's window ends"
+    );
     till.on_status("ord_1", OrderStatus::of(SalePhase::Paid).settled(true));
     assert_eq!(
         till.state().sale("ord_1").unwrap().standing(),
@@ -2112,12 +2164,6 @@ async fn a_sale_keeps_the_stores_threshold_from_its_order_and_its_events_say_wha
         Some(4),
         "an event again never counts back what a read said"
     );
-    till.on_event(&event("sale.seen"));
-    assert_eq!(
-        only(&till).confirmations,
-        Some(0),
-        "back in the pool (its block was lost), it has none"
-    );
 }
 
 #[tokio::test]
@@ -2151,12 +2197,14 @@ async fn a_confirmations_read_that_lands_after_sale_paid_leaves_the_sale_paid_so
     till.on_event(&event("sale.paid"));
     let paid = only(&till);
     assert_eq!(paid.phase, SalePhase::Paid);
-    till.on_confirmations(&late);
+    till.on_order(&late);
+    let after = only(&till);
     assert_eq!(
-        only(&till),
-        paid,
-        "a read of a sale no longer on its way changes nothing"
+        after.phase,
+        SalePhase::Paid,
+        "a late read can't take it back"
     );
+    assert_eq!(after.paid_at, paid.paid_at, "nor pay it again");
 }
 
 #[tokio::test(start_paused = true)]
@@ -2219,4 +2267,92 @@ async fn a_confirming_sale_is_read_again_at_once_and_then_every_20_s_until_its_p
     tokio::time::sleep(10 * Till::CONFIRMATIONS_READ).await;
     assert_eq!(f.request_count(), 5, "paid, it's read no more");
     following.abort();
+}
+
+/// Receipts on every till signed in to the point of sale (docs/ledger.md
+/// §8): two counters' tills, each with its own ledger, show the same code,
+/// items and name for a sale either counter rang up.
+#[tokio::test]
+async fn every_till_signed_in_to_the_point_of_sale_shows_the_receipt() {
+    for device in ["dev_front", "dev_back"] {
+        let f = fixture().await;
+        let till = f
+            .till(FakeSource::with(vec![sale()], Some(receipt()), Some("Sam")))
+            .with_device_id(device);
+        f.enqueue(order());
+        till.check().await;
+        let shown = only(&till);
+        assert!(shown.code.has_receipt, "{device}: {:?}", shown.code.why);
+        assert_eq!(shown.receipt, Some(receipt()), "{device}");
+        assert_eq!(shown.customer_name.as_deref(), Some("Sam"), "{device}");
+    }
+}
+
+/// A cash sale's order is made only by a till set to its device, or to
+/// every device (docs/ledger.md §7): another counter's till lists nothing
+/// until that counter makes it.
+#[tokio::test]
+async fn a_cash_sale_gets_its_order_only_from_its_own_counters_till() {
+    let f = fixture().await;
+    let source = FakeSource::new(vec![cash_sale()]);
+    let till = f.till(source.clone()).with_device_id("dev_back");
+    till.check().await;
+    assert_eq!(f.request_count(), 0, "no order made here");
+    assert!(till.state().sales.is_empty());
+    assert_eq!(source.handled_ids(), ["pay_cash"], "and not asked again");
+
+    let f = fixture().await;
+    let till = f
+        .till(FakeSource::new(vec![cash_sale()]))
+        .with_device_id("dev_front");
+    f.enqueue(order());
+    till.check().await;
+    assert_eq!(only(&till).order_id, "ord_1");
+}
+
+/// New code (docs/ledger.md §7): a sale whose code ran out unpaid gets its
+/// next order, with the first's key and `#2`; a payment on either pays the
+/// sale, the other shows as replaced, and two payments warn.
+#[tokio::test]
+async fn new_code_makes_the_next_order_and_a_payment_on_either_pays_the_sale() {
+    let f = fixture().await;
+    let till = f.till(FakeSource::new(vec![sale()]));
+    f.enqueue(order());
+    till.check().await;
+    assert!(till.new_code("ord_1").await.is_err(), "not while it's live");
+    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired).settled(true));
+    assert!(only(&till).may_new_code());
+    f.enqueue(second_order());
+    assert_eq!(till.new_code("ord_1").await.as_deref(), Ok("ord_2"));
+    let sent = (0..f.request_count())
+        .map(|_| f.take_request())
+        .map(|r| body(&r))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        sent.contains(&format!(
+            r#""idempotency_key":"{}#2""#,
+            Till::idempotency_key(&sale())
+        )),
+        "{sent}"
+    );
+    let shown = only(&till);
+    assert_eq!(shown.order_id, "ord_2");
+    assert!(shown.live());
+    assert_eq!(shown.extras.attempts.len(), 2);
+
+    // The first code is paid after all: the sale is paid, the new one replaced.
+    till.on_status("ord_1", OrderStatus::of(SalePhase::Paid).settled(true));
+    let paid = only(&till);
+    assert_eq!(paid.phase, SalePhase::Paid);
+    assert_eq!(paid.order_id, "ord_1");
+    assert!(
+        paid.extras
+            .attempts
+            .iter()
+            .any(|a| a.order_id == "ord_2" && a.superseded)
+    );
+    assert!(!paid.extras.paid_twice);
+    till.on_status("ord_2", OrderStatus::of(SalePhase::Paid).settled(true));
+    assert!(only(&till).extras.paid_twice, "two payments: return one");
 }

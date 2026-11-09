@@ -114,6 +114,8 @@ fn sale(order_id: Option<&str>, device: Option<&str>) -> FoundSale {
         order_id: order_id.map(Into::into),
         created_at: "2026-10-28T08:56:00Z".into(),
         device_id: device.map(Into::into),
+        device_name: None,
+        cash: false,
         title: None,
         point_of_sale: PointOfSale::Square,
     }
@@ -266,6 +268,8 @@ async fn only_successful_monero_payments_not_voided_refunded_or_handled_are_sale
             order_id: Some("ORDER_CL_1".into()),
             created_at: "2026-10-28T08:56:00Z".into(),
             device_id: Some("DEV_FRONT".into()),
+            device_name: None,
+            cash: false,
             title: Some("Table 4".into()),
             point_of_sale: PointOfSale::Clover,
         }
@@ -563,4 +567,29 @@ async fn a_cursor_that_cant_be_read_is_an_error_and_never_saved_over() {
     source.handled(&sale(None, None));
     assert_eq!(cursor.saves(), 0);
     assert_eq!(f.stand.request_count().await, 0);
+}
+
+#[tokio::test]
+async fn the_merchants_devices_are_read_for_their_names() {
+    let f = Fixture::start().await;
+    f.stand.enqueue(json(
+        r#"{"elements":[
+            {"id":"DEV_FRONT","name":"  Front   counter ","model":"Clover Mini","serial":"C030UQ71040123"},
+            {"id":"DEV_BACK","model":"Clover Flex","serial":"C042UQ0004F2A"},
+            {"id":"DEV_BARE"}
+        ]}"#,
+    ));
+    let devices = f.api.devices("MCLOVER00001").await.unwrap();
+    assert_eq!(
+        devices.iter().map(|d| d.label()).collect::<Vec<_>>(),
+        [
+            Some("Front counter".to_owned()),
+            Some("Clover Flex 4F2A".to_owned()),
+            None,
+        ],
+        "the name, else the model and the serial's end, else none"
+    );
+    let request = f.stand.take_request().await;
+    assert_eq!(request.url.path(), "/v3/merchants/MCLOVER00001/devices");
+    assert_eq!(query(&request, "limit").as_deref(), Some("1000"));
 }

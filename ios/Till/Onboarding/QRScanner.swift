@@ -4,8 +4,10 @@ import UIKit
 
 /// The camera looking for QR codes (PadOnb2, docs/ios-plan.md §5): AVFoundation's
 /// metadata output, no extra library. Each new code's text goes to `found`,
-/// once; the engine decides whether it is a connect code. Shows nothing on a
-/// device without a camera (the simulator).
+/// once; the engine decides whether it is a connect code. The picture
+/// follows the device's rotation (`AVCaptureDevice.RotationCoordinator`), so
+/// a turned iPad shows it upright. Shows nothing on a device without a
+/// camera (the simulator).
 struct QRScanner: UIViewRepresentable {
     let found: @MainActor (String) -> Void
 
@@ -20,6 +22,7 @@ struct QRScanner: UIViewRepresentable {
         view.previewLayer.session = context.coordinator.session
         context.coordinator.found = found
         context.coordinator.start()
+        context.coordinator.followRotation(of: view.previewLayer)
         return view
     }
 
@@ -49,6 +52,11 @@ struct QRScanner: UIViewRepresentable {
         var found: (@MainActor (String) -> Void)?
         private var last: String?
         private var configured = false
+        private var camera: AVCaptureDevice?
+        /// Keeps the preview upright as the device turns, and its observation.
+        private var rotation: AVCaptureDevice.RotationCoordinator?
+        private var rotationObservation: NSKeyValueObservation?
+        private weak var previewLayer: AVCaptureVideoPreviewLayer?
         private let queue = DispatchQueue(label: "com.monokulo.till.camera")
 
         func start() {
@@ -59,6 +67,7 @@ struct QRScanner: UIViewRepresentable {
                       session.canAddInput(input)
                 else { return }
                 session.addInput(input)
+                self.camera = camera
                 let output = AVCaptureMetadataOutput()
                 guard session.canAddOutput(output) else { return }
                 session.addOutput(output)
@@ -71,9 +80,36 @@ struct QRScanner: UIViewRepresentable {
         }
 
         func stop() {
+            rotationObservation?.invalidate()
+            rotationObservation = nil
+            rotation = nil
             queue.async { [self] in
                 if session.isRunning { session.stopRunning() }
             }
+        }
+
+        /// Turns `layer`'s picture to the horizon-level angle the rotation
+        /// coordinator gives, now and each time the device turns. The
+        /// coordinator reports on the main queue.
+        @MainActor
+        func followRotation(of layer: AVCaptureVideoPreviewLayer) {
+            guard let camera, rotation == nil else { return }
+            let coordinator = AVCaptureDevice.RotationCoordinator(device: camera, previewLayer: layer)
+            rotation = coordinator
+            previewLayer = layer
+            turnPreview(to: coordinator.videoRotationAngleForHorizonLevelPreview)
+            rotationObservation = coordinator.observe(\.videoRotationAngleForHorizonLevelPreview, options: [.new]) { [weak self] coordinator, _ in
+                let angle = coordinator.videoRotationAngleForHorizonLevelPreview
+                MainActor.assumeIsolated {
+                    self?.turnPreview(to: angle)
+                }
+            }
+        }
+
+        @MainActor
+        private func turnPreview(to angle: CGFloat) {
+            guard let connection = previewLayer?.connection, connection.isVideoRotationAngleSupported(angle) else { return }
+            connection.videoRotationAngle = angle
         }
 
         func metadataOutput(

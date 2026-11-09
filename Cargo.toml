@@ -17,6 +17,7 @@ till-sales = { path = "crates/till-sales" }
 till-bell = { path = "crates/till-bell" }
 till-app = { path = "crates/till-app" }
 till-screens = { path = "crates/till-screens" }
+till-ledger = { path = "crates/till-ledger" }
 orf-codec = { path = "crates/orf-codec" }
 orf-codec-ffi = { path = "crates/orf-codec-ffi" }
 serde = { version = "1.0.229", features = ["derive"] }
@@ -32,6 +33,11 @@ futures-util = { version = "0.3.34", default-features = false, features = ["std"
 reqwest = { version = "0.13.5", default-features = false }
 sha2 = "0.11.1"
 wiremock = "0.6.5"
+# The ledger's database (docs/ledger.md §4, §11): SQLCipher compiled into the
+# library, never the system's SQLite. On Apple targets it encrypts with
+# CommonCrypto; elsewhere with OpenSSL's libcrypto, which till-ffi vendors
+# for Android (docs/decisions/core.md 150).
+rusqlite = { version = "0.41.1", default-features = false, features = ["bundled-sqlcipher"] }
 
 # orf-codec-ffi's library as the Android app ships it, once per ABI: small.
 # (Release builds for this machine keep the defaults: UniFFI's bindgen reads

@@ -37,7 +37,8 @@ enum Manrope {
     }
 }
 
-/// Display type: Manrope 800 at a size that grows with Dynamic Type
+/// Display type: Manrope 800, tabular figures so amounts hold still, at a
+/// size that grows with Dynamic Type
 /// alongside [relativeTo], tracked in as the design is.
 struct DisplayType: ViewModifier {
     @ScaledMetric private var size: CGFloat
@@ -49,7 +50,7 @@ struct DisplayType: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        content.font(Manrope.font(size: size)).tracking(tracking)
+        content.font(Manrope.font(size: size)).tracking(tracking).monospacedDigit()
     }
 }
 

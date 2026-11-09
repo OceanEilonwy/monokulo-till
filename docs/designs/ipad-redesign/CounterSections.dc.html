@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Counters: sections</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#B34700}a:hover{color:#1A1917}
+</style>
+</helmet>
+<div style="width: 1180px; height: 820px; position: relative; overflow: hidden; background: #F4F1EA; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; color: #1A1917; display: flex;">
+  <aside aria-label="Sales" style="width: 380px; flex: 0 0 auto; box-sizing: border-box; border-right: 1px solid #E4DED2; display: flex; flex-direction: column; padding: 64px 16px 20px; gap: 10px; overflow: hidden;">
+    <div style="display: flex; flex-direction: column; padding: 0 8px 6px;">
+      <span style="font-size: 22px; font-weight: 700;">Front Counter</span>
+      <span style="font-size: 13px; color: #5A564C; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Watching Square · $142.30 · 9 paid here</span>
+    </div>
+
+    <span style="font-size: 13px; font-weight: 600; color: #5A564C; padding: 0 8px;">THIS COUNTER · FRONT IPAD</span>
+    <div style="background: #FFFFFF; border-radius: 12px; overflow: hidden;">
+      <sc-for list="{{mine}}" as="r" hint-placeholder-count="2">
+        <div style="display: flex; align-items: center; gap: 12px; min-height: 58px; padding: 0 14px; border-bottom: 1px solid #ECE6DA;">
+          <dc-import name="StatusGlyph" size="24" state="{{r.state}}" hint-size="24px,24px"></dc-import>
+          <span style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0;"><span style="font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{r.title}}</span><span style="font-size: 13px; color: {{r.tone}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{r.status}}</span></span>
+          <span style="font-size: 17px; font-variant-numeric: tabular-nums;">{{r.amount}}</span>
+        </div>
+      </sc-for>
+    </div>
+
+    <button type="button" aria-expanded="{{expandedAttr}}" onClick="{{toggle}}" style="margin-top: 6px; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 8px; border: 0; background: none; font: inherit; color: #1A1917; cursor: pointer; text-align: left;">
+      <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" style="transform: {{chevron}};"><path d="M4 2l4 4-4 4" fill="none" stroke="#5A564C" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+      <span style="flex-grow: 1; font-size: 13px; font-weight: 600; color: #5A564C;">OTHER COUNTERS</span>
+      <span style="font-size: 13px; color: #5A564C; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">1 waiting · 6 paid</span>
+    </button>
+    <sc-if value="{{expanded}}" hint-placeholder-val="{{true}}">
+      <sc-for list="{{groups}}" as="g" hint-placeholder-count="2">
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <span style="font-size: 12px; color: #5A564C; padding: 0 22px;">{{g.device}}</span>
+          <div style="background: #FFFFFF; border-radius: 12px; overflow: hidden;">
+            <sc-for list="{{g.rows}}" as="r" hint-placeholder-count="2">
+              <div style="display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 14px; border-bottom: 1px solid #ECE6DA;">
+                <dc-import name="StatusGlyph" size="24" state="{{r.state}}" hint-size="24px,24px"></dc-import>
+                <span style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0;"><span style="font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{r.title}}</span><span style="font-size: 12px; color: {{r.tone}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{r.status}}</span></span>
+                <span style="font-size: 15px; font-variant-numeric: tabular-nums;">{{r.amount}}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+    </sc-if>
+  </aside>
+
+  <main style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 0 40px 40px;">
+    <dc-import name="TillWidget" size="104" state="idle" hint-size="104px,104px"></dc-import>
+    <h1 style="margin: 6px 0 0; font-size: 28px; font-weight: 700;">Ready for the next sale</h1>
+    <p style="margin: 0; font-size: 17px; line-height: 24px; color: #5A564C; max-width: 440px;">Alerts come only for sales on Front iPad. Other counters' sales are listed but stay quiet.</p>
+  </main>
+  <div style="position: absolute; left: 0; top: 0;"><dc-import name="WindowControls" hint-size="120px,56px"></dc-import></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1180,"height":820}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { open: true }; }
+  renderVals() {
+    const tone = (s) => (s === 'paid' ? '#1A7F37' : '#5A564C');
+    const mk = (name, ref, amount, status, state) => ({ ref, amount, title: name || ('Sale ' + ref), status: status + (name ? ' · ' + ref : ''), state, tone: tone(state) });
+    const mine = [mk('Sam', '#m2Qe', '$13.88', 'Seen · 1 of 3', 'seen'), mk('Priya', '#j1Qx', '$8.40', 'Paid · 4 min ago', 'paid')];
+    const groups = [
+      { device: 'Bar iPad', rows: [mk('', '#p4Xr', '$7.10', 'Waiting · 13:20 left', 'waiting'), mk('Lena', '#c3Va', '$5.60', 'Paid · 12 min ago', 'paid')] },
+      { device: 'Kiosk', rows: [mk('Jordan', '#n6Tb', '$31.00', 'Paid · 9 min ago', 'paid')] },
+    ];
+    const open = this.state.open;
+    return { mine, groups, expanded: open, expandedAttr: open ? 'true' : 'false', chevron: open ? 'rotate(90deg)' : 'none', toggle: () => this.setState({ open: !open }) };
+  }
+}
+</script>
+</body>
+</html>

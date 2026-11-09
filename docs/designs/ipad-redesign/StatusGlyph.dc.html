@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sale status glyph</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<svg width="{{size}}" height="{{size}}" viewBox="0 0 24 24" role="img" aria-label="{{label}}" style="display: block; flex: 0 0 auto;">
+  <sc-if value="{{isWaiting}}" hint-placeholder-val="{{false}}">
+    <circle cx="12" cy="12" r="9" fill="none" stroke="{{muted}}" stroke-width="1.8"></circle>
+    <path d="M12 7.5V12l3 2" fill="none" stroke="{{muted}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+  </sc-if>
+  <sc-if value="{{isSeen}}" hint-placeholder-val="{{false}}">
+    <circle cx="12" cy="12" r="9" fill="none" stroke="#E85D00" stroke-width="1.8"></circle>
+    <path d="M12 3a9 9 0 0 1 0 18z" fill="#E85D00"></path>
+  </sc-if>
+  <sc-if value="{{isPaid}}" hint-placeholder-val="{{false}}">
+    <circle cx="12" cy="12" r="10" fill="{{green}}"></circle>
+    <path d="M7.5 12.3l3 3 6-6.3" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+  </sc-if>
+  <sc-if value="{{isClosed}}" hint-placeholder-val="{{false}}">
+    <circle cx="12" cy="12" r="9" fill="none" stroke="#7D5E00" stroke-width="1.8"></circle>
+    <path d="M12 7.5v5.5M12 16.2v.3" stroke="#7D5E00" stroke-width="2" stroke-linecap="round"></path>
+  </sc-if>
+  <sc-if value="{{isCash}}" hint-placeholder-val="{{false}}">
+    <rect x="2.5" y="6.5" width="19" height="11" rx="2" fill="none" stroke="{{muted}}" stroke-width="1.8"></rect>
+    <circle cx="12" cy="12" r="2.4" fill="none" stroke="{{muted}}" stroke-width="1.8"></circle>
+  </sc-if>
+  <sc-if value="{{isWatching}}" hint-placeholder-val="{{false}}">
+    <circle cx="12" cy="12" r="3" fill="#E85D00"></circle>
+    <path d="M7.1 7.1a7 7 0 0 0 0 9.8M16.9 7.1a7 7 0 0 1 0 9.8" fill="none" stroke="{{muted}}" stroke-width="1.8" stroke-linecap="round"></path>
+  </sc-if>
+</svg>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"size":{"editor":"int","default":24,"min":12,"max":160},"state":{"editor":"enum","options":["watching","waiting","seen","paid","closed","cash"],"default":"paid"},"dark":{"editor":"boolean","default":false},"$preview":{"width":24,"height":24}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const s = this.props.state ?? 'paid';
+    const dark = this.props.dark === true || this.props.dark === 'true' || this.props.dark === 'yes';
+    const labels = { watching: 'Watching for sales', waiting: 'Waiting for payment', seen: 'Seen on the network', paid: 'Paid', closed: 'Closed, not paid', cash: 'Cash' };
+    return {
+      size: this.props.size ?? 24,
+      label: labels[s] || '',
+      muted: dark ? '#D9D4C9' : '#5A564C',
+      green: dark ? '#2EA052' : '#1A7F37',
+      isWaiting: s === 'waiting', isSeen: s === 'seen', isPaid: s === 'paid',
+      isClosed: s === 'closed', isCash: s === 'cash', isWatching: s === 'watching',
+    };
+  }
+}
+</script>
+</body>
+</html>

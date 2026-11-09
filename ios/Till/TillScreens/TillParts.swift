@@ -1,132 +1,113 @@
 import SwiftUI
 import TillCore
 
-/// The widest the till's column grows: the boards are drawn at the Slide
-/// Over panel's width (about 320 to 375 pt); full screen, the column stays
-/// readable in the middle.
-let tillColumn: CGFloat = 560
+/// The widest a page's content grows. Pages scroll across the whole
+/// window; only their content is held to this column, by the scroll view's
+/// content margins (docs/ipad-redesign.md, decision 24).
+let readableColumn: CGFloat = 560
 
-/// A screen's bar: Back, the title and its line in the middle, and what
-/// the screen puts at its end.
-struct TillBar<Trailing: View>: View {
-    let title: String
-    var line: String? = nil
-    let back: @MainActor () -> Void
-    private let trailing: Trailing
+extension View {
+    /// Holds a scroll view's or list's content to `width` in the middle of
+    /// a wider window, while the whole window still scrolls.
+    func readableWidth(_ width: CGFloat = readableColumn) -> some View {
+        modifier(ReadableMargins(maxWidth: width))
+    }
+}
 
-    init(
-        title: String,
-        line: String? = nil,
-        back: @escaping @MainActor () -> Void,
-        @ViewBuilder trailing: () -> Trailing
-    ) {
-        self.title = title
-        self.line = line
-        self.back = back
-        self.trailing = trailing()
+/// The content margins that centre a column of `maxWidth` in the scroll
+/// view's own width.
+struct ReadableMargins: ViewModifier {
+    let maxWidth: CGFloat
+
+    @State private var width: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .contentMargins(.horizontal, ReadableMargins.margin(width: width, maxWidth: maxWidth), for: .scrollContent)
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.width
+            } action: { newWidth in
+                width = newWidth
+            }
     }
 
-    var body: some View {
-        HStack(spacing: 8) {
-            BackButton(action: back)
-            VStack(spacing: 2) {
-                Text(title)
-                    .font(.headline)
-                    .lineLimit(1)
-                if let line, !line.isEmpty {
-                    Text(line)
-                        .font(.caption)
-                        .foregroundStyle(Palette.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+    /// Each side's margin: half of what the window has beyond the column.
+    static func margin(width: CGFloat, maxWidth: CGFloat) -> CGFloat {
+        max(0, (width - maxWidth) / 2)
+    }
+}
+
+/// How far along a payment is, as the Till logo shows it: nothing while
+/// it waits, a third seen, two thirds confirming, all of it paid.
+enum PaymentSteps {
+    /// The bar's fraction at the engine's `step` (1 waiting … 4 paid).
+    static func fraction(step: Int) -> Double {
+        switch step {
+        case ...1: 0
+        case 2: 1.0 / 3
+        case 3: 2.0 / 3
+        default: 1
+        }
+    }
+}
+
+/// A thin progress bar in the payment's colours: the progress orange on a
+/// track that meets 3:1, green once full (paid). It is the system's
+/// `ProgressView`, only drawn in Till's colours, so VoiceOver reads it as
+/// one.
+struct PaymentBarStyle: ProgressViewStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        let fraction = min(1, max(0, configuration.fractionCompleted ?? 0))
+        Capsule()
+            .fill(Palette.track)
+            .frame(height: 4)
+            .overlay(alignment: .leading) {
+                GeometryReader { box in
+                    Capsule()
+                        .fill(fraction >= 1 ? Palette.paid : Palette.progress)
+                        .frame(width: box.size.width * fraction)
                 }
             }
-            .frame(maxWidth: .infinity)
-            .accessibilityElement(children: .combine)
-            .accessibilityAddTraits(.isHeader)
-            trailing
-                .frame(minWidth: minimumTarget)
-        }
-        .padding(.horizontal, 12)
-        .padding(.top, 8)
-        .padding(.bottom, 4)
-        .foregroundStyle(Palette.ink)
+            .animation(.snappy(duration: 0.35), value: fraction)
     }
 }
 
-extension TillBar where Trailing == BarSpace {
-    init(title: String, line: String? = nil, back: @escaping @MainActor () -> Void) {
-        self.init(title: title, line: line, back: back) { BarSpace() }
-    }
-}
-
-/// The room a bar keeps at its end when it has nothing there, so its title
-/// stays in the middle.
-struct BarSpace: View {
-    var body: some View {
-        Color.clear.frame(width: minimumTarget, height: minimumTarget)
-    }
-}
-
-/// The chevron that sends Back to the engine.
-struct BackButton: View {
-    let action: @MainActor () -> Void
+/// A live sale's progress (the boards' bar and its label): the bar, the
+/// engine's status ("Seen on the network · 1 of 3") and its line under it
+/// ("Scan with any Monero wallet · 14:52 left"). The bar is at the
+/// engine's `fraction` where it gives one (`SaleView.progress`), else at
+/// the ring's step.
+struct PaymentProgress: View {
+    let step: Int
+    let status: String
+    var hint: String? = nil
+    var fraction: Double? = nil
+    /// What a screen reader says for the bar.
+    var said: String? = nil
 
     var body: some View {
-        Button {
-            action()
-        } label: {
-            Image(systemName: "chevron.backward")
-                .font(.body.weight(.semibold))
-        }
-        .glassButton()
-        .accessibilityLabel("Back")
-    }
-}
-
-/// A state's glyph on its ground: a shift row's 36 pt circle, a page's
-/// 72 pt hero (Android's `StateBadge`).
-struct StateBadge: View {
-    let icon: StateIcon
-    let ground: Ground
-    var size: CGFloat = 36
-    var quiet = false
-    /// The ring the engine drew, for the ring icon; a waiting sale's without.
-    var ring: Ring? = nil
-
-    var body: some View {
-        ZStack {
-            Circle().fill(Roles.ground(ground))
-            if let symbol = Roles.symbol(icon) {
-                Image(systemName: symbol)
-                    .font(.system(size: size * 0.42, weight: .semibold))
-                    .foregroundStyle(Roles.glyph(icon, quiet: quiet))
-            } else {
-                RingGlyph(size: size * 0.6, ring: ring ?? ringOf(step: 1, confirmations: nil, required: nil))
+        VStack(alignment: .leading, spacing: 8) {
+            ProgressView(value: fraction ?? PaymentSteps.fraction(step: step))
+                .progressViewStyle(PaymentBarStyle())
+                .accessibilityLabel("Payment")
+                .accessibilityValue(said ?? status)
+            VStack(alignment: .leading, spacing: 2) {
+                // One line, never wrapped: shrunk a little, then cut short.
+                Text(status)
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                if let hint, !hint.isEmpty {
+                    Text(hint)
+                        .font(.subheadline)
+                        .foregroundStyle(Palette.secondary)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                }
             }
+            .accessibilityElement(children: .combine)
         }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
-    }
-}
-
-/// A sale's ring as the engine drew it (docs/decisions/core.md 100): the
-/// track, and the arc as far as its `fill`, in the paid green once `green`.
-struct RingGlyph: View {
-    var size: CGFloat
-    var ring: Ring
-
-    var body: some View {
-        ZStack {
-            Circle()
-                .stroke(Palette.border, lineWidth: size * 0.14)
-            Circle()
-                .trim(from: 0, to: CGFloat(ring.fill))
-                .stroke(ring.green ? Palette.paid : Palette.accent, style: StrokeStyle(lineWidth: size * 0.14, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-        }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
     }
 }
 
@@ -150,6 +131,7 @@ struct OrderCardSection: View {
                         Spacer(minLength: 8)
                         Text(line.price)
                             .monospacedDigit()
+                            .fixedSize()
                     }
                     .font(.subheadline)
                     .accessibilityElement(children: .combine)
@@ -177,6 +159,7 @@ struct OrderCardSection: View {
                     Text(card.total)
                         .fontWeight(.semibold)
                         .monospacedDigit()
+                        .fixedSize()
                 }
                 .font(.subheadline)
                 .accessibilityElement(children: .combine)
@@ -203,10 +186,64 @@ struct NoteCard: View {
     }
 }
 
+/// The engine's payment progress (`SaleView.progress`) as the bar draws
+/// it: how full, in thirds. Its words are the engine's one line
+/// ("Confirming · 4 of 10 confirmations", core.md decision 129).
+enum EngineProgress {
+    static func fraction(value: UInt8, total: UInt8) -> Double {
+        guard total > 0 else { return 0 }
+        return min(1, Double(value) / Double(total))
+    }
+}
+
+/// A cash sale's buttons (`CashButton`; docs/ipad-redesign.md, decisions 7
+/// and 8): Take it in Monero the primary one, Keep as cash and Paid in
+/// cash outlined, side by side where they fit.
+struct CashButtons: View {
+    let orderId: String
+    let buttons: [CashButton]
+    let send: Send
+
+    var body: some View {
+        if !buttons.isEmpty {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) { items }
+                VStack(spacing: 10) { items }
+            }
+        }
+    }
+
+    private var items: some View {
+        ForEach(Array(buttons.enumerated()), id: \.offset) { _, button in
+            if CashButtons.primary(button.action) {
+                PrimaryPress(press: button.press) { send(CashButtons.action(button.action, orderId: orderId)) }
+            } else {
+                Button(button.press.label) { send(CashButtons.action(button.action, orderId: orderId)) }
+                    .buttonStyle(.secondary)
+                    .disabled(!button.press.enabled)
+            }
+        }
+    }
+
+    /// What a cash button asks of the engine.
+    static func action(_ action: CashAction, orderId: String) -> Action {
+        switch action {
+        case .takeInMonero: .takeInMonero(orderId: orderId)
+        case .keepAsCash: .keepAsCash(orderId: orderId)
+        case .paidInCash: .paidInCash(orderId: orderId)
+        }
+    }
+
+    static func primary(_ action: CashAction) -> Bool {
+        action == .takeInMonero
+    }
+}
+
 /// A screen waiting for the engine's first record of it.
 struct TillLoading: View {
     var body: some View {
-        LoadingMark(size: 64, label: "Loading")
+        ProgressView()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityLabel("Loading")
     }
 }

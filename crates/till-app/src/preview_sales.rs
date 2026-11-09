@@ -163,6 +163,8 @@ impl PreviewSale {
                 order_id: Some("o".into()),
                 created_at: "2026-10-22T22:50:00Z".into(),
                 device_id: None,
+                device_name: None,
+                cash: false,
                 title: self.found_title.clone(),
                 point_of_sale: self.found_pos.map_or(PointOfSale::Square, Into::into),
             }),
@@ -180,6 +182,10 @@ impl PreviewSale {
             refund_pending_at: self.refund_pending_at,
             confirmations: self.confirmations,
             confirmations_required: self.confirmations_required,
+            offered: false,
+            kept_as_cash_at: None,
+            paid_in_cash_at: None,
+            extras: till_sales::SaleExtras::default(),
         }
     }
 }

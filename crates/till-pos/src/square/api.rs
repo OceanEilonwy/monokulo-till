@@ -50,11 +50,14 @@ pub struct External {
     pub source: String,
 }
 
-/// A payment's `device_details`.
+/// A payment's `device_details`: the Square device that took it, and the
+/// name the seller gave that device in Square ("Front iPad").
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct Device {
     #[serde(default)]
     pub device_id: Option<String>,
+    #[serde(default)]
+    pub device_name: Option<String>,
 }
 
 /// The parts of a Square order a receipt is made from.
@@ -78,6 +81,10 @@ pub struct SquareOrder {
     /// there never costs the sale its receipt.
     #[serde(default)]
     pub fulfillments: Option<serde_json::Value>,
+    /// The name typed for the order at the counter (Square's "ticket
+    /// name"): "Sam", "Table 4".
+    #[serde(default)]
+    pub ticket_name: Option<String>,
 }
 
 /// One line of a Square order.
@@ -125,12 +132,28 @@ impl SquareOrder {
     /// a shift keeps it for every sale.
     const MAX_NAME: usize = 80;
 
-    /// Who the order is for, when the seller named them on a pickup,
-    /// delivery or shipment ("Ana López"): the first recipient's
-    /// `display_name` that isn't blank, on one line. `None` when none names
-    /// one; an order with only a `customer_id` would need Square's
+    /// Who the order is for: the recipient the seller named on a pickup,
+    /// delivery or shipment ("Ana López"), else the name typed for the
+    /// order at the counter (its `ticket_name`, "Sam"), on one line and
+    /// never blank (core.md decision 112). `None` when neither names
+    /// anyone; an order with only a `customer_id` would need Square's
     /// Customers API, which the till's scopes don't reach.
     pub fn customer_name(&self) -> Option<String> {
+        self.recipient().or_else(|| {
+            self.ticket_name
+                .as_deref()
+                .map(Self::kept)
+                .filter(|name| !name.is_empty())
+        })
+    }
+
+    /// `name` on one line, cut to [`Self::MAX_NAME`] characters.
+    fn kept(name: &str) -> String {
+        one_line(name).chars().take(Self::MAX_NAME).collect()
+    }
+
+    /// The first fulfillment recipient's `display_name` that isn't blank.
+    fn recipient(&self) -> Option<String> {
         let fulfillments = self.fulfillments.as_ref()?.as_array()?;
         fulfillments
             .iter()
@@ -141,12 +164,7 @@ impl SquareOrder {
                     .filter_map(|key| f.get(*key)?.as_object())
             })
             .filter_map(|details| details.get("recipient")?.get("display_name")?.as_str())
-            .map(|name| {
-                one_line(name)
-                    .chars()
-                    .take(Self::MAX_NAME)
-                    .collect::<String>()
-            })
+            .map(Self::kept)
             .find(|name| !name.is_empty())
     }
 }

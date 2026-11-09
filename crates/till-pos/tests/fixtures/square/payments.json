@@ -19,7 +19,26 @@
       "order_id": "ord_sq_1",
       "receipt_number": "bP9m",
       "external_details": { "type": "OTHER", "source": "Monero" },
-      "device_details": { "device_id": "dev_front" }
+      "device_details": { "device_id": "dev_front", "device_name": " Front\niPad " }
+    },
+    {
+      "id": "pay_cash",
+      "created_at": "2026-10-22T16:07:30Z",
+      "status": "COMPLETED",
+      "source_type": "CASH",
+      "amount_money": { "amount": 2450, "currency": "USD" },
+      "location_id": "L1",
+      "order_id": "ord_sq_2",
+      "receipt_number": "q8Lw",
+      "cash_details": { "buyer_supplied_money": { "amount": 3000, "currency": "USD" } },
+      "device_details": { "device_id": "dev_bar", "device_name": "Bar iPad" }
+    },
+    {
+      "id": "pay_cash_open",
+      "created_at": "2026-10-22T16:07:40Z",
+      "status": "APPROVED",
+      "source_type": "CASH",
+      "amount_money": { "amount": 100, "currency": "USD" }
     },
     {
       "id": "pay_voucher",

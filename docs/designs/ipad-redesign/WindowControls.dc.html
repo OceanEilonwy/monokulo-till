@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>iPadOS window controls (system overlay)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div aria-hidden="true" style="width: 120px; height: 56px; position: relative;">
+  <div style="position: absolute; left: 0; top: 0; width: 120px; height: 56px; border: 1.5px dashed {{zone}}; border-radius: 10px; box-sizing: border-box;"></div>
+  <div style="position: absolute; left: 14px; top: 16px; height: 24px; padding: 0 8px; border-radius: 12px; background: rgba(255, 255, 255, 0.85); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18); display: flex; align-items: center; gap: 7px;">
+    <span style="width: 11px; height: 11px; border-radius: 6px; background: #FF5F57;"></span>
+    <span style="width: 11px; height: 11px; border-radius: 6px; background: #FEBC2E;"></span>
+    <span style="width: 11px; height: 11px; border-radius: 6px; background: #28C840;"></span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"showZone":{"editor":"boolean","default":true},"$preview":{"width":120,"height":56}}'>
+class Component extends DCLogic {
+  renderVals() { return { zone: (this.props.showZone ?? true) ? 'rgba(176, 0, 32, 0.45)' : 'transparent' }; }
+}
+</script>
+</body>
+</html>

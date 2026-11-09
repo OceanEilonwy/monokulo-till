@@ -67,6 +67,45 @@ pub struct CloverPayment {
     pub refunds: Elements<CloverRefund>,
 }
 
+/// One of the merchant's Clover devices (`/devices`): what the counters
+/// menu calls a payment's device (core.md decision 142).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct CloverDevice {
+    pub id: String,
+    /// What the merchant named it ("Front Counter"), when they did.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// "Clover Mini", "Clover Flex", ….
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub serial: Option<String>,
+}
+
+impl CloverDevice {
+    /// What the till calls it: its name, else its model and the end of its
+    /// serial ("Clover Mini 4F2A"), else nothing. One line, at most 80
+    /// characters, as a Square device's name is.
+    pub fn label(&self) -> Option<String> {
+        let line = |s: &str| {
+            let one: String = s.split_whitespace().collect::<Vec<_>>().join(" ");
+            (!one.is_empty()).then(|| one.chars().take(80).collect::<String>())
+        };
+        if let Some(name) = self.name.as_deref().and_then(line) {
+            return Some(name);
+        }
+        let model = self.model.as_deref().and_then(line)?;
+        let end: Option<String> = self.serial.as_deref().and_then(line).map(|serial| {
+            let chars: Vec<char> = serial.chars().collect();
+            chars[chars.len().saturating_sub(4)..].iter().collect()
+        });
+        Some(match end {
+            Some(end) => format!("{model} {end}"),
+            None => model,
+        })
+    }
+}
+
 /// A reference to another Clover object, by its id.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct Ref {
@@ -313,6 +352,14 @@ impl CloverApi {
             &[("expand", "tender,order,refunds")],
         );
         self.get(&url).await
+    }
+
+    /// The merchant's devices, for their names. Clover's devices endpoint
+    /// needs Merchant read, which the till already asks for (the merchant's
+    /// name and currency come from it).
+    pub async fn devices(&self, merchant_id: &str) -> Result<Vec<CloverDevice>, PosError> {
+        let url = self.url(merchant_id, &["devices"], &[("limit", "1000")]);
+        Ok(self.get::<Elements<CloverDevice>>(&url).await?.elements)
     }
 
     /// One order, with its line items.

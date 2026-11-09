@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Onboarding: the test sale</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#B34700}a:hover{color:#1A1917}
+</style>
+</helmet>
+<div style="width: 1180px; height: 820px; position: relative; overflow: hidden; background: #F4F1EA; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; color: #1A1917; display: flex;">
+  <dc-import name="OnbRail" current="2" hint-size="320px,820px"></dc-import>
+
+  <main style="flex-grow: 1; display: flex; flex-direction: column; box-sizing: border-box; padding: 72px 80px 0; gap: 12px;">
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#1A7F37"></circle><path d="M7 12.4l3.2 3.2L17 8.8" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+      <span style="font-size: 15px; font-weight: 600; color: #1A7F37;">Connected to The Bean Room · Front Counter</span>
+    </div>
+    <h1 style="margin: 0; font-size: 28px; font-weight: 700;">Try a test sale</h1>
+    <p style="margin: 0; font-size: 17px; line-height: 24px; color: #5A564C; max-width: 600px;">This checks that Square tells Till about Monero sales. It takes about a minute.</p>
+
+    <div style="margin-top: 16px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; max-width: 760px;">
+      <div style="background: #FFFFFF; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 10px;">
+        <span style="font-size: 13px; font-weight: 600; color: #5A564C;">ONCE, IN SQUARE</span>
+        <span style="font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Add Monero as a payment type</span>
+        <ol style="margin: 0; padding-left: 20px; font-size: 15px; line-height: 22px; color: #3F3B33;">
+          <li>Settings › Checkout › Payment types</li>
+          <li>Under Other, add <b>Monero</b></li>
+        </ol>
+      </div>
+      <div style="background: #FFFFFF; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 10px;">
+        <span style="font-size: 13px; font-weight: 600; color: #5A564C;">THEN</span>
+        <span style="font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Ring up any small sale</span>
+        <span style="font-size: 15px; line-height: 22px; color: #3F3B33;">Choose Monero as the payment. Till shows its code here, and you can close the sale straight away.</span>
+      </div>
+    </div>
+
+    <div style="flex-grow: 1;"></div>
+    <div style="margin: 0 -80px; padding: 16px 80px 28px; background: #F4F1EA; border-top: 1px solid #E4DED2; display: flex; align-items: center; gap: 16px;">
+      <dc-import name="StatusGlyph" size="24" state="waiting" hint-size="24px,24px"></dc-import>
+      <div role="status" style="flex-grow: 1; display: flex; flex-direction: column;">
+        <span style="font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Waiting for the test sale…</span>
+        <span style="font-size: 13px; color: #5A564C; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Continue unlocks when it arrives.</span>
+      </div>
+      <a href="OnbShow.dc.html" style="min-height: 44px; display: flex; align-items: center; font-size: 17px; text-decoration: none;">Skip the test</a>
+      <button type="button" disabled="" style="min-width: 180px; height: 50px; padding: 0 28px; border-radius: 25px; border: 0; background: #E4DED2; color: #6E695F; font: inherit; font-size: 17px; font-weight: 600;">Continue</button>
+    </div>
+  </main>
+  <div style="position: absolute; left: 0; top: 0;"><dc-import name="WindowControls" hint-size="120px,56px"></dc-import></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1180,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

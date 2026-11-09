@@ -35,6 +35,12 @@ pub enum Standing {
     /// Another till found it and it ended, or was closed, unpaid: that till
     /// has the POS sale.
     OtherTill,
+    /// A cash sale offered in Monero, with no order yet: `kept` once the
+    /// cashier chose "Keep as cash" (core.md decision 116).
+    CashOffer { kept: bool },
+    /// A cash sale whose customer paid in real cash after all: closed, with
+    /// nothing to refund.
+    PaidInCash,
 }
 
 impl Standing {
@@ -46,8 +52,9 @@ impl Standing {
 }
 
 impl TillSale {
-    /// Where the sale stands. Payment outranks everything; then a code
-    /// that is up; then, for a sale this till found, a refund, a refund to
+    /// Where the sale stands. Payment outranks everything; then a cash
+    /// sale offered in Monero or paid in real cash (core.md decision 116);
+    /// then a code that is up; then, for a sale this till found, a refund, a refund to
     /// make in the POS, a reversal and an ending, before a plain close
     /// (decisions 60 onwards in docs/decisions/android.md).
     pub fn standing(&self) -> Standing {
@@ -56,6 +63,12 @@ impl TillSale {
                 late: self.closed_at.is_some() || self.ended_at.is_some(),
                 after_refund: self.refunded(),
             }
+        } else if self.offered {
+            Standing::CashOffer {
+                kept: self.kept_as_cash_at.is_some(),
+            }
+        } else if self.paid_in_cash_at.is_some() {
+            Standing::PaidInCash
         } else if !self.phase.is_final() && self.closed_at.is_none() {
             Standing::Live(self.phase)
         } else if self.found.is_none() {

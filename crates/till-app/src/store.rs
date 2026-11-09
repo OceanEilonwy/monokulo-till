@@ -13,8 +13,10 @@
 //! - [`Store`]: each key, read and written as `Stores.kt` did.
 //! - [`Model`] and [`Kept`]: the small values, held in memory and written
 //!   through as they change.
-//! - [`PosTokenStore`], [`PosCursor`], [`Tenders`], [`ShiftKept`] and
-//!   [`WakeUpsKept`]: the leaf crates' store traits over it.
+//! - [`PosTokenStore`], [`PosCursor`], [`Tenders`] and [`WakeUpsKept`]:
+//!   the leaf crates' store traits over it. The shift's sales are the
+//!   ledger's now (docs/ledger.md); what an older build kept is read once,
+//!   into it.
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -25,7 +27,7 @@ use till_bell::{BellAddress, BellRegistration, WakeUpChoice, WakeUpStore};
 use till_pos::clover::{CloverMerchant, TenderStore};
 use till_pos::square::SquareLocation;
 use till_pos::{CursorStore, Pkce, PosTokens, StoreError, TokenStore};
-use till_sales::{ShiftStore, TillSale, shift_json};
+use till_sales::{TillSale, shift_json};
 
 use crate::{Platform, SecretError};
 
@@ -93,6 +95,30 @@ pub mod keys {
     /// had: `{"private":…,"auth":…}`, base64url (`web_push`). They survive
     /// `forget_all`, as the device's own.
     pub const PUSH_KEYS: &str = "push.keys";
+    /// This counter's point-of-sale device, as the test sale named it
+    /// (core.md decision 113): `{"id":…,"name":…,"learnedAt":…}`; absent
+    /// until then, when every device's sales are this till's.
+    pub const COUNTER_DEVICE: &str = "counter.device";
+    /// "Every device at Front Counter": `true`, or absent (alerts for this
+    /// device alone).
+    pub const COUNTER_EVERY: &str = "counter.every";
+    /// "Show other counters' sales in the list": `true` or `false`; absent
+    /// is on.
+    pub const COUNTER_OTHERS: &str = "counter.others";
+    /// "Treat cash sales as Monero" (core.md decision 116): `true` or
+    /// `false`; absent is on.
+    pub const CASH_AS_MONERO: &str = "cash.monero";
+    /// How a new sale shows up (core.md decision 120): `alert`, `pip` or
+    /// `side`; absent is `alert`.
+    pub const SHOW_SALES: &str = "sales.show";
+    /// What Clover calls the merchant's devices (core.md decision 142): a
+    /// JSON object of names by device id; absent until read.
+    pub const CLOVER_DEVICES: &str = "clover.devices";
+    /// The sales whose new-sale alert this till has posted, by the app or
+    /// iOS's extension (core.md decision 123): a JSON array of order ids,
+    /// oldest first, the newest 500 kept. It survives `forget_all`: an
+    /// order id is never another sale's.
+    pub const ALERTED: &str = "alerts.posted";
 
     /// `PosTokens`' JSON: `square.tokens` (a name from before Clover) or
     /// `clover.tokens`.
@@ -128,6 +154,28 @@ pub struct PendingSignIn {
     pub point_of_sale: PointOfSale,
     pub pkce: Pkce,
     pub application_id: Option<String>,
+}
+
+/// This counter's point-of-sale device, as kept: its id and name, and when
+/// the test sale named it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CounterKept {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Unix seconds.
+    #[serde(default)]
+    pub learned_at: i64,
+}
+
+/// `pos`'s word under [`keys::SHOW_SALES`].
+fn show_sales_wire(mode: crate::ShowSales) -> Option<&'static str> {
+    match mode {
+        crate::ShowSales::Alert => None,
+        crate::ShowSales::FloatingWindow => Some("pip"),
+        crate::ShowSales::SideBySide => Some("side"),
+    }
 }
 
 /// `Stores.kt`'s `PkceState`, as kotlinx wrote it.
@@ -388,6 +436,16 @@ impl Store {
             clover_merchant: self.read(keys::CLOVER_MERCHANT)?,
             live_activity: self.switch(keys::LIVE_ACTIVITY)?,
             code_in_island: self.flag(keys::CODE_IN_ISLAND)?,
+            counter_device: self.read(keys::COUNTER_DEVICE)?,
+            alert_every: self.flag(keys::COUNTER_EVERY)?,
+            show_others: self.switch(keys::COUNTER_OTHERS)?,
+            clover_devices: self.read(keys::CLOVER_DEVICES)?.unwrap_or_default(),
+            cash_as_monero: self.switch(keys::CASH_AS_MONERO)?,
+            show_sales: match self.get(keys::SHOW_SALES)?.as_deref() {
+                Some("pip") => crate::ShowSales::FloatingWindow,
+                Some("side") => crate::ShowSales::SideBySide,
+                _ => crate::ShowSales::Alert,
+            },
         })
     }
 
@@ -463,6 +521,25 @@ impl Store {
         if old.code_in_island != new.code_in_island {
             self.put_flag(keys::CODE_IN_ISLAND, new.code_in_island)?;
         }
+        if old.counter_device != new.counter_device {
+            self.write(keys::COUNTER_DEVICE, new.counter_device.as_ref())?;
+        }
+        if old.alert_every != new.alert_every {
+            self.put_flag(keys::COUNTER_EVERY, new.alert_every)?;
+        }
+        if old.show_others != new.show_others {
+            self.put_switch(keys::COUNTER_OTHERS, new.show_others)?;
+        }
+        if old.clover_devices != new.clover_devices {
+            let names = (!new.clover_devices.is_empty()).then_some(&new.clover_devices);
+            self.write(keys::CLOVER_DEVICES, names)?;
+        }
+        if old.cash_as_monero != new.cash_as_monero {
+            self.put_switch(keys::CASH_AS_MONERO, new.cash_as_monero)?;
+        }
+        if old.show_sales != new.show_sales {
+            self.put(keys::SHOW_SALES, show_sales_wire(new.show_sales))?;
+        }
         Ok(())
     }
 
@@ -480,6 +557,9 @@ impl Store {
             clover_base_url: model.clover_base_url.clone(),
             live_activity: model.live_activity,
             code_in_island: model.code_in_island,
+            show_others: model.show_others,
+            cash_as_monero: model.cash_as_monero,
+            show_sales: model.show_sales,
             ..Model::default()
         };
         self.save(model, &forgotten)?;
@@ -540,6 +620,21 @@ pub struct Model {
     /// unless turned off), and the code in it (off unless turned on).
     pub live_activity: bool,
     pub code_in_island: bool,
+    /// This counter's point-of-sale device, once a test sale named it
+    /// (core.md decision 113); forgotten with the store.
+    pub counter_device: Option<CounterKept>,
+    /// Alerts for every device's sales, not only this counter's.
+    pub alert_every: bool,
+    /// The list opens on every counter's sales (on unless turned off).
+    pub show_others: bool,
+    /// What Clover calls the merchant's devices, by id (core.md decision
+    /// 137); forgotten with the store.
+    pub clover_devices: std::collections::BTreeMap<String, String>,
+    /// A cash sale is treated as Monero as it's found (on unless turned
+    /// off, core.md decision 116).
+    pub cash_as_monero: bool,
+    /// How a new sale shows up (core.md decision 120).
+    pub show_sales: crate::ShowSales,
 }
 
 impl Default for Model {
@@ -568,11 +663,46 @@ impl Default for Model {
             clover_merchant: None,
             live_activity: true,
             code_in_island: false,
+            counter_device: None,
+            alert_every: false,
+            show_others: true,
+            clover_devices: Default::default(),
+            cash_as_monero: true,
+            show_sales: crate::ShowSales::Alert,
         }
     }
 }
 
 impl Model {
+    /// How the till is set up (core.md decisions 113 and 116): this
+    /// counter's device, and cash.
+    pub fn till_options(&self) -> till_sales::TillOptions {
+        till_sales::TillOptions {
+            device_id: self.counter_device.as_ref().map(|d| d.id.clone()),
+            every_device: self.alert_every,
+            cash_as_monero: self.cash_as_monero,
+        }
+    }
+
+    /// How the till channels sales by device (core.md decision 113).
+    pub fn counters(&self) -> till_screens::counters::Counters {
+        till_screens::counters::Counters {
+            device: self
+                .counter_device
+                .as_ref()
+                .map(|d| till_screens::counters::CounterDevice {
+                    id: d.id.clone(),
+                    name: d.name.clone(),
+                }),
+            every_device: self.alert_every,
+            show_others: self.show_others,
+            names: match self.point_of_sale {
+                Some(PointOfSale::Clover) => self.clover_devices.clone(),
+                _ => Default::default(),
+            },
+        }
+    }
+
     /// Where the till watches, by name: its Square location, or its Clover
     /// merchant.
     pub fn place_name(&self) -> Option<String> {
@@ -760,34 +890,6 @@ impl TenderStore for Tenders {
             &self.log,
             "keep the tender id".into(),
             self.store.set_tender_id(merchant_id, tender_id),
-        );
-    }
-}
-
-/// The shift's sales (till-sales' [`ShiftStore`]), encrypted like
-/// everything else (decision 64 of android.md). A shift that can't be read
-/// is reported, and the till then never saves over it.
-pub struct ShiftKept {
-    store: Store,
-    log: Log,
-}
-
-impl ShiftKept {
-    pub fn new(store: Store, log: Log) -> ShiftKept {
-        ShiftKept { store, log }
-    }
-}
-
-impl ShiftStore for ShiftKept {
-    fn load(&self) -> Result<Vec<TillSale>, StoreError> {
-        logged(&self.log, "read the shift".into(), self.store.shift_sales())
-    }
-
-    fn save(&self, sales: &[TillSale]) {
-        let _ = logged(
-            &self.log,
-            "keep the shift".into(),
-            self.store.set_shift_sales(sales),
         );
     }
 }

@@ -6,64 +6,61 @@ import UIKit
 /// How a page hands the cashier's actions to the engine.
 typealias Send = @MainActor (Action) -> Void
 
-/// Words a page writes once, as Android's screens do.
-enum Words {
-    /// What Till can do with a store, said before connecting (till-screens'
-    /// `CAN_DO`, which Connected's footnote carries itself).
-    static let canDo = "Till can see this store's orders and create payment codes. It can't spend from or change the wallet. Only connect a server you run or trust."
-}
-
-/// Step 1 (OnbWelcome, PadOnb1).
+/// Step 1 (OnbWelcome, PadOnb1): the engine's heading, lead, features
+/// and "Get started" (core.md decision 130).
 struct WelcomePage: View {
-    let feature: String
-    let stepLabel: String?
+    let view: OnboardingView
     let send: Send
 
     var body: some View {
-        StepPage(stepLabel: stepLabel) {
+        StepPage {
             VStack(spacing: 0) {
-                LoadingMark(size: 148, label: "Monokulo Till")
-                Heading(text: "Monokulo Till", size: 34, centred: true)
+                TillWidget(state: .idle, size: 148, decorative: true)
+                Heading(text: view.heading, centred: true, display: 34)
                     .padding(.top, 26)
-                Lead(
-                    text: "Take Monero at your till. Till sees each new sale and shows your customer a payment code.",
-                    centred: true
-                )
-                .frame(maxWidth: 320)
-                .padding(.top, 18)
+                Lead(text: view.lead, centred: true)
+                    .frame(maxWidth: 320)
+                    .padding(.top, 18)
             }
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 24)
             .padding(.top, 48)
             VStack(alignment: .leading, spacing: 22) {
-                Feature(symbol: "bag", title: "Sees Monero sales", text: feature)
-                Feature(
-                    symbol: "qrcode", title: "Shows a payment code",
-                    text: "Turn the screen round and the customer scans with their wallet."
-                )
-                Feature(
-                    symbol: "checkmark.circle", title: "Confirms the money arrived",
-                    text: "Till tells you when the payment lands, and flags any that don't."
-                )
+                ForEach(Array(view.features.enumerated()), id: \.offset) { _, feature in
+                    FeatureRow(feature: feature)
+                }
             }
             .padding(.horizontal, 24)
             .padding(.top, 40)
         } bottom: {
-            Button("Get started") { send(.next) }
-                .buttonStyle(.primary)
+            if let start = view.start {
+                PrimaryPress(press: start) { send(.next) }
+            }
+        }
+    }
+}
+
+/// Each of Welcome's features' symbol.
+enum FeatureLook {
+    static func symbol(_ mark: FeatureMark) -> String {
+        switch mark {
+        case .sales: "bag"
+        case .code: "qrcode"
+        case .confirmed: "checkmark.circle"
         }
     }
 }
 
 /// One of Welcome's three features.
-struct Feature: View {
-    let symbol: String
-    let title: String
-    let text: String
+struct FeatureRow: View {
+    let feature: Feature
+
+    private var title: String { feature.title }
+    private var text: String { feature.text }
 
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
-            Image(systemName: symbol)
+            Image(systemName: FeatureLook.symbol(feature.mark))
                 .font(.title2)
                 .foregroundStyle(Palette.link)
                 .frame(width: 30)
@@ -110,46 +107,39 @@ struct NumberedCard: View {
 /// code, or the link is pasted. Either goes to the engine, which says why
 /// one wasn't taken.
 struct ScanPage: View {
+    let view: OnboardingView
     let problem: String?
-    let stepLabel: String?
     let send: Send
 
     @State private var camera = AVCaptureDevice.authorizationStatus(for: .video)
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        StepPage(back: { send(.back) }, stepLabel: stepLabel) {
-            PageTop(heading: "Connect a store", lead: "Till connects from your Monokulo dashboard, wherever you host it.")
-            NumberedCard(steps: [
-                "In your Monokulo dashboard, open the store's **Settings › Connections**",
-                "Under **Apps**, choose **Connect an app**, then **Show the code**",
-                "Point this camera at the code it shows",
-            ])
-            .padding(.top, 18)
+        StepPage(back: { send(.back) }) {
+            PageTop(heading: view.heading, lead: view.lead)
+            NumberedCard(steps: view.scan?.steps ?? [])
+                .padding(.top, 18)
             viewfinder
                 .padding(.horizontal, 16)
                 .padding(.top, 18)
             ProblemNote(text: problem)
+            if let hint = view.scan?.pasteHint {
+                Rich.text(hint)
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 18)
+            }
         } bottom: {
-            Rich.text("Dashboard open on \(here)? Tap **Copy the connect link** there, then paste it here.")
-                .font(.subheadline)
-                .foregroundStyle(Palette.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
             Button {
                 paste()
             } label: {
-                Label("Paste the link", systemImage: "doc.on.clipboard")
-                    .frame(maxWidth: .infinity)
+                Label(view.scan?.paste ?? "", systemImage: "doc.on.clipboard")
             }
-            .glassButton()
+            .buttonStyle(.secondary)
         }
         .task { await askForCamera() }
-    }
-
-    /// "this iPhone" or "this iPad".
-    private var here: String {
-        UIDevice.current.userInterfaceIdiom == .pad ? "this iPad" : "this iPhone"
     }
 
     private var viewfinder: some View {
@@ -165,8 +155,9 @@ struct ScanPage: View {
                 VStack {
                     Spacer()
                     HStack(spacing: 8) {
-                        LoadingMark(size: 22, label: "Scanning", ring: Color.white)
-                        Text("Looking for a connect code…")
+                        ProgressView()
+                            .tint(Color.white)
+                        Text(view.scan?.looking ?? "")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Color.white)
                     }
@@ -176,11 +167,11 @@ struct ScanPage: View {
                 }
             } else {
                 VStack(spacing: 12) {
-                    Text("Allow the camera to scan the code, or paste the link below.")
+                    Text(view.scan?.cameraAsk ?? "")
                         .font(.subheadline)
                         .foregroundStyle(Color.white)
                         .multilineTextAlignment(.center)
-                    Button("Allow the camera") { allowCamera() }
+                    Button(view.scan?.allowCamera ?? "") { allowCamera() }
                         .buttonStyle(.primary)
                         .frame(maxWidth: 240)
                 }
@@ -220,15 +211,15 @@ struct ConfirmPage: View {
     let connect: Press
     let cancel: Press
     let problem: String?
-    let stepLabel: String?
+    let view: OnboardingView
     let send: Send
 
     var body: some View {
-        StepPage(stepLabel: stepLabel) {
-            SheetTop(title: "Connect to this store?", host: host, encrypted: encrypted)
-            SectionLabel(text: "This device will take payments for")
+        StepPage {
+            SheetTop(title: view.heading, host: host, encrypted: encrypted)
+            SectionLabel(text: view.section)
             FactCard(facts: facts)
-            Footnote(text: Words.canDo)
+            Footnote(text: view.footnote)
             ProblemNote(text: problem)
         } bottom: {
             PrimaryPress(press: connect) { send(.connect) }
@@ -247,19 +238,21 @@ struct ConnectedPage: View {
     let next: Press
     let retry: Bool
     let footnote: String
-    let stepLabel: String?
+    let view: OnboardingView
     let send: Send
 
     var body: some View {
-        StepPage(stepLabel: stepLabel) {
+        StepPage {
             SheetTop(title: title, host: host, encrypted: encrypted)
             ProblemNote(text: problem)
-            SectionLabel(text: "This device takes payments for")
+            SectionLabel(text: view.section)
             FactCard(facts: facts)
             Footnote(text: footnote)
         } bottom: {
             PrimaryPress(press: next) { send(retry ? .readStore : .next) }
-            LinkButton(label: "Wrong store: disconnect") { send(.disconnect) }
+            if let disconnect = view.disconnect {
+                LinkButton(label: disconnect.label) { send(.disconnect) }
+            }
         }
     }
 }
@@ -297,18 +290,18 @@ func redirectUri(_ mark: PosMark?, square: String, clover: String) -> String {
     mark == .clover ? clover : square
 }
 
-/// Step 4 (OnbSquare, PhonePos, PadOnb4): Square or Clover, then the chosen
-/// one's card. Also Settings' "Change the point of sale", with Back.
+/// Step 4 (OnbPos, OnbSquare, OnbTest; docs/ipad-redesign.md, decisions 12
+/// and 13), in the engine's three stages: O1 the choice alone, with
+/// "Continue with Square" and "Set up later" over its footnote; O2 the
+/// chosen one's card and its sign-in, with Back to O1; O3 the test sale,
+/// its status pinned in the bottom bar beside "Skip the test" and
+/// Continue. From Settings ("Change the point of sale") there's no stage:
+/// the choice and the card together, with Back.
 struct PointOfSalePage: View {
     let step: PosStep
-    let stepLabel: String?
+    /// The page's heading and lead, as the engine words each stage.
+    let view: OnboardingView
     let send: Send
-
-    /// Signed in to the chosen point of sale: the buttons go on, not to the sign-in.
-    private var signedIn: Bool {
-        guard case .some(.connected) = step.card?.account else { return false }
-        return true
-    }
 
     private var back: (@MainActor () -> Void)? {
         guard step.back else { return nil }
@@ -316,28 +309,207 @@ struct PointOfSalePage: View {
     }
 
     var body: some View {
-        StepPage(back: back, stepLabel: stepLabel) {
-            PageTop(heading: "Connect your point of sale")
-            SectionLabel(text: "Point of sale")
-            Card {
-                ForEach(Array(step.choices.enumerated()), id: \.offset) { index, choice in
-                    if index > 0 {
-                        Hairline()
+        StepPage(back: back) {
+            switch step.stage {
+            case .some(.choose):
+                PageTop(heading: view.heading, lead: view.lead)
+                PosChoiceTiles(choices: step.choices, send: send)
+                    .padding(.top, 20)
+            case .some(.signIn):
+                if let card = step.card {
+                    PosAccountSection(card: card, heading: view.heading, lead: view.lead, send: send)
+                }
+            case .some(.testSale):
+                if let card = step.card {
+                    PosConnectedLine(line: step.connected, changeLocation: card.changeLocation, send: send)
+                    PageTop(heading: view.heading, lead: view.lead)
+                    PosTillSteps(card: card, testRow: false, send: send)
+                    ProblemNote(text: card.problem)
+                }
+            case .none:
+                PageTop(heading: view.heading)
+                SectionLabel(text: view.section)
+                Card {
+                    ForEach(Array(step.choices.enumerated()), id: \.offset) { index, choice in
+                        if index > 0 {
+                            Hairline()
+                        }
+                        PosChoiceRow(choice: choice) { send(.choosePointOfSale(pos: pos(choice.mark))) }
                     }
-                    PosChoiceRow(choice: choice) { send(.choosePointOfSale(pos: pos(choice.mark))) }
+                }
+                if let card = step.card {
+                    PosAccountSection(card: card, send: send)
+                    PosTillSteps(card: card, testRow: true, send: send)
                 }
             }
-            if let card = step.card {
-                PosCardSection(card: card, send: send)
-            }
         } bottom: {
-            if let next = step.next {
-                PrimaryPress(press: next) { send(.next) }
-            }
-            if let skip = step.skip {
-                LinkPress(press: skip) { send(.skip) }
+            if let status = step.status {
+                TestStatusBar(status: status, next: step.next, skip: step.skip, send: send)
+            } else {
+                if let next = step.next {
+                    PrimaryPress(press: next) { send(.next) }
+                }
+                if let skip = step.skip {
+                    LinkPress(press: skip) { send(.skip) }
+                }
+                if let footnote = step.skipFootnote {
+                    Text(footnote)
+                        .font(.footnote)
+                        .foregroundStyle(Palette.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
+    }
+}
+
+
+/// O1's choice: each point of sale as a tile, side by side where they fit.
+struct PosChoiceTiles: View {
+    let choices: [PosChoice]
+    let send: Send
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 16) { tiles }
+                .frame(minWidth: 520)
+            VStack(spacing: 12) { tiles }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    private var tiles: some View {
+        ForEach(Array(choices.enumerated()), id: \.offset) { _, choice in
+            Button {
+                send(.choosePointOfSale(pos: pos(choice.mark)))
+            } label: {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        PosMarkTile(mark: choice.mark, inInk: choice.markInInk, size: 44)
+                        Spacer(minLength: 8)
+                        if choice.choice.selected {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.title2)
+                                .foregroundStyle(Palette.ink)
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    Text(choice.choice.label)
+                        .font(.title3.weight(.semibold))
+                        .lineLimit(1)
+                    if let detail = choice.choice.detail {
+                        Text(detail)
+                            .font(.subheadline)
+                            .foregroundStyle(Palette.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .background(RoundedRectangle(cornerRadius: 16).fill(Palette.card))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .strokeBorder(choice.choice.selected ? Palette.ink : Color.clear, lineWidth: 2)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 16))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Palette.ink)
+            .disabled(!choice.choice.enabled)
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(choice.choice.selected ? .isSelected : [])
+        }
+    }
+}
+
+/// O3's line over its heading, the engine's `PosStep.connected`:
+/// connected, to whom and where, on one line, and Change when the location
+/// can change.
+struct PosConnectedLine: View {
+    let line: String?
+    let changeLocation: Bool
+    let send: Send
+
+    var body: some View {
+        if let line {
+            HStack(spacing: 10) {
+                DoneTick(size: 22)
+                Text(line)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                if changeLocation {
+                    Button("Change") { send(.changeLocation) }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Palette.link)
+                        .buttonStyle(.plain)
+                        .frame(minHeight: minimumTarget)
+                        .accessibilityLabel("Change the location")
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+        }
+    }
+}
+
+/// O3's status, pinned in the bottom bar: the glyph, what's happening and
+/// what follows, each on one line, beside Skip the test and Continue (side
+/// by side where they fit, else stacked).
+struct TestStatusBar: View {
+    let status: TestStatus
+    let next: Press?
+    let skip: Press?
+    let send: Send
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 16) {
+                words
+                Spacer(minLength: 8)
+                if let skip {
+                    LinkPress(press: skip) { send(.skip) }
+                        .fixedSize()
+                }
+                if let next {
+                    PrimaryPress(press: next) { send(.next) }
+                        .frame(width: 200)
+                }
+            }
+            .frame(minWidth: 560)
+            VStack(spacing: 10) {
+                words
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if let next {
+                    PrimaryPress(press: next) { send(.next) }
+                }
+                if let skip {
+                    LinkPress(press: skip) { send(.skip) }
+                }
+            }
+        }
+    }
+
+    private var words: some View {
+        HStack(spacing: 12) {
+            if status.found {
+                DoneTick(size: 24)
+            } else {
+                StatusGlyph(kind: .waiting, size: 24)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(status.title)
+                    .font(.body.weight(.semibold))
+                    .lineLimit(1)
+                Text(status.detail)
+                    .font(.footnote)
+                    .foregroundStyle(Palette.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.updatesFrequently)
     }
 }
 
@@ -380,23 +552,19 @@ struct PosChoiceRow: View {
     }
 }
 
-/// The chosen point of sale's card: its sign-in, its location or merchant,
-/// and what to do at the point of sale itself, with the test sale.
-struct PosCardSection: View {
+/// The chosen point of sale's card (O2): its heading and lead (O2's own,
+/// "Sign in to Square", where the engine words the page), the sign-in,
+/// its location or merchant, and what Till may do there.
+struct PosAccountSection: View {
     let card: PosCard
+    var heading: String? = nil
+    var lead: String? = nil
     let send: Send
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                Logo(size: 36)
-                Image(systemName: "link")
-                    .foregroundStyle(Palette.secondary)
-                PosMarkTile(mark: card.mark)
-            }
-            .accessibilityHidden(true)
-            Heading(text: card.heading, size: 24)
-            Lead(text: card.lead)
+            Heading(text: heading ?? card.heading)
+            Lead(text: lead ?? card.lead)
         }
         .padding(.horizontal, 20)
         .padding(.top, 24)
@@ -409,7 +577,7 @@ struct PosCardSection: View {
                 HStack(spacing: 12) {
                     DoneTick()
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Connected")
+                        Text(card.connected)
                         Text(who)
                             .font(.subheadline)
                             .foregroundStyle(Palette.secondary)
@@ -439,6 +607,18 @@ struct PosCardSection: View {
         }
         Footnote(text: card.permissions)
         ProblemNote(text: card.problem)
+    }
+}
+
+/// What to do at the point of sale itself (O3): its steps and, from
+/// Settings, the test sale's row; O3 pins the test sale's status in its
+/// bottom bar instead.
+struct PosTillSteps: View {
+    let card: PosCard
+    let testRow: Bool
+    let send: Send
+
+    var body: some View {
         SectionLabel(text: card.atTheTill)
         Card {
             VStack(alignment: .leading, spacing: 12) {
@@ -448,24 +628,21 @@ struct PosCardSection: View {
                     numbered(1, first)
                 }
                 if let lookAgain = card.lookAgain {
-                    Button {
-                        send(.lookAgain)
-                    } label: {
-                        Text(lookAgain.label)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .glassButton()
-                    .disabled(!lookAgain.enabled)
+                    Button(lookAgain.label) { send(.lookAgain) }
+                        .buttonStyle(.secondary)
+                        .disabled(!lookAgain.enabled)
                 }
                 ForEach(Array(card.steps.dropFirst().enumerated()), id: \.offset) { index, step in
                     numbered(index + 2, step)
                 }
-                if let test = card.testSale {
+                if testRow, let test = card.testSale {
                     HStack(spacing: 10) {
                         if test.found {
                             DoneTick(size: 26)
                         } else {
-                            LoadingMark(size: 26, label: "Waiting for a test sale")
+                            ProgressView()
+                                .frame(width: 26, height: 26)
+                                .accessibilityLabel("Waiting for a test sale")
                         }
                         Text(test.text)
                             .font(.subheadline)
@@ -494,24 +671,22 @@ struct PosCardSection: View {
 
 /// Step 4, when Square has more than one location.
 struct LocationsPage: View {
-    let lead: String
+    let view: OnboardingView
     let locations: [LocationRow]
     let noLocations: Fact?
-    let stepLabel: String?
     let send: Send
 
-    init(lead: String, locations: [LocationRow], none: Fact?, stepLabel: String?, send: @escaping Send) {
-        self.lead = lead
+    init(view: OnboardingView, locations: [LocationRow], none: Fact?, send: @escaping Send) {
+        self.view = view
         self.locations = locations
         self.noLocations = none
-        self.stepLabel = stepLabel
         self.send = send
     }
 
     var body: some View {
-        StepPage(back: { send(.back) }, stepLabel: stepLabel) {
-            PageTop(heading: "Which location is this till at?", lead: lead)
-            SectionLabel(text: "Locations")
+        StepPage(back: { send(.back) }) {
+            PageTop(heading: view.heading, lead: view.lead)
+            SectionLabel(text: view.section)
             if let noLocations {
                 FactCard(facts: [noLocations])
             } else {
@@ -539,21 +714,18 @@ struct LocationsPage: View {
 
 /// Step 5 (OnbAlerts, PadOnb5): alerts, with two as they will look.
 struct AlertsPage: View {
+    let view: OnboardingView
     let sale: SampleAlert
     let paid: SampleAlert
     let next: Press
     let notNow: Press?
-    let stepLabel: String?
     let send: Send
 
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        StepPage(back: { send(.back) }, stepLabel: stepLabel) {
-            PageTop(
-                heading: "Hear every new sale",
-                lead: "When Till is in the background, an alert tells you a customer is ready to pay."
-            )
+        StepPage(back: { send(.back) }) {
+            PageTop(heading: view.heading, lead: view.lead)
             VStack(spacing: 10) {
                 SampleAlertCard(alert: sale, faint: false)
                 SampleAlertCard(alert: paid, faint: true)
@@ -599,9 +771,7 @@ struct SampleAlertCard: View {
 
     var body: some View {
         HStack(alignment: alert.text == nil ? .center : .top, spacing: 12) {
-            Logo(size: 28)
-                .frame(width: 38, height: 38)
-                .background(RoundedRectangle(cornerRadius: 9).fill(Palette.ground))
+            TillWidget(state: .idle, size: 38, decorative: true)
             VStack(alignment: .leading, spacing: 2) {
                 if alert.text != nil {
                     HStack {
@@ -646,7 +816,7 @@ struct FloatPage: View {
     let send: Send
 
     var body: some View {
-        StepPage(back: { send(.back) }, stepLabel: nil) {
+        StepPage(back: { send(.back) }) {
             PageTop(heading: heading, lead: lead)
         } bottom: {
             PrimaryPress(press: next) { send(.next) }
@@ -660,19 +830,145 @@ struct FloatPage: View {
     }
 }
 
+/// C4 (CounterLearn; docs/ipad-redesign.md, decision 4): the test sale
+/// named this counter's device, and which sales alert here.
+struct CounterPage: View {
+    let view: CounterStep
+    let send: Send
+
+    var body: some View {
+        StepPage(back: { send(.back) }) {
+            HStack(spacing: 12) {
+                DoneTick(size: 22)
+                Text(view.found)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .accessibilityElement(children: .combine)
+            PageTop(heading: view.heading, lead: view.lead)
+            ChoiceCard(choices: view.choices) { index in
+                send(.setAlertFor(everyDevice: index > 0))
+            }
+            .padding(.top, 20)
+            Footnote(text: view.footnote)
+        } bottom: {
+            PrimaryPress(press: view.next) { send(.next) }
+        }
+    }
+}
+
+/// O4 (OnbShow; docs/ipad-redesign.md, decisions 1 to 3 and 14): how a new
+/// sale shows up, how side by side is set up while it's chosen, and the
+/// sample alert, which "Send a test alert" posts.
+struct ShowSalesPage: View {
+    let view: ShowSalesStep
+    let send: Send
+
+    var body: some View {
+        StepPage(back: { send(.back) }) {
+            PageTop(heading: view.heading, lead: view.lead)
+            ChoiceCard(choices: view.choices.map(\.choice)) { index in
+                send(.chooseShowSales(mode: view.choices[index].mode))
+            }
+            .padding(.top, 20)
+            if let how = view.sideBySide {
+                Card {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(how.label)
+                            .font(.subheadline.weight(.semibold))
+                        Text(how.value)
+                            .font(.subheadline)
+                            .foregroundStyle(Palette.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(16)
+                }
+                .padding(.top, 16)
+            }
+            SaleAlertPreview(alert: view.sample)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 22)
+                .background(RoundedRectangle(cornerRadius: 28).fill(Palette.hairline))
+                .padding(.horizontal, 16)
+                .padding(.top, 28)
+                .accessibilityHidden(true)
+        } bottom: {
+            PrimaryPress(press: view.next) { send(.next) }
+            LinkPress(press: view.testAlert) {
+                let sample = view.sample
+                Task { await SaleAlerts.post(sample) }
+            }
+        }
+    }
+}
+
+/// Radio choices on a card: each one's label and line, ticked when chosen.
+/// `choose` gets the tapped one's place.
+struct ChoiceCard: View {
+    let choices: [Choice]
+    let choose: @MainActor (Int) -> Void
+
+    var body: some View {
+        Card {
+            ForEach(Array(choices.enumerated()), id: \.offset) { index, choice in
+                if index > 0 {
+                    Hairline()
+                }
+                ChoiceRow(choice: choice, padded: true) { choose(index) }
+            }
+        }
+    }
+}
+
+/// A sale's alert as iOS will show it, in O4's picture.
+struct SaleAlertPreview: View {
+    let alert: SaleAlert
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            TillWidget(state: .idle, size: 38, decorative: true)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text("Till")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Palette.secondary)
+                    Spacer()
+                    Text("now")
+                        .font(.footnote)
+                        .foregroundStyle(Palette.secondary)
+                }
+                Text(alert.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Text(alert.body)
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 20).fill(Palette.card.opacity(0.92)))
+    }
+}
+
 /// Step 6 (OnbReady, PadOnb6): what's set up, and start the shift.
 struct ReadyPage: View {
     let heading: String
     let lead: String
     let checks: [Check]
+    /// "Start Till".
+    let start: Press?
     let send: Send
 
     var body: some View {
-        StepPage(stepLabel: nil) {
+        StepPage {
             VStack(spacing: 10) {
-                Logo(size: 72)
+                TillWidget(state: .idle, size: 96, decorative: true)
                     .padding(.bottom, 10)
-                Heading(text: heading, centred: true)
+                Heading(text: heading, centred: true, display: 30)
                 Lead(text: lead, centred: true)
                     .frame(maxWidth: 330)
             }
@@ -684,10 +980,11 @@ struct ReadyPage: View {
                     if index > 0 {
                         Hairline()
                     }
+                    // Done and not done differ by shape as well as colour,
+                    // and say so aloud (the review's C1).
                     HStack(spacing: 12) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(check.done ? Palette.paid : Palette.border)
-                            .accessibilityHidden(true)
+                        Image(systemName: ReadyPage.symbol(done: check.done))
+                            .foregroundStyle(check.done ? Palette.ink : Palette.expiredInk)
                         Text(check.name)
                         Spacer(minLength: 12)
                         Text(check.value)
@@ -697,12 +994,19 @@ struct ReadyPage: View {
                     .padding(.vertical, 12)
                     .frame(minHeight: 48)
                     .accessibilityElement(children: .combine)
+                    .accessibilityValue(check.done ? "Done" : "Not set up")
                 }
             }
             .padding(.top, 40)
         } bottom: {
-            Button("Start Till") { send(.startShift) }
-                .buttonStyle(.primary)
+            if let start {
+                PrimaryPress(press: start) { send(.startShift) }
+            }
         }
+    }
+
+    /// A check's glyph: a tick done, a dashed circle not.
+    static func symbol(done: Bool) -> String {
+        done ? "checkmark.circle.fill" : "circle.dashed"
     }
 }

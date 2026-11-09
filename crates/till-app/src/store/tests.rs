@@ -8,7 +8,6 @@ use std::sync::Arc;
 use monokulo_client::{Connection, PointOfSale};
 use till_bell::{BellAddress, WakeUpChoice, WakeUpStore};
 use till_pos::{CursorStore, TokenStore};
-use till_sales::ShiftStore;
 
 use super::*;
 use crate::testing::FakePlatform;
@@ -167,7 +166,7 @@ fn every_key_stores_kt_writes_reads_into_the_model() {
             .as_deref(),
         Some("TND1")
     );
-    let shift = ShiftKept::new(s, log).load().unwrap();
+    let shift = s.shift_sales().unwrap();
     assert_eq!(shift.len(), 1);
     assert_eq!(shift[0].order_id, "ord_2");
 }
@@ -193,7 +192,7 @@ fn the_model_writes_every_key_back_as_stores_kt_wrote_it() {
             .save(&from.since().unwrap().unwrap(), &from.handled().unwrap());
     }
     Tenders::new(write.clone(), log.clone()).save("MID1", Some("TND1"));
-    ShiftKept::new(write, log.clone()).save(&ShiftKept::new(read, log).load().unwrap());
+    write.set_shift_sales(&read.shift_sales().unwrap()).unwrap();
 
     assert_eq!(rust.all(), kotlin.all(), "byte for byte, and no key more");
 }
@@ -298,6 +297,52 @@ fn defaults_are_kept_as_the_setters_keep_them() {
     assert_eq!(platform.get("clover.handled").as_deref(), Some("[]"));
 }
 
+#[test]
+fn counters_cash_and_how_sales_show_up_are_kept_and_the_device_goes_with_the_store() {
+    let platform = Arc::new(FakePlatform::default());
+    let s = store(&platform);
+    let fresh = s.load().unwrap();
+    assert_eq!(fresh.counter_device, None);
+    assert!(!fresh.alert_every, "this device's alerts, once known");
+    assert!(fresh.show_others && fresh.cash_as_monero, "absent is on");
+    assert_eq!(fresh.show_sales, crate::ShowSales::Alert);
+    let set = Model {
+        counter_device: Some(CounterKept {
+            id: "dev_front".into(),
+            name: Some("Front iPad".into()),
+            learned_at: 1_762_700_000,
+        }),
+        alert_every: true,
+        show_others: false,
+        cash_as_monero: false,
+        show_sales: crate::ShowSales::FloatingWindow,
+        ..Model::default()
+    };
+    s.save(&Model::default(), &set).unwrap();
+    assert_eq!(
+        platform.get("counter.device").as_deref(),
+        Some(r#"{"id":"dev_front","name":"Front iPad","learnedAt":1762700000}"#)
+    );
+    assert_eq!(platform.get("counter.every").as_deref(), Some("true"));
+    assert_eq!(platform.get("counter.others").as_deref(), Some("false"));
+    assert_eq!(platform.get("cash.monero").as_deref(), Some("false"));
+    assert_eq!(platform.get("sales.show").as_deref(), Some("pip"));
+    assert_eq!(s.load().unwrap(), set);
+    let side = Model {
+        show_sales: crate::ShowSales::SideBySide,
+        ..set.clone()
+    };
+    s.save(&set, &side).unwrap();
+    assert_eq!(platform.get("sales.show").as_deref(), Some("side"));
+
+    let forgotten = s.forget_all(&side).unwrap();
+    assert_eq!(forgotten.counter_device, None, "the device is the store's");
+    assert!(!forgotten.alert_every);
+    assert!(!forgotten.show_others && !forgotten.cash_as_monero);
+    assert_eq!(forgotten.show_sales, crate::ShowSales::SideBySide);
+    assert_eq!(platform.get("counter.device"), None);
+}
+
 /// The keys only the iOS app writes, each as it writes it and none the
 /// default: Settings › Dynamic Island's two switches.
 const IOS: &[(&str, &str)] = &[("island.activity", "false"), ("island.code", "true")];
@@ -391,17 +436,16 @@ fn what_is_read_through_says_when_it_couldnt_be_read() {
         Arc::new(move |line| lines.lock().unwrap().push(line))
     };
     let s = store(&platform);
-    let shift = ShiftKept::new(s.clone(), log.clone());
     let cursor = PosCursor::new(s.clone(), PointOfSale::Square, log.clone());
-    let tenders = Tenders::new(s, log);
+    let tenders = Tenders::new(s.clone(), log);
     platform.fail(true);
-    assert!(shift.load().is_err());
+    assert!(s.shift_sales().is_err());
     assert!(cursor.since().is_err());
     assert!(cursor.handled().is_err());
     assert!(tenders.tender_id("MID1").is_err());
-    assert_eq!(lines.lock().unwrap().len(), 4, "each logged");
+    assert_eq!(lines.lock().unwrap().len(), 3, "each logged");
     platform.fail(false);
-    assert_eq!(shift.load().unwrap().len(), 1, "and all still there");
+    assert_eq!(s.shift_sales().unwrap().len(), 1, "and all still there");
     assert_eq!(tenders.tender_id("MID1").unwrap().as_deref(), Some("TND1"));
 }
 

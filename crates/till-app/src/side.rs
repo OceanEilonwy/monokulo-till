@@ -11,15 +11,17 @@ use std::time::Duration;
 use async_trait::async_trait;
 use monokulo_client::{AppIdentity, Clock, Connection, PointOfSale};
 use till_bell::{BellWakeUps, DeviceError, PosSide, PosSignIn};
+use till_ledger::{ClaimPolicy, Process};
 use till_pos::clover::{
     CloverApi, CloverAuth, CloverConfig, CloverEnvironment, CloverMerchant, CloverSource,
 };
 use till_pos::square::{SquareApi, SquareAuth, SquareConfig, SquareSource};
 use till_pos::{SaleSource, TokenLock, TokenStore};
-use till_sales::{LiveStore, PosSwitchSide, RunnerSide, ShiftStore};
+use till_sales::{Books, LiveStore, PosSwitchSide, RunnerSide};
 
-use crate::EngineConfig;
-use crate::store::{Kept, Model, PosCursor, PosTokenStore, ShiftKept, Store, Tenders};
+use crate::ledger::AppLedger;
+use crate::store::{Kept, Model, PosCursor, PosTokenStore, Store, Tenders};
+use crate::{EngineConfig, Platform};
 
 /// The app's long-lived parts that the leaf crates call back into.
 pub(crate) struct Side {
@@ -29,17 +31,21 @@ pub(crate) struct Side {
     pub clock: Arc<dyn Clock>,
     lock: Arc<dyn TokenLock>,
     clover_environment: CloverEnvironment,
-    shift: Arc<ShiftKept>,
+    ledger: Arc<AppLedger>,
+    books: Arc<Books>,
     live: OnceLock<Weak<LiveStore>>,
     wake_ups: OnceLock<Weak<BellWakeUps>>,
 }
 
 impl Side {
-    /// The parts over `kept`; a build whose Clover environment isn't one
-    /// is refused, as the Android build was.
+    /// The parts over `kept`, with the ledger as `process` opens it; a
+    /// build whose Clover environment isn't one is refused, as the Android
+    /// build was.
     pub fn new(
         config: Arc<EngineConfig>,
         kept: Arc<Kept>,
+        platform: Arc<dyn Platform>,
+        process: Process,
         http: reqwest::Client,
         clock: Arc<dyn Clock>,
     ) -> Result<Side, String> {
@@ -50,15 +56,23 @@ impl Side {
                     config.clover.environment
                 )
             })?;
-        let log = {
-            let kept = kept.clone();
-            Arc::new(move |line: String| kept.log(line))
-        };
+        let ledger = Arc::new(AppLedger::new(
+            &config.data_dir,
+            platform,
+            kept.clone(),
+            process,
+        ));
+        // The app claims what the extension left after each look; the
+        // extension claims the one alert it shows itself (docs/ledger.md §6).
+        let claims = (process == Process::App).then_some(ClaimPolicy::All);
+        let books = Arc::new(Books::new(ledger.clone(), claims));
+        books.set_clock(clock.clone());
         Ok(Side {
             lock: Arc::new(FileLock::new(
                 PathBuf::from(&config.data_dir).join("sign-in.lock"),
             )),
-            shift: Arc::new(ShiftKept::new(kept.store().clone(), log)),
+            ledger,
+            books,
             config,
             kept,
             http,
@@ -115,8 +129,14 @@ impl Side {
         }
     }
 
-    pub fn shift_kept(&self) -> &Arc<ShiftKept> {
-        &self.shift
+    /// The ledger as this process opens it.
+    pub fn ledger(&self) -> &Arc<AppLedger> {
+        &self.ledger
+    }
+
+    /// The till's books over the ledger.
+    pub fn books(&self) -> &Arc<Books> {
+        &self.books
     }
 
     pub fn tokens(&self, pos: PointOfSale) -> Arc<dyn TokenStore> {
@@ -304,8 +324,8 @@ impl RunnerSide for Side {
         self.sale_source()
     }
 
-    fn shift_store(&self) -> Arc<dyn ShiftStore> {
-        self.shift.clone()
+    fn books(&self) -> Arc<Books> {
+        self.books.clone()
     }
 
     fn interval(&self) -> Duration {
@@ -318,6 +338,10 @@ impl RunnerSide for Side {
         if let Some(w) = self.wake_ups() {
             w.timer_found(u32::try_from(found).unwrap_or(u32::MAX));
         }
+    }
+
+    fn till_options(&self) -> till_sales::TillOptions {
+        self.kept.with(|m| m.till_options())
     }
 
     fn recheck_wake_ups(&self) {
@@ -419,14 +443,15 @@ impl PosSide for Side {
 /// The lock around a point of sale's refresh (decision 13): an exclusive
 /// `flock` on a file in the data directory, which the iOS app and its
 /// notification extension share. On Android only one process holds the
-/// sign-in, so it never waits there, and costs a file.
-struct FileLock {
+/// sign-in, so it never waits there, and costs a file. The alerts' record
+/// takes one of its own (`alerted`, core.md decision 123).
+pub(crate) struct FileLock {
     path: PathBuf,
     held: Mutex<Option<File>>,
 }
 
 impl FileLock {
-    fn new(path: PathBuf) -> FileLock {
+    pub(crate) fn new(path: PathBuf) -> FileLock {
         FileLock {
             path,
             held: Mutex::new(None),

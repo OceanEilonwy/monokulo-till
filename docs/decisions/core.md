@@ -566,13 +566,18 @@ on from 1; the Android app's own choices are in [android.md](android.md).
 
 94. **`SaleView.back_to_pos` names the point of sale it opens**
     (`BackToPos { press, mark: PosMark }`): Android opened Square whatever
-    the label said. It opens Square Point of Sale (`com.squareup`) for
-    `PosMark::Square`. For `PosMark::Clover` it steps back
-    (`moveTaskToBack`): Till runs on the Clover device, over the Register
-    it was opened from, and we haven't confirmed a launcher package for
-    Clover's Register app. Today the engine offers the button only on a
-    till on Square (decision 135 of android.md), so the Clover branch is
-    for when that changes. iOS never gets the button.
+    the label said. It opens Square Point of Sale (`com.squareup` on
+    Android, `square-commerce-v1://` on iOS) for `PosMark::Square`. The
+    engine offers it on a till on Square, for that till's own sales, on
+    every device: Android beside "Copy address", iOS on Paid on iPhone and
+    iPad alike, shown only where `canOpenURL` says Square is installed and
+    Square isn't already beside Till (amended 2026-11-09, decision 141;
+    it used to leave iOS out, and iPad drew it anyway). There is no "Back
+    to Clover": Clover runs on its own device and Till on a separate phone
+    or iPad beside it (android.md 135, decision 142), so there is no
+    Clover app to switch to and the engine never offers the button on a
+    till on Clover. `PosMark::Clover` stays in the record only because the
+    mark is shared; Android's `backToPos` does nothing for it.
 95. **The engine owns the bubble's paid moment** (android.md 158 moves
     here). The overlay ran a second five-second timer beside the engine's
     `PAID_DWELL`. Now the engine keeps a `bubble::PaidMoment` (`None`,
@@ -715,3 +720,556 @@ on from 1; the Android app's own choices are in [android.md](android.md).
      nothing is said twice. Each app draws them over the top of the
      screen with a part it already had: Android a thin progress bar and
      its `Notice` (`WorkBar`), iOS a `ProgressView` and its `ProblemNote`.
+
+## The iPad redesign, phase 1: the core (2026-11-09)
+
+The engine side of [ipad-redesign.md](../ipad-redesign.md) (its decisions
+4 to 14, 17 and 20): counters, cash, customer names, the onboarding steps
+and copy, tones and progress.
+
+110. **Every found sale carries the device that took it.** `FoundSale`
+     has `device_id` (as before) and `device_name`, both from Square's
+     `device_details` (`device_name` on one line, blank as none). Clover's
+     payments name only the device's id (`device.id`); its name comes from
+     Clover's devices endpoint (decision 142), and only until that answers
+     does a Clover sale's menu line say "Device" and the end of the id.
+     Both stay on the device, in the saved shift.
+111. **New view fields cross UniFFI with defaults.** Every field added to a
+     record the platforms construct or that the iOS rework reads (`Press`,
+     `PosStep`, `ShiftRow`, `ShiftView`, `SettingsView`, `SaleView`,
+     `SalePageView`, `OnboardingView`, `LiveActivityState`) has a UniFFI
+     default, and no existing enum variant gained a field, so Swift's
+     positional patterns and both platforms' tests keep compiling. New
+     choices are new records (`CashButton`, `CounterMenu`, `TestStatus`)
+     rather than new variants of enums the apps switch over (`PageAction`,
+     `StateIcon`, `ShiftEntry`). The only new variants are the two new
+     onboarding screens (`Screen::Counter`, `Screen::ShowSales`) and their
+     pages, and the new `Action`s.
+112. **The order's name: the fulfillment recipient first, then its
+     `ticket_name`.** A recipient is a person the seller named on a
+     pickup, delivery or shipment; a ticket name is typed at the counter
+     and is often a label ("Table 4", or a default an open ticket got), so
+     it's the fallback. Both are one line and at most 80 characters, and
+     neither is ever sent to Monokulo: orders carry the amount, currency,
+     receipt number and idempotency key alone (a test checks a taken cash
+     sale's order body).
+113. **This counter's device comes from the test sale, and only its sales
+     alert.** When step 4's test sale names its Square device, the engine
+     keeps it (`counter.device`: id, name, when) and C4 asks "Only sales on
+     Front iPad (recommended)" or "Every sale at Front Counter"
+     (`counter.every`, `Action::SetAlertFor`). With the test skipped, or at
+     a point of sale with no device, there is no device and every sale is
+     this till's. `Till::with_device_id` (through `TillOptions`, which
+     `RunnerSide::till_options` and the background check read from the
+     model) no longer drops another device's sales: it still makes their
+     orders, by the same idempotency key, so they can be listed and their
+     code shown, but without the receipt, which stays with that counter's
+     till. A sale another till found (no `found`) counts as another
+     counter's while this one has a device. Another counter's sale, while
+     alerts are for this device (`Counters::quiet`), never alerts (iOS
+     alert, background check, Android's heads-up), never rises out of the
+     shift (it's treated as left), never buzzes or shows paid, and isn't in
+     the bubble's, the ongoing notification's or the Live Activity's sales.
+     The apps read `ShiftRow.other_counter` and `ShiftRow.device`. One
+     edge: a sale this counter took that another till announced first
+     arrives quiet and doesn't alert when this till adds it a moment later.
+     Changing the point of sale forgets the device, as does forgetting the
+     store.
+114. **The title menu chooses whose sales the list shows.**
+     `ShiftView.counters` (`CounterMenu`) is there while this counter has a
+     device or the sales come from more than one place: its title is the
+     choice shown, its items this counter ("This counter · alerts"), each
+     other device with sales this shift ("No alerts here", or "Alerts here
+     too" with every device), "Other tills" for sales other tills found,
+     and "All counters", each with its waiting count. `Action::ChooseCounter`
+     chooses; until then the list opens on "All counters" when "Show other
+     counters' sales" is on (the default, `counter.others`), else on this
+     counter. The summary, chips and rows follow the choice; the menu's
+     counts are over every sale.
+115. **Settings C5.** `SettingsView.counters` (Square or Clover, signed
+     in; Clover's since decision 142): "This
+     device: Front iPad" with when the test sale named it, "Every device at
+     Front Counter" naming the devices seen, "Find this device again with a
+     test sale" (`Action::FindDevice`: the next sale found that names a
+     device becomes this counter's; tapped again while waiting, it stops),
+     and "Show their sales in the list".
+116. **Cash.** Square's completed `CASH` payments are found as well as the
+     Monero tender (`FoundSale::cash`). With "Treat cash sales as Monero"
+     on (the default, `cash.monero`) a cash sale gets its order and code as
+     it's found and follows a Monero sale's flow. Off, it's listed quietly
+     as an offered sale (`TillSale::offered`, order id `cash:` and the
+     payment's id, no order) under its own header ("Cash · paying in
+     Monero?", drawn as an `Earlier` entry), with `CashButton`s "Take it in
+     Monero" (`Till::take_in_monero` makes the order then; the sale with the
+     order replaces the offered one and opens on its code) and "Keep as
+     cash". A cash sale with a code offers "Paid in cash"
+     (`TillSale::paid_in_cash_at`, `Standing::PaidInCash`): its code comes
+     down and nothing is refunded. A cash sale is never refunded through
+     the point of sale (`Till::refund` returns at once), its close sheet
+     has no "No: refund it", and its page has no Refund. Clover: cash would
+     be a second query by Clover's cash tender; not done, and Clover is
+     unchanged.
+117. **Cash paid in Monero is counted for the end of the day.** A paid cash
+     sale's row says "Paid in Monero · cash in Square", and
+     `ShiftView.cash_in_monero` is "2 cash sales paid in Monero · $32.90",
+     as Square's books say Cash for them.
+118. **The customer's name leads.** `ShiftRow.name` (the name, else "Sale
+     #m2Qe"), `ShiftRow.amount`, and the sale's number at the end of `sub`
+     when a name leads; `title` is still name and amount on one line for
+     Android. The sale's title was already the name. iOS's alert is "Sam ·
+     $24.50", "Monero sale. Tap to show Sam the code." (a cash sale's
+     says so), and `LiveActivityState.name` carries it, set on the device
+     (the relay's pushes never have it). Android's notifications keep the
+     sale's number, as they show on the lock screen.
+119. **Green is for paid alone, and progress is in thirds.** Seen and
+     confirming rows are muted, the ring's arc is green only once paid,
+     "Watching" and Settings' "Connected" are plain, and a paid row is
+     green. `SaleView.progress` (`PaymentProgress`) is the Till widget's thirds,
+     waiting 0, seen 1, confirming 2, paid 3, with its label ("Seen on the
+     network"), count ("1 of 3") and what a screen reader says.
+120. **How a new sale shows up is the engine's to keep.** `ShowSales`
+     (Alert, the default; FloatingWindow; SideBySide), kept as
+     `sales.show`, chosen in O4 (`Screen::ShowSales`, iPad only, after
+     Alerts, in place of the old Slide Over step) and in iPad Settings
+     (`SettingsView.show_sales`), by `Action::ChooseShowSales`. O4's page
+     carries the sample alert its "Send a test alert" posts. The platform
+     does the showing. Android keeps its bubble step.
+121. **Onboarding's steps.** No step label on iOS: iPad's rail (Welcome,
+     Connect your store, Point of sale, Alerts, How sales show up, Ready),
+     iPhone's `OnboardingView.progress` (value of total, none on Welcome).
+     Android keeps "Step N of 6". Step 4 is three stages in setup
+     (`PosStep.stage`): O1 the choice alone with "Continue with Square" and
+     "Set up later" (with its footnote, `PosStep.skip_footnote`), O2 the
+     card and the sign-in with Back to O1, O3 the test sale with its status
+     bar (`PosStep.status`: "Waiting for the test sale…", "Continue unlocks
+     when it arrives"). `Press.busy` says a button shows progress in itself:
+     the sign-in while it runs, and step 3's Continue while the store is
+     read (review finding I6). After the test sale, C4
+     (`Screen::Counter`) when it named a Square device. iPad's Ready no
+     longer says Slide Over.
+122. **iOS alerts are a status row.** `SettingsView.alerts_status`: "New
+     sales and payments · On", or "Off" in warning, with "Open Notification
+     Settings" and its footnote (review finding I15). Android keeps its
+     switch.
+
+## Alerts once per sale, and names on Android (2026-11-09)
+
+Three problems from the owner's iPad test: a missed alert, a double one,
+and Android's notifications without the customer's name.
+
+123. **One new-sale alert per sale per till, kept in a shared record.**
+     Whether a sale alerts was worked out three ways that never agreed:
+     the engine alerted a sale `Phases` saw arrive Waiting, the background
+     look (iOS's Notification Service Extension) one missing from the
+     shift it read at its start, and iOS gave the two alerts different
+     identifiers (the app's is the order id; the extension's is the
+     push's own, which it can't change), so neither replaced the other.
+     Square sends `payment.created` and then `payment.updated` for one
+     payment, the Bell dings for each, and iOS runs the extension once
+     per push, side by side: both looks list the payment before either
+     has made its order and kept the shift, so both alert. That is the
+     likeliest cause of the double the owner saw (a test reproduces it
+     against the old rule); the app's own timer or a ding it handles
+     racing an extension run is the same race. Now every path claims the
+     alert first (`alerted::Alerted`): the order ids already alerted are
+     kept under `alerts.posted` (the newest 500, through the platform's
+     secrets, so in the Keychain group the extension shares, and kept
+     across restarts and `forget_all`), and a claim reads, checks and
+     writes it under an exclusive `flock` on `alerts.lock` in the data
+     directory, as the sign-in's refresh does (decision 13). Only a
+     claimed sale is alerted. The engine claims every live sale that
+     isn't another counter's (`phases::NewSales`) whether or not it posts
+     anything: one seen on screen counts as told. Its first look still
+     only learns, claiming without an alert what the till started with.
+     The background look claims what is new to the shift or was quiet in
+     it. A second extension run that loses the claim shows the relay's
+     own words, passive and silent, as for a ding that found no sale:
+     iOS must show something, and hiding it needs Apple's filtering
+     entitlement. The app's own alert replaces, and its clear removes,
+     any extension alert that keeps the same sale (`TillShared
+     .deliveredAlerts`). This also closes 113's edge: a sale another till
+     announced first is kept quiet and unclaimed, so it alerts once this
+     till's own point of sale finds it on this counter's device, and only
+     then; found here first, Monokulo's event for it changes nothing.
+124. **Android's notifications name the customer, on the lock screen
+     too.** This reverses 118's "Android's notifications keep the sale's
+     number, as they show on the lock screen", and with it android.md
+     decision 78's public version: the owner accepts that a customer's
+     name shows on the lock screen, as it already does in iOS's alert,
+     because the name is how staff tell orders apart. A new sale's face
+     says what iOS's alert says ("Sam · $24.50", "Monero sale. Tap to
+     show Sam the code.", the sale's number leading with no name), with
+     the sale's number and the place as its sub-text; seen and confirming
+     faces have the name as their sub-text, and "Paid · Sam" and the
+     ended notices lead with it. What was bought still never leaves the
+     private version.
+
+## The iPad redesign, phase 3: alert first and the floating window (2026-11-09)
+
+The iOS side of [ipad-redesign.md](../ipad-redesign.md) decisions 1, 2
+and 8, and what the engine adds for it.
+
+125. **The floating window draws the Live Activity's state.** On iPad,
+     while a new sale shows up in a floating window (`ShowSales::
+     FloatingWindow`), the engine publishes `Update::LiveActivity` as it
+     does on iPhone, with the plain payment URI while the sale waits
+     (as "Show code in island" would), and none otherwise. The app sends
+     it to its Picture in Picture window rather than ActivityKit. The
+     state already leaves out another counter's sales and goes from paid
+     back to idle after the paid dwell, which is the window's Paid and
+     back to Watching. A cash sale offered in Monero isn't in it: the
+     window reads the first of this counter's from the shift's cash
+     section. iOS's alert for a new sale is still claimed as decision
+     123 says, but not posted while the window is up, as the window
+     shows the sale itself: the claim counts it as told.
+
+## The iPad redesign's last gaps (2026-11-09)
+
+What was still decided in Swift after phase 3: the cash glyph, the
+floating window's cash sale, copy written in the app, and the progress
+label while a payment confirms.
+
+126. **Cash sales have their own glyph.** `StateIcon::Cash` (the
+     banknote) is a cash sale offered in Monero, kept as cash or paid in
+     real cash, on its row and its page's hero, in place of the clock and
+     the X they borrowed. `ShiftRow.cash` says a sale was rung up as cash
+     whatever it became, so a cash sale paid in Monero keeps its green
+     tick and iOS marks its amount with a small banknote, as Square's
+     books call it cash. This is the one exception to decision 111's
+     "no new variants of enums the apps switch over": a glyph is what
+     the enum is for, and both apps were changed with it (Android draws
+     a banknote of its own in the row's badge).
+127. **The empty till's words come from the till's state.** iOS's idle
+     panel says "Ready for the next sale" (Android keeps "No sale right
+     now") with how a sale is rung up and reaches the cashier: "Ring it
+     up in Square and choose Monero. An alert brings you straight to the
+     code." with alerts (the default), "The floating window shows the
+     code." with the floating window, "The code appears here." side by
+     side and on iPhone. `ShiftView.status` carries its chips
+     (`StatusChip`: kind, words and tone): "Watching Square",
+     "Reconnecting…" or "Not watching"; "Alerts on" or "Alerts off" in
+     warning where the platform says whether Till may alert (iOS); and
+     "Instant with the Bell" while a Bell wakes the till. The Swift chips
+     read the top row's tone, which decision 119 had made plain, so they
+     never said Watching; that's gone with them. `ShiftView.ready` (iPad,
+     a shift with sales) is E2 beside the list: the heading and "The
+     last one was paid 4 minutes ago. Ring up the next in Square and
+     choose Monero.", from the newest paid sale ("just now", "a minute
+     ago", minutes within the hour, then "at 9:41 AM"), no line while a
+     sale waits, and the shift ticks while the minutes move. Android
+     draws the chips as one muted line in its idle panel; it has no
+     column for E2.
+128. **The floating window's cash sale is published.** `ShiftView
+     .offered_cash` is this counter's newest cash sale offered in Monero
+     and not kept as cash, with its title and the strip's line. It's
+     worked out over every sale, not the list: the old way, matching the
+     cash section's header and a `cash:` order id in the shift's entries,
+     lost the sale while another filter or counter was chosen and broke
+     with any change to the header. This replaces decision 125's last
+     sentence but one. Android has no floating window and doesn't draw it.
+129. **The progress line counts confirmations.** `PaymentProgress.line`
+     is the one line under the bar, never wrapped: the thirds' words and
+     count ("Seen on the network · 1 of 3"), and while confirming, where
+     the store says how many confirmations it needs, how many it has
+     ("Confirming · 4 of 10 confirmations", held at the most needed, as
+     the row's "Confirming · 4 of 10" is). The bar stays in thirds;
+     `said` reads the same. iOS shrinks the line a little before cutting
+     it short.
+130. **iOS takes the words written once from the engine too.** This ends
+     decision 26's split on iOS: the onboarding pages' headings and leads
+     (`OnboardingView.heading`, `lead`; O1 "Which point of sale do you
+     use?", O2 "Sign in to Square" with "Square's own page opens…", O3
+     "Try a test sale" and O3's connected line, `PosStep.connected`),
+     the label over a page's card (`section`), Welcome's features and
+     "Get started", step 2's words around the camera (`ScanWords`),
+     Confirm's footnote, "Wrong store: disconnect" and "Start Till";
+     Settings' title and section titles, Disconnect's words, the Dynamic
+     Island's switches and question, "Show their sales in the list";
+     the sale's "Close the sale", "Customer view", "Share" and what the
+     share sheet calls it, "Order", the customer's "Scan with any Monero
+     wallet", the order page's title and "Total", Paid's "Back to
+     Square", and "This shift". Android keeps its own copies for now; the
+     fields are there when it wants them. Left in Swift: the system's
+     verbs (Done, Cancel, Back, Change, Close on a swipe, Settings on the
+     gear), what only a screen reader hears where the engine has no such
+     line, the mock notification's "Till" and "now", and the floating
+     window's frame words ("Watching", "Paid · $24.50", the countdown),
+     which it shares with the Live Activity widget: that draws Monokulo's
+     pushes, which carry no words, so the vocabulary stays with the
+     widget's code.
+
+## Review fixes before the redesign reaches main (2026-11-09)
+
+Three findings from a review of the product decisions. The other four
+(ending a shift on iOS and a new shift each day, iPad's ended and paid
+notices, the paid moment for another counter's sale opened on purpose, and
+a new code for an expired sale) move into the core's rebuild as a fact
+journal and are not done here.
+
+140. **What the device draws itself keeps the receipt in its code.**
+     Decisions 125 and 128 gave the iPad's floating window, and 40 the
+     iPhone's "Show code in island", the plain payment URI, because content
+     that goes through the push relay must never carry what was bought. A
+     window drawn on the device, and a Live Activity the app alone updates,
+     never go through the relay. So `LiveActivityInput.receipt` (true for
+     the floating window always, and for the Live Activity while no push
+     token updates it: `LIVE_ACTIVITY_PUSHED`, false until the core can
+     register Monokulo push targets, decision 93) gives `payment_uri` the
+     sale's own code with its receipt. Once Monokulo pushes the activity
+     through the relay, the app's updates use the plain URI too, so a push
+     and an update never disagree. Below about 200 pt the window draws no
+     code anyway (ipad-redesign.md decision 2). Settings' island footnote
+     and question now say that the code, with what was bought, shows on the
+     lock screen, instead of the push service the code doesn't yet go
+     through.
+141. **Back to Square on every iOS device.** Decision 94 left iOS out while
+     ipad-redesign.md decision 1 drew it on iPad from Swift's own rule. The
+     engine now offers `SaleView.back_to_pos` and `SalePageView.back_to` on
+     a till on Square, for its own sales, on Android, iPhone and iPad alike
+     (`back_to` is empty otherwise). iOS shows it on Paid where `canOpenURL`
+     says Square is installed and Till and Square aren't side by side
+     (`BackToSquare.shown(offered:showSales:squareInstalled:)`), with no
+     iPad check. Decision 94 is amended to match.
+142. **Clover runs on its own device; Till on a separate phone or iPad
+     beside it** (the owner, 2026-11-09). There is no Clover app on Till's
+     device to switch to, so there is no "Back to Clover" (android.md 135,
+     decision 94, whose Register wording was wrong). Like a Square counter,
+     a Clover counter's device is learned from the test sale (step 4 no
+     longer keeps it for Square alone) or "Find this device again", and
+     Settings offers the counters section (Alert for, Find this device
+     again, Show their sales in the list) on Clover too, in Clover's words;
+     cash stays Square's (decision 116). Clover's payments name only a
+     device id, so when a sale or this counter names a device Clover's list
+     hasn't, the engine reads `GET /v3/merchants/{mId}/devices` once a run
+     (`CloverApi::devices`) and keeps the names under `clover.devices`
+     (forgotten with the store); `Counters.names` gives them to
+     `counters::device_name`, so the menu says "Front counter" rather than
+     "Device 3F2A". A device with no name is called by its model and the
+     end of its serial ("Clover Mini 4F2A"). The devices endpoint needs
+     Merchant read, which the till's Clover app already asks for
+     (development.md), so no new permission; a refused read leaves the
+     devices unnamed and is logged.
+
+## The ledger: the till-ledger crate (2026-11-09)
+
+The core of [ledger.md](../ledger.md): the crate `till-ledger`, its facts,
+merge, views, effects and database.
+
+143. **Sales are facts in an encrypted journal with per-sale
+     projections.** One SQLCipher database per device (`till.db`), opened
+     through rusqlite with SQLCipher bundled: CommonCrypto on Apple
+     platforms (`bundled-sqlcipher`), a vendored OpenSSL elsewhere
+     (`bundled-sqlcipher-vendored-openssl`), and refused when `PRAGMA
+     cipher_version` is empty. The key and salt are 48 random bytes made
+     in Rust (`KeyMaterial::generate`) and kept as one secret,
+     `ledger.key`, through the platform's secret store; the first 32
+     bytes of the file stay plain (`cipher_plaintext_header_size`) so iOS
+     recognises the WAL database (0xdead10cc), and the key is given raw,
+     so no key derivation runs at open. A missing or wrong key with a
+     database moves it aside (`till.db.lost-<ms>`) and starts a new one
+     that learns without alerting; an error from the store fails and
+     changes nothing. Only facts that change a projection are
+     journalled; each write is one `BEGIN IMMEDIATE`, and effects are
+     claimed in the same transaction (`alerts`: `due` for one the
+     extension leaves to the app, `pending`, `posted`; a claim pending
+     30 s is delivered again). Considered and rejected: a plain upserted
+     table without a journal (the owner wants the journal for audit and
+     replay) and column encryption instead of SQLCipher (the owner chose
+     SQLCipher).
+144. **The shared merge is a join.** Every till fed the same facts in any
+     order, with repeats, holds the same `SharedSale`, so ledger.md §5's
+     rules are read order-free: Paid absorbs every other phase, except
+     that a double spend gives way only to a Paid Monokulo calls final,
+     in either order; an expiry or cancellation not final beats only
+     Waiting, so a late Seen, Confirming or Partial shows (Monokulo
+     doesn't expire an order whose payment it has seen), and a final one
+     beats progress; otherwise Seen, then Confirming by confirmations,
+     then Partial by amount received. The POS's payment is joined by its
+     `updated_at`, its order read by the payment's `updated_at` at the
+     read, a refund by how far it got. When a sale was seen, paid, ended
+     or refunded is this device's first sighting, kept in its local
+     marks, so `shared` is equal across tills.
+145. **New code.** A sale's nth order has the idempotency key of the
+     first with `#n` appended; the first is unchanged
+     (`Till::idempotency_key`). A Paid on any attempt decides the sale
+     and shows the others as superseded; two paid attempts warn ("Paid
+     twice"). This reverses android.md 43 by the owner's decision.
+146. **Closes, paid in cash and keep as cash stay local** (`Mark` facts
+     in `LocalMarks`) until Monokulo lets apps cancel an order. A reopen
+     after a close undoes it; a Paid after a close or a refund shows as
+     Paid, flagged.
+147. **Cash orders only from a till set to the sale's device.**
+     `may_make_order`: a Monero sale's order from any till; a cash sale's,
+     with cash as Monero on, only from a till set to its device or to
+     every device; the cashier's own "Take it in Monero" and New code
+     from any till.
+148. **The trading day starts at 04:00 and live sales always show.** The
+     shift's window is from its start mark, or 04:00 local if later, to
+     its stop mark; waiting, seen, confirming and part-paid sales are
+     listed whatever the window, which decides the totals, the cash paid
+     in Monero and which ended sales are listed.
+149. **Retention is 30 days.** Sales rung up longer ago are deleted with
+     their journal rows and projections (`ledger.retention_days`
+     changes it). An ended sale from before the shift is compacted into
+     one `Snapshot` row, at most hourly, and old app heartbeats are
+     dropped. Keeping the database out of backups is the platforms'
+     part.
+
+## The ledger on the devices (2026-11-09)
+
+The platform side of [ledger.md](../ledger.md) §4, §11 and §14: SQLCipher
+in the one library on every target, and what only iOS and Android can do
+for the ledger. The ledger crate's decisions (PR 59) come before these.
+
+150. **SQLCipher is compiled into the library everywhere.** The workspace
+     takes `rusqlite` 0.41.1 (libsqlite3-sys 0.39.1) with default
+     features off and `bundled-sqlcipher`, so there is one libsqlite3-sys
+     and never the system's SQLite. Its crypto differs by target: on
+     Apple targets (the XCFramework's `aarch64-apple-ios` and
+     `aarch64-apple-ios-sim`, and the Mac build the Swift bindings come
+     from) it is CommonCrypto, in libSystem, with Security and
+     CoreFoundation, which the TillCore package already links for the
+     app and the extension; on Linux (CI, and the library Android's JVM
+     tests load) the system's libcrypto; on Android, which has no
+     libcrypto an app may link, till-ffi adds
+     `bundled-sqlcipher-vendored-openssl` for that target only, so
+     OpenSSL's libcrypto is built from source into each ABI's `.so`
+     (a cold build's cost, which rust-cache then keeps). Features unify
+     per target, so if till-ledger also asks for the vendored OpenSSL
+     off Apple, Linux builds use it too; it is still one libsqlite3-sys.
+     `OPENSSL_DIR` must stay unset on the Mac, or libsqlite3-sys would
+     take Homebrew's OpenSSL for the iOS targets. till-ffi exports
+     `sqlcipher_check(dir)` (its own bindings, `till_ffi`), which opens a
+     scratch database with a raw key and salt, a 32-byte plain-text
+     header and WAL, writes and reads a row, checks the file's header is
+     plain and the row isn't, that another key reads nothing, and returns
+     `PRAGMA cipher_version`. Rust CI, Android's JVM tests and iOS's
+     simulator tests call it. It goes once the ledger's open does the same
+     check (ledger.md §4).
+151. **The platforms only pass on the process's life; the core decides.**
+     The engine has `suspend()` (blocks until any write is done and the
+     ledger is closed), `resume()` and `ledger_changed()`, stubs until the
+     integration: iOS calls `suspend` as the app goes to the background,
+     off the main thread under a background task assertion, and `resume`
+     as it comes to the front, both in order on one queue; Android calls
+     them from the activity's `onStop` and `onStart` on a thread of their
+     own. The extension posts the Darwin notification
+     `com.monokulo.till.ledger-changed` after every round, whether or not
+     it wrote, and the app calls `ledger_changed` when it hears it; the
+     engine works out whether anything changed. Android has one process
+     writing the ledger and never calls it. Around each write the core
+     takes `till_app::lifecycle::hold`, which begins and ends a hold
+     through the platform's `BackgroundWork` (`set_background_work`, once
+     per process before the engine or `background_check`): on iOS
+     `ProcessInfo.performExpiringActivity`, which the app and the
+     extension alike may call from any thread; Android gives none. The
+     key and salt are made in Rust and kept through `Platform::secret_get`
+     and `secret_put`, which on iOS are already `AfterFirstUnlockThisDevice
+     Only` items in the access group the extension shares, so the
+     extension reads them while the device is locked after the first
+     unlock.
+152. **Nothing of the core's is backed up.** iOS marks the core's data
+     directory (the App Group's container) excluded from backup each time
+     it's looked up, rather than `till.db` and its WAL and shared-memory
+     files one by one, which come and go and would lose the flag. That
+     matches Android, where the core's files are in `noBackupFilesDir`,
+     `allowBackup` is off and the backup rules exclude every domain, and
+     costs nothing: the Keychain items are this device's only, so a
+     restored container could open nothing.
+
+## The engine on the ledger (2026-11-09)
+
+The integration of [ledger.md](../ledger.md) §6 to §10 and §14: the till,
+the engine and the extension writing facts and reading projections.
+
+153. **The till drives the ledger and keeps no sales of its own.**
+     `till_sales::Books` holds the one `Ledger` a process opens (through
+     the platform's `LedgerHost`: the key, the scope, the background hold,
+     where claimed alerts go) and, after every write that changed
+     something, reads the shift back into `TillState`. `TillState::sales`
+     is therefore always `Ledger::sales` within the shift, each
+     `SaleView` copied field for field into the `TillSale` the screens
+     already take, with the ledger's additions (earlier codes, the
+     warnings, the sale's key) in `TillSale::extras`, left out of the kept
+     shift's JSON. A sale whose order is still being made isn't listed (it
+     has no code), and a sale kept from Monokulo alone whose order a
+     point-of-sale sale has since taken is shown as that sale. The
+     `ShiftStore`, the kept shift's writes, `alerted.rs`, the phase diff
+     (`Phases`, `NewSales`) and `reload_shift` are gone; `kotlin_json`
+     stays for previews and fixtures.
+154. **What a listing doesn't say.** A point of sale's listing gives no
+     update time, so a payment's `updated_at` is its own time (the POS
+     lists it once completed) and its order is read once; a read that
+     fails is recorded with why, which the sale page shows. Refunds the
+     till makes through Square are recorded as `PosRefundSeen`, completed,
+     under the refund's idempotency key; Clover's stay the cashier's
+     `RefundPending` and `RefundConfirmed` marks. Listing Square's
+     `/v2/refunds` for refunds made in Square itself is left for a
+     follow-up (till-pos has no client for it yet). An order read again
+     that gives the store's confirmation threshold, when the order as made
+     had none, records the order again with it, which the ledger's merge
+     takes over the one without: no ledger API change.
+155. **Learning ends before the first look.** The app learns what the
+     ledger held as it started (the old shift imported, a recovery) and
+     ends learning before its first look at the point of sale, as the
+     engine's first look learnt the kept shift before; the extension ends
+     it before its round, since a ding means a new sale and its look
+     always alerted. A sale the first look finds is therefore alerted, as
+     before the ledger. This reads ledger.md §6's "first look" as the
+     engine's first read, not its first point-of-sale request.
+156. **The ledger's claims are what the app says.** A new sale's claim
+     sets the alert while the app is behind; Paid and PaidMoment start the
+     paid moment and the haptic in front, and post a notice behind; Ended
+     starts the expired dwell and posts "No payment yet". Notices are
+     posted on Android, on iPad and on an iPhone without the Live
+     Activity (the owner's fix 2; iOS posts `Effect::Notify` as a local
+     notification with the sale's id, replacing its alert). Each claim is
+     reported posted once delivered. The sale on screen is the ledger's
+     open sale, so another counter's sale the cashier has open gets the
+     paid moment (fix 3). While in front the engine writes `Foreground`
+     for 10 s every 4 s, and `Foreground` until now as it goes behind. A
+     sale gone from the list has its notification cleared, as before.
+157. **Settings are the ledger's facts too.** This counter's device,
+     every device, cash as Monero, whether other counters' sales are
+     listed and how sales show up are kept as before for the screens and
+     also recorded as `SettingChanged` whenever they change and as the app
+     starts (only those that differ), under `counter.device`,
+     `counter.every`, `cash.monero`, `counter.others` and `sales.show`, so
+     the extension's views and alerts read the same.
+158. **The scope is the store's address and the point of sale's
+     account.** `Scope::of(connection.api, Square location or Clover
+     merchant)`. The engine works it out after every batch of messages;
+     when it changes (signed out, another location or merchant, the store
+     forgotten or another connected) the old scope's rows are deleted and
+     the ledger reads the new one's. A scope that changed while the app
+     wasn't running is left to retention.
+159. **The shift is the ledger's window, on iOS too.** Start watching
+     records `ShiftMarked(Started)` and runs upkeep (`maintain`); Stop
+     closes every live code and records `ShiftMarked(Stopped)`. The list
+     shows live and offered sales whatever the window, ended sales rung up
+     in it, and sales that still need the cashier from before it; the
+     shift's "since" is the window's start. Settings gains "Watch for
+     sales" on iOS (fix 1), with its own footnote, as Android has.
+160. **New code is the cashier's, on the sale's page.** A sale this till
+     can see at its point of sale, whose code ran out unpaid by
+     Monokulo's word or this device's clock and which isn't closed,
+     refunded or settled in cash, offers New code (`Action::NewCode`),
+     which makes the next attempt and opens its code. The page lists the
+     earlier codes ("Replaced by a new code", or "Replaced: another code
+     was paid"), warns when two were paid, and says why a code has no
+     receipt (fix 5); Android draws the button plainly.
+161. **Suspend closes the ledger from the platform's thread.** The engine
+     shares its books with `Engine`, so `suspend` waits for any write and
+     closes the ledger on the calling thread; `resume` and
+     `ledger_changed` read the projections again and claim what the
+     extension left. The extension reads Monokulo's open orders again
+     after its look, claims the newest new sale, and closes the ledger
+     before it returns. Upkeep runs as the app starts, comes to the front
+     and starts a shift.
+162. **What Monokulo says is read as the ledger reads it.** Times are this
+     device's first sighting, not an event's; an event on a till signed in
+     to the point of sale never makes a sale (it waits for this till's own
+     look); a code this device's clock says ran out is a local mark, shown
+     as expired with "No payment yet" until Monokulo says; and the
+     confirmations count only grows. The till's tests that said otherwise
+     now say this.

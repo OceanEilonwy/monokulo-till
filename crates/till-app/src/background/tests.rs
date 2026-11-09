@@ -13,9 +13,21 @@ use crate::engine::tests::{PAYMENTS, signed_in_till};
 use crate::testing::FakePlatform;
 use crate::{CloverSetup, Device, SquareSetup};
 
+/// The test's own data directory, by its Square stand-in's port: every look
+/// a test makes shares one ledger, as the app and its extension do.
+fn data_dir(square: &MockServer) -> String {
+    let dir = std::env::temp_dir().join(format!(
+        "till-background-{}-{}",
+        std::process::id(),
+        square.address().port()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir.to_string_lossy().into_owned()
+}
+
 fn config(square: &MockServer) -> EngineConfig {
     EngineConfig {
-        data_dir: std::env::temp_dir().to_string_lossy().into_owned(),
+        data_dir: data_dir(square),
         device: Device::Iphone,
         device_name: "iPhone 17".into(),
         app_version: "0.1.0".into(),
@@ -100,18 +112,13 @@ async fn a_look_makes_orders_for_new_sales_keeps_them_and_says_what_the_alert_sa
     assert_eq!(check.alerts.len(), 1);
     let alert = &check.alerts[0];
     assert_eq!(alert.order_id, "ord_1");
-    assert_eq!(alert.title, "New Monero sale · $13.88");
+    assert_eq!(alert.title, "Sale #bP9m · $13.88");
     assert_eq!(
         alert.body,
-        "Front counter. Tap here to show the payment code."
+        "Monero sale. Tap to show the customer the code."
     );
     assert_eq!(check.ongoing, None, "iOS has no ongoing notification");
-    assert!(
-        platform
-            .get("shift.sales")
-            .unwrap()
-            .contains(r#""orderId":"ord_1""#)
-    );
+    assert_eq!(platform.get("shift.sales"), None, "kept in the ledger");
     assert_eq!(
         platform.get("square.handled").as_deref(),
         Some(r#"["pay_monero"]"#)
@@ -148,8 +155,11 @@ async fn on_android_a_look_answers_the_ongoing_notification_alerting_about_the_n
     };
     assert_eq!(order_id, "ord_1");
     assert!(alert);
-    assert_eq!(face.title, "New Monero sale · Front counter");
-    assert_eq!(face.public_text, "$13.88 · waiting for payment");
+    assert_eq!(face.title, "Sale #bP9m · $13.88");
+    assert_eq!(
+        face.public_text,
+        "Monero sale. Tap to show the customer the code."
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -247,4 +257,65 @@ async fn a_relayed_ding_opens_with_the_kept_keys_for_the_tills_point_of_sale() {
         !is_relayed_ding(signed_in_till(&monokulo), ding),
         "another device's keys"
     );
+}
+
+/// The double alert on the iPad (core.md decision 123): Square's webhooks
+/// for one payment (`payment.created`, then `payment.updated`) make the
+/// Bell ding twice, and iOS runs the extension for each push, at once.
+/// Both looks find the payment before either has kept it; only one alerts.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_looks_at_once_for_two_dings_of_one_payment_alert_once() {
+    let (monokulo, square) = (monokulo().await, square(Duration::from_millis(300)).await);
+    let platform = signed_in_till(&monokulo);
+    let (first, second) = tokio::join!(
+        look(config(&square), platform.clone(), 10_000),
+        look(config(&square), platform.clone(), 10_000),
+    );
+    assert!(first.finished && second.finished);
+    let alerts: Vec<_> = first.alerts.iter().chain(&second.alerts).collect();
+    assert_eq!(alerts.len(), 1, "{first:?} {second:?}");
+    assert_eq!(alerts[0].order_id, "ord_1");
+}
+
+/// A sale an older build kept and alerted (its kept shift and alert
+/// record) is taken into the ledger once, and isn't alerted again by the
+/// extension's look (docs/ledger.md §10).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_look_never_alerts_a_sale_an_older_build_alerted_and_imports_it_once() {
+    let (monokulo, square) = (monokulo().await, square(Duration::ZERO).await);
+    let platform = signed_in_till(&monokulo);
+    platform.set(
+        "shift.sales",
+        r#"[{"orderId":"ord_1","amount":"13.88","currency":"USD","reference":"bP9m","code":{"uri":"monero:8Bx?tx_amount=0.08","hasReceipt":false},"phase":"Waiting","expiresAt":1893456000,"xmr":"0.08","address":"8Bx","found":{"id":"pay_monero","amountMinor":1388,"currency":"USD","reference":"bP9m","createdAt":"2026-10-22T16:07:00Z"}}]"#,
+    );
+    platform.set("alerts.posted", r#"["ord_1"]"#);
+    let check = look(config(&square), platform.clone(), 10_000).await;
+    assert!(check.finished);
+    assert!(check.alerts.is_empty(), "{check:?}");
+    assert_eq!(platform.get("shift.sales"), None, "imported, then deleted");
+    assert_eq!(platform.get("alerts.posted"), None);
+}
+
+/// Issue 1 in the extension: this counter's sale, kept as another till's
+/// (Monokulo announced it first), alerts once the look finds it on this
+/// counter's device.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_look_alerts_this_counters_sale_another_till_announced_first() {
+    let (monokulo, square) = (monokulo().await, square(Duration::ZERO).await);
+    let platform = signed_in_till(&monokulo);
+    // Kept as another till's, quiet while this till has a device. The
+    // stand-in's payment names no device, which makes it this counter's.
+    platform.set(
+        "shift.sales",
+        r#"[{"orderId":"ord_1","amount":"13.88","currency":"USD","reference":"bP9m","code":{"uri":"monero:8Bx?tx_amount=0.08","hasReceipt":false},"phase":"Waiting","expiresAt":1893456000,"xmr":"0.08","address":"8Bx","deviceName":"Bar iPad"}]"#,
+    );
+    platform.set(
+        "counter.device",
+        r#"{"id":"dev_front","name":"Front iPad","learnedAt":1761148000}"#,
+    );
+    let check = look(config(&square), platform.clone(), 10_000).await;
+    assert_eq!(check.alerts.len(), 1, "{check:?}");
+    assert_eq!(check.alerts[0].order_id, "ord_1");
+    let again = look(config(&square), platform, 10_000).await;
+    assert!(again.alerts.is_empty());
 }

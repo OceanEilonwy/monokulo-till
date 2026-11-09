@@ -24,8 +24,8 @@ enum WidgetPalette {
     static let paid = Color(hex: 0x1A7F37)
     static let expiredInk = Color(hex: 0x7D5E00)
     static let linkInk = Color(hex: 0xB34700)
-    /// The lock screen in dark mode: Android's dark ground and its text.
-    static let darkGround = Color(hex: 0x1C1B19)
+    /// The lock screen in dark mode: the app's black ground and its text.
+    static let darkGround = Color(hex: 0x000000)
     static let darkInk = Color(hex: 0xECE8DF)
     static let darkSecondary = Color(hex: 0xA8A29A)
 }

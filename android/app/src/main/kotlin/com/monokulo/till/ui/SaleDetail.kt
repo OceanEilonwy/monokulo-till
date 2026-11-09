@@ -41,6 +41,7 @@ import com.monokulo.till.groundEnd
 import com.monokulo.till.words
 import com.monokulo.till.sharedSurface
 import uniffi.till_app.Action
+import uniffi.till_screens.CashAction
 import uniffi.till_screens.Fact
 import uniffi.till_screens.Ground
 import uniffi.till_screens.PageAction
@@ -122,7 +123,23 @@ fun SaleDetail(
                                     button.press.label, { actions.send(Action.Reopen(sale.orderId)) }, Modifier.fillMaxWidth(),
                                     enabled = button.press.enabled, height = 52.dp,
                                 )
+                                // New code (docs/ledger.md §7), drawn plainly.
+                                PageAction.NEW_CODE -> OutlineButton(
+                                    button.press.label, { actions.send(Action.NewCode(sale.orderId)) }, Modifier.fillMaxWidth(),
+                                    enabled = button.press.enabled, height = 52.dp,
+                                )
                             }
+                        }
+                    }
+                }
+                // A cash sale's own buttons (docs/decisions/core.md 116), drawn plainly.
+                if (page.cash.isNotEmpty()) {
+                    Column(words.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        for (button in page.cash) {
+                            OutlineButton(
+                                button.press.label, { actions.send(cashAction(button.action, sale.orderId)) }, Modifier.fillMaxWidth(),
+                                enabled = button.press.enabled, height = 52.dp,
+                            )
                         }
                     }
                 }
@@ -152,4 +169,11 @@ private fun Facts(facts: List<Fact>) = Column(
             Text(fact.value, fontSize = 14.sp, textAlign = TextAlign.End)
         }
     }
+}
+
+/** The engine's action for a cash sale's button. */
+internal fun cashAction(action: CashAction, orderId: String): Action = when (action) {
+    CashAction.TAKE_IN_MONERO -> Action.TakeInMonero(orderId)
+    CashAction.KEEP_AS_CASH -> Action.KeepAsCash(orderId)
+    CashAction.PAID_IN_CASH -> Action.PaidInCash(orderId)
 }

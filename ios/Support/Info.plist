@@ -20,6 +20,25 @@
 		</dict>
 	</array>
 	<!--
+	Paid's "Back to Square" on iPad opens Square Point of Sale by its scheme,
+	and shows only when canOpenURL says Square is installed, which needs the
+	scheme listed here (docs/ipad-redesign.md decision 1).
+	-->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>square-commerce-v1</string>
+	</array>
+	<!--
+	The Background Modes capability's "Audio, AirPlay, and Picture in
+	Picture": without it iOS never offers Picture in Picture, which the
+	iPad's floating window is (docs/ipad-redesign.md decision 2). Till plays
+	no sound; the floating window keeps it running in the back while it's up.
+	-->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
+	<!--
 	The Live Activity is updated often while a sale waits (docs/design.md §6);
 	said here as well as by INFOPLIST_KEY_, in case Xcode doesn't take that
 	key from a build setting.

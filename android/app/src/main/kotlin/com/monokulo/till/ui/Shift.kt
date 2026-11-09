@@ -150,6 +150,7 @@ import uniffi.till_screens.ShiftIdle
 import uniffi.till_screens.ShiftRow
 import uniffi.till_screens.ShiftView
 import uniffi.till_screens.StateIcon
+import uniffi.till_screens.StatusChip
 import uniffi.till_screens.Tone
 import uniffi.till_screens.FilterChip as ViewChip
 import kotlinx.coroutines.CoroutineScope
@@ -245,10 +246,23 @@ fun ShiftScreen(
                             }
                         }
                         Head.Summary -> Column(chrome.padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("This shift", style = display(28, -0.4), modifier = Modifier.semantics { heading() })
+                            Text(view.summaryLabel, style = display(28, -0.4), modifier = Modifier.semantics { heading() })
                             Text(view.summary, fontSize = 14.sp, color = mk.muted)
+                            // Cash paid in Monero, and whose sales show (docs/decisions/core.md 114, 117), drawn plainly.
+                            view.cashInMonero?.let { Text(it, fontSize = 14.sp, color = mk.muted) }
+                            view.counters?.let { menu ->
+                                Text(menu.heading, fontSize = 13.sp, color = mk.muted)
+                                for (counter in menu.items) {
+                                    val words = listOfNotNull(counter.name, counter.count).joinToString(" · ")
+                                    LinkButton(
+                                        if (counter.selected) "✓ $words" else words,
+                                        { actions.send(Action.ChooseCounter(counter.choice)) },
+                                        size = 14,
+                                    )
+                                }
+                            }
                         }
-                        Head.Idle -> view.idle?.let { Idle(it, actions) }
+                        Head.Idle -> view.idle?.let { Idle(it, view.status, actions) }
                         // A filter chosen is a change of what is shown: its rows move as ever, even over a fold kept under the finger.
                         Head.Chips -> Box(chrome) {
                             Chips(view.chips) {
@@ -862,7 +876,7 @@ private fun TopRow(place: String?, state: String, tone: Tone, said: String, acti
 
 /** No sale yet, or not watching: the faded mark and what happens next. */
 @Composable
-private fun Idle(idle: ShiftIdle, actions: TillActions) = Column(
+private fun Idle(idle: ShiftIdle, status: List<StatusChip>, actions: TillActions) = Column(
     Modifier.fillMaxWidth().heightIn(min = 320.dp).padding(24.dp),
     horizontalAlignment = Alignment.CenterHorizontally,
     verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
@@ -873,6 +887,13 @@ private fun Idle(idle: ShiftIdle, actions: TillActions) = Column(
         idle.hint, fontSize = 15.sp, lineHeight = 21.sp, color = mk.muted, textAlign = TextAlign.Center,
         modifier = Modifier.widthIn(max = 280.dp),
     )
+    // The status chips (docs/decisions/core.md 127), drawn plainly as one line.
+    if (status.isNotEmpty()) {
+        Text(
+            status.joinToString(" · ") { it.text }, fontSize = 14.sp, color = mk.muted, textAlign = TextAlign.Center,
+            modifier = Modifier.widthIn(max = 280.dp),
+        )
+    }
     idle.start?.let { PrimaryButton(it.label, { actions.send(Action.StartShift) }, enabled = it.enabled) }
 }
 
@@ -942,7 +963,7 @@ private fun badgeGround(icon: StateIcon): Ground = when (icon) {
     StateIcon.CLOCK -> Ground.WARN
     StateIcon.WARNING -> Ground.DANGER
     StateIcon.TICK -> Ground.PAID
-    StateIcon.RING, StateIcon.REFUND, StateIcon.CLOSE -> Ground.CHIP
+    StateIcon.RING, StateIcon.REFUND, StateIcon.CLOSE, StateIcon.CASH -> Ground.CHIP
 }
 
 /**
@@ -963,7 +984,7 @@ private data class RowWords(
 ) {
     companion object {
         fun of(row: ShiftRow) = RowWords(
-            row.title, row.sub, row.tone, row.quiet, row.icon, row.opens,
+            row.title, listOfNotNull(row.sub, row.device).joinToString(" · "), row.tone, row.quiet, row.icon, row.opens,
             row.ring.step.toInt(), row.ring.confirmations?.toInt(), row.ring.required?.toInt(),
         )
     }

@@ -105,6 +105,10 @@ pub struct PosChoice {
 pub struct Press {
     pub label: String,
     pub enabled: bool,
+    /// Work it started is under way: the button shows progress in itself
+    /// (review finding I6), as Continue does while the store is read.
+    #[cfg_attr(feature = "uniffi", uniffi(default = false))]
+    pub busy: bool,
 }
 
 impl Press {
@@ -112,11 +116,16 @@ impl Press {
         Press {
             label: label.into(),
             enabled: true,
+            busy: false,
         }
     }
 
     pub fn enabled(self, enabled: bool) -> Press {
         Press { enabled, ..self }
+    }
+
+    pub fn busy(self, busy: bool) -> Press {
+        Press { busy, ..self }
     }
 }
 
@@ -140,9 +149,71 @@ pub struct Ring {
     /// The arc turns: the payment is on the network, seen (step 2) or
     /// confirming (3), and not yet paid.
     pub spins: bool,
-    /// The arc is the paid green, from the moment the payment is seen;
-    /// else the accent, waiting for money.
+    /// The arc is the paid green: only once it's paid (core.md decision
+    /// 119); seen and confirming it's the accent, as while it waits.
     pub green: bool,
+}
+
+/// How far a sale's payment has come, as the Till widget counts it and the
+/// platform's thin progress bar draws it (core.md decision 119): `value` of
+/// `total` thirds, waiting 0, seen 1, confirming 2, paid 3, with its words
+/// ("Seen on the network") and the count beside them ("1 of 3").
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct PaymentProgress {
+    pub value: u8,
+    pub total: u8,
+    pub label: String,
+    pub count: String,
+    /// What a screen reader says: "Seen on the network, 1 of 3", or
+    /// "Confirming, 4 of 10 confirmations".
+    pub said: String,
+    /// The one line under the bar, never wrapped: the words and the count
+    /// ("Seen on the network · 1 of 3"), or while confirming the
+    /// confirmations where the engine knows them ("Confirming · 4 of 10
+    /// confirmations"; core.md decision 129).
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub line: String,
+}
+
+/// `sale`'s [`PaymentProgress`]; one that ended unpaid has none to show.
+pub fn progress(sale: &TillSale) -> Option<PaymentProgress> {
+    let (value, label) = match sale.phase {
+        monokulo_client::SalePhase::Waiting => (0, "Waiting for payment"),
+        monokulo_client::SalePhase::Partial => (0, "Part paid"),
+        monokulo_client::SalePhase::Seen => (1, "Seen on the network"),
+        monokulo_client::SalePhase::Confirming => (2, "Confirming"),
+        monokulo_client::SalePhase::Paid => (3, "Paid"),
+        _ => return None,
+    };
+    const TOTAL: u8 = 3;
+    let count = format!("{value} of {TOTAL}");
+    // The bar stays in thirds; the words count confirmations once there
+    // are some to count, as the shift's row does.
+    let beside = match (
+        sale.phase,
+        sale.confirmations,
+        sale.confirmations_required.filter(|&n| n > 0),
+    ) {
+        (monokulo_client::SalePhase::Confirming, Some(have), Some(need)) => format!(
+            "{} of {need} {}",
+            have.min(need),
+            if need == 1 {
+                "confirmation"
+            } else {
+                "confirmations"
+            }
+        ),
+        _ => count.clone(),
+    };
+    Some(PaymentProgress {
+        value,
+        total: TOTAL,
+        said: format!("{label}, {beside}"),
+        line: format!("{label} · {beside}"),
+        label: label.into(),
+        count,
+    })
 }
 
 impl Eq for Ring {}
@@ -167,7 +238,7 @@ impl Ring {
             required,
             fill,
             spins,
-            green: spins || step == 4,
+            green: step == 4,
         }
     }
 }
@@ -277,10 +348,13 @@ mod ring_tests {
     }
 
     #[test]
-    fn the_arc_turns_green_and_spins_once_the_payment_is_seen_and_stops_paid() {
+    fn the_arc_spins_once_the_payment_is_seen_and_turns_green_only_paid() {
         for step in [SEEN, CONFIRMING] {
             let ring = Ring::new(step, None, None);
-            assert!(ring.spins && ring.green, "step {step}");
+            assert!(
+                ring.spins && !ring.green,
+                "step {step}: green is for paid alone"
+            );
         }
         let paid = Ring::new(PAID, None, None);
         assert!(paid.green && !paid.spins, "paid stops");
@@ -288,5 +362,73 @@ mod ring_tests {
             let ring = Ring::new(step, None, None);
             assert!(!ring.spins && !ring.green, "step {step} stands still");
         }
+    }
+
+    #[test]
+    fn progress_counts_the_widgets_thirds_with_its_words() {
+        use monokulo_client::SalePhase::*;
+        let of = |phase| {
+            progress(&TillSale {
+                phase,
+                ..till_sales_fixture()
+            })
+        };
+        let seen = of(Seen).unwrap();
+        assert_eq!(
+            (
+                seen.value,
+                seen.total,
+                seen.label.as_str(),
+                seen.count.as_str()
+            ),
+            (1, 3, "Seen on the network", "1 of 3")
+        );
+        assert_eq!(seen.said, "Seen on the network, 1 of 3");
+        assert_eq!(of(Waiting).unwrap().value, 0);
+        assert_eq!(of(Partial).unwrap().value, 0);
+        assert_eq!(of(Confirming).unwrap().value, 2);
+        let paid = of(Paid).unwrap();
+        assert_eq!((paid.value, paid.label.as_str()), (3, "Paid"));
+        assert_eq!(of(Expired), None);
+    }
+
+    /// Decision 129: one line, the thirds' words and count, with the
+    /// confirmations while confirming where they're known.
+    #[test]
+    fn progress_line_counts_confirmations_while_confirming() {
+        use monokulo_client::SalePhase::*;
+        let of = |phase, have: Option<u32>, need: Option<u32>| {
+            progress(&TillSale {
+                phase,
+                confirmations: have,
+                confirmations_required: need,
+                ..till_sales_fixture()
+            })
+            .unwrap()
+        };
+        assert_eq!(of(Seen, None, None).line, "Seen on the network · 1 of 3");
+        let confirming = of(Confirming, Some(4), Some(10));
+        assert_eq!(confirming.line, "Confirming · 4 of 10 confirmations");
+        assert_eq!(confirming.said, "Confirming, 4 of 10 confirmations");
+        assert_eq!(
+            (confirming.value, confirming.count.as_str()),
+            (2, "2 of 3"),
+            "the bar keeps its thirds"
+        );
+        assert_eq!(
+            of(Confirming, Some(12), Some(10)).line,
+            "Confirming · 10 of 10 confirmations"
+        );
+        assert_eq!(
+            of(Confirming, Some(0), Some(1)).line,
+            "Confirming · 0 of 1 confirmation"
+        );
+        assert_eq!(of(Confirming, None, Some(10)).line, "Confirming · 2 of 3");
+        assert_eq!(of(Confirming, Some(3), Some(0)).line, "Confirming · 2 of 3");
+        assert_eq!(of(Paid, Some(10), Some(10)).line, "Paid · 3 of 3");
+    }
+
+    fn till_sales_fixture() -> TillSale {
+        crate::fixtures::till_sale("o", "1.00", "USD", "0.01")
     }
 }

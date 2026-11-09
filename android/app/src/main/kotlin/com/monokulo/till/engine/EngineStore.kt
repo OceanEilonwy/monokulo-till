@@ -3,6 +3,7 @@ package com.monokulo.till.engine
 import android.util.Log
 import com.monokulo.till.Way
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.Executors
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -79,6 +80,19 @@ object EngineStore {
         val ready = engine
         if (ready != null) ready.send(action) else early.add(action)
     }
+
+    /**
+     * The app's lifecycle for the engine's ledger (docs/decisions/core.md
+     * 151): Till left the screen, or came back. The engine decides what to
+     * close and reopen; `Engine.suspend` blocks until it has, so both run in
+     * order on one thread of their own, never the main one. Android has no
+     * second process writing the ledger, so it never calls `ledgerChanged`.
+     */
+    fun appStopped() = lifecycle.execute { engine?.`suspend`() }
+
+    fun appStarted() = lifecycle.execute { engine?.resume() }
+
+    private val lifecycle = Executors.newSingleThreadExecutor { Thread(it, "till-lifecycle") }
 
     /** The engine has started: what was sent before goes to it now, in order. */
     fun attach(ready: Engine) {

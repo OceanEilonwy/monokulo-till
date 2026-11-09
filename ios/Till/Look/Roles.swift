@@ -3,7 +3,7 @@ import TillCore
 
 /// The engine's colour roles (`Tone`, `Ground`, `StateIcon`) as the
 /// palette's colours, as Android's `toneColor`, `groundColor` and
-/// `StateBadge` read them.
+/// `StateBadge` read them, for the till's words and notes.
 enum Roles {
     /// Words in `tone`: a row's line, the shift's state word.
     static func ink(_ tone: Tone) -> Color {
@@ -43,7 +43,7 @@ enum Roles {
         case .clock: .warn
         case .warning: .danger
         case .tick: .paid
-        case .ring, .refund, .close: .chip
+        case .ring, .refund, .close, .cash: .chip
         }
     }
 
@@ -56,6 +56,7 @@ enum Roles {
         case .tick: "checkmark"
         case .refund: "arrow.uturn.backward"
         case .close: "xmark"
+        case .cash: "banknote"
         }
     }
 
@@ -65,7 +66,7 @@ enum Roles {
         case .clock: Palette.expiredInk
         case .warning: Palette.danger
         case .tick: Palette.paid
-        case .ring, .refund, .close: quiet ? Palette.secondary : Palette.ink
+        case .ring, .refund, .close, .cash: quiet ? Palette.secondary : Palette.ink
         }
     }
 }

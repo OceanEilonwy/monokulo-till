@@ -6,11 +6,12 @@
 //! shift, which becomes the current sale (a Live Update, its chip the ring
 //! alone), and alerts by making it a heads-up. iOS has no ongoing
 //! notification (the iPhone's Live Activity is [`crate::live_activity`]);
-//! a new sale is a time-sensitive alert, whose words differ on iPad (swipe
-//! Till in from Slide Over) and iPhone (tap to open Till).
+//! a new sale is a time-sensitive alert, the same on iPad and iPhone
+//! ("Sam · $24.50", core.md decision 118).
 //!
-//! Whom a sale is for, and on the lock screen what was bought, are never on
-//! a notification.
+//! Whom a sale is for leads every notification about it on both platforms,
+//! posted on the device, the lock screen included (core.md decision 124);
+//! what was bought is never on Android's lock screen.
 
 use monokulo_client::{MoneyFormat, PointOfSale, SalePhase};
 use till_sales::TillSale;
@@ -51,7 +52,8 @@ pub struct Face {
     /// What was bought ("2 × Flat white, Almond croissant"): the private
     /// version only, `None` without a receipt.
     pub detail: Option<String>,
-    /// The lock screen's text: the amount and the phase, never an item.
+    /// The lock screen's text: never an item (a new sale's says whom it's
+    /// for, core.md decision 124).
     pub public_text: String,
     /// How many of the four steps are filled.
     pub step: u8,
@@ -61,8 +63,27 @@ pub struct Face {
 }
 
 /// A sale whose code is up, in `location` (the till's Square location or
-/// Clover merchant).
+/// Clover merchant). A new one is worded as iOS's alert is (core.md
+/// decision 124): "Sam · $24.50", "Monero sale. Tap to show Sam the code.",
+/// the sale's number leading when there's no name.
 pub fn face(sale: &TillSale, location: Option<&str>, money: &dyn MoneyFormat) -> Face {
+    if new(sale) {
+        let words = alert(sale, money);
+        let receipt = sale.receipt.as_ref();
+        // What was bought is the private version's second line alone.
+        return Face {
+            icon: FaceIcon::RingQuarter,
+            tint: FaceTint::Accent,
+            title: words.title,
+            text: words.body.clone(),
+            detail: receipt
+                .filter(|r| !r.line_items.is_empty())
+                .map(|r| sale_text::first_items(r, r.line_items.len())),
+            public_text: words.body,
+            step: sale_text::step(sale.phase),
+            full_screen: true,
+        };
+    }
     let (icon, title, phrase) = match sale.phase {
         SalePhase::Seen => (
             FaceIcon::RingHalf,
@@ -81,7 +102,7 @@ pub fn face(sale: &TillSale, location: Option<&str>, money: &dyn MoneyFormat) ->
         ),
         _ => (
             FaceIcon::RingQuarter,
-            format!("New Monero sale · {}", where_from(sale, location)),
+            sale_text::heading(sale),
             "waiting for payment",
         ),
     };
@@ -105,10 +126,29 @@ pub fn face(sale: &TillSale, location: Option<&str>, money: &dyn MoneyFormat) ->
     }
 }
 
+/// Whether `sale`'s face is a new sale's: nothing paid or seen yet.
+fn new(sale: &TillSale) -> bool {
+    !matches!(
+        sale.phase,
+        SalePhase::Seen | SalePhase::Confirming | SalePhase::Partial
+    )
+}
+
 /// A new sale's place on a notification: the till's location, else where
 /// the sale came from.
 fn where_from(sale: &TillSale, location: Option<&str>) -> String {
     location.map_or_else(|| sale_text::place(sale, location), Into::into)
+}
+
+/// The notification's sub-text for `sale`: under a title the customer's
+/// name or the sale's number leads ("Sam · $24.50", "Paid · Sam"), the
+/// sale's number when a name leads, then the place; else whom it's for.
+fn sub_text(sale: &TillSale, title_names_it: bool, location: Option<&str>) -> String {
+    if title_names_it {
+        sale_text::heading_line(sale, &where_from(sale, location))
+    } else {
+        sale_text::heading(sale)
+    }
 }
 
 /// The few seconds after `sale` is paid: a green tick in the chip.
@@ -121,7 +161,7 @@ pub fn paid_face(sale: &TillSale, money: &dyn MoneyFormat) -> Face {
     Face {
         icon: FaceIcon::Tick,
         tint: FaceTint::Paid,
-        title: format!("Paid · {}", sale_text::title(sale)),
+        title: format!("Paid · {}", sale_text::heading(sale)),
         text: text.clone(),
         detail: None,
         public_text: text,
@@ -172,7 +212,7 @@ pub struct Notice {
 /// Replaces the sale's progress once it's paid.
 pub fn paid_notice(sale: &TillSale, money: &dyn MoneyFormat) -> Notice {
     Notice {
-        title: format!("Paid · {}", sale_text::title(sale)),
+        title: format!("Paid · {}", sale_text::heading(sale)),
         text: Some(format!(
             "{} · {} received",
             sale_text::amount(sale, money),
@@ -201,7 +241,7 @@ pub fn unpaid_notice(
         title: format!(
             "{} · {}",
             sale_text::status(sale, pos),
-            sale_text::title(sale)
+            sale_text::heading(sale)
         ),
         text: Some(format!("{}. {what}", sale_text::amount(sale, money))),
     }
@@ -317,6 +357,29 @@ pub struct SaleAlert {
     pub body: String,
 }
 
+/// iOS's alert for `sale` (board Main, core.md decision 118): whom it's
+/// for and the amount, "Sam · $24.50", and "Monero sale. Tap to show Sam
+/// the code." With no name, the sale's number leads and the customer is
+/// "the customer". The name is the device's own: the alert is posted here,
+/// never sent through Monokulo or the relay.
+pub fn alert(sale: &TillSale, money: &dyn MoneyFormat) -> SaleAlert {
+    let who = sale_text::customer(sale).unwrap_or("the customer");
+    let what = if sale.cash() {
+        "Cash sale, paying in Monero"
+    } else {
+        "Monero sale"
+    };
+    SaleAlert {
+        order_id: sale.order_id.clone(),
+        title: format!(
+            "{} · {}",
+            sale_text::heading(sale),
+            sale_text::amount(sale, money)
+        ),
+        body: format!("{what}. Tap to show {who} the code."),
+    }
+}
+
 /// What the notifications show.
 #[derive(Clone, Debug)]
 pub struct NotificationInput {
@@ -356,18 +419,7 @@ pub fn notification(
             .as_deref()
             .and_then(|id| input.sales.iter().find(|sale| sale.order_id == id))
             .filter(|sale| sale.live())
-            .map(|sale| {
-                let to_show = if device == Device::Ipad {
-                    "Swipe in Till, or tap here, to show the payment code."
-                } else {
-                    "Tap here to show the payment code."
-                };
-                SaleAlert {
-                    order_id: sale.order_id.clone(),
-                    title: format!("New Monero sale · {}", sale_text::amount(sale, money)),
-                    body: format!("{}. {to_show}", where_from(sale, location)),
-                }
-            });
+            .map(|sale| alert(sale, money));
         return NotificationView {
             ongoing: None,
             alert,
@@ -393,7 +445,7 @@ pub fn notification(
             };
             OngoingFace::Sale {
                 order_id: sale.order_id.clone(),
-                sub_text: sale_text::title(sale),
+                sub_text: sub_text(sale, new(sale), location),
                 alert: input.alert_for.as_deref() == Some(sale.order_id.as_str()),
                 buttons: vec![NoticeAction::ShowCode.into(), second.into()],
                 code: sale.code.uri.clone(),
@@ -404,7 +456,7 @@ pub fn notification(
         Ongoing::Paid(sale) => OngoingFace::Paid {
             order_id: sale.order_id.clone(),
             face: paid_face(sale, money),
-            sub_text: sale_text::title(sale),
+            sub_text: sub_text(sale, true, location),
         },
     };
     NotificationView {
@@ -475,18 +527,14 @@ mod tests {
         let amount = amount();
         assert_eq!(face.icon, FaceIcon::RingQuarter);
         assert_eq!(face.tint, FaceTint::Accent);
-        assert_eq!(face.title, "New Monero sale · Front Counter");
-        assert_eq!(
-            face.text,
-            format!("{amount} · 3 items · waiting for payment")
-        );
+        assert_eq!(face.title, format!("Sale #bP9m · {amount}"));
+        assert_eq!(face.text, "Monero sale. Tap to show the customer the code.");
         assert_eq!(
             face.detail.as_deref(),
             Some("2 × Flat white, Almond croissant")
         );
         assert_eq!(
-            face.public_text,
-            format!("{amount} · waiting for payment"),
+            face.public_text, "Monero sale. Tap to show the customer the code.",
             "the lock screen never shows an item or a count"
         );
         assert_eq!(face.step, 1);
@@ -521,13 +569,9 @@ mod tests {
     fn another_tills_sale_has_no_items_to_tell() {
         let theirs = sale("o1", SalePhase::Waiting, None, false);
         let f = face(&theirs, Some("Front Counter"), &money);
-        assert_eq!(f.text, format!("{} · waiting for payment", amount()));
+        assert_eq!(f.text, "Monero sale. Tap to show the customer the code.");
         assert_eq!(f.detail, None);
-        assert_eq!(f.title, "New Monero sale · Front Counter");
-        assert_eq!(
-            face(&theirs, None, &money).title,
-            "New Monero sale · From Back till"
-        );
+        assert_eq!(f.title, format!("Sale #bP9m · {}", amount()));
     }
 
     #[test]
@@ -550,7 +594,7 @@ mod tests {
     }
 
     #[test]
-    fn whom_a_sale_is_for_is_never_on_a_notification_private_version_or_public() {
+    fn whom_a_sale_is_for_leads_ios_alert_and_androids_notifications() {
         let named = TillSale {
             customer_name: Some("Ana López".into()),
             ..of(SalePhase::Waiting)
@@ -559,22 +603,32 @@ mod tests {
             phase: SalePhase::Paid,
             ..named.clone()
         };
-        for f in [
-            face(&named, Some("Front Counter"), &money),
-            paid_face(&paid, &money),
-        ] {
-            let words = [
-                Some(&f.title),
-                Some(&f.text),
-                f.detail.as_ref(),
-                Some(&f.public_text),
-            ];
-            assert!(
-                !words.into_iter().flatten().any(|w| w.contains("Ana")),
-                "{f:?}"
-            );
-        }
-        assert_eq!(paid_face(&paid, &money).title, "Paid · Sale #bP9m");
+        // Android, as iOS's alert, the lock screen included (decision 124).
+        let new = face(&named, Some("Front Counter"), &money);
+        assert_eq!(new.title, format!("Ana López · {}", amount()));
+        assert_eq!(new.text, "Monero sale. Tap to show Ana López the code.");
+        assert_eq!(new.public_text, new.text, "never an item");
+        assert_eq!(paid_face(&paid, &money).title, "Paid · Ana López");
+        assert_eq!(paid_notice(&paid, &money).title, "Paid · Ana López");
+        let seen = TillSale {
+            phase: SalePhase::Seen,
+            ..named.clone()
+        };
+        let Some(OngoingFace::Sale { sub_text, .. }) =
+            notification(&input(vec![seen], None), Device::Android, &money).ongoing
+        else {
+            panic!();
+        };
+        assert_eq!(sub_text, "Ana López", "under \"Seen on the network\"");
+        let Some(OngoingFace::Sale { sub_text, .. }) =
+            notification(&input(vec![named.clone()], None), Device::Android, &money).ongoing
+        else {
+            panic!();
+        };
+        assert_eq!(
+            sub_text, "Sale #bP9m · Front Counter",
+            "the number under the name"
+        );
         let alert = notification(
             &NotificationInput {
                 sales: vec![named],
@@ -588,7 +642,11 @@ mod tests {
         )
         .alert
         .unwrap();
-        assert!(!alert.title.contains("Ana") && !alert.body.contains("Ana"));
+        assert_eq!(
+            alert.title, "Ana López · $13.88",
+            "the name leads the alert (decision 118)"
+        );
+        assert_eq!(alert.body, "Monero sale. Tap to show Ana López the code.");
     }
 
     #[test]
@@ -726,13 +784,13 @@ mod tests {
             panic!("{new:?}");
         };
         assert!(alert);
-        assert_eq!(sub_text, "Sale #bP9m");
+        assert_eq!(sub_text, "Front Counter", "the number is in the title");
         assert_eq!(
             code, "monero:4abc?tx_amount=0.05552",
             "the large icon's code"
         );
         assert_eq!(address, "4abc", "what Copy address copies");
-        assert_eq!(face.title, "New Monero sale · Front Counter");
+        assert_eq!(face.title, format!("Sale #bP9m · {}", amount()));
         assert_eq!(
             buttons.iter().map(|b| b.label.as_str()).collect::<Vec<_>>(),
             ["Show code", "Full screen"]
@@ -773,14 +831,28 @@ mod tests {
             ipad.alert,
             Some(SaleAlert {
                 order_id: "o1".into(),
-                title: "New Monero sale · $24.50".into(),
-                body: "Front Counter. Swipe in Till, or tap here, to show the payment code.".into(),
-            })
+                title: "Sale #bP9m · $24.50".into(),
+                body: "Monero sale. Tap to show the customer the code.".into(),
+            }),
+            "with no name, the sale's number leads"
         );
         let iphone = notification(&input(sales.clone(), Some("o1")), Device::Iphone, &money);
+        assert_eq!(iphone.alert, ipad.alert, "the same words on iPhone");
+        let cash = TillSale {
+            customer_name: Some("Sam".into()),
+            found: Some(till_pos::FoundSale {
+                cash: true,
+                ..found("p", 2450, "USD", Some("bP9m"), "o", "2026-11-09T10:00:00Z")
+            }),
+            ..sales[0].clone()
+        };
         assert_eq!(
-            iphone.alert.unwrap().body,
-            "Front Counter. Tap here to show the payment code."
+            alert(&cash, &money),
+            SaleAlert {
+                order_id: "o1".into(),
+                title: "Sam · $24.50".into(),
+                body: "Cash sale, paying in Monero. Tap to show Sam the code.".into(),
+            }
         );
         assert_eq!(
             notification(&input(sales, None), Device::Ipad, &money).alert,
@@ -800,7 +872,7 @@ mod tests {
         );
         assert_eq!(
             theirs.alert.unwrap().body,
-            "From Back till. Swipe in Till, or tap here, to show the payment code."
+            "Monero sale. Tap to show the customer the code."
         );
     }
 }

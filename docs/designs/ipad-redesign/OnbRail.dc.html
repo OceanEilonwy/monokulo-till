@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Onboarding step rail</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<nav aria-label="Setup steps" style="width: 320px; height: 820px; box-sizing: border-box; padding: 56px 28px; background: #F4F1EA; border-right: 1px solid #E4DED2; display: flex; flex-direction: column; gap: 4px; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; color: #1A1917;">
+  <span style="font-size: 13px; font-weight: 600; color: #5A564C; padding: 0 12px 10px;">SET UP TILL</span>
+  <sc-for list="{{steps}}" as="s" hint-placeholder-count="6">
+    <div style="display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px; border-radius: 10px; background: {{s.bg}};">
+      <span aria-hidden="true" style="width: 24px; height: 24px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; box-sizing: border-box; background: {{s.dotBg}}; color: {{s.dotFg}}; border: {{s.dotBorder}};">{{s.mark}}</span>
+      <span style="font-size: 17px; font-weight: {{s.weight}}; color: {{s.fg}};">{{s.name}}</span>
+    </div>
+  </sc-for>
+</nav>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"current":{"editor":"int","default":2,"min":0,"max":5},"$preview":{"width":320,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const names = ['Welcome', 'Connect your store', 'Point of sale', 'Alerts', 'How sales show up', 'Ready'];
+    const current = Number(this.props.current ?? 2);
+    const steps = names.map((name, i) => {
+      const done = i < current, now = i === current;
+      return {
+        name,
+        mark: done ? '✓' : String(i + 1),
+        bg: now ? '#FFFFFF' : 'transparent',
+        weight: now ? 600 : 400,
+        fg: i > current ? '#5A564C' : '#1A1917',
+        dotBg: done ? '#1A1917' : now ? '#FF6600' : 'transparent',
+        dotFg: done ? '#FFFFFF' : now ? '#111111' : '#5A564C',
+        dotBorder: done || now ? '0' : '1.5px solid #8C8577',
+      };
+    });
+    return { steps };
+  }
+}
+</script>
+</body>
+</html>

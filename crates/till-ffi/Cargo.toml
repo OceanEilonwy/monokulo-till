@@ -29,6 +29,12 @@ bindgen = ["uniffi/cli"]
 till-app = { workspace = true, features = ["uniffi"] }
 orf-codec-ffi.workspace = true
 uniffi.workspace = true
+# Only for `sqlcipher_check`: that SQLCipher is what got linked, on every
+# platform the library is built for (docs/decisions/core.md 150).
+rusqlite.workspace = true
+
+[dev-dependencies]
+tempfile = "3.27.0"
 
 # Android's certificate checks go through the JVM: the app hands
 # rustls-platform-verifier its context once, through `Tls.init`, before the
@@ -37,3 +43,6 @@ uniffi.workspace = true
 [target.'cfg(target_os = "android")'.dependencies]
 jni = { version = "0.22.4", default-features = false }
 rustls-platform-verifier = "0.7.1"
+# Android has no system libcrypto an app may link, so SQLCipher's is built
+# from source (openssl-src) into the library (docs/decisions/core.md 150).
+rusqlite = { workspace = true, features = ["bundled-sqlcipher-vendored-openssl"] }

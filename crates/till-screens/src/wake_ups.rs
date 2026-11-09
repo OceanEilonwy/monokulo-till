@@ -94,6 +94,9 @@ pub struct StatusCard {
     pub footnote: String,
     /// What the Bell learns.
     pub privacy: String,
+    /// "Open alert settings", for [`StatusAction::OpenAlertSettings`].
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub open_alert_settings: String,
 }
 
 /// What the cashier can do about a status, as a row of its card.
@@ -172,7 +175,7 @@ pub fn wake_ups(input: &WakeUpsInput, device: Device, clock: DeviceClock) -> Wak
         status: (!timer_only).then(|| status_card(input, device, clock)),
         alerts: (device.is_ios() && !timer_only).then(|| AlertsNote {
             alerts: if input.alerts_allowed {
-                Fact::new("New sale alerts", "Allowed").toned(Tone::Paid)
+                Fact::new("New sale alerts", "Allowed")
             } else {
                 Fact::new("New sale alerts", "Off").toned(Tone::Warn)
             },
@@ -233,7 +236,7 @@ fn status_card(input: &WakeUpsInput, device: Device, clock: DeviceClock) -> Stat
     StatusCard {
         checking: Fact::new(pos_text::checking(pos), text::pace(status)),
         bell: Fact::new("Bell", text::word(status, device)).toned(if connected {
-            Tone::Paid
+            Tone::Plain
         } else {
             Tone::Muted
         }),
@@ -241,8 +244,12 @@ fn status_card(input: &WakeUpsInput, device: Device, clock: DeviceClock) -> Stat
         action,
         footnote: text::footnote(status, pos, device),
         privacy: text::privacy(pos),
+        open_alert_settings: OPEN_ALERT_SETTINGS.into(),
     }
 }
+
+/// [`StatusAction::OpenAlertSettings`]'s words.
+pub const OPEN_ALERT_SETTINGS: &str = "Open alert settings";
 
 #[cfg(test)]
 mod tests {
@@ -319,11 +326,12 @@ mod tests {
             view.status,
             Some(StatusCard {
                 checking: Fact::new("Checking Square", "Every 30 s"),
-                bell: Fact::new("Bell", "Connected").toned(Tone::Paid),
+                bell: Fact::new("Bell", "Connected").toned(Tone::Plain),
                 last_wake_up: Some(Fact::new("Last wake-up", "3:58 PM")),
                 action: None,
                 footnote: "Square wakes this till through the Bell within a second or two of a sale. Till still checks every 30 seconds in case a wake-up is lost.".into(),
                 privacy: "The Bell learns which Square location this till is at and when it takes payments, not what was sold. Your Square sign-in is shown to it once, to prove the location, and never kept.".into(),
+                open_alert_settings: "Open alert settings".into(),
             })
         );
         assert_eq!(view.alerts, None, "Android has no alerts note");
@@ -524,7 +532,7 @@ mod tests {
         );
         assert_eq!(
             allowed.alerts.unwrap().alerts,
-            Fact::new("New sale alerts", "Allowed").toned(Tone::Paid)
+            Fact::new("New sale alerts", "Allowed")
         );
         assert_eq!(
             allowed.timer.detail.as_deref(),

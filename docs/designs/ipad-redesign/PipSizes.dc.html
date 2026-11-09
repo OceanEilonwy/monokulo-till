@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Floating window content at each size</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 1180px; height: 820px; overflow: hidden; background: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; color: #1a1917; box-sizing: border-box; padding: 40px 48px; display: flex; flex-direction: column; gap: 28px;">
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <h1 style="margin: 0; font-family: Manrope, sans-serif; font-size: 28px; font-weight: 800;">Small while watching, a square for the sale</h1>
+    <p style="margin: 0; font-size: 16px; line-height: 23px; color: #5a564c; max-width: 900px;">While watching, the picture is a short, wide strip (about 3:1), so the window stays out of the way. When a sale comes in Till switches the picture to 1:1 and iOS reshapes the window into a square for the code; after Paid it shrinks back. Till chooses the shape, iOS the size. People pinch it to the size they like; the content adapts to the size it's given, edge to edge with no padding baked into the frames. The corners stay empty: iOS draws ✕ at the top left and ⤢ at the top right when the window is tapped.</p>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 160px repeat(3, minmax(0, 1fr)); gap: 20px 28px; align-items: end;">
+    <span></span>
+    <span style="font-size: 13px; font-weight: 700; color: #5a564c;">SMALL · ABOUT 180 PT</span>
+    <span style="font-size: 13px; font-weight: 700; color: #5a564c;">MEDIUM · ABOUT 240 PT</span>
+    <span style="font-size: 13px; font-weight: 700; color: #5a564c;">LARGE · ABOUT 320 PT</span>
+
+    <div style="justify-self: start; height: 52px; border-radius: 12px; background: #1a1917; display: flex; align-items: center; gap: 10px; padding: 0 18px 0 14px; color: #ffffff; align-self: center;">
+      <dc-import name="TillWidget" size="32" state="idle" dark="{{yes}}" hint-size="32px,32px"></dc-import>
+      <span style="display: flex; flex-direction: column;"><span style="font-size: 15px; font-weight: 700;">Watching</span></span>
+    </div>
+    <div style="justify-self: start; height: 68px; border-radius: 14px; background: #1a1917; display: flex; align-items: center; gap: 10px; padding: 0 18px 0 14px; color: #ffffff; align-self: center;">
+      <dc-import name="TillWidget" size="32" state="idle" dark="{{yes}}" hint-size="32px,32px"></dc-import>
+      <span style="display: flex; flex-direction: column;"><span style="font-size: 17px; font-weight: 700;">Watching</span><span style="font-size: 12px; color: #d9d4c9;">Front Counter</span></span>
+    </div>
+    <div style="justify-self: start; height: 88px; border-radius: 16px; background: #1a1917; display: flex; align-items: center; gap: 10px; padding: 0 18px 0 14px; color: #ffffff; align-self: center;">
+      <dc-import name="TillWidget" size="32" state="idle" dark="{{yes}}" hint-size="32px,32px"></dc-import>
+      <span style="display: flex; flex-direction: column;"><span style="font-size: 20px; font-weight: 700;">Watching</span><span style="font-size: 12px; color: #d9d4c9;">Front Counter</span></span>
+    </div>
+
+    <span style="align-self: center; font-size: 15px; font-weight: 600;">A sale</span>
+    <div style="width: 150px; height: 150px; border-radius: 14px; background: #ff6600; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #111111; box-sizing: border-box; padding: 12px; text-align: center;">
+      <span style="font-family: Manrope, sans-serif; font-size: 26px; font-weight: 800;">$24.50</span>
+      <span style="font-size: 13px; font-weight: 600; line-height: 17px;">Tap ⤢ to show the customer</span>
+    </div>
+    <div style="width: 200px; height: 200px; border-radius: 16px; background: #ffffff; border: 1px solid #dcd5c7; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; box-sizing: border-box;">
+      <dc-import name="QR" size="132" hint-size="132px,132px"></dc-import>
+      <span style="font-family: Manrope, sans-serif; font-size: 20px; font-weight: 800;">$24.50</span>
+    </div>
+    <div style="width: 260px; height: 260px; border-radius: 18px; background: #ffffff; border: 1px solid #dcd5c7; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; box-sizing: border-box;">
+      <dc-import name="QR" size="172" hint-size="172px,172px"></dc-import>
+      <span style="font-family: Manrope, sans-serif; font-size: 22px; font-weight: 800;">$24.50 <span style="font-family: -apple-system, system-ui, sans-serif; font-size: 12px; font-weight: 400; color: #5a564c;">· 14:32 left</span></span>
+    </div>
+
+    <span style="align-self: center; font-size: 15px; font-weight: 600;">Paid</span>
+    <div style="justify-self: start; height: 52px; border-radius: 12px; background: #1a1917; display: flex; align-items: center; gap: 10px; padding: 0 18px 0 14px; color: #ffffff; align-self: center;">
+      <dc-import name="TillWidget" size="32" state="paid" dark="{{yes}}" hint-size="32px,32px"></dc-import>
+      <span style="display: flex; flex-direction: column;"><span style="font-size: 15px; font-weight: 700;">Paid · $24.50</span></span>
+    </div>
+    <div style="justify-self: start; height: 68px; border-radius: 14px; background: #1a1917; display: flex; align-items: center; gap: 10px; padding: 0 18px 0 14px; color: #ffffff; align-self: center;">
+      <dc-import name="TillWidget" size="40" state="paid" dark="{{yes}}" hint-size="40px,40px"></dc-import>
+      <span style="display: flex; flex-direction: column;"><span style="font-size: 17px; font-weight: 700;">Paid · $24.50</span><span style="font-size: 12px; color: #d9d4c9;">Sam</span></span>
+    </div>
+    <div style="justify-self: start; height: 88px; border-radius: 16px; background: #1a1917; display: flex; align-items: center; gap: 10px; padding: 0 18px 0 14px; color: #ffffff; align-self: center;">
+      <dc-import name="TillWidget" size="52" state="paid" dark="{{yes}}" hint-size="52px,52px"></dc-import>
+      <span style="display: flex; flex-direction: column;"><span style="font-size: 20px; font-weight: 700;">Paid · $24.50</span><span style="font-size: 12px; color: #d9d4c9;">Sam</span></span>
+    </div>
+  </div>
+
+  <p style="margin: 0; font-size: 14px; line-height: 20px; color: #5a564c; max-width: 980px;">Below about 200 pt a phone camera can't read the code reliably, so the small window shows the amount and a prompt instead of an unscannable code. Paid comes back as the strip with a green tick and the word, then eases into Watching: colour is never the only signal.</p>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1180,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() { return { yes: true }; }
+}
+</script>
+</body>
+</html>

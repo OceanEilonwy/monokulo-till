@@ -73,6 +73,13 @@ pub struct CodeView {
     pub done: bool,
     /// The countdown is on screen: draw it again in a second.
     pub ticks: bool,
+    /// "Scan with any Monero wallet", beside the ring (core.md decision
+    /// 130).
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub scan: String,
+    /// What a screen reader says for the code: "Payment code for $13.88".
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub code_said: String,
 }
 
 /// The enlarged code at the clock's now, amounts written by `money`.
@@ -90,8 +97,13 @@ pub fn code(input: &CodeInput, clock: DeviceClock, money: &dyn MoneyFormat) -> C
         ring: ring(sale),
         done: !live,
         ticks: live && sale.phase.counts_down(),
+        scan: SCAN.into(),
+        code_said: crate::sale::code_said(sale, money),
     }
 }
+
+/// Under the customer's code.
+pub const SCAN: &str = "Scan with any Monero wallet";
 
 /// Ported from Android's `OrderPageTest`
 /// (`under the code, the time left until the payment is seen`), then the
@@ -165,6 +177,8 @@ mod tests {
                 ring: Ring::new(1, None, None),
                 done: false,
                 ticks: true,
+                scan: "Scan with any Monero wallet".into(),
+                code_said: "Payment code for $79.21".into(),
             }
         );
         let paid = code(

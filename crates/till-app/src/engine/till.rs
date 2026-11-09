@@ -86,10 +86,12 @@ fn setup_step(screen: &Screen) -> Option<u8> {
         Screen::Connected => 3,
         Screen::PointOfSale => 4,
         Screen::Locations => 5,
-        Screen::Alerts => 6,
-        Screen::Float => 7,
-        Screen::Ready => 8,
-        Screen::Till => 9,
+        Screen::Counter => 6,
+        Screen::Alerts => 7,
+        Screen::Float => 8,
+        Screen::ShowSales => 9,
+        Screen::Ready => 10,
+        Screen::Till => 11,
         _ => return None,
     })
 }
@@ -117,7 +119,19 @@ pub(crate) fn order_id(screen: &Screen) -> Option<&str> {
     }
 }
 
+/// Whether the Live Activity is also updated by pushes through the relay
+/// (its push token registered as a Monokulo push target). Not yet: the core
+/// has no client for push targets (decision 93), so every update is the
+/// device's own and its code keeps the receipt (decision 140). Once it is,
+/// the device's updates use the plain code too, so a push and an update
+/// from the app never disagree.
+const LIVE_ACTIVITY_PUSHED: bool = false;
+
 impl State {
+    pub(super) fn sales_now(&self) -> Vec<TillSale> {
+        self.sales()
+    }
+
     fn sales(&self) -> Vec<TillSale> {
         self.parts
             .as_ref()
@@ -131,11 +145,31 @@ impl State {
         let next = till_nav::follow(
             &place(from),
             &self.sales(),
-            &self.left,
+            &self.left_or_quiet(),
             &self.live_before,
             false,
         );
         screen(next).unwrap_or_else(|| from.clone())
+    }
+
+    /// The sales that never rise out of the shift on their own: those the
+    /// cashier left, and another counter's (core.md decision 113).
+    fn left_or_quiet(&self) -> std::collections::BTreeSet<String> {
+        let mut left = self.left.clone();
+        left.extend(self.quiet_ids());
+        left
+    }
+
+    /// The till's sales but another counter's, while alerts are for this
+    /// device: what the bubble, the ongoing notification and the Live
+    /// Activity follow.
+    fn loud_sales(&self, sales: &[TillSale]) -> Vec<TillSale> {
+        let counters = self.counters();
+        sales
+            .iter()
+            .filter(|sale| !counters.quiet(sale))
+            .cloned()
+            .collect()
     }
 
     /// The sales changed (or may have): a new one comes up out of a shift
@@ -146,7 +180,8 @@ impl State {
         let here = place(&self.screen);
         if here != TillPlace::Other {
             let resting = self.resting_on.as_ref() == Some(&Screen::Till);
-            let next = till_nav::follow(&here, &sales, &self.left, &self.live_before, resting);
+            let left = self.left_or_quiet();
+            let next = till_nav::follow(&here, &sales, &left, &self.live_before, resting);
             if next != here
                 && let Some(next) = screen(next.clone())
             {
@@ -248,7 +283,8 @@ impl State {
     pub(super) fn back_enabled(&self) -> bool {
         match self.screen {
             Screen::Welcome | Screen::Till => false,
-            Screen::PointOfSale => self.setup_done(),
+            // O2 goes back to the choice (decision 121).
+            Screen::PointOfSale => self.setup_done() || self.pos_confirmed,
             _ => true,
         }
     }
@@ -311,9 +347,15 @@ impl State {
             disconnected: runner.disconnected,
             problem: runner.till.problem.or(runner.stream_problem),
             sign_in_again: runner.till.sign_in_again,
-            started_at: model.shift_started_at,
+            started_at: runner.till.shift_from.or(model.shift_started_at),
             filter: self.filter,
             folded: self.folded,
+            counters: self.counters(),
+            counter: self.counter.clone(),
+            // iOS says whether Till may alert; Android's switch is its own.
+            alerts: self.config.device.is_ios().then_some(self.alerts_allowed),
+            bell: *p.wake_ups.choice().borrow() != till_bell::WakeUpChoice::TimerOnly,
+            show_sales: model.show_sales,
         };
         shift::shift(
             &input,
@@ -348,6 +390,7 @@ impl State {
                 location,
                 refund_problem: runner.till.refund_problems.get(order_id).cloned(),
                 refunding: self.refunding.contains(order_id),
+                taking: self.taking.contains(order_id),
             },
             clock,
             &money,
@@ -423,7 +466,8 @@ impl State {
         let p = self.parts.as_ref()?;
         let model = p.side.model();
         let runner = p.runner.state();
-        let sales = &runner.till.sales;
+        let loud = self.loud_sales(&runner.till.sales);
+        let sales = &loud;
         // Green, on the sale just paid, through the moment's collapse too.
         let just_paid = self.paid_moment.paid();
         let focus = bubble::focus(sales, self.bubble_focus.as_deref(), just_paid);
@@ -477,7 +521,7 @@ impl State {
     /// just arrived, if one did.
     pub(super) fn notification_view(&self, p: &Parts) -> NotificationView {
         let model = p.side.model();
-        let sales = p.runner.state().till.sales;
+        let sales = self.loud_sales(&p.runner.state().till.sales);
         let (till, place) = (model.point_of_sale, model.place_name());
         let about = if self.config.device.is_ios() {
             self.alert_for
@@ -510,15 +554,21 @@ impl State {
     /// shift is on (one activity a shift, design.md §6).
     pub(super) fn live_activity_state(&self, p: &Parts) -> Option<LiveActivityState> {
         let model = p.side.model();
-        if !(self.live_activity_on(&model) && model.setup_done && model.shift_on) {
+        let pip = self.pip_on(&model);
+        if !((self.live_activity_on(&model) || pip) && model.setup_done && model.shift_on) {
             return None;
         }
         live_activity::live_activity(
             &LiveActivityInput {
-                sales: p.runner.state().till.sales,
+                sales: self.loud_sales(&p.runner.state().till.sales),
                 just_paid: self.just_paid.clone(),
                 just_ended: self.just_ended.clone(),
-                code_in_island: self.code_in_island_on(&model),
+                // The floating window shows the code while the sale waits.
+                code_in_island: self.code_in_island_on(&model) || pip,
+                // Drawn on this device alone: the window always, the Live
+                // Activity while no push token updates it through the
+                // relay (core.md decision 140).
+                receipt: pip || !LIVE_ACTIVITY_PUSHED,
             },
             self.config.device,
         )

@@ -82,6 +82,8 @@ jobs:
           test -f bindings/swift/till_app.swift
           test -f bindings/swift/till_screens.swift
           test -f bindings/swift/orf_codec_ffi.swift
+          test -f bindings/kotlin/uniffi/till_ffi/till_ffi.kt
+          test -f bindings/swift/till_ffi.swift
       # Swift compiles every crate's bindings into one module (TillCore), so
       # two crates exporting the same type name breaks the iOS build: catch
       # it here, on Linux, before a macOS runner does.

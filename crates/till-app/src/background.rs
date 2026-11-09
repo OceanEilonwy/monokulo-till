@@ -2,18 +2,21 @@
 //! Notification Service Extension's entry when a ding arrives as an alert,
 //! and Android's when a ding wakes a process with no shift on screen.
 //!
-//! It reads the persisted model, asks the point of sale for new sales once,
-//! makes their Monokulo orders, keeps the shift and the cursor, and answers
-//! what the alert should say. Nothing runs after it returns: no engine, no
-//! listener, no event stream. The sign-in's refresh takes the same file
-//! lock as the app's (decision 13), so the two never spend one refresh
-//! token twice.
+//! It reads the persisted model, asks the point of sale for new sales once
+//! and reads Monokulo's open orders again, recording each as a fact in the
+//! ledger the app shares (docs/ledger.md §8), makes the orders that are this
+//! till's to make, then claims the newest new-sale alert the round left and
+//! answers what it should say (§6: the extension claims only what it shows;
+//! the app's next look claims the rest). The ledger is closed before it
+//! returns (§11). Nothing runs after it returns: no engine, no listener, no
+//! event stream. The sign-in's refresh takes the same file lock as the
+//! app's (decision 13), so the two never spend one refresh token twice.
 
-use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
 use monokulo_client::{Clock, MonokuloApi, SystemClock, tor};
+use till_ledger::{ClaimPolicy, Process};
 use till_sales::{Till, TillSale};
 use till_screens::notification::{self, NotificationInput, OngoingFace, SaleAlert};
 use till_screens::{Device, pos_text};
@@ -133,36 +136,63 @@ pub(crate) async fn check(
         return BackgroundCheck::nothing();
     }
     let device = config.device;
-    let side = match Side::new(Arc::new(config), kept, http.clone(), clock.clone()) {
+    let side = match Side::new(
+        Arc::new(config),
+        kept,
+        platform.clone(),
+        Process::Extension,
+        http.clone(),
+        clock.clone(),
+    ) {
         Ok(side) => side,
         Err(problem) => return BackgroundCheck::failed(problem),
     };
     let Some(source) = side.sale_source() else {
         return BackgroundCheck::nothing();
     };
+    let books = side.books().clone();
     let monokulo = MonokuloApi::new(http, side.identity(), clock.clone());
-    let till = Till::new(source, monokulo, connection)
+    let till = Till::new(source, monokulo.clone(), connection.clone(), books.clone())
         .with_clock(clock)
-        .with_store(side.shift_kept().clone());
-    if till.shift_unread() {
-        // A look now would save its orders over the shift it couldn't read.
-        return BackgroundCheck::failed("Couldn't read the shift this till keeps.");
+        .with_options(&model.till_options());
+    books.refresh();
+    // Woken by a ding for a sale: what this round finds is new, even on a
+    // ledger just made or imported, as the extension's look always alerted
+    // (docs/decisions/core.md 155).
+    if let Err(e) = books.with(|l| l.set_learning(false)) {
+        return BackgroundCheck::failed(format!("Couldn't read the sales this till keeps: {e}"));
     }
-    let before: HashSet<String> = till
-        .state()
-        .sales
-        .into_iter()
-        .map(|sale| sale.order_id)
-        .collect();
-    let finished = tokio::time::timeout_at(deadline, till.check())
-        .await
-        .is_ok();
+    let round = async {
+        till.check().await;
+        // Monokulo's open orders, read again (docs/ledger.md §8).
+        let urls: Vec<String> = till
+            .state()
+            .sales
+            .iter()
+            .filter(|sale| sale.open())
+            .filter_map(|sale| sale.url.clone())
+            .collect();
+        for url in urls {
+            if let Ok(order) = monokulo.order(&connection, &url).await {
+                till.on_order(&order);
+            }
+        }
+    };
+    let finished = tokio::time::timeout_at(deadline, round).await.is_ok();
+    // The one alert this round shows: the newest new sale it left due. The
+    // app (or the next push) claims the rest.
+    let claims = books.claim_due(ClaimPolicy::NewestNewSale);
+    // Another process may have written what this round found first.
+    books.refresh();
     let state = till.state();
-    let new: Vec<&TillSale> = state
-        .sales
+    let new: Vec<TillSale> = claims
         .iter()
-        .filter(|sale| !before.contains(&sale.order_id) && sale.live())
+        .map(|claim| TillSale::of_view(&claim.view))
         .collect();
+    for claim in &claims {
+        books.posted(claim);
+    }
+    books.suspend();
     let money = Money(platform);
     // What the notifications say about `sale`, as it arrives.
     let arriving = |sale: &TillSale| {

@@ -52,12 +52,13 @@ pub struct CloseOutcome {
 /// The answers offered: all three for this till's sale; for another
 /// till's, or one rung up at a point of sale this till has changed from
 /// (`elsewhere`), "No: close it" and "Yes" (this till can't refund it, so
-/// "No" and "Not sure" would be the same); none once it's refunded or its
+/// "No" and "Not sure" would be the same), and for a cash sale, which is
+/// never refunded (core.md decision 116); none once it's refunded or its
 /// code is down, where the sale screen has no X.
 pub fn choices(sale: &TillSale, elsewhere: bool) -> Vec<CloseChoice> {
     if !matches!(sale.standing(), Standing::Live(_)) {
         Vec::new()
-    } else if sale.found.is_none() || elsewhere {
+    } else if sale.found.is_none() || elsewhere || sale.cash() {
         vec![CloseChoice::CloseForNow, CloseChoice::KeepUp]
     } else {
         CloseChoice::ALL.to_vec()
@@ -155,7 +156,9 @@ pub fn detail(
 /// "Sale #bP9m · $13.88 · Square has it as Monero", or "… · From Back till"
 /// for another till's sale.
 pub fn subtitle(sale: &TillSale, pos: Option<PointOfSale>, money: &dyn MoneyFormat) -> String {
-    let whose = if sale.found.is_some() {
+    let whose = if sale.cash() {
+        format!("{} has it as cash", pos_text::name_first(pos))
+    } else if sale.found.is_some() {
         format!("{} has it as Monero", pos_text::name_first(pos))
     } else {
         sale_text::place(sale, None)

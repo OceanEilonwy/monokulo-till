@@ -39,17 +39,26 @@ final class Core {
     /// What the build chose: the points of sale's redirects among it.
     let config: EngineConfig
     private var engine: Engine?
+    /// The engine's half of going to the background and back, and the
+    /// extension's word that it wrote the ledger (CoreLifecycle.swift).
+    private let lifecycle = EngineLifecycle()
+    private var ledgerSignal: LedgerSignalObserver?
     private let signIn: SignInSession
     /// Taps on a new sale's alert, which open the sale.
     private var taps: NotificationTaps?
     /// The iPhone's Live Activity (`Update.liveActivity`). Its push token
     /// goes to `registerLiveActivityPushToken` (phase I5).
     let liveActivity = LiveActivityController()
+    /// The iPad's floating window (docs/ipad-redesign.md decision 2), drawn
+    /// from the same state; nil where Picture in Picture isn't offered.
+    let pip: PipWindow? = PipWindow.supported ? PipWindow() : nil
 
     init(secrets: Platform = DevicePlatform(), push: PushPlatform = ApnsPush()) {
         config = Core.config()
         signIn = SignInSession()
         let listener = Listener(core: self)
+        // Before the engine's first write to the ledger.
+        setBackgroundWork(work: DeviceBackgroundWork.shared)
         engine = Engine(config: config, platform: secrets, push: push, listener: listener)
         let taps = NotificationTaps(
             open: { [weak self] orderId in
@@ -62,10 +71,22 @@ final class Core {
             }
         )
         self.taps = taps
+        ledgerSignal = LedgerSignalObserver { [weak engine = self.engine] in engine?.ledgerChanged() }
         liveActivity.onPushToken = { [weak self] token in
             self?.registerLiveActivityPushToken(token)
         }
         UNUserNotificationCenter.current().delegate = taps
+        pip?.onRestore = { [weak self] orderId in
+            self?.send(.openSale(orderId: orderId))
+        }
+        pip?.onTakeInMonero = { [weak self] orderId in
+            self?.send(.takeInMonero(orderId: orderId))
+        }
+    }
+
+    /// How a new sale shows up on this iPad, as Settings has it.
+    var showSales: ShowSales {
+        settings?.showSales?.choices.first { $0.choice.selected }?.mode ?? .alert
     }
 
     /// Which screen draws the app now.
@@ -95,12 +116,17 @@ final class Core {
     /// and hears what the system allows now.
     func opened() {
         send(.opened)
+        if let engine { lifecycle.resume(engine) }
         liveActivity.resume()
+        pip?.appInFront()
         Task { await readPermissions() }
     }
 
+    /// The app went to the background: the engine hears it, then closes
+    /// its ledger before iOS may suspend the app (`Engine.suspend`).
     func backgrounded() {
         send(.backgrounded)
+        if let engine { lifecycle.suspend(engine) }
     }
 
     /// Once the move to `screen` has settled (its animation, then a little),
@@ -129,7 +155,12 @@ final class Core {
             self.busy = busy
             self.problem = problem
         case .nav(let byItself, _, _, _, _): self.byItself = byItself
-        case .shift(let view): shift = view
+        case .shift(let view):
+            shift = view
+            pip?.shift(
+                place: TillActivityAttributes.location(place: view.top.place),
+                cash: PipCashOffer.of(view.offeredCash)
+            )
         case .sale(let orderId, let view, let page, let code, let order):
             sale = SaleScreens(orderId: orderId, view: view, page: page, code: code, order: order)
         case .closeSheet(let orderId, let view):
@@ -141,14 +172,20 @@ final class Core {
         case .refundSheet(let view): refundSheet = view
         case .settings(let view): settings = view
         case .wakeUps(let view): wakeUps = view
+        case .liveActivity(let state) where pip != nil:
+            // On iPad the engine sends it only for the floating window.
+            pip?.show(state.map { TillActivityAttributes.ContentState($0) })
         case .liveActivity(let state):
             liveActivity.show(
                 state.map { TillActivityAttributes.ContentState($0) },
                 attributes: TillActivityAttributes(store: settings?.store?.name, place: shift?.top.place)
             )
         case .notification(let view):
-            // Set in one update only, as the sale arrives with Till in the back.
-            if let alert = view.alert {
+            // Set in one update only, once the engine has claimed the
+            // sale's alert (core.md 123), as it arrives with Till in the
+            // back. While the floating window is up it shows the sale
+            // instead, and the claim counts it as told (core.md 125).
+            if let alert = view.alert, !(pip?.isActive ?? false) {
                 Task { await SaleAlerts.post(alert) }
             }
         default: break
@@ -174,6 +211,12 @@ final class Core {
             UIPasteboard.general.string = text
         case .clearNotification(let id):
             SaleAlerts.clear(id)
+        case .notify(let orderId, let notice, _, _, let quiet):
+            // Paid and "No payment yet" while Till is behind: on iPad and on
+            // an iPhone without the Live Activity (the engine decides).
+            if !quiet {
+                Task { await SaleAlerts.notice(orderId: orderId, notice) }
+            }
         case .probeTor, .lowerPanel:
             // No Tor and no bubble on iOS: the engine never sends these here.
             break

@@ -14,8 +14,8 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use crate::testing::{FakePlatform, FakePush, Heard, Recorder, wait_for};
 use crate::{
-    Action, CloseChoice, CloverSetup, CopyKind, Device, Effect, Engine, EngineConfig, Screen,
-    SquareSetup, Update, WakeUps,
+    Action, CloseChoice, CloverSetup, CopyKind, CounterChoice, Device, Effect, Engine,
+    EngineConfig, Screen, SquareSetup, Update, WakeUps,
 };
 
 use super::Options;
@@ -25,9 +25,19 @@ const NOW: i64 = 1_761_149_280;
 
 const TOKEN: &str = "ct_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
+/// A data directory of the test's own, for the ledger and the locks.
+pub(crate) fn data_dir() -> String {
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let dir = std::env::temp_dir().join(format!("till-engine-{}-{n}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir.to_string_lossy().into_owned()
+}
+
 fn config(square: Option<&MockServer>) -> EngineConfig {
     EngineConfig {
-        data_dir: std::env::temp_dir().to_string_lossy().into_owned(),
+        data_dir: data_dir(),
         device: Device::Iphone,
         device_name: "iPhone 17".into(),
         app_version: "0.1.0".into(),
@@ -406,7 +416,8 @@ async fn a_sign_in_opens_its_page_and_keeps_the_attempt_as_stores_kt_did() {
         pos: crate::Pos::Square,
     });
     wait_for(&rx, |_| platform.get("pos.kind").filter(|k| k == "square"));
-    // Step 4's button is the sign-in until the till is connected.
+    // O1's "Continue with Square", then O2's sign-in (decision 121).
+    engine.send(Action::Next);
     engine.send(Action::Next);
     let url = wait_for(&rx, |heard| match heard {
         Heard::Effect(Effect::OpenUrl { url }) => Some(url.clone()),
@@ -556,16 +567,15 @@ async fn an_upgraded_till_runs_its_shift_makes_orders_and_tells_the_platform() {
     let shift = shift.expect("the shift with both sales");
     assert_eq!(shift.top.place.as_deref(), Some("Front counter"));
     assert_eq!(alert.order_id, "ord_1");
-    assert_eq!(alert.title, "New Monero sale · $13.88");
+    assert_eq!(alert.title, "Sale #bP9m · $13.88");
     assert_eq!(
         alert.body,
-        "Front counter. Tap here to show the payment code."
+        "Monero sale. Tap to show the customer the code."
     );
-    assert!(
-        platform
-            .get("shift.sales")
-            .unwrap()
-            .contains(r#""orderId":"ord_1""#)
+    assert_eq!(
+        platform.get("shift.sales"),
+        None,
+        "the kept shift went into the ledger"
     );
     assert_eq!(
         platform.get("square.handled").as_deref(),
@@ -674,6 +684,41 @@ async fn the_live_activity_follows_the_tills_own_sale_and_the_islands_switches()
     assert_eq!(live_activity(&rx), None, "no activity with the switch off");
 }
 
+/// The iPad's floating window (ipad-redesign.md decision 2) draws the Live
+/// Activity's state, with the code while the sale waits, only while a new
+/// sale shows up in a floating window.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_ipads_floating_window_follows_the_sale_only_while_chosen() {
+    use till_screens::live_activity::ActivityPhase;
+    let monokulo = monokulo().await;
+    let square = square().await;
+    let platform = signed_in_till(&monokulo);
+    platform.set("sales.show", "pip");
+    let ipad = EngineConfig {
+        device: Device::Ipad,
+        ..config(Some(&square))
+    };
+    let (engine, rx, _) = start(ipad, platform);
+    let waiting = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::LiveActivity { state: Some(state) })
+            if state.phase == ActivityPhase::Waiting =>
+        {
+            Some(state.clone())
+        }
+        _ => None,
+    });
+    assert_eq!(waiting.amount.as_deref(), Some("13.88"));
+    assert_eq!(
+        waiting.payment_uri.as_deref(),
+        Some("monero:8Bx?tx_amount=0.08"),
+        "the window shows the code"
+    );
+    engine.send(Action::ChooseShowSales {
+        mode: crate::ShowSales::Alert,
+    });
+    assert_eq!(live_activity(&rx), None, "no window with alerts chosen");
+}
+
 /// Android's ongoing notification alerts a sale that arrives while the app
 /// is in the back, in one update, and has no Live Activity.
 #[tokio::test(flavor = "multi_thread")]
@@ -697,7 +742,7 @@ async fn androids_ongoing_notification_alerts_a_new_sale_once() {
         _ => None,
     });
     assert!(alert, "a heads-up as it arrives");
-    assert_eq!(face.title, "New Monero sale · Front counter");
+    assert_eq!(face.title, "Sale #bP9m · $13.88");
     let next = wait_for(&rx, |heard| match heard {
         Heard::Update(Update::Notification { view }) => Some(view.clone()),
         _ => None,
@@ -1545,4 +1590,399 @@ async fn on_ios_the_apns_token_goes_through_the_relay_to_the_bell_and_a_relayed_
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     panic!("the ding didn't wake the shift");
+}
+
+/// Square, with one Monero payment at the location taken on `device`.
+async fn square_with_device(device: &str, name: &str, source: &str) -> MockServer {
+    let server = MockServer::start().await;
+    let payments = PAYMENTS
+        .replace(
+            r#""location_id":"L1""#,
+            &format!(
+                r#""location_id":"L1","device_details":{{"device_id":"{device}","device_name":"{name}"}}"#
+            ),
+        )
+        .replace(r#""source_type":"EXTERNAL""#, source);
+    Mock::given(method("GET"))
+        .and(path("/v2/payments"))
+        .respond_with(json(&payments))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v2/orders/ord_sq_1"))
+        .respond_with(json(
+            r#"{"order":{"id":"ord_sq_1","location_id":"L1","created_at":"2026-10-22T16:06:41Z","total_money":{"amount":1388,"currency":"USD"},"ticket_name":"Sam"}}"#,
+        ))
+        .mount(&server)
+        .await;
+    server
+}
+
+/// The shift with `n` rows, as next published.
+fn shift_with(rx: &Receiver<Heard>, n: usize) -> till_screens::ShiftView {
+    wait_for(rx, |heard| match heard {
+        Heard::Update(Update::Notification { view }) if view.alert.is_some() => {
+            panic!("alerted: {view:?}")
+        }
+        Heard::Update(Update::Shift { view }) if rows(view) == n => Some(view.clone()),
+        _ => None,
+    })
+}
+
+fn first_row(view: &till_screens::ShiftView) -> till_screens::shift::ShiftRow {
+    view.entries
+        .iter()
+        .find_map(|e| match e {
+            till_screens::shift::ShiftEntry::Row { row, .. } => Some(row.clone()),
+            _ => None,
+        })
+        .expect("a row")
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn another_counters_sale_is_listed_but_never_alerts_or_takes_the_screen() {
+    let monokulo = monokulo().await;
+    let square = square_with_device("dev_bar", "Bar iPad", r#""source_type":"EXTERNAL""#).await;
+    let platform = signed_in_till(&monokulo);
+    platform.set(
+        "counter.device",
+        r#"{"id":"dev_front","name":"Front iPad","learnedAt":1761148000}"#,
+    );
+    let (engine, rx, _) = start(config(Some(&square)), platform.clone());
+    engine.send(Action::Backgrounded);
+    screen(&rx, Screen::Till);
+    let shift = shift_with(&rx, 1);
+    let row = first_row(&shift);
+    assert!(row.other_counter);
+    assert_eq!(row.device.as_deref(), Some("Bar iPad"));
+    assert_eq!(row.name, "Sam", "the ticket's name leads the row");
+    let menu = shift.counters.expect("the title menu");
+    assert_eq!(
+        menu.title, "All counters",
+        "other counters' sales show by default"
+    );
+    // Everything the batch published is in: no alert, and the shift stays.
+    let (alert, on) = engine.peek(|s| (s.alert_for.clone(), s.screen.clone()));
+    assert_eq!((alert, on), (None, Screen::Till));
+    for heard in rx.try_iter() {
+        if let Heard::Update(Update::Notification { view }) = heard {
+            assert_eq!(view.alert, None, "another counter's sale never alerts");
+        }
+    }
+    engine.send(Action::ChooseCounter {
+        choice: CounterChoice::Device {
+            device_id: "dev_front".into(),
+        },
+    });
+    let mine = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Shift { view }) if rows(view) == 0 => Some(view.clone()),
+        _ => None,
+    });
+    assert_eq!(mine.counters.unwrap().title, "Front iPad");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn alerts_for_every_device_take_another_counters_sale_too() {
+    let monokulo = monokulo().await;
+    let square = square_with_device("dev_bar", "Bar iPad", r#""source_type":"EXTERNAL""#).await;
+    let platform = signed_in_till(&monokulo);
+    platform.set(
+        "counter.device",
+        r#"{"id":"dev_front","name":"Front iPad","learnedAt":1761148000}"#,
+    );
+    platform.set("counter.every", "true");
+    let (engine, rx, _) = start(config(Some(&square)), platform.clone());
+    engine.send(Action::Backgrounded);
+    let alert = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Notification { view }) => view.alert.clone(),
+        _ => None,
+    });
+    assert_eq!(alert.title, "Sam · $13.88");
+    assert_eq!(alert.body, "Monero sale. Tap to show Sam the code.");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_test_sale_names_this_counters_device_and_c4_asks_which_sales_alert() {
+    let monokulo = monokulo().await;
+    let square = square_with_device("dev_front", "Front iPad", r#""source_type":"EXTERNAL""#).await;
+    let platform = signed_in_till(&monokulo);
+    platform.set("setup.done", "false");
+    let mut config = config(Some(&square));
+    config.device = Device::Ipad;
+    let (engine, rx, _) = start(config, platform.clone());
+    // Signed in at a location, setup opens on Alerts: back to the test sale.
+    screen(&rx, Screen::Alerts);
+    engine.send(Action::Back);
+    screen(&rx, Screen::PointOfSale);
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Onboarding { view }) => match &view.page {
+            OnboardingPage::PointOfSale { view } => {
+                view.status.as_ref().filter(|s| s.found).map(|_| ())
+            }
+            _ => None,
+        },
+        _ => None,
+    });
+    engine.send(Action::Next);
+    screen(&rx, Screen::Counter);
+    let kept = platform.get("counter.device").expect("the device kept");
+    assert!(
+        kept.contains(r#""id":"dev_front""#) && kept.contains("Front iPad"),
+        "{kept}"
+    );
+    let step = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Onboarding { view }) => match &view.page {
+            OnboardingPage::Counter { view } => Some(view.clone()),
+            _ => None,
+        },
+        _ => None,
+    });
+    assert_eq!(step.device, "Front iPad");
+    assert_eq!(step.found, "Test sale found · $13.88 · Sale #bP9m");
+    engine.send(Action::SetAlertFor { every_device: true });
+    wait_for(&rx, |_| platform.get("counter.every"));
+    engine.send(Action::Next);
+    screen(&rx, Screen::Alerts);
+    engine.send(Action::Next);
+    screen(&rx, Screen::ShowSales);
+    engine.send(Action::ChooseShowSales {
+        mode: crate::ShowSales::FloatingWindow,
+    });
+    wait_for(&rx, |_| platform.get("sales.show").filter(|v| v == "pip"));
+    engine.send(Action::Next);
+    screen(&rx, Screen::Ready);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn with_cash_offered_a_cash_sale_waits_quietly_and_take_it_in_monero_opens_its_code() {
+    let monokulo = monokulo().await;
+    let square = square_with_device("dev_front", "Front iPad", r#""source_type":"CASH""#).await;
+    let platform = signed_in_till(&monokulo);
+    platform.set("cash.monero", "false");
+    let (engine, rx, _) = start(config(Some(&square)), platform.clone());
+    engine.send(Action::Backgrounded);
+    let shift = shift_with(&rx, 1);
+    let order_id = shift
+        .entries
+        .iter()
+        .find_map(|e| match e {
+            till_screens::shift::ShiftEntry::Row { order_id, .. } => Some(order_id.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(order_id, "cash:pay_monero");
+    assert!(shift.entries.iter().any(|e| matches!(
+        e,
+        till_screens::shift::ShiftEntry::Earlier { label } if label == "Cash · paying in Monero?"
+    )));
+    engine.send(Action::Opened);
+    engine.send(Action::TakeInMonero { order_id });
+    screen(
+        &rx,
+        Screen::Sale {
+            order_id: "ord_1".into(),
+        },
+    );
+    let page = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Sale { view, .. }) => Some(view.clone()),
+        _ => None,
+    });
+    assert_eq!(page.title, "Sam");
+    assert_eq!(
+        page.cash
+            .iter()
+            .map(|b| b.press.label.as_str())
+            .collect::<Vec<_>>(),
+        ["Paid in cash"]
+    );
+    engine.send(Action::PaidInCash {
+        order_id: "ord_1".into(),
+    });
+    // The sale's page says how it ended.
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Sale { page, .. }) if page.heading == "Paid in cash" => Some(()),
+        _ => None,
+    });
+    assert!(
+        !square
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .any(|r| r.url.path() == "/v2/refunds"),
+        "a cash sale is never refunded in Square"
+    );
+}
+
+/// Issue 1 of the iPad test (core.md decision 123): this counter's sale,
+/// announced first by another till (so kept as another till's, quiet),
+/// alerts once this till's own Square finds it on this counter's device,
+/// and once only.
+#[tokio::test(flavor = "multi_thread")]
+async fn this_counters_sale_another_till_announced_first_alerts_when_found_here() {
+    let monokulo = monokulo().await;
+    let square = square_with_device("dev_front", "Front iPad", r#""source_type":"EXTERNAL""#).await;
+    let platform = signed_in_till(&monokulo);
+    platform.set(
+        "counter.device",
+        r#"{"id":"dev_front","name":"Front iPad","learnedAt":1761148000}"#,
+    );
+    // Monokulo's event for it came first: no `found`, another till's.
+    platform.set(
+        "shift.sales",
+        r#"[{"orderId":"ord_1","amount":"13.88","currency":"USD","reference":"bP9m","code":{"uri":"monero:8Bx?tx_amount=0.08","hasReceipt":false},"phase":"Waiting","expiresAt":1893456000,"xmr":"0.08","address":"8Bx","deviceName":"Bar iPad"}]"#,
+    );
+    let (engine, rx, _) = start(config(Some(&square)), platform.clone());
+    engine.send(Action::Backgrounded);
+    let alert = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Notification { view }) => view.alert.clone(),
+        _ => None,
+    });
+    assert_eq!(alert.order_id, "ord_1");
+    assert_eq!(alert.title, "Sam · $13.88");
+    // Looks go on (a ding wakes one); the sale is never alerted again.
+    engine.send(Action::PushReceived {
+        content: br#"{"wake":"square"}"#.to_vec(),
+        decrypted: true,
+    });
+    engine.send(Action::CopyAmount {
+        order_id: "ord_1".into(),
+    });
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Notification { view }) if view.alert.is_some() => {
+            panic!("alerted twice: {view:?}")
+        }
+        Heard::Effect(Effect::CopyText { .. }) => Some(()),
+        _ => None,
+    });
+}
+
+/// Core.md decision 142: Clover runs on its own device, with Till beside it.
+/// A Clover payment names its device by id alone, so the engine reads
+/// Clover's devices once for their names, keeps them, and the counters
+/// menu and Settings call the device by Clover's name.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_clover_till_names_the_device_by_clovers_list_and_offers_the_counters_settings() {
+    let monokulo = monokulo().await;
+    let clover = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v3/merchants/MID1/payments"))
+        .respond_with(json(
+            r#"{"elements":[{"id":"PAY_1","amount":1388,"result":"SUCCESS","createdTime":1761149220000,
+                "tender":{"id":"T_MONERO"},"device":{"id":"DEV3F2A"},"refunds":{"elements":[]}}]}"#,
+        ))
+        .mount(&clover)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v3/merchants/MID1/devices"))
+        .respond_with(json(
+            r#"{"elements":[{"id":"DEV3F2A","name":"Front counter","model":"Clover Mini"}]}"#,
+        ))
+        .mount(&clover)
+        .await;
+    let connection = format!(r#"{{"app_key":"ak_1","api":"{}/api/v1"}}"#, monokulo.uri());
+    let platform = FakePlatform::with(&[
+        ("setup.done", "true"),
+        ("pos.kind", "clover"),
+        (
+            "clover.merchant",
+            r#"{"id":"MID1","name":"The Bean Room","currency":"USD"}"#,
+        ),
+        (
+            "clover.tokens",
+            r#"{"access_token":"c1","expires_at":"2030-01-01T00:00:00Z","refresh_token":"r1","merchant_id":"MID1"}"#,
+        ),
+        ("clover.tender.MID1", "T_MONERO"),
+        ("clover.since", "2026-10-22T16:06:00Z"),
+        ("clover.handled", "[]"),
+        ("shift.started", "1761148000"),
+        (
+            "counter.device",
+            r#"{"id":"DEV3F2A","learnedAt":1761148000}"#,
+        ),
+    ]);
+    platform.set("connection", &connection);
+    let mut config = config(None);
+    config.clover.base_url = Some(clover.uri());
+    let (engine, rx, _) = start(config, platform.clone());
+    let counters = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view
+            .counters
+            .as_ref()
+            .and_then(|c| c.this_device.as_ref())
+            .filter(|this| this.label == "This device: Front counter")
+            .map(|_| view.counters.clone().unwrap()),
+        _ => None,
+    });
+    assert_eq!(counters.every_device.label, "Every device at The Bean Room");
+    assert_eq!(
+        platform.get("clover.devices").as_deref(),
+        Some(r#"{"DEV3F2A":"Front counter"}"#)
+    );
+    let asked = clover
+        .received_requests()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.url.path().ends_with("/devices"))
+        .count();
+    assert_eq!(asked, 1, "Clover's devices are read once");
+    drop(engine);
+}
+
+/// The owner's fix 2: a payment while Till is behind is a notice on iPad and
+/// on an iPhone without the Live Activity, as on Android; on an iPhone with
+/// the Live Activity, the island says it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_payment_while_behind_is_a_notice_on_ipad_and_on_an_iphone_without_the_live_activity() {
+    for (device, island, notice) in [
+        (Device::Ipad, None, true),
+        (Device::Iphone, Some("false"), true),
+        (Device::Iphone, None, false),
+    ] {
+        let monokulo = monokulo().await;
+        let square = square().await;
+        let platform = signed_in_till(&monokulo);
+        if let Some(on) = island {
+            platform.set("island.activity", on);
+        }
+        let mut config = config(Some(&square));
+        config.device = device;
+        let (engine, rx, _) = start(config, platform);
+        engine.send(Action::Backgrounded);
+        wait_for(&rx, |heard| match heard {
+            Heard::Update(Update::Notification { view }) => view.alert.clone(),
+            _ => None,
+        });
+        engine.poke(|s| {
+            let p = s.parts.as_ref().unwrap();
+            p.side.books().record(till_ledger::Fact::OrderObserved(
+                till_ledger::OrderObserved {
+                    order_id: till_ledger::OrderId::new("ord_1"),
+                    phase: monokulo_client::SalePhase::Paid,
+                    confirmations: None,
+                    is_final: true,
+                    received: None,
+                    overpaid: false,
+                },
+            ));
+        });
+        // Two round trips through the engine's queue: the claim it made as
+        // it recorded the payment is delivered by the second.
+        let mut noticed = false;
+        for _ in 0..2 {
+            engine.send(Action::CopyAmount {
+                order_id: "ord_1".into(),
+            });
+            wait_for(&rx, |heard| match heard {
+                Heard::Effect(Effect::Notify { paid: true, .. }) => {
+                    noticed = true;
+                    None
+                }
+                Heard::Effect(Effect::CopyText { .. }) => Some(()),
+                _ => None,
+            });
+        }
+        assert_eq!(noticed, notice, "{device:?}, island {island:?}");
+    }
 }

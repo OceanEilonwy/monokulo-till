@@ -16,7 +16,9 @@ struct OnboardingTests {
 
     @Test func setupScreensAreOnboardingAndTheRestTheTill() {
         #expect(Route.of(nil) == .starting)
-        let setup: [Screen] = [.welcome, .scan, .confirm, .connected, .pointOfSale, .locations, .alerts, .float, .ready]
+        let setup: [Screen] = [
+            .welcome, .scan, .confirm, .connected, .pointOfSale, .locations, .counter, .alerts, .float, .showSales, .ready,
+        ]
         for screen in setup {
             #expect(Route.of(screen) == .onboarding)
         }
@@ -90,6 +92,18 @@ struct OnboardingTests {
         #expect(AlertsPermission.allows(.provisional))
         #expect(!AlertsPermission.allows(.denied))
         #expect(!AlertsPermission.allows(.notDetermined))
+    }
+
+    @Test func iPhonesBarIsHowFarSetupHasCome() {
+        #expect(SetupProgress.fraction(StepProgress(value: 1, total: 4)) == 0.25)
+        #expect(SetupProgress.fraction(StepProgress(value: 4, total: 4)) == 1)
+        #expect(SetupProgress.fraction(StepProgress(value: 1, total: 0)) == 0)
+    }
+
+    @Test func welcomesFeaturesHaveTheirSymbols() {
+        #expect(FeatureLook.symbol(.sales) == "bag")
+        #expect(FeatureLook.symbol(.code) == "qrcode")
+        #expect(FeatureLook.symbol(.confirmed) == "checkmark.circle")
     }
 
     @Test func boldRunsAreReadFromDoubleAsterisks() {

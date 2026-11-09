@@ -15,7 +15,7 @@ use till_sales::TillSale;
 use crate::order_text::{OrderCard, order_card};
 use crate::sale_page::header;
 use crate::time::DeviceClock;
-use crate::view::{Device, PosMark, Press, Ring, mark, ring};
+use crate::view::{Device, PaymentProgress, PosMark, Press, Ring, mark, ring};
 use crate::{close, pos_text, sale_text};
 
 /// What the sale screen shows.
@@ -61,17 +61,40 @@ pub struct SaleView {
     /// "Copy address", and what it copies.
     pub copy_address: Press,
     pub address: String,
-    /// Android: "Back to Square", and which point of sale it opens.
+    /// "Back to Square", and which point of sale it opens: on a till on
+    /// Square, for its own sales, on every device. Android draws it beside
+    /// "Copy address"; iOS on Paid, where Square is installed (core.md
+    /// decision 94).
     pub back_to_pos: Option<BackToPos>,
     /// The bar's X, which asks whether the customer is paying.
     pub closes: bool,
     /// The countdown is on screen: draw it again in a second.
     pub ticks: bool,
+    /// How far the payment has come, in the Till widget's thirds, for the
+    /// platform's progress bar (core.md decision 119).
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub progress: Option<PaymentProgress>,
+    /// A cash sale's "Paid in cash" (core.md decision 116).
+    #[cfg_attr(feature = "uniffi", uniffi(default = []))]
+    pub cash: Vec<crate::sale_page::CashButton>,
+    /// The words around the code on iOS (core.md decision 130): "Close the
+    /// sale" for the bar's X, "Customer view", "Share" and what the share
+    /// sheet calls it ("Monero payment · $13.88"), and "Order" over what
+    /// was bought.
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub close_label: String,
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub customer_view: String,
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub share: String,
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub share_title: String,
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub order_title: String,
 }
 
-/// Android's way back to the point of sale beside "Copy address": its
-/// words, and whose app it opens, so the button opens the point of sale it
-/// names.
+/// The way back to the point of sale: its words, and whose app it opens,
+/// so the button opens the point of sale it names.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct BackToPos {
@@ -105,7 +128,7 @@ pub fn code_said(sale: &TillSale, money: &dyn MoneyFormat) -> String {
 /// The sale at the clock's now, on `device`, amounts written by `money`.
 pub fn sale(
     input: &SaleInput,
-    device: Device,
+    _device: Device,
     clock: DeviceClock,
     money: &dyn MoneyFormat,
 ) -> SaleView {
@@ -113,10 +136,16 @@ pub fn sale(
     let header = header(sale, input.till, input.location.as_deref());
     let live = sale.live();
     let seconds = sale_text::seconds_left(sale.expires_at, clock.now);
+    let amount = sale_text::amount(sale, money);
     SaleView {
+        close_label: "Close the sale".into(),
+        customer_view: "Customer view".into(),
+        share: "Share".into(),
+        share_title: format!("Monero payment · {amount}"),
+        order_title: "Order".into(),
         title: sale_text::heading(sale),
         title_line: sale_text::heading_line(sale, &header.place),
-        amount: sale_text::amount(sale, money),
+        amount,
         xmr: sale_text::xmr(sale),
         code: sale.code.uri.clone(),
         code_said: code_said(sale, money),
@@ -133,10 +162,12 @@ pub fn sale(
         address: sale.address.clone(),
         back_to_pos: header
             .pos
-            .filter(|_| header.back_to_pos && !device.is_ios())
+            .filter(|_| header.back_to_pos)
             .map(BackToPos::new),
         closes: !close::choices(sale, header.elsewhere).is_empty(),
         ticks: live && sale.phase.counts_down(),
+        progress: crate::view::progress(sale),
+        cash: crate::sale_page::cash_buttons(sale, false),
     }
 }
 
@@ -228,11 +259,22 @@ mod tests {
     }
 
     #[test]
-    fn ios_has_copy_address_and_no_back_to_square() {
+    fn every_ios_device_is_offered_back_to_square_as_android_is() {
         for device in [Device::Iphone, Device::Ipad] {
             let view = sale(&input(bp9m(), SQUARE), device, la(at()), &money);
             assert_eq!(view.copy_address, Press::new("Copy address"));
-            assert_eq!(view.back_to_pos, None, "{device:?} can't open Square");
+            assert_eq!(
+                view.back_to_pos.map(|back| back.mark),
+                Some(PosMark::Square),
+                "{device:?} opens Square where it's installed"
+            );
+            let clover = sale(
+                &input(bp9m(), Some(PointOfSale::Clover)),
+                device,
+                la(at()),
+                &money,
+            );
+            assert_eq!(clover.back_to_pos, None, "Clover's device is its own");
         }
     }
 
@@ -285,6 +327,28 @@ mod tests {
         };
         let view = sale(&input(confirming, SQUARE), Device::Ipad, la(at()), &money);
         assert_eq!(view.status, "Confirming · 4 of 10");
+        assert_eq!(
+            view.progress.as_ref().unwrap().line,
+            "Confirming · 4 of 10 confirmations",
+            "decision 129: the bar's line counts them too"
+        );
+        // Decision 130: the words around the code are the engine's.
+        assert_eq!(
+            (
+                view.close_label.as_str(),
+                view.customer_view.as_str(),
+                view.share.as_str(),
+                view.share_title.as_str(),
+                view.order_title.as_str()
+            ),
+            (
+                "Close the sale",
+                "Customer view",
+                "Share",
+                "Monero payment · $13.88",
+                "Order"
+            )
+        );
         assert_eq!(view.hint, "The customer can go: it's being confirmed");
         assert_eq!(view.step, 3);
         assert_eq!(
@@ -292,7 +356,10 @@ mod tests {
             Ring::new(3, Some(4), Some(10)),
             "the ring grows with each confirmation"
         );
-        assert!(view.ring.spins && view.ring.green);
+        assert!(
+            view.ring.spins && !view.ring.green,
+            "green is for paid alone"
+        );
         assert!((view.ring.fill - (0.12 + 0.88 * 0.4)).abs() < 1e-6);
         assert!(!view.ticks);
     }

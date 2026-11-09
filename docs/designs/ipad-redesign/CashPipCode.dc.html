@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cash sale taken in Monero: the code</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 1180px; height: 820px; position: relative; overflow: hidden; background: #ececec; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; color: #1A1917;">
+  <div style="position: absolute; top: 0; left: 0; width: 760px; height: 820px; display: flex; flex-direction: column; padding: 28px 24px 24px; gap: 14px; box-sizing: border-box;">
+    <span style="font-size: 15px; font-weight: 700; color: #555555;">[Square POS · cash sale complete · $24.50]</span>
+    <div style="width: 700px; height: 300px; border-radius: 14px; background: #dcdcdc;"></div>
+  </div>
+
+  <div style="position: absolute; right: 24px; bottom: 32px; width: 300px; height: 300px; border-radius: 20px; overflow: hidden; background: #FFFFFF; box-shadow: 0 16px 44px rgba(0, 0, 0, 0.35); display: flex; flex-direction: column; align-items: center; justify-content: center; box-sizing: border-box; padding: 30px 44px 12px; gap: 6px;">
+    <span style="font-size: 17px; font-weight: 700;">Sam</span>
+    <dc-import name="QR" size="168" hint-size="168px,168px"></dc-import>
+    <span style="font-family: Manrope, sans-serif; font-size: 24px; font-weight: 800;">$24.50 <span style="font-family: -apple-system, system-ui, sans-serif; font-size: 13px; font-weight: 400; color: #5A564C;">· 15:00 left</span></span>
+  </div>
+
+  <div style="position: absolute; right: 348px; bottom: 200px; width: 340px; display: flex; flex-direction: column; gap: 8px; align-items: flex-end;">
+    <span style="padding: 8px 14px; border-radius: 16px; background: #1A1917; color: #FFFFFF; font-size: 13px; font-weight: 600;">Default: a cash sale comes straight here, like a Monero sale</span>
+    <span style="padding: 8px 14px; border-radius: 16px; background: #FFFFFF; border: 1px solid #DCD5C7; font-size: 13px; color: #3A3A3A; text-align: right;">Customer paid real cash? Paid in cash on the sale closes it, with no refund.</span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1180,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

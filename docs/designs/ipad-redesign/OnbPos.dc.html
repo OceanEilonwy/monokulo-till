@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Onboarding: choose the point of sale</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#B34700}a:hover{color:#1A1917}
+</style>
+</helmet>
+<div style="width: 1180px; height: 820px; position: relative; overflow: hidden; background: #F4F1EA; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; color: #1A1917; display: flex;">
+  <nav aria-label="Setup steps" style="width: 320px; flex: 0 0 auto; box-sizing: border-box; padding: 56px 28px; border-right: 1px solid #E4DED2; display: flex; flex-direction: column; gap: 4px;">
+    <span style="font-size: 13px; font-weight: 600; color: #5A564C; padding: 0 12px 10px;">SET UP TILL</span>
+    <sc-for list="{{steps}}" as="s" hint-placeholder-count="6">
+      <div style="display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px; border-radius: 10px; background: {{s.bg}};">
+        <span aria-hidden="true" style="width: 24px; height: 24px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; background: {{s.dotBg}}; color: {{s.dotFg}}; border: {{s.dotBorder}};">{{s.mark}}</span>
+        <span style="font-size: 17px; font-weight: {{s.weight}}; color: {{s.fg}};">{{s.name}}</span>
+      </div>
+    </sc-for>
+  </nav>
+
+  <main style="flex-grow: 1; display: flex; flex-direction: column; box-sizing: border-box; padding: 72px 80px 40px; gap: 12px;">
+    <h1 style="margin: 0; font-size: 28px; font-weight: 700;">Which point of sale do you use?</h1>
+    <p style="margin: 0; font-size: 17px; line-height: 24px; color: #5A564C; max-width: 580px;">Till signs in to it to see each Monero sale the moment you ring it up.</p>
+
+    <div style="margin-top: 20px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; max-width: 700px;">
+      <button type="button" aria-pressed="true" style="text-align: left; font: inherit; color: inherit; background: #FFFFFF; border: 2px solid #1A1917; border-radius: 16px; padding: 22px; display: flex; flex-direction: column; gap: 14px; cursor: pointer;">
+        <span style="display: flex; justify-content: space-between; align-items: center;">
+          <span aria-hidden="true" style="width: 44px; height: 44px; border-radius: 10px; background: #1A1917; display: flex; align-items: center; justify-content: center;"><span style="width: 18px; height: 18px; border: 3px solid #FFFFFF; border-radius: 4px;"></span></span>
+          <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#1A1917"></circle><path d="M7 12.4l3.2 3.2L17 8.8" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+        </span>
+        <span style="font-size: 20px; font-weight: 600;">Square</span>
+        <span style="font-size: 15px; line-height: 21px; color: #5A564C;">Square Point of Sale on this iPad or another device.</span>
+      </button>
+      <button type="button" aria-pressed="false" style="text-align: left; font: inherit; color: inherit; background: #FFFFFF; border: 1px solid #E4DED2; border-radius: 16px; padding: 23px; display: flex; flex-direction: column; gap: 14px; cursor: pointer;">
+        <span style="display: flex; justify-content: space-between; align-items: center;">
+          <span aria-hidden="true" style="width: 44px; height: 44px; border-radius: 10px; background: #E9E4DA; display: flex; align-items: center; justify-content: center;"><span style="width: 18px; height: 18px; border: 3px solid #5A564C; border-radius: 9px;"></span></span>
+          <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.5" fill="none" stroke="#8C8577" stroke-width="1.6"></circle></svg>
+        </span>
+        <span style="font-size: 20px; font-weight: 600;">Clover</span>
+        <span style="font-size: 15px; line-height: 21px; color: #5A564C;">A Clover device at the counter.</span>
+      </button>
+    </div>
+
+    <div style="flex-grow: 1;"></div>
+    <div style="display: flex; justify-content: space-between; align-items: flex-end; gap: 32px;">
+      <div style="display: flex; flex-direction: column; gap: 4px; max-width: 460px;">
+        <button type="button" style="align-self: flex-start; min-height: 44px; padding: 0; border: 0; background: none; font: inherit; font-size: 17px; color: #B34700; cursor: pointer;">Set up later</button>
+        <span style="font-size: 13px; line-height: 18px; color: #5A564C;">Without a point of sale, this iPad can't find new sales itself. It still shows sales that another till finds.</span>
+      </div>
+      <a href="OnbSquare.dc.html" style="min-width: 220px; height: 50px; padding: 0 28px; border-radius: 25px; background: #FF6600; color: #111111; font-size: 17px; font-weight: 600; display: flex; align-items: center; justify-content: center; text-decoration: none;">Continue with Square</a>
+    </div>
+  </main>
+  <div style="position: absolute; left: 0; top: 0;"><dc-import name="WindowControls" hint-size="120px,56px"></dc-import></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1180,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const names = ['Welcome', 'Connect your store', 'Point of sale', 'Alerts', 'How sales show up', 'Ready'];
+    const current = 2;
+    const steps = names.map((name, i) => {
+      const done = i < current, now = i === current;
+      return {
+        name,
+        mark: done ? '✓' : String(i + 1),
+        bg: now ? '#FFFFFF' : 'transparent',
+        weight: now ? 600 : 400,
+        fg: i > current ? '#5A564C' : '#1A1917',
+        dotBg: done ? '#1A1917' : now ? '#FF6600' : 'transparent',
+        dotFg: done ? '#FFFFFF' : now ? '#111111' : '#5A564C',
+        dotBorder: done || now ? '0' : '1.5px solid #8C8577',
+      };
+    });
+    return { steps };
+  }
+}
+</script>
+</body>
+</html>

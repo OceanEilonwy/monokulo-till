@@ -35,12 +35,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.monokulo.till.engine.CloseSheet
+import com.monokulo.till.engine.EngineStore
 import com.monokulo.till.engine.Nav
 import com.monokulo.till.engine.Work
 import com.monokulo.till.ui.AlertsScreen
 import com.monokulo.till.ui.CodeScreen
 import com.monokulo.till.ui.ConfirmScreen
 import com.monokulo.till.ui.ConnectedScreen
+import com.monokulo.till.ui.CounterScreen
 import com.monokulo.till.ui.FloatScreen
 import com.monokulo.till.ui.LocalPointOfSale
 import com.monokulo.till.ui.LocalReceiptFolds
@@ -49,6 +51,7 @@ import com.monokulo.till.ui.OrderPage
 import com.monokulo.till.ui.PointOfSaleScreen
 import com.monokulo.till.ui.PosSetupActions
 import com.monokulo.till.ui.ReadyScreen
+import com.monokulo.till.ui.ShowSalesScreen
 import com.monokulo.till.ui.SaleFace
 import com.monokulo.till.ui.SaleScreen
 import com.monokulo.till.ui.ScanScreen
@@ -276,6 +279,18 @@ class MainActivity : ComponentActivity() {
                 page, bubble = flows.settings.value?.bubble?.on == true,
                 onStart = { send(Action.StartShift) },
             )
+            is OnboardingPage.Counter -> CounterScreen(
+                page.view,
+                onPick = { send(Action.SetAlertFor(it)) },
+                onNext = { send(Action.Next) },
+                onBack = { send(Action.Back) },
+            )
+            is OnboardingPage.ShowSales -> ShowSalesScreen(
+                page.view,
+                onPick = { send(Action.ChooseShowSales(it)) },
+                onNext = { send(Action.Next) },
+                onBack = { send(Action.Back) },
+            )
         }
     }
 
@@ -313,6 +328,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         send(Action.Opened)
+        EngineStore.appStarted()
         (application as TillApp).clockMayHaveChanged()
     }
 
@@ -329,6 +345,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         send(Action.Backgrounded)
+        EngineStore.appStopped()
         super.onStop()
     }
 
@@ -376,14 +393,14 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Back to the point of sale the engine named: Square Point of Sale, if it's installed. On Clover, Till runs on the
-     * Clover device itself, over the Register it was opened from, so Till steps back to it, as it does when Square
-     * isn't installed (docs/decisions/core.md 94).
+     * Back to the point of sale the engine named: Square Point of Sale, if it's installed, else Till steps back to
+     * whatever was under it. Clover runs on its own device, with Till on a separate phone beside it, so there is no
+     * Clover app to open and the engine never offers the button there (docs/decisions/core.md 94).
      */
     private fun backToPos(pos: PosMark) {
         val app = when (pos) {
             PosMark.SQUARE -> packageManager.getLaunchIntentForPackage(SQUARE_POS)
-            PosMark.CLOVER -> null
+            PosMark.CLOVER -> return
         }
         if (app != null) startActivity(app) else moveTaskToBack(true)
     }
@@ -418,4 +435,6 @@ private fun OnboardingPage.isFor(screen: Screen): Boolean = when (this) {
     is OnboardingPage.Alerts -> screen == Screen.Alerts
     is OnboardingPage.Float -> screen == Screen.Float
     is OnboardingPage.Ready -> screen == Screen.Ready
+    is OnboardingPage.Counter -> screen == Screen.Counter
+    is OnboardingPage.ShowSales -> screen == Screen.ShowSales
 }

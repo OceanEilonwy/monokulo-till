@@ -27,10 +27,11 @@ pub fn title(sale: &TillSale) -> String {
     }
 }
 
-/// A sale page's title: whom it's for when the POS's order names them
-/// ([`TillSale::customer_name`]), else [`title`]. Only the sale's own pages
-/// show it: the shift, the bubble and the notifications (on the lock
-/// screen) keep [`title`].
+/// How staff tell the sale apart (core.md decision 118): whom it's for when
+/// the POS's order names them ([`TillSale::customer_name`]), else
+/// [`title`]. It leads the shift's rows, the sale's page, the alert and the
+/// Live Activity, and Android's notifications, their lock-screen text
+/// included (decision 124); the sale number moves to the line under it.
 pub fn heading(sale: &TillSale) -> String {
     customer(sale).map_or_else(|| title(sale), Into::into)
 }
@@ -45,11 +46,24 @@ pub fn heading_line(sale: &TillSale, place: &str) -> String {
     }
 }
 
-fn customer(sale: &TillSale) -> Option<&str> {
+/// Whom the sale is for, when the POS's order names them.
+pub fn customer(sale: &TillSale) -> Option<&str> {
     sale.customer_name
         .as_deref()
         .map(str::trim)
         .filter(|name| !name.is_empty())
+}
+
+/// "#m2Qe": the sale's number at the POS, when it gave one.
+pub fn label(sale: &TillSale) -> Option<String> {
+    let reference = sale.reference.as_deref()?.trim();
+    if reference.is_empty() {
+        None
+    } else if reference.starts_with('#') {
+        Some(reference.into())
+    } else {
+        Some(format!("#{reference}"))
+    }
 }
 
 /// Where it came from: "Front Counter · this till" for this till's, "From
@@ -89,7 +103,7 @@ pub fn status(sale: &TillSale, till: Option<PointOfSale>) -> String {
         Standing::Paid {
             late, after_refund, ..
         } => {
-            if after_refund {
+            let paid = if after_refund {
                 "Paid after the refund"
             } else if sale.closed_at.is_some() {
                 "Paid after you closed it"
@@ -97,9 +111,17 @@ pub fn status(sale: &TillSale, till: Option<PointOfSale>) -> String {
                 "Paid after the code expired"
             } else {
                 "Paid"
+            };
+            if sale.cash() {
+                // The point of sale's books say cash (core.md decision 117).
+                format!("{paid} in Monero · cash in {}", pos_text::name(till))
+            } else {
+                paid.into()
             }
         }
-        .into(),
+        Standing::CashOffer { kept: false } => format!("Cash in {}", pos_text::name(till)),
+        Standing::CashOffer { kept: true } => "Cash · kept as cash".into(),
+        Standing::PaidInCash => "Paid in cash".into(),
         Standing::Closed => "Closed · not paid".into(),
         Standing::Expired | Standing::Reversed | Standing::OtherTill => ended(sale.phase).into(),
         Standing::Refunded => pos_text::refunded_in(till),

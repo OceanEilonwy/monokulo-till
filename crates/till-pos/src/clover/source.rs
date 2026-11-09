@@ -183,6 +183,8 @@ impl CloverSource {
             order_id,
             created_at: crate::time::format(crate::time::from_millis(payment.created_time)),
             device_id: payment.device.map(|d| d.id),
+            device_name: None,
+            cash: false,
             title,
             point_of_sale: PointOfSale::Clover,
         }

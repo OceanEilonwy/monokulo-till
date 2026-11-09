@@ -4,7 +4,8 @@ plugins {
 
 // The Rust core, `till-ffi`: the one library the app loads, carrying the
 // engine and orf-codec (docs/decisions/core.md 3), and its UniFFI bindings
-// (`uniffi.till_app`, `uniffi.till_screens`, `uniffi.orf_codec_ffi`). Both
+// (`uniffi.till_app`, `uniffi.till_screens`, `uniffi.orf_codec_ffi`,
+// `uniffi.till_ffi`). Both
 // the native libraries and the Kotlin bindings are built here from the
 // crates, so they can't drift from them: building needs Rust, cargo-ndk and
 // the NDK. The other modules take it as an `api` dependency.
@@ -76,7 +77,7 @@ val cargoHost = tasks.register<Exec>("cargoHost") {
 }
 
 val uniffiBindings = tasks.register<CargoTask>("uniffiBindings") {
-    description = "Generates till-ffi's Kotlin bindings (uniffi.till_app, uniffi.till_screens, uniffi.orf_codec_ffi)."
+    description = "Generates till-ffi's Kotlin bindings (uniffi.till_app, uniffi.till_screens, uniffi.orf_codec_ffi, uniffi.till_ffi)."
     dependsOn(cargoHost)
     workingDir = repo
     outDir.set(layout.buildDirectory.dir("rust/kotlin"))
@@ -128,4 +129,8 @@ dependencies {
     // JNA as an AAR for the app (it carries JNA's own native library); the
     // plain jar for unit tests on the JVM, in each module that runs them.
     api("${libs.jna.get()}@aar")
+    // SqlcipherTest, on this machine's JVM against its own build of the library.
+    testImplementation(libs.jna)
+    testImplementation(libs.kotlin.test.junit)
+    testImplementation(libs.junit)
 }

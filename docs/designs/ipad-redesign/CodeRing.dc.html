@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Confirmation ring around the code</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: {{px}}; height: {{px}}; position: relative;">
+  <svg width="{{size}}" height="{{size}}" viewBox="0 0 100 100" style="position: absolute; inset: 0;" role="img" aria-label="{{label}}">
+    <circle cx="50" cy="50" r="47" fill="none" stroke="{{track}}" stroke-width="{{stroke}}"></circle>
+    <circle cx="50" cy="50" r="47" fill="none" stroke="{{arc}}" stroke-width="{{stroke}}" stroke-linecap="round" stroke-dasharray="{{dash}}" transform="rotate(-90 50 50)"></circle>
+  </svg>
+  <div style="position: absolute; inset: {{inset}}; border-radius: {{radius}}; background: #ffffff; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+    <sc-if value="{{showQr}}" hint-placeholder-val="{{true}}">
+      <dc-import name="QR" size="{{qrSize}}" hint-size="160px,160px"></dc-import>
+    </sc-if>
+    <sc-if value="{{paid}}" hint-placeholder-val="{{false}}">
+      <svg width="{{tick}}" height="{{tick}}" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="#1A7F37" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"size":{"editor":"int","default":320,"min":28,"max":600},"progress":{"editor":"range","default":0.3,"min":0,"max":1,"step":0.05},"paid":{"editor":"boolean","default":false},"qr":{"editor":"boolean","default":true},"$preview":{"width":320,"height":320}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const size = Number(this.props.size ?? 320);
+    const paid = !!this.props.paid && this.props.paid !== 'no';
+    const qrProp = this.props.qr;
+    const wantQr = !(qrProp === false || qrProp === 'no');
+    const progress = paid ? 1 : Math.max(0, Math.min(1, Number(this.props.progress ?? 0.3)));
+    const len = 2 * Math.PI * 47;
+    const stroke = size < 60 ? 9 : 4;
+    const inset = Math.round(size * (size < 60 ? 0.22 : 0.08));
+    const inner = size - inset * 2;
+    return {
+      size, px: size + 'px',
+      stroke,
+      arc: paid ? '#1A7F37' : '#E85D00',
+      track: '#8C8577',
+      dash: (len * progress).toFixed(1) + ' ' + len.toFixed(1),
+      inset: inset + 'px',
+      radius: Math.round(inner * 0.08) + 'px',
+      showQr: wantQr && !paid && size >= 120,
+      qrSize: Math.round(inner * 0.92),
+      paid,
+      tick: Math.round(inner * 0.7),
+      label: paid ? 'Paid' : 'Payment ' + Math.round(progress * 100) + '% confirmed',
+    };
+  }
+}
+</script>
+</body>
+</html>
