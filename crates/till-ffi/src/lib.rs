@@ -1,9 +1,13 @@
 //! The one library the apps load (docs/ios-plan.md §2): the engine with its
-//! bridge turned on, and orf-codec's bindings. Besides that, only Android's
-//! start-up call for certificate checks.
+//! bridge turned on, and orf-codec's bindings. Besides that, Android's
+//! start-up call for certificate checks, and the check that SQLCipher is
+//! linked (`sqlcipher_check`, its own bindings `till_ffi`).
 
 till_app::uniffi_reexport_scaffolding!();
 orf_codec_ffi::uniffi_reexport_scaffolding!();
+uniffi::setup_scaffolding!();
+
+mod sqlcipher;
 
 /// What Android calls once, before the engine's first request: reqwest's
 /// rustls checks certificates through `rustls-platform-verifier`, which on

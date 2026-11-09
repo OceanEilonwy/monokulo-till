@@ -53,7 +53,11 @@ final class NotificationService: UNNotificationServiceExtension {
         let platform = DevicePlatform()
         guard isRelayedDing(platform: platform, content: ciphertext) else { return nil }
         let config = TillShared.config(device: device, deviceName: "")
+        // The core holds the extension awake around each ledger write, and
+        // the app re-reads the ledger after the round (CoreLifecycle.swift).
+        setBackgroundWork(work: DeviceBackgroundWork.shared)
         let check = backgroundCheck(config: config, platform: platform, deadlineMs: deadlineMs)
+        LedgerSignal.post()
         if let alert = check.alerts.first {
             return RelayedPush.rewritten(original, as: alert)
         }

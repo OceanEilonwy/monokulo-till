@@ -39,6 +39,10 @@ final class Core {
     /// What the build chose: the points of sale's redirects among it.
     let config: EngineConfig
     private var engine: Engine?
+    /// The engine's half of going to the background and back, and the
+    /// extension's word that it wrote the ledger (CoreLifecycle.swift).
+    private let lifecycle = EngineLifecycle()
+    private var ledgerSignal: LedgerSignalObserver?
     private let signIn: SignInSession
     /// Taps on a new sale's alert, which open the sale.
     private var taps: NotificationTaps?
@@ -53,6 +57,8 @@ final class Core {
         config = Core.config()
         signIn = SignInSession()
         let listener = Listener(core: self)
+        // Before the engine's first write to the ledger.
+        setBackgroundWork(work: DeviceBackgroundWork.shared)
         engine = Engine(config: config, platform: secrets, push: push, listener: listener)
         let taps = NotificationTaps(
             open: { [weak self] orderId in
@@ -65,6 +71,7 @@ final class Core {
             }
         )
         self.taps = taps
+        ledgerSignal = LedgerSignalObserver { [weak engine = self.engine] in engine?.ledgerChanged() }
         liveActivity.onPushToken = { [weak self] token in
             self?.registerLiveActivityPushToken(token)
         }
@@ -109,13 +116,17 @@ final class Core {
     /// and hears what the system allows now.
     func opened() {
         send(.opened)
+        if let engine { lifecycle.resume(engine) }
         liveActivity.resume()
         pip?.appInFront()
         Task { await readPermissions() }
     }
 
+    /// The app went to the background: the engine hears it, then closes
+    /// its ledger before iOS may suspend the app (`Engine.suspend`).
     func backgrounded() {
         send(.backgrounded)
+        if let engine { lifecycle.suspend(engine) }
     }
 
     /// Once the move to `screen` has settled (its animation, then a little),

@@ -108,7 +108,8 @@ targets:
   # The Notification Service Extension (docs/ios-plan.md §5, phase I5): opens
   # a Bell's ding the relay carried, looks for the sale through the core and
   # rewrites the alert. It links the core's static library itself, and shares
-  # the app's Keychain storage, configuration and build settings.
+  # the app's Keychain storage, configuration and build settings, and the
+  # ledger's background task assertions and Darwin notification.
   TillNotifications:
     type: app-extension
     platform: iOS
@@ -116,6 +117,7 @@ targets:
       - path: TillNotifications
         excludes: [Info.plist]
       - Till/DevicePlatform.swift
+      - Till/CoreLifecycle.swift
       - Till/TillShared.swift
       - Till/Build.swift
     dependencies:
