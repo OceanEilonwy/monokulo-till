@@ -1119,8 +1119,7 @@ merge, views, effects and database.
 
 The platform side of [ledger.md](../ledger.md) §4, §11 and §14: SQLCipher
 in the one library on every target, and what only iOS and Android can do
-for the ledger. The ledger's own crate and its integration record theirs
-after these.
+for the ledger. The ledger crate's decisions (PR 59) come before these.
 
 150. **SQLCipher is compiled into the library everywhere.** The workspace
      takes `rusqlite` 0.41.1 (libsqlite3-sys 0.39.1) with default
@@ -1135,7 +1134,9 @@ after these.
      libcrypto an app may link, till-ffi adds
      `bundled-sqlcipher-vendored-openssl` for that target only, so
      OpenSSL's libcrypto is built from source into each ABI's `.so`
-     (a cold build's cost, which rust-cache then keeps).
+     (a cold build's cost, which rust-cache then keeps). Features unify
+     per target, so if till-ledger also asks for the vendored OpenSSL
+     off Apple, Linux builds use it too; it is still one libsqlite3-sys.
      `OPENSSL_DIR` must stay unset on the Mac, or libsqlite3-sys would
      take Homebrew's OpenSSL for the iOS targets. till-ffi exports
      `sqlcipher_check(dir)` (its own bindings, `till_ffi`), which opens a

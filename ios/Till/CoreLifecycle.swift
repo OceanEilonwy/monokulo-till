@@ -3,7 +3,7 @@ import Foundation
 import TillCore
 
 /// What only iOS can do for the core's ledger (docs/ledger.md §11; docs/
-/// decisions/core.md 144, 145). Compiled into the app and its Notification
+/// decisions/core.md 151, 152). Compiled into the app and its Notification
 /// Service Extension. Nothing here decides anything about the ledger: the
 /// core says when it writes, and decides what to close, reopen or re-read.
 ///

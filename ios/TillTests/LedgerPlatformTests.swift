@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Till
 
-/// What iOS gives the core's ledger (docs/decisions/core.md 143-145):
+/// What iOS gives the core's ledger (docs/decisions/core.md 150-152):
 /// SQLCipher in the library, background task assertions, the extension's
 /// Darwin notification, and no backup of the core's files.
 struct LedgerPlatformTests {

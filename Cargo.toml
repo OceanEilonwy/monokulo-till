@@ -36,7 +36,7 @@ wiremock = "0.6.5"
 # The ledger's database (docs/ledger.md §4, §11): SQLCipher compiled into the
 # library, never the system's SQLite. On Apple targets it encrypts with
 # CommonCrypto; elsewhere with OpenSSL's libcrypto, which till-ffi vendors
-# for Android (docs/decisions/core.md 143).
+# for Android (docs/decisions/core.md 150).
 rusqlite = { version = "0.41.1", default-features = false, features = ["bundled-sqlcipher"] }
 
 # orf-codec-ffi's library as the Android app ships it, once per ABI: small.
