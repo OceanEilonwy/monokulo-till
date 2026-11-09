@@ -3,7 +3,9 @@
 //! pushes set the same fields through the relay; the widget draws its own
 //! words from them ("Seen", "1/2", "Tap to show code").
 //!
-//! iPhone only: the iPad's till is in Slide Over, Android has its ongoing
+//! iPhone's Live Activity, and the iPad's Picture in Picture window when
+//! a new sale shows up in a floating window (docs/ipad-redesign.md
+//! decision 2): the same state draws both. Android has its ongoing
 //! notification ([`crate::notification`]).
 
 use till_sales::TillSale;
@@ -115,9 +117,10 @@ fn label(sale: &TillSale) -> Option<String> {
     }
 }
 
-/// The content state on `device`: `None` but on iPhone.
+/// The content state on `device`: `None` on Android. The engine asks on
+/// iPad only while its Picture in Picture window is chosen.
 pub fn live_activity(input: &LiveActivityInput, device: Device) -> Option<LiveActivityState> {
-    if device != Device::Iphone {
+    if !device.is_ios() {
         return None;
     }
     let own: Vec<&TillSale> = input
@@ -224,7 +227,11 @@ mod tests {
                 name: None,
             }
         );
-        assert_eq!(live_activity(&input(vec![]), Device::Ipad), None);
+        assert_eq!(
+            live_activity(&input(vec![]), Device::Ipad),
+            Some(state),
+            "the iPad's floating window draws the same state"
+        );
         assert_eq!(live_activity(&input(vec![]), Device::Android), None);
     }
 

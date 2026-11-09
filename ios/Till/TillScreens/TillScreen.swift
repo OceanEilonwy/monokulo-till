@@ -277,7 +277,8 @@ struct SaleDetail: View {
             if sale.code.done {
                 SalePageScreen(
                     orderId: orderId, page: sale.page, paid: SalePageScreen.isPaid(sale.view),
-                    celebrate: celebrate, send: send
+                    celebrate: celebrate, send: send,
+                    backToSquare: backToSquare(paid: SalePageScreen.isPaid(sale.view))
                 )
             } else {
                 SaleScreen(orderId: orderId, view: sale.view, send: send)
@@ -285,6 +286,13 @@ struct SaleDetail: View {
         } else {
             TillLoading()
         }
+    }
+
+    /// Paid's Back to Square (A3), when it's offered.
+    private func backToSquare(paid: Bool) -> (@MainActor @Sendable () -> Void)? {
+        guard paid, BackToSquare.shown(core) else { return nil }
+        let core = core
+        return { @MainActor @Sendable in BackToSquare.open(core) }
     }
 }
 

@@ -675,6 +675,41 @@ async fn the_live_activity_follows_the_tills_own_sale_and_the_islands_switches()
     assert_eq!(live_activity(&rx), None, "no activity with the switch off");
 }
 
+/// The iPad's floating window (ipad-redesign.md decision 2) draws the Live
+/// Activity's state, with the code while the sale waits, only while a new
+/// sale shows up in a floating window.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_ipads_floating_window_follows_the_sale_only_while_chosen() {
+    use till_screens::live_activity::ActivityPhase;
+    let monokulo = monokulo().await;
+    let square = square().await;
+    let platform = signed_in_till(&monokulo);
+    platform.set("sales.show", "pip");
+    let ipad = EngineConfig {
+        device: Device::Ipad,
+        ..config(Some(&square))
+    };
+    let (engine, rx, _) = start(ipad, platform);
+    let waiting = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::LiveActivity { state: Some(state) })
+            if state.phase == ActivityPhase::Waiting =>
+        {
+            Some(state.clone())
+        }
+        _ => None,
+    });
+    assert_eq!(waiting.amount.as_deref(), Some("13.88"));
+    assert_eq!(
+        waiting.payment_uri.as_deref(),
+        Some("monero:8Bx?tx_amount=0.08"),
+        "the window shows the code"
+    );
+    engine.send(Action::ChooseShowSales {
+        mode: crate::ShowSales::Alert,
+    });
+    assert_eq!(live_activity(&rx), None, "no window with alerts chosen");
+}
+
 /// Android's ongoing notification alerts a sale that arrives while the app
 /// is in the back, in one update, and has no Live Activity.
 #[tokio::test(flavor = "multi_thread")]
