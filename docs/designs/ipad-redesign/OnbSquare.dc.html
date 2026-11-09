@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Onboarding: sign in to Square</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#B34700}a:hover{color:#1A1917}
+</style>
+</helmet>
+<div style="width: 1180px; height: 820px; position: relative; overflow: hidden; background: #F4F1EA; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; color: #1A1917; display: flex;">
+  <dc-import name="OnbRail" current="2" hint-size="320px,820px"></dc-import>
+
+  <main style="flex-grow: 1; display: flex; flex-direction: column; box-sizing: border-box; padding: 72px 80px 40px; gap: 12px;">
+    <h1 style="margin: 0; font-size: 28px; font-weight: 700;">Sign in to Square</h1>
+    <p style="margin: 0; font-size: 17px; line-height: 24px; color: #5A564C; max-width: 580px;">Square's own page opens. Sign in as the business owner and allow Till.</p>
+
+    <div style="margin-top: 20px; max-width: 620px; display: flex; flex-direction: column; gap: 20px;">
+      <div style="background: #FFFFFF; border-radius: 12px; overflow: hidden;">
+        <div style="display: flex; align-items: center; gap: 12px; padding: 0 16px; min-height: 52px; border-bottom: 1px solid #ECE6DA;">
+          <span style="flex-grow: 1; font-size: 17px;">Point of sale</span>
+          <span style="font-size: 17px; color: #5A564C;">Square</span>
+          <a href="OnbPos.dc.html" style="min-height: 44px; display: flex; align-items: center; font-size: 17px; text-decoration: none;">Change</a>
+        </div>
+        <details style="padding: 0 16px;">
+          <summary style="min-height: 52px; display: flex; align-items: center; font-size: 17px; cursor: pointer; list-style: none;"><span style="flex-grow: 1;">What Till can see and do</span><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2l4 4-4 4" fill="none" stroke="#8C8577" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg></summary>
+          <ul style="margin: 0 0 14px; padding-left: 20px; font-size: 15px; line-height: 22px; color: #5A564C;">
+            <li>Read payments, orders and locations</li>
+            <li>Refund a Monero sale that's never paid</li>
+          </ul>
+        </details>
+      </div>
+      <p style="margin: 0; font-size: 13px; line-height: 18px; color: #5A564C;">Till keeps the sign-in on this iPad. It never reaches your Monokulo server.</p>
+    </div>
+
+    <div style="flex-grow: 1;"></div>
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+      <a href="OnbPos.dc.html" style="min-height: 44px; display: flex; align-items: center; font-size: 17px; text-decoration: none;">Back</a>
+      <a href="OnbTest.dc.html" style="min-width: 240px; height: 50px; padding: 0 28px; border-radius: 25px; background: #FF6600; color: #111111; font-size: 17px; font-weight: 600; display: flex; align-items: center; justify-content: center; text-decoration: none;">Sign in with Square</a>
+    </div>
+  </main>
+  <div style="position: absolute; left: 0; top: 0;"><dc-import name="WindowControls" hint-size="120px,56px"></dc-import></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1180,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

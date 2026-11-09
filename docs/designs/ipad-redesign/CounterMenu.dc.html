@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Counters: title menu</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 1180px; height: 820px; position: relative; overflow: hidden; background: #F4F1EA; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; color: #1A1917; display: flex;">
+  <aside aria-label="Sales" style="width: 380px; flex: 0 0 auto; box-sizing: border-box; border-right: 1px solid #E4DED2; display: flex; flex-direction: column; padding: 64px 16px 20px; gap: 14px;">
+    <button type="button" aria-haspopup="menu" aria-expanded="true" style="align-self: flex-start; display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 8px; border: 0; border-radius: 10px; background: rgba(255, 255, 255, 0.7); font: inherit; color: #1A1917; cursor: pointer;">
+      <span style="font-size: 22px; font-weight: 700;">Front iPad</span>
+      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 5l4 4 4-4" fill="none" stroke="#1A1917" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+    </button>
+    <span style="font-size: 13px; color: #5A564C; padding: 0 8px; margin-top: -10px;">Front Counter · this counter</span>
+    <div style="background: #FFFFFF; border-radius: 12px; overflow: hidden; opacity: 0.55;">
+      <div style="display: flex; align-items: center; gap: 12px; min-height: 58px; padding: 0 14px; border-bottom: 1px solid #ECE6DA;"><dc-import name="StatusGlyph" size="24" state="seen" hint-size="24px,24px"></dc-import><span style="flex-grow: 1; font-size: 17px; font-weight: 600;">Sam</span><span style="font-size: 17px;">$13.88</span></div>
+      <div style="display: flex; align-items: center; gap: 12px; min-height: 58px; padding: 0 14px;"><dc-import name="StatusGlyph" size="24" state="paid" hint-size="24px,24px"></dc-import><span style="flex-grow: 1; font-size: 17px; font-weight: 600;">Priya</span><span style="font-size: 17px;">$8.40</span></div>
+    </div>
+  </aside>
+
+  <div role="menu" aria-label="Show sales from" style="position: absolute; left: 24px; top: 114px; width: 300px; background: rgba(255, 255, 255, 0.96); border-radius: 16px; box-shadow: 0 18px 50px rgba(26, 25, 23, 0.25); padding: 6px; display: flex; flex-direction: column;">
+    <span style="font-size: 13px; color: #5A564C; padding: 8px 12px 4px;">Show sales from</span>
+    <sc-for list="{{items}}" as="i" hint-placeholder-count="4">
+      <button type="button" role="menuitemradio" aria-checked="{{i.checked}}" style="display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 12px; border: 0; border-radius: 10px; background: {{i.bg}}; font: inherit; color: #1A1917; text-align: left; cursor: pointer;">
+        <span style="width: 18px; display: flex;"><sc-if value="{{i.on}}" hint-placeholder-val="{{false}}"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3.2 3.2L13 4.8" fill="none" stroke="#1A1917" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg></sc-if></span>
+        <span style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0;"><span style="font-size: 17px;">{{i.name}}</span><span style="font-size: 12px; color: #5A564C; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{i.sub}}</span></span>
+        <span style="font-size: 13px; color: #5A564C; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{i.count}}</span>
+      </button>
+    </sc-for>
+    <div style="height: 1px; background: #ECE6DA; margin: 4px 8px;"></div>
+    <button type="button" role="menuitemradio" aria-checked="false" style="display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 12px; border: 0; border-radius: 10px; background: none; font: inherit; color: #1A1917; text-align: left;">
+      <span style="width: 18px;"></span><span style="flex-grow: 1; font-size: 17px;">All counters</span><span style="font-size: 13px; color: #5A564C; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">3 waiting</span>
+    </button>
+  </div>
+
+  <main style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 0 40px 40px; opacity: 0.55;">
+    <dc-import name="TillWidget" size="104" state="idle" hint-size="104px,104px"></dc-import>
+    <h1 style="margin: 6px 0 0; font-size: 28px; font-weight: 700;">Ready for the next sale</h1>
+  </main>
+  <div style="position: absolute; left: 0; top: 0;"><dc-import name="WindowControls" hint-size="120px,56px"></dc-import></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1180,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const items = [
+      { name: 'Front iPad', sub: 'This counter · alerts', count: '1 waiting', on: true },
+      { name: 'Bar iPad', sub: 'No alerts here', count: '1 waiting', on: false },
+      { name: 'Kiosk', sub: 'No alerts here', count: '1 waiting', on: false },
+    ].map((i) => ({ ...i, checked: i.on ? 'true' : 'false', bg: i.on ? '#F4F1EA' : 'transparent' }));
+    return { items };
+  }
+}
+</script>
+</body>
+</html>

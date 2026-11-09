@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Empty till, later in the shift</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#B34700}a:hover{color:#1A1917}
+</style>
+</helmet>
+<div style="width: 1180px; height: 820px; position: relative; overflow: hidden; background: #F4F1EA; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; color: #1A1917; display: flex;">
+  <aside aria-label="This shift" style="width: 360px; flex: 0 0 auto; box-sizing: border-box; border-right: 1px solid #E4DED2; display: flex; flex-direction: column; padding: 64px 16px 20px; gap: 16px;">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 0 8px;">
+      <div style="flex-grow: 1; display: flex; flex-direction: column;">
+        <span style="font-size: 22px; font-weight: 700;">Front Counter</span>
+        <span style="font-size: 13px; color: #5A564C; display: flex; align-items: center; gap: 6px;"><svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><circle cx="4" cy="4" r="4" fill="#1A7F37"></circle></svg>Watching Square</span>
+      </div>
+      <button type="button" aria-label="Settings" style="width: 44px; height: 44px; border-radius: 22px; border: 0; background: rgba(255, 255, 255, 0.8); display: flex; align-items: center; justify-content: center;"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2" fill="none" stroke="#1A1917" stroke-width="2"></circle><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1" stroke="#1A1917" stroke-width="2" stroke-linecap="round"></path></svg></button>
+    </div>
+
+    <div style="background: #FFFFFF; border-radius: 12px; padding: 14px 16px; display: flex; justify-content: space-between; align-items: baseline;">
+      <span style="font-size: 15px; color: #5A564C;">This shift</span>
+      <span style="font-family: Manrope, sans-serif; font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums;">$142.30 <span style="font-family: -apple-system, system-ui, sans-serif; font-size: 15px; font-weight: 400; color: #5A564C;">· 9 paid</span></span>
+    </div>
+
+    <div role="tablist" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); background: #E9E4DA; border-radius: 9px; padding: 2px;">
+      <button type="button" role="tab" aria-selected="true" style="height: 32px; border: 0; border-radius: 7px; background: #FFFFFF; font: inherit; font-size: 13px; font-weight: 600;">All</button>
+      <button type="button" role="tab" aria-selected="false" style="height: 32px; border: 0; border-radius: 7px; background: none; font: inherit; font-size: 13px;">Needs action</button>
+      <button type="button" role="tab" aria-selected="false" style="height: 32px; border: 0; border-radius: 7px; background: none; font: inherit; font-size: 13px;">Paid</button>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 6px;">
+      <span style="font-size: 13px; font-weight: 600; color: #5A564C; padding: 0 8px;">EARLIER</span>
+      <div style="background: #FFFFFF; border-radius: 12px; overflow: hidden;">
+        <sc-for list="{{sales}}" as="s" hint-placeholder-count="5">
+          <div style="display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 0 14px; border-bottom: 1px solid #ECE6DA;">
+            <dc-import name="StatusGlyph" size="24" state="{{s.state}}" hint-size="24px,24px"></dc-import>
+            <span style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0;">
+              <span style="font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{s.title}}</span>
+              <span style="font-size: 13px; color: {{s.toneColor}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{s.status}}</span>
+            </span>
+            <span style="font-size: 17px; font-variant-numeric: tabular-nums;">{{s.amount}}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </aside>
+
+  <main style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 0 40px 40px;">
+    <dc-import name="TillWidget" size="104" state="idle" hint-size="104px,104px"></dc-import>
+    <h1 style="margin: 6px 0 0; font-size: 28px; font-weight: 700;">Ready for the next sale</h1>
+    <p style="margin: 0; font-size: 17px; line-height: 24px; color: #5A564C; max-width: 420px;">The last one was paid 4 minutes ago. Ring up the next in Square and choose Monero.</p>
+  </main>
+  <div style="position: absolute; left: 0; top: 0;"><dc-import name="WindowControls" hint-size="120px,56px"></dc-import></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1180,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const rows = [
+      ['Priya', '#j1Qx', '$8.40', 'Paid · 4 min ago', 'yes'],
+      ['Kofi', '#h7Rt', '$15.75', 'Paid · 18 min ago', 'yes'],
+      ['', '#g2Lm', '$6.20', 'Closed · not paid · refund it in Square', 'no'],
+      ['Mei', '#f8Kc', '$22.00', 'Paid · 41 min ago', 'yes'],
+      ['Tom', '#d4Wn', '$4.50', 'Paid · 1 h ago', 'yes'],
+    ];
+    const sales = rows.map(([name, ref, amount, status0, paid]) => ({
+      ref, amount, paid, title: name || ('Sale ' + ref), status: status0 + (name ? ' · ' + ref : ''), state: paid === 'yes' ? 'paid' : 'closed',
+      toneColor: paid === 'yes' ? '#1A7F37' : '#7D5E00',
+    }));
+    return { sales };
+  }
+}
+</script>
+</body>
+</html>

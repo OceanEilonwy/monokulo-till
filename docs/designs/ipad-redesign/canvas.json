@@ -1,0 +1,433 @@
+{
+  "v": 3,
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-11-09T18:30:00Z"
+  },
+  "title": "Till iPad feedback proposals",
+  "launch": {
+    "view": "canvas"
+  },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 1180,
+      "h": 820,
+      "title": "A1 \u00b7 Sale found: a time-sensitive alert over Square"
+    },
+    "AlertSale.dc.html": {
+      "x": 1260,
+      "y": 0,
+      "w": 1180,
+      "h": 820,
+      "title": "A2 \u00b7 Alert tapped: Till full screen, code ready for the customer"
+    },
+    "AlertPaid.dc.html": {
+      "x": 2520,
+      "y": 0,
+      "w": 1180,
+      "h": 820,
+      "title": "A3 \u00b7 Paid: one gesture back to Square"
+    },
+    "PipIdle.dc.html": {
+      "x": 0,
+      "y": 1240,
+      "w": 1180,
+      "h": 820,
+      "title": "P1 \u00b7 Floating window over Square, watching"
+    },
+    "PipSale.dc.html": {
+      "x": 1260,
+      "y": 1240,
+      "w": 1180,
+      "h": 820,
+      "title": "P2 \u00b7 A sale: the code in the floating window"
+    },
+    "PipPaid.dc.html": {
+      "x": 2520,
+      "y": 1240,
+      "w": 1180,
+      "h": 820,
+      "title": "P3 \u00b7 Paid, then back to watching"
+    },
+    "PipSizes.dc.html": {
+      "x": 3780,
+      "y": 1240,
+      "w": 1180,
+      "h": 820,
+      "title": "P4 \u00b7 The window's content at each size"
+    },
+    "OnbPos.dc.html": {
+      "x": 0,
+      "y": 2480,
+      "w": 1180,
+      "h": 820,
+      "title": "O1 \u00b7 Point of sale: its own step"
+    },
+    "OnbSquare.dc.html": {
+      "x": 1260,
+      "y": 2480,
+      "w": 1180,
+      "h": 820,
+      "title": "O2 \u00b7 Connect Square: one job per screen"
+    },
+    "OnbTest.dc.html": {
+      "x": 2520,
+      "y": 2480,
+      "w": 1180,
+      "h": 820,
+      "title": "O3 \u00b7 The test sale: says why Continue waits"
+    },
+    "OnbShow.dc.html": {
+      "x": 3780,
+      "y": 2480,
+      "w": 1180,
+      "h": 820,
+      "title": "O4 \u00b7 How Till shows a sale (replaces 'Put Till in Slide Over')",
+      "is_interactive": true
+    },
+    "EmptyFirst.dc.html": {
+      "x": 0,
+      "y": 3720,
+      "w": 1180,
+      "h": 820,
+      "title": "E1 \u00b7 Empty till, start of the shift"
+    },
+    "EmptyLater.dc.html": {
+      "x": 1260,
+      "y": 3720,
+      "w": 1180,
+      "h": 820,
+      "title": "E2 \u00b7 Empty till, later in the shift"
+    },
+    "QR.dc.html": {
+      "x": 2520,
+      "y": 3720,
+      "w": 200,
+      "h": 200,
+      "title": "Part \u00b7 QR placeholder (prop: size)"
+    },
+    "Tokens.dc.html": {
+      "x": 0,
+      "y": 4960,
+      "w": 1180,
+      "h": 820,
+      "title": "D0 \u00b7 Tokens: colour roles, type, the ring"
+    },
+    "DesignPad.dc.html": {
+      "x": 1260,
+      "y": 4960,
+      "w": 1180,
+      "h": 820,
+      "title": "D1 \u00b7 iPad full screen: sales list beside the live sale (split view)"
+    },
+    "DesignPhone.dc.html": {
+      "x": 2520,
+      "y": 4960,
+      "w": 390,
+      "h": 844,
+      "title": "D2 \u00b7 iPhone: a sale, system navigation"
+    },
+    "DesignPaid.dc.html": {
+      "x": 2990,
+      "y": 4960,
+      "w": 390,
+      "h": 844,
+      "title": "D3 \u00b7 Paid: the one motion moment"
+    },
+    "DesignSettings.dc.html": {
+      "x": 3460,
+      "y": 4960,
+      "w": 390,
+      "h": 844,
+      "title": "D4 \u00b7 Settings: status rows, not switches that snap back"
+    },
+    "OnbRail.dc.html": {
+      "x": 3800,
+      "y": 3720,
+      "w": 320,
+      "h": 820,
+      "title": "Part \u00b7 Onboarding step rail (prop: current)"
+    },
+    "WindowControls.dc.html": {
+      "x": 4880,
+      "y": 3720,
+      "w": 120,
+      "h": 56,
+      "title": "Part \u00b7 iPadOS window controls, a system overlay (red dashes: keep clear)"
+    },
+    "TillWidget.dc.html": {
+      "x": 4400,
+      "y": 3720,
+      "w": 160,
+      "h": 160,
+      "title": "Part \u00b7 Till status widget, from Monokulo Branding (props: size, state, dark)"
+    },
+    "TillRound.dc.html": {
+      "x": 4640,
+      "y": 3720,
+      "w": 160,
+      "h": 160,
+      "title": "Part \u00b7 Till round widget, from Monokulo Branding (props: size, state, dark)"
+    },
+    "CounterScope.dc.html": {
+      "x": 0,
+      "y": 6224,
+      "w": 1180,
+      "h": 820,
+      "title": "C1 \u00b7 Not chosen: a This counter / All counters switch (clickable)",
+      "is_interactive": true
+    },
+    "CounterSections.dc.html": {
+      "x": 1260,
+      "y": 6224,
+      "w": 1180,
+      "h": 820,
+      "title": "C2 \u00b7 Not chosen: other counters in a section below (clickable)",
+      "is_interactive": true
+    },
+    "CounterMenu.dc.html": {
+      "x": 2520,
+      "y": 6224,
+      "w": 1180,
+      "h": 820,
+      "title": "C3 \u00b7 Chosen: pick the counter from the title menu (iPad and iPhone)"
+    },
+    "CounterLearn.dc.html": {
+      "x": 3780,
+      "y": 6224,
+      "w": 1180,
+      "h": 820,
+      "title": "C4 \u00b7 Onboarding: the test sale tells Till which device is this counter",
+      "is_interactive": true
+    },
+    "CounterSettings.dc.html": {
+      "x": 5040,
+      "y": 6224,
+      "w": 1180,
+      "h": 820,
+      "title": "C5 \u00b7 Settings: sales from this device or every device"
+    },
+    "CashPip.dc.html": {
+      "x": 0,
+      "y": 7464,
+      "w": 1180,
+      "h": 820,
+      "title": "K1 \u00b7 Setting off: the floating strip offers Monero for a cash sale"
+    },
+    "CashPipCode.dc.html": {
+      "x": 1260,
+      "y": 7464,
+      "w": 1180,
+      "h": 820,
+      "title": "K2 \u00b7 Tapped (or setting on): the strip grows into the code"
+    },
+    "CashTill.dc.html": {
+      "x": 2520,
+      "y": 7464,
+      "w": 1180,
+      "h": 820,
+      "title": "K3 \u00b7 Setting off: a cash sale, quiet, with Take it in Monero"
+    },
+    "CashSettings.dc.html": {
+      "x": 3780,
+      "y": 7464,
+      "w": 1180,
+      "h": 820,
+      "title": "K4 \u00b7 Settings: cash is treated as Monero by default",
+      "is_interactive": true
+    },
+    "StatusGlyph.dc.html": {
+      "x": 5120,
+      "y": 3720,
+      "w": 24,
+      "h": 24,
+      "title": "Part \u00b7 Status glyph (props: size, state, dark)"
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "AlertSale.dc.html",
+    "AlertPaid.dc.html",
+    "PipIdle.dc.html",
+    "PipSale.dc.html",
+    "PipPaid.dc.html",
+    "PipSizes.dc.html",
+    "OnbPos.dc.html",
+    "OnbSquare.dc.html",
+    "OnbTest.dc.html",
+    "OnbShow.dc.html",
+    "EmptyFirst.dc.html",
+    "EmptyLater.dc.html",
+    "QR.dc.html",
+    "Tokens.dc.html",
+    "DesignPad.dc.html",
+    "DesignPhone.dc.html",
+    "DesignPaid.dc.html",
+    "DesignSettings.dc.html",
+    "OnbRail.dc.html",
+    "WindowControls.dc.html",
+    "TillWidget.dc.html",
+    "TillRound.dc.html",
+    "CounterScope.dc.html",
+    "CounterSections.dc.html",
+    "CounterMenu.dc.html",
+    "CounterLearn.dc.html",
+    "CounterSettings.dc.html",
+    "CashPip.dc.html",
+    "CashPipCode.dc.html",
+    "CashTill.dc.html",
+    "CashSettings.dc.html",
+    "StatusGlyph.dc.html"
+  ],
+  "notes": {
+    "t_alert": {
+      "x": 0,
+      "y": -300,
+      "text": "1 \u00b7 Alert first: no windows to arrange",
+      "kind": "title1",
+      "maxW": 3700
+    },
+    "t_pip": {
+      "x": 0,
+      "y": 940,
+      "text": "2 \u00b7 Picture in Picture: the code floats over Square",
+      "kind": "title1",
+      "maxW": 4960
+    },
+    "t_onb": {
+      "x": 0,
+      "y": 2180,
+      "text": "3 \u00b7 Onboarding fixes",
+      "kind": "title1",
+      "maxW": 4960
+    },
+    "t_empty": {
+      "x": 0,
+      "y": 3420,
+      "text": "4 \u00b7 The empty till",
+      "kind": "title1",
+      "maxW": 2440
+    },
+    "overview": {
+      "x": -760,
+      "y": 0,
+      "w": 600,
+      "size": "m",
+      "fill": "orange",
+      "text": "Feedback from the first iPad test (2026-11-09)\n\nDesigned here:\n\u2022 Side by side is too awkward \u2192 1 (alert first) and 2 (Picture in Picture), both to build\n\u2022 Point of sale choice pushes content off screen \u2192 O1, O2\n\u2022 'Not now: only show other tills' sales' makes no sense \u2192 O1\n\u2022 Continue greyed out, step won't scroll \u2192 O3\n\u2022 Slide Over steps wrong for iPadOS 26.7 \u2192 O4\n\u2022 Empty till looks off-centre and bare \u2192 E1, E2\n\u2022 'Step 1 of N' under Get started \u2192 gone on every board here; the rail already says where you are\n\nFixes with no design needed:\n\u2022 Camera preview ignores rotation\n\u2022 Pages only scroll inside the centre column: the scroll area must fill the width"
+    },
+    "n_alert": {
+      "x": 3780,
+      "y": 0,
+      "w": 520,
+      "size": "s",
+      "fill": "blue",
+      "text": "Alert first\n\n\u2022 The default on iPad. Square stays full screen; nothing to arrange.\n\u2022 The alert is time-sensitive, so Focus doesn't hold it back. Tapping it opens Till straight on the sale, full screen, code ready to turn towards the customer.\n\u2022 iOS gives no API to switch back to another app. A3: a 'Back to Square' button that opens square-commerce-v1:// (checked on the owner's iPad; from the app there's no 'Open in Square?' prompt, which only Safari asks). Shown only when Square is installed. Till also returns to the shift by itself.\n\u2022 Builds on what exists: the background alert and PadFront."
+    },
+    "n_pip": {
+      "x": 5040,
+      "y": 1240,
+      "w": 520,
+      "size": "s",
+      "fill": "blue",
+      "text": "Picture in Picture\n\n\u2022 Optional, chosen in O4 or Settings. A small window that stays over Square and every other app.\n\u2022 iOS draws the window; Till only supplies its picture (drawn frames on an AVSampleBufferDisplayLayer). No buttons of Till's own work in it: tap shows the system's controls, \u2922 opens Till full screen.\n\u2022 So everything is readable at a glance: watching, the code with amount and time left, paid.\n\u2022 Small strip while watching; Till switches the picture to a square when a sale comes in, and back after Paid. Till sets the shape, iOS and the cashier set the size (P4). At the smallest size the code is too small to scan, so the window says 'Tap \u2922 to show the customer' instead of drawing an unscannable code.\n\u2022 Risk: App Store review expects PiP for video. Keep it behind a setting and say so in review notes.\n\u2022 The review's advice: treat the window as the cashier's status window. The full-screen code (A2) stays the main way to show the customer."
+    },
+    "n_onb": {
+      "x": 5040,
+      "y": 2480,
+      "w": 520,
+      "size": "s",
+      "fill": "blue",
+      "text": "Onboarding\n\n\u2022 Choosing Square or Clover is its own screen (O1), so signing in (O2) and the test sale (O3) fit without scrolling.\n\u2022 The skip is reworded: 'Set up later', with one plain sentence on what that means.\n\u2022 O3 tells the cashier what Continue is waiting for, and the step scrolls across its whole width.\n\u2022 O4 replaces 'Put Till in Slide Over' with a choice of how sales show up. Side by side stays, with iPadOS 26.7's real steps."
+    },
+    "n_empty": {
+      "x": 3200,
+      "y": 3720,
+      "w": 520,
+      "size": "s",
+      "fill": "blue",
+      "text": "Empty till\n\n\u2022 One centred block in the middle of the screen, not text pinned to the top.\n\u2022 It says the till is ready, how a sale appears, and whether this till is healthy (watching, alerts, wake-ups).\n\u2022 Later in the shift it also shows the shift so far, so the screen is never blank."
+    },
+    "t_design": {
+      "x": 0,
+      "y": 4660,
+      "text": "5 \u00b7 Design pass (Apple design skill review)",
+      "kind": "title1",
+      "maxW": 3850
+    },
+    "n_design": {
+      "x": 3930,
+      "y": 4960,
+      "w": 560,
+      "size": "s",
+      "fill": "blue",
+      "text": "Design pass, from the Apple HIG review\n\n\u2022 Rating today: Critical issues, for two easy fixes: the Ready step tells done from not-done by colour alone, and the step bar and ring arcs are #FF6600 on white (2.94:1).\n\u2022 Kept: Monero orange, cream paper, Manrope, the inset grouped Settings list.\n\u2022 Changed: orange fills only the primary button; progress uses an accessible orange (#E85D00); green means Paid and nothing else ('Seen on the network' was green); dark mode goes true black to match the Dynamic Island.\n\u2022 Manrope only on money and the Welcome and Ready titles; system type everywhere else.\n\u2022 System navigation: NavigationStack on iPhone (swipe back), NavigationSplitView on a full-screen iPad.\n\u2022 Status: simple glyphs in screens; the Till widget only as the app icon, in notifications and the Live Activity. Progress beside the code is the standard thin ProgressView bar plus a label; the earlier custom ring is dropped.\n\u2022 One motion moment: at Paid the ring closes and a tick draws on, with a success haptic.\n\u2022 Full review: apple-review.md (local)."
+    },
+    "n_overlay": {
+      "x": 4880,
+      "y": 3840,
+      "w": 420,
+      "size": "s",
+      "fill": "red",
+      "text": "System overlays\n\niPadOS draws window controls at a window's top left, and Picture in Picture draws \u2715 (top left) and \u2922 (top right) when tapped. Nothing of Till's goes under them: the red dashed zone on each board marks the space to keep clear. In SwiftUI, titles and buttons go in the system toolbar, which leaves room for the controls by itself."
+    },
+    "n_brand": {
+      "x": 4400,
+      "y": 3920,
+      "w": 420,
+      "size": "s",
+      "fill": "green",
+      "text": "Brand (from the Monokulo Branding canvas)\n\nThe Till logo (the terminal widget) is the hero on the empty till, the counters' empty pane and Paid, and it's the app icon, the notification icon and the Live Activity's glyph. Small status marks inside lists, the floating strip and onboarding use simple SF Symbol-weight glyphs (StatusGlyph) beside a word, where the logo was too heavy.\n\nBeside the large code, progress is the system's thin bar (ProgressView) with a text label."
+    },
+    "t_counters": {
+      "x": 0,
+      "y": 5924,
+      "text": "6 \u00b7 Counters: each till alerts for its own device, and can show everyone's",
+      "kind": "title1",
+      "maxW": 6220
+    },
+    "n_counters": {
+      "x": 6300,
+      "y": 6224,
+      "w": 560,
+      "size": "s",
+      "fill": "blue",
+      "text": "Device-based channelling\n\n\u2022 Square says which device took each payment (device_details: device_id and device_name). The onboarding test sale is rung up on this counter's Square, so Till learns that device from it (C4). The core already filters by device (Till::with_device_id); the apps just don't call it yet.\n\u2022 This device's sales alert, open the code, start the Live Activity or grow the floating window. Other devices' sales never do.\n\u2022 Other counters stay visible: the three variations show them differently.\n  A \u00b7 a switch above the list: quick and familiar, one tap.\n  B \u00b7 sections: this counter first, the others grouped by device below; nothing hidden.\n  C \u00b7 the title menu: a counter at a time, scales to many counters.\n\u2022 Tapping another counter's sale opens its page with the code (no receipt: that stays on the till that found it), so a colleague can help a customer.\n\u2022 Decided (owner, 2026-11-09): C, the title menu, on both iPad and iPhone. It opens on this counter; 'All counters' is one choice away."
+    },
+    "t_cash": {
+      "x": 0,
+      "y": 7164,
+      "text": "7 \u00b7 Cash sales: offer Monero, never assume it",
+      "kind": "title1",
+      "maxW": 4960
+    },
+    "n_cash": {
+      "x": 5040,
+      "y": 7464,
+      "w": 560,
+      "size": "s",
+      "fill": "blue",
+      "text": "Cash sales (decided 2026-11-09)\n\n\u2022 By default a cash sale is treated as Monero: it alerts, gets a code, and the floating strip grows into the code, the same as Other: Monero (K2 onwards).\n\u2022 If the customer pays real cash after all, the sale's page offers 'Paid in cash': it closes the sale with no refund, since Square already recorded Cash.\n\u2022 Settings (K4) can turn this off. Then cash sales show quietly with 'Take it in Monero?' (K1, K3). In the floating strip the tap uses the system's play control (\u25b6), a review risk, with \u2922 as the fallback.\n\u2022 Open question: Square's books say Cash for a sale paid in Monero, so the end-of-day cash count won't match. Till's shift lists which cash sales were paid in Monero."
+    },
+    "n_names": {
+      "x": -760,
+      "y": 1240,
+      "w": 600,
+      "size": "m",
+      "fill": "green",
+      "text": "Customer names first (owner, 2026-11-09)\n\nThe name is how staff know whose order is whose, so it leads every row, the sale's title, the alert, the floating window and the Paid screen. The sale number moves to the second line. With no name, the row falls back to 'Sale #m2Qe'.\n\nWhere names come from: Till already reads the name on a Square pickup, delivery or shipment. To build: also read the order's ticket name (what caf\u00e9s type at the counter), and the attached customer if we add Square's customer-read permission. The name stays on the devices: it never goes to Monokulo. Other counters read it from Square themselves."
+    },
+    "n_rules": {
+      "x": -760,
+      "y": 2480,
+      "w": 600,
+      "size": "m",
+      "fill": "red",
+      "text": "Rules from the owner's review\n\n\u2022 Status lines and names never wrap: one line, cut with an ellipsis.\n\u2022 The Till logo is the hero on empty and Paid screens; small status marks in lists use simple glyphs.\n\u2022 Floating window: small strip while watching, square only for the code, back to the strip for Paid.\n\u2022 Buttons say what they do, with an icon where it helps ('Customer view')."
+    }
+  },
+  "designSystems": []
+}

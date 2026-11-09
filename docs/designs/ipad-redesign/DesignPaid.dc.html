@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>iPhone: paid</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: #F4F1EA; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; color: #1A1917; display: flex; flex-direction: column; box-sizing: border-box; padding: 54px 16px 34px;">
+  <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center;">
+    <dc-import name="TillWidget" size="160" state="paid" hint-size="160px,160px"></dc-import>
+    <span style="font-family: Manrope, sans-serif; font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums;">Paid · $13.88</span>
+    <span style="font-size: 17px; color: #5A564C;">Sam · Sale #m2Qe</span>
+  </div>
+  <div style="background: #FFFFFF; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px;">
+    <span style="font-size: 13px; font-weight: 600; color: #5A564C;">THE MOMENT</span>
+    <span style="font-size: 13px; line-height: 18px; color: #3F3B33;">The progress bar fills (0.35 s), the Till logo turns green with its tick, and a success haptic plays. With Reduce Motion: a 0.2 s crossfade and the haptic.</span>
+  </div>
+  <button type="button" style="margin-top: 12px; height: 50px; border-radius: 25px; border: 1.5px solid #8C8577; background: none; color: #1A1917; font: inherit; font-size: 17px; font-weight: 600;">Done</button>
+
+  <div aria-hidden="true" style="position: absolute; top: 11px; left: 132px; width: 126px; height: 37px; border-radius: 19px; background: #000000;"></div>
+  <div aria-hidden="true" style="position: absolute; bottom: 8px; left: 128px; width: 134px; height: 5px; border-radius: 3px; background: #1A1917;"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

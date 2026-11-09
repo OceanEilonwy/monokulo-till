@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Empty till, start of the shift</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#B34700}a:hover{color:#1A1917}
+</style>
+</helmet>
+<div style="width: 1180px; height: 820px; position: relative; overflow: hidden; background: #F4F1EA; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; color: #1A1917; display: flex; flex-direction: column;">
+  <header style="display: flex; align-items: center; gap: 12px; padding: 64px 28px 0;">
+    <div style="flex-grow: 1; display: flex; flex-direction: column;">
+      <span style="font-size: 28px; font-weight: 700;">Front Counter</span>
+      <span style="font-size: 15px; color: #5A564C;">The Bean Room</span>
+    </div>
+    <button type="button" aria-label="Settings" style="width: 44px; height: 44px; border-radius: 22px; border: 0; background: rgba(255, 255, 255, 0.8); box-shadow: 0 1px 3px rgba(26, 25, 23, 0.12); display: flex; align-items: center; justify-content: center;">
+      <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2" fill="none" stroke="#1A1917" stroke-width="2"></circle><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1" stroke="#1A1917" stroke-width="2" stroke-linecap="round"></path></svg>
+    </button>
+  </header>
+
+  <main style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding-bottom: 40px; text-align: center;">
+    <dc-import name="TillWidget" size="128" state="idle" hint-size="128px,128px"></dc-import>
+    <h1 style="margin: 8px 0 0; font-size: 28px; font-weight: 700;">Ready for the next sale</h1>
+    <p style="margin: 0; font-size: 17px; line-height: 24px; color: #5A564C; max-width: 440px;">Ring it up in Square and choose Monero. An alert brings you straight to the code.</p>
+
+    <ul aria-label="Till status" style="margin: 12px 0 0; padding: 0; list-style: none; display: flex; gap: 10px;">
+      <li style="display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 18px; background: #FFFFFF; font-size: 15px;"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><circle cx="5" cy="5" r="5" fill="#1A7F37"></circle></svg>Watching Square</li>
+      <li style="display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 18px; background: #FFFFFF; font-size: 15px;"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 17V11a6 6 0 0 1 12 0v6l2 2H4z M10 21h4" fill="none" stroke="#1A1917" stroke-width="2" stroke-linejoin="round"></path></svg>Alerts on</li>
+      <li style="display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 18px; background: #FFFFFF; font-size: 15px;"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 9-12h-7z" fill="none" stroke="#1A1917" stroke-width="2" stroke-linejoin="round"></path></svg>Instant with the Bell</li>
+    </ul>
+
+    <a href="OnbTest.dc.html" style="margin-top: 8px; min-height: 44px; display: flex; align-items: center; font-size: 17px; text-decoration: none;">Send a test sale</a>
+  </main>
+  <div style="position: absolute; left: 0; top: 0;"><dc-import name="WindowControls" hint-size="120px,56px"></dc-import></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1180,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

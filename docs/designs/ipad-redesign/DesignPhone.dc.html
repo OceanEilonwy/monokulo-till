@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>iPhone: a sale</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: #F4F1EA; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; color: #1A1917; display: flex; flex-direction: column; box-sizing: border-box; padding: 54px 16px 34px;">
+  <nav style="display: flex; align-items: center; gap: 8px; min-height: 52px;">
+    <button type="button" aria-label="Back to the shift" style="width: 44px; height: 44px; border-radius: 22px; border: 0; background: rgba(255, 255, 255, 0.8); box-shadow: 0 1px 3px rgba(26, 25, 23, 0.12); display: flex; align-items: center; justify-content: center;"><svg width="11" height="18" viewBox="0 0 12 20" aria-hidden="true"><path d="M10 2L2 10l8 8" fill="none" stroke="#1A1917" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center;">
+      <span style="font-size: 20px; font-weight: 700;">Sam</span>
+      <span style="font-size: 12px; color: #5A564C;">Sale #m2Qe · 11:02 left</span>
+    </div>
+    <button type="button" aria-label="Close the sale" style="width: 44px; height: 44px; border-radius: 22px; border: 0; background: #F8DEDE; display: flex; align-items: center; justify-content: center;"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 2l10 10M12 2L2 12" fill="none" stroke="#B00020" stroke-width="2.2" stroke-linecap="round"></path></svg></button>
+  </nav>
+
+  <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 14px;">
+    <span style="font-family: Manrope, sans-serif; font-size: 44px; font-weight: 800; font-variant-numeric: tabular-nums;">$13.88</span>
+    <span style="font-size: 15px; color: #5A564C;">0.05552 XMR</span>
+    <div style="padding: 14px; background: #FFFFFF; border-radius: 20px;"><dc-import name="QR" size="240" hint-size="240px,240px"></dc-import></div>
+        <div style="width: 268px; display: flex; flex-direction: column; gap: 8px; margin-top: 6px;">
+          <div role="progressbar" aria-label="Payment" aria-valuemin="0" aria-valuemax="3" aria-valuenow="1" aria-valuetext="Seen, 1 of 3" style="height: 4px; border-radius: 2px; background: #DDD6C9; overflow: hidden;"><div style="width: 33.3%; height: 100%; border-radius: 2px; background: #E85D00;"></div></div>
+          <span style="display: flex; justify-content: space-between; font-size: 15px;"><span style="font-weight: 600;">Seen on the network</span><span style="color: #5A564C;">1 of 3</span></span>
+        </div>
+    <div style="align-self: stretch; margin-top: 10px; background: #FFFFFF; border-radius: 12px; min-height: 50px; padding: 0 16px; display: flex; align-items: center; gap: 8px;">
+      <span style="flex-grow: 1; font-size: 17px;">Order</span>
+      <span style="font-size: 17px; color: #5A564C;">2 items</span>
+      <svg width="8" height="13" viewBox="0 0 8 13" aria-hidden="true"><path d="M1.5 1.5l5 5-5 5" fill="none" stroke="#8C8577" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 10px;">
+    <button type="button" style="height: 50px; border-radius: 25px; border: 0; background: #FF6600; color: #111111; font: inherit; font-size: 17px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px;"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 13.7-5.6M20 12a8 8 0 0 1-13.7 5.6" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round"></path><path d="M18 3v4h-4M6 21v-4h4" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>Customer view</button>
+    <button type="button" style="height: 50px; border-radius: 25px; border: 1.5px solid #8C8577; background: none; color: #1A1917; font: inherit; font-size: 17px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px;"><svg width="16" height="18" viewBox="0 0 16 18" aria-hidden="true"><path d="M8 11V1M4 5l4-4 4 4M2 8v8h12V8" fill="none" stroke="#1A1917" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>Share</button>
+  </div>
+
+  <div aria-hidden="true" style="position: absolute; top: 11px; left: 132px; width: 126px; height: 37px; border-radius: 19px; background: #000000;"></div>
+  <div aria-hidden="true" style="position: absolute; bottom: 8px; left: 128px; width: 134px; height: 5px; border-radius: 3px; background: #1A1917;"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

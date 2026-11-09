@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Onboarding: the test sale names this counter</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#B34700}a:hover{color:#1A1917}
+</style>
+</helmet>
+<div style="width: 1180px; height: 820px; position: relative; overflow: hidden; background: #F4F1EA; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; color: #1A1917; display: flex;">
+  <dc-import name="OnbRail" current="2" hint-size="320px,820px"></dc-import>
+
+  <main style="flex-grow: 1; display: flex; flex-direction: column; box-sizing: border-box; padding: 72px 80px 40px; gap: 12px;">
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <dc-import name="StatusGlyph" size="24" state="paid" hint-size="24px,24px"></dc-import>
+      <span style="font-size: 15px; font-weight: 600; color: #1A7F37;">Test sale found · $1.00 · Sale #t0Ab</span>
+    </div>
+    <h1 style="margin: 0; font-size: 28px; font-weight: 700;">Which sales should alert this iPad?</h1>
+    <p style="margin: 0; font-size: 17px; line-height: 24px; color: #5A564C; max-width: 600px;">The test sale came from the Square device <b style="color: #1A1917;">Front iPad</b>. If other counters at Front Counter take Monero too, this iPad can alert only for its own.</p>
+
+    <div role="radiogroup" aria-label="Alert for" style="margin-top: 16px; max-width: 640px; background: #FFFFFF; border-radius: 12px; overflow: hidden;">
+      <sc-for list="{{options}}" as="o" hint-placeholder-count="2">
+        <button type="button" role="radio" aria-checked="{{o.checked}}" onClick="{{o.pick}}" style="width: 100%; display: flex; align-items: center; gap: 14px; min-height: 64px; padding: 10px 16px; border: 0; border-bottom: 1px solid #ECE6DA; background: none; font: inherit; color: #1A1917; text-align: left; cursor: pointer;">
+          <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 2px;"><span style="font-size: 17px;">{{o.title}}</span><span style="font-size: 13px; color: #5A564C; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{o.text}}</span></span>
+          <sc-if value="{{o.on}}" hint-placeholder-val="{{false}}"><svg width="20" height="20" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3.2 3.2L13 4.8" fill="none" stroke="#1A1917" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg></sc-if>
+        </button>
+      </sc-for>
+    </div>
+    <span style="font-size: 13px; line-height: 18px; color: #5A564C; max-width: 640px; padding: 0 16px;">Either way, every counter's sales are in the list. Change this any time in Settings.</span>
+
+    <div style="flex-grow: 1;"></div>
+    <div style="display: flex; justify-content: flex-end;">
+      <a href="OnbShow.dc.html" style="min-width: 200px; height: 50px; padding: 0 28px; border-radius: 25px; background: #FF6600; color: #111111; font-size: 17px; font-weight: 600; display: flex; align-items: center; justify-content: center; text-decoration: none;">Continue</a>
+    </div>
+  </main>
+  <div style="position: absolute; left: 0; top: 0;"><dc-import name="WindowControls" hint-size="120px,56px"></dc-import></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1180,"height":820}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { pick: 'mine' }; }
+  renderVals() {
+    const options = [
+      { id: 'mine', title: 'Only sales on Front iPad (recommended)', text: 'Other counters’ sales are listed but stay quiet.' },
+      { id: 'all', title: 'Every sale at Front Counter', text: 'For one till serving the whole location.' },
+    ].map((o) => ({ ...o, on: this.state.pick === o.id, checked: this.state.pick === o.id ? 'true' : 'false', pick: () => this.setState({ pick: o.id }) }));
+    return { options };
+  }
+}
+</script>
+</body>
+</html>

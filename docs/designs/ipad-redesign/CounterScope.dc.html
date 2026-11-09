@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Counters: switch above the list</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#B34700}a:hover{color:#1A1917}
+</style>
+</helmet>
+<div style="width: 1180px; height: 820px; position: relative; overflow: hidden; background: #F4F1EA; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; color: #1A1917; display: flex;">
+  <aside aria-label="Sales" style="width: 380px; flex: 0 0 auto; box-sizing: border-box; border-right: 1px solid #E4DED2; display: flex; flex-direction: column; padding: 64px 16px 20px; gap: 14px;">
+    <div style="display: flex; flex-direction: column; padding: 0 8px;">
+      <span style="font-size: 22px; font-weight: 700;">Front Counter</span>
+      <span style="font-size: 13px; color: #5A564C; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">This iPad takes sales from Front iPad</span>
+    </div>
+
+    <div role="tablist" aria-label="Whose sales" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); background: #E9E4DA; border-radius: 9px; padding: 2px;">
+      <sc-for list="{{tabs}}" as="t" hint-placeholder-count="2">
+        <button type="button" role="tab" aria-selected="{{t.selected}}" onClick="{{t.pick}}" style="height: 34px; border: 0; border-radius: 7px; background: {{t.bg}}; box-shadow: {{t.shadow}}; font: inherit; font-size: 15px; font-weight: {{t.weight}}; color: #1A1917; cursor: pointer;">{{t.label}}</button>
+      </sc-for>
+    </div>
+
+    <div style="background: #FFFFFF; border-radius: 12px; overflow: hidden;">
+      <sc-for list="{{rows}}" as="r" hint-placeholder-count="4">
+        <div style="display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 0 14px; border-bottom: 1px solid #ECE6DA;">
+          <dc-import name="StatusGlyph" size="24" state="{{r.state}}" hint-size="24px,24px"></dc-import>
+          <span style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0;">
+            <span style="font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{r.title}}</span>
+            <span style="font-size: 13px; color: {{r.tone}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{r.status}}</span>
+          </span>
+          <span style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
+            <span style="font-size: 17px; font-variant-numeric: tabular-nums;">{{r.amount}}</span>
+            <sc-if value="{{r.other}}" hint-placeholder-val="{{false}}"><span style="font-size: 12px; padding: 1px 7px; border-radius: 8px; background: #EFEAE0; color: #5A564C;">{{r.device}}</span></sc-if>
+          </span>
+        </div>
+      </sc-for>
+    </div>
+    <sc-if value="{{all}}" hint-placeholder-val="{{false}}">
+      <span style="font-size: 13px; line-height: 18px; color: #5A564C; padding: 0 8px;">Sales from other devices show here but never alert on this iPad.</span>
+    </sc-if>
+  </aside>
+
+  <main style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 0 40px 40px;">
+    <dc-import name="TillWidget" size="104" state="idle" hint-size="104px,104px"></dc-import>
+    <h1 style="margin: 6px 0 0; font-size: 28px; font-weight: 700;">Ready for the next sale</h1>
+    <p style="margin: 0; font-size: 17px; line-height: 24px; color: #5A564C; max-width: 420px;">Choose a sale to see it here.</p>
+  </main>
+  <div style="position: absolute; left: 0; top: 0;"><dc-import name="WindowControls" hint-size="120px,56px"></dc-import></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1180,"height":820}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { scope: 'all' }; }
+  renderVals() {
+    const all = this.state.scope === 'all';
+    const data = [
+      { name: 'Sam', ref: '#m2Qe', amount: '$13.88', status: 'Seen · 1 of 3', state: 'seen', device: 'Front iPad', other: false },
+      { name: '', ref: '#p4Xr', amount: '$7.10', status: 'Waiting · 13:20 left', state: 'waiting', device: 'Bar iPad', other: true },
+      { name: 'Priya', ref: '#j1Qx', amount: '$8.40', status: 'Paid · 4 min ago', state: 'paid', device: 'Front iPad', other: false },
+      { name: 'Jordan', ref: '#n6Tb', amount: '$31.00', status: 'Paid · 9 min ago', state: 'paid', device: 'Kiosk', other: true },
+      { name: 'Kofi', ref: '#h7Rt', amount: '$15.75', status: 'Paid · 18 min ago', state: 'paid', device: 'Front iPad', other: false },
+    ];
+    const rows = data.filter((r) => all || !r.other).map((r) => ({ ...r, title: r.name || ('Sale ' + r.ref), status: r.status + (r.name ? ' · ' + r.ref : ''), tone: r.state === 'paid' ? '#1A7F37' : '#5A564C' }));
+    const tabs = [['mine', 'This counter'], ['all', 'All counters']].map(([id, label]) => {
+      const on = this.state.scope === id;
+      return { label, selected: on ? 'true' : 'false', bg: on ? '#FFFFFF' : 'transparent', shadow: on ? '0 1px 3px rgba(26,25,23,0.15)' : 'none', weight: on ? 600 : 400, pick: () => this.setState({ scope: id }) };
+    });
+    return { rows, tabs, all };
+  }
+}
+</script>
+</body>
+</html>

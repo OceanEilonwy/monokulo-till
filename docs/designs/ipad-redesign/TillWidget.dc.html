@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Till terminal widget</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+@media (prefers-reduced-motion: reduce){.tw-anim{display:none}}
+</style>
+</helmet>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="8 8 104 104" width="{{size}}" height="{{size}}" role="img" aria-label="{{label}}" style="display: block">
+<defs>
+<clipPath id="tw-screen"><path d="M33.0,29.5H63.0A6.5,6.5 0 0 1 69.5,36.0V66.0A6.5,6.5 0 0 1 63.0,72.5H33.0A6.5,6.5 0 0 1 26.5,66.0V36.0A6.5,6.5 0 0 1 33.0,29.5Z"></path></clipPath>
+<clipPath id="tw-bar"><path d="M27.5,88H92.5A3.5,3.5 0 0 1 96,91.5V91.5A3.5,3.5 0 0 1 92.5,95H27.5A3.5,3.5 0 0 1 24,91.5V91.5A3.5,3.5 0 0 1 27.5,88Z"></path></clipPath>
+</defs>
+<path d="M30,12H90A18,18 0 0 1 108,30V90A18,18 0 0 1 90,108H30A18,18 0 0 1 12,90V30A18,18 0 0 1 30,12Z" fill="{{body}}"></path>
+
+<path d="M83,28H93A3,3 0 0 1 96,31V36A3,3 0 0 1 93,39H83A3,3 0 0 1 80,36V31A3,3 0 0 1 83,28Z" fill="{{k1}}"></path>
+<path d="M83,45.5H93A3,3 0 0 1 96,48.5V53.5A3,3 0 0 1 93,56.5H83A3,3 0 0 1 80,53.5V48.5A3,3 0 0 1 83,45.5Z" fill="{{k2}}"></path>
+<path d="M83,63H93A3,3 0 0 1 96,66V71A3,3 0 0 1 93,74H83A3,3 0 0 1 80,71V66A3,3 0 0 1 83,63Z" fill="{{k3}}"></path>
+<sc-if value="{{blinkPair}}" hint-placeholder-val="{{ false }}">
+<path class="tw-anim" d="M83,28H93A3,3 0 0 1 96,31V36A3,3 0 0 1 93,39H83A3,3 0 0 1 80,36V31A3,3 0 0 1 83,28Z" fill="#ff6600" opacity="0"><animate attributeName="opacity" values="1;1;0;0" keyTimes="0;0.45;0.5;1" dur="0.9s" repeatCount="indefinite"></animate></path>
+<path class="tw-anim" d="M83,45.5H93A3,3 0 0 1 96,48.5V53.5A3,3 0 0 1 93,56.5H83A3,3 0 0 1 80,53.5V48.5A3,3 0 0 1 83,45.5Z" fill="#ff6600" opacity="0"><animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.5;0.55;1" dur="0.9s" repeatCount="indefinite"></animate></path>
+</sc-if>
+<sc-if value="{{blinkKey}}" hint-placeholder-val="{{ false }}">
+<path class="tw-anim" d="M83,28H93A3,3 0 0 1 96,31V36A3,3 0 0 1 93,39H83A3,3 0 0 1 80,36V31A3,3 0 0 1 83,28Z" fill="#ff6600" opacity="0"><animate attributeName="opacity" values="0;1;0" dur="1.2s" repeatCount="indefinite"></animate></path>
+</sc-if>
+
+<path d="M27.5,88H92.5A3.5,3.5 0 0 1 96,91.5V91.5A3.5,3.5 0 0 1 92.5,95H27.5A3.5,3.5 0 0 1 24,91.5V91.5A3.5,3.5 0 0 1 27.5,88Z" fill="{{track}}"></path>
+<g clip-path="url(#tw-bar)">
+<rect x="24" y="88" width="{{barW}}" height="7" fill="{{barFill}}"></rect>
+<sc-if value="{{barRun}}" hint-placeholder-val="{{ false }}">
+<rect x="24" y="88" width="22" height="7" rx="3.5" fill="#ff6600"><animate attributeName="x" values="2;96" dur="1.2s" repeatCount="indefinite"></animate></rect>
+</sc-if>
+</g>
+
+<g clip-path="url(#tw-screen)">
+<path d="M33.0,29.5H63.0A6.5,6.5 0 0 1 69.5,36.0V66.0A6.5,6.5 0 0 1 63.0,72.5H33.0A6.5,6.5 0 0 1 26.5,66.0V36.0A6.5,6.5 0 0 1 33.0,29.5Z" fill="{{mid}}"></path>
+<path d="M43,46H53L48,39.5ZM53,46V56L59.5,51ZM53,56H43L48,62.5ZM43,56V46L36.5,51ZM48,39.5L26.5,29.5H69.5ZM59.5,51L69.5,29.5V72.5ZM48,62.5L69.5,72.5H26.5ZM36.5,51L26.5,72.5V29.5Z" fill="{{warm}}"></path>
+<path d="M43,46H53V56H43Z" fill="{{deep}}"></path>
+<sc-if value="{{glint}}" hint-placeholder-val="{{ false }}">
+<g class="tw-anim" fill="#fff3e8">
+<path d="M48,39.5L26.5,29.5H69.5Z" opacity="0"><animate attributeName="opacity" values="0;0.9;0;0" keyTimes="0;0.06;0.25;1" dur="1.6s" begin="0s" repeatCount="indefinite"></animate></path>
+<path d="M59.5,51L69.5,29.5V72.5Z" opacity="0"><animate attributeName="opacity" values="0;0.9;0;0" keyTimes="0;0.06;0.25;1" dur="1.6s" begin="0.4s" repeatCount="indefinite"></animate></path>
+<path d="M48,62.5L69.5,72.5H26.5Z" opacity="0"><animate attributeName="opacity" values="0;0.9;0;0" keyTimes="0;0.06;0.25;1" dur="1.6s" begin="0.8s" repeatCount="indefinite"></animate></path>
+<path d="M36.5,51L26.5,72.5V29.5Z" opacity="0"><animate attributeName="opacity" values="0;0.9;0;0" keyTimes="0;0.06;0.25;1" dur="1.6s" begin="1.2s" repeatCount="indefinite"></animate></path>
+<path d="M43,46H53V56H43Z" opacity="0"><animate attributeName="opacity" values="0;0;0.9;0" keyTimes="0;0.4;0.5;0.8" dur="0.8s" repeatCount="indefinite"></animate></path>
+</g>
+</sc-if>
+<sc-if value="{{scanline}}" hint-placeholder-val="{{ false }}">
+<g class="tw-anim"><rect x="26.5" y="29.5" width="43" height="3" fill="#fff3e8" opacity="0.9"><animate attributeName="y" values="27;72;27" dur="1.8s" repeatCount="indefinite"></animate></rect></g>
+</sc-if>
+<sc-if value="{{paid}}" hint-placeholder-val="{{ false }}">
+<path d="M37.5,51.5 l7,7 l14,-15" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"></path>
+</sc-if>
+</g>
+<path d="M33,27H63A9,9 0 0 1 72,36V66A9,9 0 0 1 63,75H33A9,9 0 0 1 24,66V36A9,9 0 0 1 33,27Z" fill="none" stroke="{{outline}}" stroke-width="5"></path>
+</svg>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"size":{"editor":"int","default":160,"min":24,"max":512},"variant":{"editor":"enum","options":["keys"],"default":"keys"},"state":{"editor":"enum","options":["idle","scanning","waiting","seen","confirming","paid"],"default":"waiting"},"dark":{"editor":"boolean","default":false},"$preview":{"width":160,"height":160}}'>
+class Component extends DCLogic {
+renderVals() {
+const v = this.props.variant ?? 'keys';
+const s = this.props.state ?? 'waiting';
+const dark = this.props.dark ?? false;
+const ORANGE = '#ff6600', GREEN = '#2ea052';
+const dim = dark ? '#66615a' : '#4a4740';
+const step = { idle: 0, scanning: 0, waiting: 0, seen: 1, confirming: 2, paid: 3 }[s] || 0;
+const paid = s === 'paid';
+const busy = s === 'scanning' || s === 'waiting';
+let screen = { mid: '#ff6600', warm: '#e85d00', deep: '#c24e00' };
+if (paid) screen = { mid: '#2ea052', warm: '#238a43', deep: '#1a7f37' };
+else if (s === 'idle') screen = { mid: '#7f7f7f', warm: '#747474', deep: '#616161' };
+let k1 = dim, k2 = dim, k3 = paid ? GREEN : ORANGE;
+if (v === 'keys') {
+k1 = paid ? GREEN : step >= 1 ? ORANGE : dim;
+k2 = paid ? GREEN : step >= 2 ? ORANGE : dim;
+k3 = paid ? GREEN : dim;
+}
+if (v === 'scanner' && paid) { k1 = GREEN; k2 = GREEN; }
+if (s === 'idle') k3 = dim;
+const p = paid ? 1 : step / 3;
+const labels = { idle: 'Till, idle', scanning: 'Till, scanning', waiting: 'Till, waiting for a payment', seen: 'Till, payment seen', confirming: 'Till, confirming', paid: 'Till, paid' };
+return {
+size: this.props.size ?? 160,
+label: labels[s],
+body: dark ? '#3a3733' : '#1a1917',
+outline: dark ? '#1e1e1e' : '#f4f1ea',
+track: dim,
+k1, k2, k3,
+...screen,
+paid,
+barW: 72 * p,
+barFill: paid ? GREEN : ORANGE,
+barRun: s === 'scanning' || (v === 'scanner' && s === 'waiting'),
+glint: v === 'screen' && busy,
+scanline: v === 'scanner' && busy,
+blinkPair: v === 'scanner' && (s === 'seen' || s === 'confirming' || s === 'scanning'),
+blinkKey: v === 'keys' && s === 'waiting',
+};
+}
+}
+</script>
+</body>
+</html>

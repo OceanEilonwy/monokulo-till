@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Onboarding: how Till shows a sale</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#B34700}a:hover{color:#1A1917}
+</style>
+</helmet>
+<div style="width: 1180px; height: 820px; position: relative; overflow: hidden; background: #F4F1EA; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; color: #1A1917; display: flex;">
+  <dc-import name="OnbRail" current="4" hint-size="320px,820px"></dc-import>
+
+  <main style="flex-grow: 1; display: flex; flex-direction: column; box-sizing: border-box; padding: 72px 80px 40px; gap: 12px;">
+    <h1 style="margin: 0; font-size: 28px; font-weight: 700;">How should a new sale show up?</h1>
+    <p style="margin: 0; font-size: 17px; line-height: 24px; color: #5A564C; max-width: 600px;">Keep using Square as normal. You can change this any time in Settings.</p>
+
+    <div role="radiogroup" aria-label="How a sale shows up" style="margin-top: 18px; display: flex; flex-direction: column; gap: 12px; max-width: 700px;">
+      <sc-for list="{{options}}" as="o" hint-placeholder-count="3">
+        <button type="button" role="radio" aria-checked="{{o.checked}}" onClick="{{o.pick}}" style="text-align: left; font: inherit; color: inherit; background: #FFFFFF; border: {{o.border}}; border-radius: 14px; padding: 16px 18px; display: flex; gap: 16px; align-items: center; cursor: pointer;">
+          <span aria-hidden="true" style="width: 56px; height: 56px; flex: 0 0 auto; border-radius: 12px; background: #F4F1EA; display: flex; align-items: center; justify-content: center;">
+            <sc-if value="{{o.isAlert}}" hint-placeholder-val="{{false}}"><span style="width: 36px; height: 14px; border-radius: 7px; background: #1A1917;"></span></sc-if>
+            <sc-if value="{{o.isPip}}" hint-placeholder-val="{{false}}"><span style="width: 40px; height: 30px; border-radius: 4px; background: #DCD5C7; position: relative; display: block;"><span style="position: absolute; right: 3px; bottom: 3px; width: 14px; height: 14px; border-radius: 3px; background: #1A1917;"></span></span></sc-if>
+            <sc-if value="{{o.isSide}}" hint-placeholder-val="{{false}}"><span style="display: flex; gap: 3px;"><span style="width: 24px; height: 30px; border-radius: 4px; background: #DCD5C7;"></span><span style="width: 12px; height: 30px; border-radius: 4px; background: #1A1917;"></span></span></sc-if>
+          </span>
+          <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 3px;">
+            <span style="font-size: 17px; font-weight: 600;">{{o.title}}</span>
+            <span style="font-size: 15px; line-height: 21px; color: #5A564C;">{{o.text}}</span>
+          </span>
+          <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.5" fill="{{o.ringFill}}" stroke="{{o.ringStroke}}" stroke-width="1.6"></circle><circle cx="12" cy="12" r="4" fill="{{o.dot}}"></circle></svg>
+        </button>
+      </sc-for>
+    </div>
+
+    <sc-if value="{{sideChosen}}" hint-placeholder-val="{{false}}">
+      <div style="max-width: 700px; background: #FFFFFF; border-radius: 12px; padding: 14px 18px; display: flex; flex-direction: column; gap: 6px;">
+        <span style="font-size: 15px; font-weight: 600;">On iPadOS 26</span>
+        <span style="font-size: 15px; line-height: 21px; color: #3F3B33;">Turn on Windowed Apps in Settings › Multitasking &amp; Gestures. Then touch and hold the green button at the top left of Till's window and choose a layout beside Square.</span>
+      </div>
+    </sc-if>
+
+    <div style="flex-grow: 1;"></div>
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+      <button type="button" style="min-height: 44px; padding: 0; border: 0; background: none; font: inherit; font-size: 17px; color: #B34700; cursor: pointer;">Send a test alert</button>
+      <a href="EmptyFirst.dc.html" style="min-width: 220px; height: 50px; padding: 0 28px; border-radius: 25px; background: #FF6600; color: #111111; font-size: 17px; font-weight: 600; display: flex; align-items: center; justify-content: center; text-decoration: none;">Continue</a>
+    </div>
+  </main>
+  <div style="position: absolute; left: 0; top: 0;"><dc-import name="WindowControls" hint-size="120px,56px"></dc-import></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1180,"height":820}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { picked: 'alert' }; }
+  renderVals() {
+    const defs = [
+      { id: 'alert', title: 'An alert (recommended)', text: 'A time-sensitive alert over Square. Tap it and the code fills the screen; Back to Square when it’s paid.' },
+      { id: 'pip', title: 'A floating window', text: 'A small window stays over Square and shows the code and payment as they happen. Pinch to resize, drag to any corner.' },
+      { id: 'side', title: 'Side by side', text: 'Till and Square in two windows, arranged by hand.' },
+    ];
+    const options = defs.map((d) => {
+      const on = this.state.picked === d.id;
+      return {
+        ...d,
+        checked: on ? 'true' : 'false',
+        border: on ? '2px solid #1A1917' : '1px solid #E4DED2',
+        ringFill: on ? '#1A1917' : 'none',
+        ringStroke: on ? '#1A1917' : '#8C8577',
+        dot: on ? '#FFFFFF' : 'none',
+        isAlert: d.id === 'alert', isPip: d.id === 'pip', isSide: d.id === 'side',
+        pick: () => this.setState({ picked: d.id }),
+      };
+    });
+    return { options, sideChosen: this.state.picked === 'side' };
+  }
+}
+</script>
+</body>
+</html>
