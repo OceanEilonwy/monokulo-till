@@ -16,7 +16,9 @@ struct OnboardingTests {
 
     @Test func setupScreensAreOnboardingAndTheRestTheTill() {
         #expect(Route.of(nil) == .starting)
-        let setup: [Screen] = [.welcome, .scan, .confirm, .connected, .pointOfSale, .locations, .alerts, .float, .ready]
+        let setup: [Screen] = [
+            .welcome, .scan, .confirm, .connected, .pointOfSale, .locations, .counter, .alerts, .float, .showSales, .ready,
+        ]
         for screen in setup {
             #expect(Route.of(screen) == .onboarding)
         }
@@ -90,6 +92,30 @@ struct OnboardingTests {
         #expect(AlertsPermission.allows(.provisional))
         #expect(!AlertsPermission.allows(.denied))
         #expect(!AlertsPermission.allows(.notDetermined))
+    }
+
+    @Test func iPhonesBarIsHowFarSetupHasCome() {
+        #expect(SetupProgress.fraction(StepProgress(value: 1, total: 4)) == 0.25)
+        #expect(SetupProgress.fraction(StepProgress(value: 4, total: 4)) == 1)
+        #expect(SetupProgress.fraction(StepProgress(value: 1, total: 0)) == 0)
+    }
+
+    @Test func theTestSalesLineSaysWhereTillIsConnected() {
+        let card = PosCard(
+            mark: .square, heading: "Connect Square", lead: "", accountTitle: "Square account",
+            account: .connected(who: "The Bean Room"),
+            place: Fact(label: "Location", value: "Front Counter", tone: .plain, mono: false),
+            changeLocation: true, permissions: "", problem: nil, atTheTill: "", stepsTitle: "", steps: [],
+            lookAgain: nil, testSale: nil, footnote: nil
+        )
+        #expect(PosWords.connected(card) == "Connected to The Bean Room · Front Counter")
+        let clover = PosCard(
+            mark: .clover, heading: "", lead: "", accountTitle: "", account: .connected(who: "Corner Cafe"),
+            place: nil, changeLocation: false, permissions: "", problem: nil, atTheTill: "", stepsTitle: "",
+            steps: [], lookAgain: nil, testSale: nil, footnote: nil
+        )
+        #expect(PosWords.connected(clover) == "Connected to Corner Cafe")
+        #expect(PosWords.testLead(.clover) == "This checks that Clover tells Till about Monero sales. It takes about a minute.")
     }
 
     @Test func boldRunsAreReadFromDoubleAsterisks() {

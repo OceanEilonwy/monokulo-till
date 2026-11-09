@@ -7,7 +7,9 @@ import UIKit
 /// amount and the XMR, the code on its white card, the payment's progress
 /// bar and its label, what was bought, and at the foot Customer view (the
 /// full-screen code, to turn towards the customer) and Share, which shares
-/// the `monero:` payment link (decision 17).
+/// the `monero:` payment link (decision 17), and a cash sale's Paid in cash
+/// (decision 7). The customer's name is the title, 28 pt on iPad
+/// (decision 10).
 struct SaleScreen: View {
     let orderId: String
     let view: SaleView
@@ -54,7 +56,7 @@ struct SaleScreen: View {
         .background(Palette.ground)
         .navigationTitle(view.title)
         .navigationSubtitle(view.titleLine)
-        .navigationBarTitleDisplayMode(regular ? .large : .inline)
+        .toolbarTitleDisplayMode(regular ? .inlineLarge : .inline)
         .toolbar {
             if view.closes {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -89,16 +91,44 @@ struct SaleScreen: View {
                 send(.enlarge(orderId: orderId))
             }
             .padding(.top, 4)
-            PaymentProgress(step: Int(view.step), status: view.status, hint: view.hint)
+            progress
                 .frame(width: side + 28)
                 .padding(.top, 6)
         }
         .frame(maxWidth: .infinity)
     }
 
-    /// Customer view, the primary, and Share.
+    /// The payment's bar and words: the engine's thirds where it gives
+    /// them, else the ring's step and status.
     @ViewBuilder
+    private var progress: some View {
+        if let progress = view.progress {
+            PaymentProgress(
+                step: Int(view.step),
+                status: EngineProgress.status(label: progress.label, count: progress.count),
+                hint: view.hint,
+                fraction: EngineProgress.fraction(value: progress.value, total: progress.total),
+                said: progress.said
+            )
+        } else {
+            PaymentProgress(step: Int(view.step), status: view.status, hint: view.hint)
+        }
+    }
+
+    /// Customer view, the primary, and Share; under them a cash sale's
+    /// Paid in cash.
     private var actions: some View {
+        VStack(spacing: 6) {
+            mainActions
+            ForEach(Array(view.cash.enumerated()), id: \.offset) { _, button in
+                LinkPress(press: button.press) { send(CashButtons.action(button.action, orderId: orderId)) }
+                    .frame(maxWidth: regular ? 452 : .infinity)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var mainActions: some View {
         let layout = regular
             ? AnyLayout(HStackLayout(spacing: 12))
             : AnyLayout(VStackLayout(spacing: 10))
