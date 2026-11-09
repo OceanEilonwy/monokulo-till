@@ -247,6 +247,19 @@ fun ShiftScreen(
                         Head.Summary -> Column(chrome.padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text("This shift", style = display(28, -0.4), modifier = Modifier.semantics { heading() })
                             Text(view.summary, fontSize = 14.sp, color = mk.muted)
+                            // Cash paid in Monero, and whose sales show (docs/decisions/core.md 114, 117), drawn plainly.
+                            view.cashInMonero?.let { Text(it, fontSize = 14.sp, color = mk.muted) }
+                            view.counters?.let { menu ->
+                                Text(menu.heading, fontSize = 13.sp, color = mk.muted)
+                                for (counter in menu.items) {
+                                    val words = listOfNotNull(counter.name, counter.count).joinToString(" · ")
+                                    LinkButton(
+                                        if (counter.selected) "✓ $words" else words,
+                                        { actions.send(Action.ChooseCounter(counter.choice)) },
+                                        size = 14,
+                                    )
+                                }
+                            }
                         }
                         Head.Idle -> view.idle?.let { Idle(it, actions) }
                         // A filter chosen is a change of what is shown: its rows move as ever, even over a fold kept under the finger.
@@ -963,7 +976,7 @@ private data class RowWords(
 ) {
     companion object {
         fun of(row: ShiftRow) = RowWords(
-            row.title, row.sub, row.tone, row.quiet, row.icon, row.opens,
+            row.title, listOfNotNull(row.sub, row.device).joinToString(" · "), row.tone, row.quiet, row.icon, row.opens,
             row.ring.step.toInt(), row.ring.confirmations?.toInt(), row.ring.required?.toInt(),
         )
     }

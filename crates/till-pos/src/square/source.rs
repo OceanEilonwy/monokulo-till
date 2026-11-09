@@ -11,9 +11,11 @@ use crate::{CursorStore, FoundSale, PosError, RefundByTill, Refunds, SaleOrder, 
 
 /// Square as a [`SaleSource`]: the till's location's payments since it
 /// started watching, kept to Other tenders named
-/// [`SquareConfig::tender_name`] (docs/design.md §1). A Point of Sale
-/// "Other" tender is read as an `EXTERNAL` payment whose
-/// `external_details.source` is the tender's name (decision 13).
+/// [`SquareConfig::tender_name`] (docs/design.md §1) and to cash
+/// ([`FoundSale::cash`], core.md decision 116), which the till offers or
+/// treats as Monero. A Point of Sale "Other" tender is read as an
+/// `EXTERNAL` payment whose `external_details.source` is the tender's name
+/// (decision 13).
 ///
 /// The till refunds a sale never paid through Square's API
 /// ([`Refunds::ByTill`]).
@@ -53,6 +55,13 @@ impl SquareSource {
     }
 }
 
+/// Whether `payment` is a completed cash tender (core.md decision 116):
+/// the till offers it in Monero, or treats it as Monero, as the cashier
+/// chose.
+fn is_cash(payment: &SquarePayment) -> bool {
+    payment.status == "COMPLETED" && payment.source_type.as_deref() == Some("CASH")
+}
+
 #[async_trait]
 impl SaleSource for SquareSource {
     fn point_of_sale(&self) -> PointOfSale {
@@ -83,7 +92,7 @@ impl SaleSource for SquareSource {
         let payments = self.api.payments(&self.location.id, &from).await?;
         Ok(payments
             .into_iter()
-            .filter(|p| self.is_monero(p) && !handled.contains(&p.id))
+            .filter(|p| (self.is_monero(p) || is_cash(p)) && !handled.contains(&p.id))
             .map(found_sale)
             .collect())
     }
@@ -131,7 +140,14 @@ impl RefundByTill for SquareSource {
 }
 
 fn found_sale(payment: SquarePayment) -> FoundSale {
+    let cash = is_cash(&payment);
     let money = payment.total_money.unwrap_or(payment.amount_money);
+    let device = payment.device_details;
+    let device_name = device
+        .as_ref()
+        .and_then(|d| d.device_name.as_deref())
+        .map(crate::receipts::one_line)
+        .filter(|name| !name.is_empty());
     FoundSale {
         id: payment.id,
         amount_minor: money.amount,
@@ -139,7 +155,9 @@ fn found_sale(payment: SquarePayment) -> FoundSale {
         reference: payment.receipt_number,
         order_id: payment.order_id,
         created_at: payment.created_at,
-        device_id: payment.device_details.and_then(|d| d.device_id),
+        device_id: device.and_then(|d| d.device_id),
+        device_name,
+        cash,
         title: None,
         point_of_sale: PointOfSale::Square,
     }

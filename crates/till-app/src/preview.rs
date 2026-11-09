@@ -109,6 +109,8 @@ pub fn preview_shift(preview: TillPreview, platform: Arc<dyn Platform>) -> Optio
         started_at: preview.started_at,
         filter: preview.filter.unwrap_or(ShiftFilter::All),
         folded: preview.folded,
+        counters: Default::default(),
+        counter: None,
     };
     Some(shift::shift(
         &input,
@@ -147,6 +149,7 @@ pub fn preview_sale(
             location,
             refund_problem: preview.refund_problem.clone(),
             refunding: preview.refunding,
+            taking: false,
         },
         clock,
         &money,

@@ -531,6 +531,10 @@ private fun Buttons(sale: SaleFace, actions: TillActions) = Row(Modifier.fillMax
     if (back != null && open != null) {
         PrimaryButton(back.press.label, { open(back.mark) }, Modifier.weight(1f), height = 56.dp, size = 16, enabled = back.press.enabled)
     }
+    // A cash sale's "Paid in cash" (docs/decisions/core.md 116).
+    for (button in sale.view.cash) {
+        OutlineButton(button.press.label, { actions.send(cashAction(button.action, sale.orderId)) }, Modifier.weight(1f), height = 56.dp, enabled = button.press.enabled)
+    }
 }
 
 /** [card] as the engine wrote it, on a sale or its page: see the receipt's [OrderCard]. */

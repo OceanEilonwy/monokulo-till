@@ -141,6 +141,30 @@ fun SettingsScreen(s: SettingsView, a: SettingsActions) = Page(
 
     PosSection(s.pointOfSale, a)
 
+    // Counters and cash (docs/decisions/core.md 113 to 117), drawn plainly.
+    s.counters?.let { c ->
+        SectionLabel("Alert for")
+        val rows = mutableListOf<@Composable () -> Unit>()
+        c.thisDevice?.let { d -> rows += { ChoiceRow(d.label, d.selected, { a.send(Action.SetAlertFor(false)) }, d.detail) } }
+        rows += { ChoiceRow(c.everyDevice.label, c.everyDevice.selected, { a.send(Action.SetAlertFor(true)) }, c.everyDevice.detail) }
+        rows += { ActionRow(c.findAgain.label, { a.send(Action.FindDevice) }, mk.link) }
+        Group(rows = rows)
+        Footnote(c.footnote)
+        SectionLabel("Other counters")
+        Group(rows = listOf({ SwitchRow("Show their sales in the list", c.showOthers, { a.send(Action.SetShowOtherCounters(it)) }) }))
+        Footnote(c.showOthersFootnote)
+    }
+    s.cash?.let { c ->
+        SectionLabel("Cash in Square")
+        Group(
+            rows = listOf<@Composable () -> Unit>(
+                { ChoiceRow(c.asMonero.label, c.asMonero.selected, { a.send(Action.SetCashAsMonero(true)) }, c.asMonero.detail) },
+                { ChoiceRow(c.offer.label, c.offer.selected, { a.send(Action.SetCashAsMonero(false)) }, c.offer.detail) },
+            ),
+        )
+        c.footnotes.forEach { Footnote(it) }
+    }
+
     s.shift?.let { shift ->
         SectionLabel("Shift")
         Group(rows = listOf({ SwitchRow("Watch for sales", shift.on, { on -> a.send(if (on) Action.StartShift else Action.StopShift) }) }))

@@ -274,6 +274,27 @@ pub fn signed_in_footnote(pos: PointOfSale) -> String {
     )
 }
 
+/// "this iPad", "this iPhone", "this phone".
+pub fn this_device(device: crate::view::Device) -> &'static str {
+    match device {
+        crate::view::Device::Ipad => "this iPad",
+        crate::view::Device::Iphone => "this iPhone",
+        crate::view::Device::Android => "this phone",
+    }
+}
+
+/// Step 4's way past while there's no point of sale (board OnbPos, core.md
+/// decision 121).
+pub const SET_UP_LATER: &str = "Set up later";
+
+/// Under "Set up later", naming `device`.
+pub fn set_up_later_footnote(device: crate::view::Device) -> String {
+    let this = this_device(device);
+    format!(
+        "Without a point of sale, {this} can't find new sales itself. It still shows sales that another till finds."
+    )
+}
+
 /// Under the sign-in row, or the choice rows.
 pub fn without_footnote(pos: Option<PointOfSale>) -> String {
     format!(

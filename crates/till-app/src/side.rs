@@ -320,6 +320,10 @@ impl RunnerSide for Side {
         }
     }
 
+    fn till_options(&self) -> till_sales::TillOptions {
+        self.kept.with(|m| m.till_options())
+    }
+
     fn recheck_wake_ups(&self) {
         if let Some(w) = self.wake_ups() {
             w.recheck();

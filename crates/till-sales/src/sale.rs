@@ -150,6 +150,22 @@ pub struct TillSale {
     pub confirmations: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub confirmations_required: Option<u32>,
+    /// A cash sale the till offers to take in Monero, with no order made for
+    /// it yet (core.md decision 116): the cashier turned off "Treat cash
+    /// sales as Monero". Its `order_id` is [`TillSale::OFFERED`] and the
+    /// payment's id; its code, address and XMR are empty until it's taken
+    /// ([`crate::Till::take_in_monero`]), when a sale with the order takes
+    /// its place.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub offered: bool,
+    /// When the cashier chose "Keep as cash" for an offered sale.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kept_as_cash_at: Option<i64>,
+    /// When the cashier said a cash sale's customer paid in real cash after
+    /// all ("Paid in cash"): its code comes down, and nothing is refunded,
+    /// as the point of sale already has the cash.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paid_in_cash_at: Option<i64>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -161,9 +177,33 @@ fn is_zero(n: &i64) -> bool {
 }
 
 impl TillSale {
-    /// Worth reading again: Monokulo may still move it on.
+    /// What an offered cash sale's `order_id` starts with, before the
+    /// payment's id: no Monokulo order id does.
+    pub const OFFERED: &'static str = "cash:";
+
+    /// Worth reading again: Monokulo may still move it on. An offered cash
+    /// sale has no order to read.
     pub fn open(&self) -> bool {
-        !self.settled && self.phase != SalePhase::Paid
+        !self.offered && !self.settled && self.phase != SalePhase::Paid
+    }
+
+    /// Rung up as cash at the point of sale ([`FoundSale::cash`]), whether
+    /// or not it's been taken in Monero since.
+    pub fn cash(&self) -> bool {
+        self.found.as_ref().is_some_and(|found| found.cash)
+    }
+
+    /// A cash sale paid in Monero: the point of sale's books say cash,
+    /// so the end-of-day count needs to know (core.md decision 117).
+    pub fn cash_paid_in_monero(&self) -> bool {
+        self.cash() && self.phase == SalePhase::Paid
+    }
+
+    /// The point of sale's device that took it, by id and by name, when the
+    /// point of sale said.
+    pub fn pos_device(&self) -> Option<(&str, Option<&str>)> {
+        let found = self.found.as_ref()?;
+        Some((found.device_id.as_deref()?, found.device_name.as_deref()))
     }
 
     /// Its payment is on the network and not yet paid: its confirmations

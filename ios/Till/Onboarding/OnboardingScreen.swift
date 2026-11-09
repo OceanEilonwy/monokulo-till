@@ -65,6 +65,12 @@ struct OnboardingScreen: View {
             FloatPage(heading: heading, lead: lead, next: next, notificationsOnly: notificationsOnly, send: send)
         case .ready(let heading, let lead, let checks):
             ReadyPage(heading: heading, lead: lead, checks: checks, send: send)
+        // C4 and O4 (docs/decisions/core.md 113, 120): their heading, lead
+        // and Continue until their own pages are drawn.
+        case .counter(let view):
+            FloatPage(heading: view.heading, lead: view.lead, next: view.next, notificationsOnly: nil, send: send)
+        case .showSales(let view):
+            FloatPage(heading: view.heading, lead: view.lead, next: view.next, notificationsOnly: nil, send: send)
         }
     }
 }

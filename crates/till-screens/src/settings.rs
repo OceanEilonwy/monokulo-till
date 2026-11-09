@@ -16,10 +16,11 @@ use monokulo_client::{AppConnection, Connection, PointOfSale, Store, tor};
 use till_bell::WakeUpChoice;
 use till_pos::square::SquareLocation;
 
+use crate::counters::Counters;
 use crate::onboarding::CloverTender;
 use crate::pos_text;
 use crate::time::DeviceClock;
-use crate::view::{Device, Fact, PosChoice, PosMark, Tone, capitalised, mark};
+use crate::view::{Device, Fact, PosChoice, PosMark, Press, Tone, capitalised, mark};
 use crate::wake_ups::{WakeUpsInput, WakeUpsView, wake_ups};
 use crate::wake_ups_text;
 
@@ -111,6 +112,159 @@ pub struct SettingsInput {
     /// iPhone: the Live Activity each shift, and the code in the island.
     pub live_activity: bool,
     pub code_in_island: bool,
+    /// Counters, cash and how a new sale shows up.
+    pub choices: SaleChoices,
+}
+
+/// How a new sale shows up on iOS (O4 and Settings; core.md decision 120):
+/// an alert over the point of sale, a floating Picture in Picture window,
+/// or Till and the point of sale side by side. The engine keeps the
+/// choice; the platform does the showing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum ShowSales {
+    #[default]
+    Alert,
+    FloatingWindow,
+    SideBySide,
+}
+
+impl ShowSales {
+    pub const ALL: [ShowSales; 3] = [
+        ShowSales::Alert,
+        ShowSales::FloatingWindow,
+        ShowSales::SideBySide,
+    ];
+
+    /// The choice's words (board OnbShow).
+    pub fn label(self) -> &'static str {
+        match self {
+            ShowSales::Alert => "An alert (recommended)",
+            ShowSales::FloatingWindow => "A floating window",
+            ShowSales::SideBySide => "Side by side",
+        }
+    }
+
+    /// The line under it, naming the point of sale.
+    pub fn detail(self, pos: Option<PointOfSale>) -> String {
+        let name = pos_text::name(pos);
+        match self {
+            ShowSales::Alert => format!(
+                "A time-sensitive alert over {name}. Tap it and the code fills the screen; Back to {name} when it's paid."
+            ),
+            ShowSales::FloatingWindow => format!(
+                "A small window stays over {name} and shows the code and payment as they happen. Pinch to resize, drag to any corner."
+            ),
+            ShowSales::SideBySide => {
+                format!("Till and {name} in two windows, arranged by hand.")
+            }
+        }
+    }
+}
+
+/// One way a new sale can show up, as a radio row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct ShowSalesChoice {
+    pub mode: ShowSales,
+    pub choice: crate::view::Choice,
+}
+
+/// The ways a new sale can show up, `chosen` ticked.
+pub fn show_sales_choices(chosen: ShowSales, pos: Option<PointOfSale>) -> Vec<ShowSalesChoice> {
+    ShowSales::ALL
+        .into_iter()
+        .map(|mode| ShowSalesChoice {
+            mode,
+            choice: crate::view::Choice {
+                label: mode.label().into(),
+                detail: Some(mode.detail(pos)),
+                selected: mode == chosen,
+                enabled: true,
+            },
+        })
+        .collect()
+}
+
+/// Side by side on iPadOS 26, under the choice once it's ticked.
+pub const SIDE_BY_SIDE_HOW: &str = "Turn on Windowed Apps in Settings › Multitasking & Gestures. Then touch and hold the green button at the top left of Till's window and choose a layout beside Square.";
+
+/// What the cashier chose about counters, cash and how a sale shows up.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SaleChoices {
+    pub counters: Counters,
+    /// The devices at the location by name, as this shift's sales named
+    /// them ("Front iPad, Bar iPad, Kiosk").
+    pub devices: Vec<String>,
+    /// When the test sale named this counter's device.
+    pub learned_at: Option<i64>,
+    /// "Find this device again" is waiting for the test sale.
+    pub finding_device: bool,
+    pub cash_as_monero: bool,
+    pub show_sales: ShowSales,
+}
+
+impl Default for SaleChoices {
+    fn default() -> SaleChoices {
+        SaleChoices {
+            counters: Counters::default(),
+            devices: Vec::new(),
+            learned_at: None,
+            finding_device: false,
+            cash_as_monero: true,
+            show_sales: ShowSales::Alert,
+        }
+    }
+}
+
+/// Settings › Alert for (board CounterSettings, C5).
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct CountersSection {
+    /// "This device: Front iPad", "Learned from the test sale, 9 Nov";
+    /// `None` until a test sale names it.
+    pub this_device: Option<crate::view::Choice>,
+    /// "Every device at Front Counter", naming the devices seen.
+    pub every_device: crate::view::Choice,
+    /// "Find this device again with a test sale", or "Waiting for the test
+    /// sale…" while it waits (tap again to stop).
+    pub find_again: Press,
+    pub footnote: String,
+    /// "Show their sales in the list".
+    pub show_others: bool,
+    pub show_others_footnote: String,
+}
+
+/// Settings › Cash in Square (board CashSettings, K4).
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct CashSection {
+    /// "Treat cash sales as Monero (default)".
+    pub as_monero: crate::view::Choice,
+    /// "Only offer Monero".
+    pub offer: crate::view::Choice,
+    pub footnotes: Vec<String>,
+}
+
+/// iOS's alerts, as a status row and a way to the system's settings: iOS
+/// decides, so there's no switch that would snap back (review finding I15).
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct AlertsStatus {
+    /// "New sales and payments · On", or "Off" in warning.
+    pub row: Fact,
+    /// "Open Notification Settings".
+    pub open_settings: String,
+    pub footnote: String,
+}
+
+/// Settings › How sales show up (iPad).
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct ShowSalesSection {
+    pub choices: Vec<ShowSalesChoice>,
+    /// How to set up side by side, while it's chosen.
+    pub side_by_side: Option<String>,
 }
 
 /// Settings, ready to draw.
@@ -131,6 +285,130 @@ pub struct SettingsView {
     pub island: Option<IslandSection>,
     /// Debug builds: a stand-in's address for each point of sale.
     pub stand_ins: Vec<StandIn>,
+    /// Square, signed in: which device's sales alert, and whether other
+    /// counters' show in the list (C5).
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub counters: Option<CountersSection>,
+    /// Square, signed in: cash sales (K4).
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub cash: Option<CashSection>,
+    /// iOS: alerts as iOS allows them, in place of [`Self::alerts`]'s
+    /// switch.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub alerts_status: Option<AlertsStatus>,
+    /// iPad: how a new sale shows up.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub show_sales: Option<ShowSalesSection>,
+}
+
+/// "9 Nov": a day on the device's clock.
+fn day(at: i64, clock: DeviceClock) -> String {
+    let local = at + i64::from(clock.utc_offset);
+    let days = local.div_euclid(86_400);
+    // Civil from days (Howard Hinnant's algorithm).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    format!("{d} {}", MONTHS[(m - 1) as usize])
+}
+
+fn counters_section(
+    c: &SaleChoices,
+    place: Option<&str>,
+    device: Device,
+    clock: DeviceClock,
+) -> CountersSection {
+    let counters = &c.counters;
+    let this = counters.device.as_ref();
+    let name = this.map(|d| {
+        d.name
+            .clone()
+            .unwrap_or_else(|| crate::counters::device_name(&d.id, &[], counters))
+    });
+    let at = place.unwrap_or("this location");
+    CountersSection {
+        this_device: name.map(|name| crate::view::Choice {
+            label: format!("This device: {name}"),
+            detail: c
+                .learned_at
+                .map(|t| format!("Learned from the test sale, {}", day(t, clock))),
+            selected: !counters.every_device,
+            enabled: true,
+        }),
+        every_device: crate::view::Choice {
+            label: format!("Every device at {at}"),
+            detail: (!c.devices.is_empty()).then(|| c.devices.join(", ")),
+            selected: counters.every_device || this.is_none(),
+            enabled: true,
+        },
+        find_again: Press::new(if c.finding_device {
+            "Waiting for the test sale…".to_owned()
+        } else if this.is_some() {
+            "Find this device again with a test sale".to_owned()
+        } else {
+            "Find this device with a test sale".to_owned()
+        }),
+        footnote: if c.finding_device {
+            format!(
+                "Ring up any small sale on {}'s Square and choose Monero. Tap again to stop waiting.",
+                pos_text::this_device(device)
+            )
+        } else if this.is_some() {
+            "Square names the device that took each payment. Use \"Find again\" if this counter's Square moves to another device.".into()
+        } else {
+            "The test sale was skipped, so every device's sales alert here. A test sale names this counter's device.".into()
+        },
+        show_others: counters.show_others,
+        show_others_footnote:
+            "They never alert here. Open one to show its code if a customer comes to this counter."
+                .into(),
+    }
+}
+
+fn cash_section(c: &SaleChoices) -> CashSection {
+    let mut footnotes = Vec::new();
+    if c.cash_as_monero {
+        footnotes.push("Every cash sale alerts and shows a code. When a customer pays real cash, tap Paid in cash on the sale to close it.".to_owned());
+    }
+    footnotes.push("Square still records these sales as Cash. Till's shift lists which ones were paid in Monero, for the end-of-day count.".to_owned());
+    CashSection {
+        as_monero: crate::view::Choice {
+            label: "Treat cash sales as Monero (default)".into(),
+            detail: Some("Cash sales alert and get a code straight away. If the customer pays real cash, tap Paid in cash.".into()),
+            selected: c.cash_as_monero,
+            enabled: true,
+        },
+        offer: crate::view::Choice {
+            label: "Only offer Monero".into(),
+            detail: Some("Cash sales show quietly with Take it in Monero. Nothing happens unless the cashier taps it.".into()),
+            selected: !c.cash_as_monero,
+            enabled: true,
+        },
+        footnotes,
+    }
+}
+
+/// iOS's alerts row (board DesignSettings).
+pub fn alerts_status(allowed: bool) -> AlertsStatus {
+    AlertsStatus {
+        row: if allowed {
+            Fact::new("New sales and payments", "On")
+        } else {
+            Fact::new("New sales and payments", "Off").toned(Tone::Warn)
+        },
+        open_settings: "Open Notification Settings".into(),
+        footnote:
+            "iOS decides whether Till may alert you. Turn them on there and this updates by itself."
+                .into(),
+    }
 }
 
 /// The store, its wallet and this device.
@@ -243,6 +521,9 @@ pub struct StandIn {
 pub fn settings(input: &SettingsInput, device: Device, clock: DeviceClock) -> SettingsView {
     let pos = input.pos.chosen;
     let android = device == Device::Android;
+    // Square names the device that took each payment and has a cash
+    // tender; Clover's payments are read by their Monero tender alone.
+    let square_connected = pos == Some(PointOfSale::Square) && input.pos.connected();
     SettingsView {
         store: input
             .connection
@@ -297,6 +578,21 @@ pub fn settings(input: &SettingsInput, device: Device, clock: DeviceClock) -> Se
         } else {
             Vec::new()
         },
+        counters: square_connected.then(|| {
+            counters_section(
+                &input.choices,
+                input.pos.location.as_ref().map(|l| l.name.as_str()),
+                device,
+                clock,
+            )
+        }),
+        cash: square_connected.then(|| cash_section(&input.choices)),
+        alerts_status: device.is_ios().then(|| alerts_status(input.alerts)),
+        show_sales: (device == Device::Ipad).then(|| ShowSalesSection {
+            choices: show_sales_choices(input.choices.show_sales, pos),
+            side_by_side: (input.choices.show_sales == ShowSales::SideBySide)
+                .then(|| SIDE_BY_SIDE_HOW.into()),
+        }),
     }
 }
 
@@ -480,7 +776,7 @@ fn wake_ups_row(w: &WakeUpsInput, device: Device) -> Fact {
         WakeUpChoice::MonokuloBell | WakeUpChoice::OwnBell { .. } => {
             let connected = matches!(w.status, till_bell::WakeUpStatus::Connected { .. });
             Fact::new("Wake-ups", wake_ups_text::word(&w.status, device)).toned(if connected {
-                Tone::Paid
+                Tone::Plain
             } else {
                 Tone::Muted
             })
@@ -569,6 +865,7 @@ mod tests {
             },
             live_activity: true,
             code_in_island: false,
+            choices: SaleChoices::default(),
         }
     }
 
@@ -861,7 +1158,7 @@ mod tests {
         assert_eq!(
             view.wake_ups,
             WakeUpsPlace::Row {
-                row: Fact::new("Wake-ups", "Connected").toned(Tone::Paid)
+                row: Fact::new("Wake-ups", "Connected").toned(Tone::Plain)
             }
         );
         assert_eq!(
@@ -989,5 +1286,88 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn square_settings_say_which_device_alerts_how_cash_is_taken_and_how_sales_show_up() {
+        use crate::counters::{CounterDevice, Counters};
+        let square = SettingsInput {
+            choices: SaleChoices {
+                counters: Counters {
+                    device: Some(CounterDevice {
+                        id: "dev_front".into(),
+                        name: Some("Front iPad".into()),
+                    }),
+                    every_device: false,
+                    show_others: true,
+                },
+                devices: vec!["Front iPad".into(), "Bar iPad".into(), "Kiosk".into()],
+                // 9 Nov 2026, 10:00 UTC.
+                learned_at: Some(1_762_682_400),
+                finding_device: false,
+                cash_as_monero: true,
+                show_sales: ShowSales::SideBySide,
+            },
+            alerts: true,
+            ..input()
+        };
+        let view = settings(&square, Device::Ipad, CLOCK);
+        let counters = view.counters.expect("Square names devices");
+        let this = counters.this_device.unwrap();
+        assert_eq!(this.label, "This device: Front iPad");
+        assert_eq!(
+            this.detail.as_deref(),
+            Some("Learned from the test sale, 9 Nov")
+        );
+        assert!(this.selected);
+        assert_eq!(counters.every_device.label, "Every device at Front Counter");
+        assert_eq!(
+            counters.every_device.detail.as_deref(),
+            Some("Front iPad, Bar iPad, Kiosk")
+        );
+        assert!(!counters.every_device.selected);
+        assert_eq!(
+            counters.find_again.label,
+            "Find this device again with a test sale"
+        );
+        assert!(counters.show_others);
+        let cash = view.cash.expect("Square has a cash tender");
+        assert!(cash.as_monero.selected && !cash.offer.selected);
+        assert_eq!(cash.offer.label, "Only offer Monero");
+        let alerts = view.alerts_status.expect("iOS's status row");
+        assert_eq!(alerts.row, Fact::new("New sales and payments", "On"));
+        assert_eq!(alerts.open_settings, "Open Notification Settings");
+        let show = view.show_sales.expect("iPad");
+        assert!(show.choices[2].choice.selected);
+        assert!(show.side_by_side.is_some());
+
+        let off = settings(
+            &SettingsInput {
+                alerts: false,
+                ..square.clone()
+            },
+            Device::Iphone,
+            CLOCK,
+        );
+        assert_eq!(off.alerts_status.unwrap().row.tone, Tone::Warn);
+        assert_eq!(off.show_sales, None, "iPad only");
+        let android = settings(&square, Device::Android, CLOCK);
+        assert_eq!(android.alerts_status, None, "Android keeps its switch");
+        assert!(android.counters.is_some());
+
+        let skipped = SettingsInput {
+            choices: SaleChoices {
+                finding_device: true,
+                ..SaleChoices::default()
+            },
+            ..input()
+        };
+        let counters = settings(&skipped, Device::Ipad, CLOCK).counters.unwrap();
+        assert_eq!(counters.this_device, None);
+        assert!(
+            counters.every_device.selected,
+            "the test skipped: every device"
+        );
+        assert_eq!(counters.find_again.label, "Waiting for the test sale…");
     }
 }

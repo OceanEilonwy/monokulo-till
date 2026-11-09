@@ -14,8 +14,8 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use crate::testing::{FakePlatform, FakePush, Heard, Recorder, wait_for};
 use crate::{
-    Action, CloseChoice, CloverSetup, CopyKind, Device, Effect, Engine, EngineConfig, Screen,
-    SquareSetup, Update, WakeUps,
+    Action, CloseChoice, CloverSetup, CopyKind, CounterChoice, Device, Effect, Engine,
+    EngineConfig, Screen, SquareSetup, Update, WakeUps,
 };
 
 use super::Options;
@@ -406,7 +406,8 @@ async fn a_sign_in_opens_its_page_and_keeps_the_attempt_as_stores_kt_did() {
         pos: crate::Pos::Square,
     });
     wait_for(&rx, |_| platform.get("pos.kind").filter(|k| k == "square"));
-    // Step 4's button is the sign-in until the till is connected.
+    // O1's "Continue with Square", then O2's sign-in (decision 121).
+    engine.send(Action::Next);
     engine.send(Action::Next);
     let url = wait_for(&rx, |heard| match heard {
         Heard::Effect(Effect::OpenUrl { url }) => Some(url.clone()),
@@ -556,10 +557,10 @@ async fn an_upgraded_till_runs_its_shift_makes_orders_and_tells_the_platform() {
     let shift = shift.expect("the shift with both sales");
     assert_eq!(shift.top.place.as_deref(), Some("Front counter"));
     assert_eq!(alert.order_id, "ord_1");
-    assert_eq!(alert.title, "New Monero sale · $13.88");
+    assert_eq!(alert.title, "Sale #bP9m · $13.88");
     assert_eq!(
         alert.body,
-        "Front counter. Tap here to show the payment code."
+        "Monero sale. Tap to show the customer the code."
     );
     assert!(
         platform
@@ -1545,4 +1546,226 @@ async fn on_ios_the_apns_token_goes_through_the_relay_to_the_bell_and_a_relayed_
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     panic!("the ding didn't wake the shift");
+}
+
+/// Square, with one Monero payment at the location taken on `device`.
+async fn square_with_device(device: &str, name: &str, source: &str) -> MockServer {
+    let server = MockServer::start().await;
+    let payments = PAYMENTS
+        .replace(
+            r#""location_id":"L1""#,
+            &format!(
+                r#""location_id":"L1","device_details":{{"device_id":"{device}","device_name":"{name}"}}"#
+            ),
+        )
+        .replace(r#""source_type":"EXTERNAL""#, source);
+    Mock::given(method("GET"))
+        .and(path("/v2/payments"))
+        .respond_with(json(&payments))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v2/orders/ord_sq_1"))
+        .respond_with(json(
+            r#"{"order":{"id":"ord_sq_1","location_id":"L1","created_at":"2026-10-22T16:06:41Z","total_money":{"amount":1388,"currency":"USD"},"ticket_name":"Sam"}}"#,
+        ))
+        .mount(&server)
+        .await;
+    server
+}
+
+/// The shift with `n` rows, as next published.
+fn shift_with(rx: &Receiver<Heard>, n: usize) -> till_screens::ShiftView {
+    wait_for(rx, |heard| match heard {
+        Heard::Update(Update::Notification { view }) if view.alert.is_some() => {
+            panic!("alerted: {view:?}")
+        }
+        Heard::Update(Update::Shift { view }) if rows(view) == n => Some(view.clone()),
+        _ => None,
+    })
+}
+
+fn first_row(view: &till_screens::ShiftView) -> till_screens::shift::ShiftRow {
+    view.entries
+        .iter()
+        .find_map(|e| match e {
+            till_screens::shift::ShiftEntry::Row { row, .. } => Some(row.clone()),
+            _ => None,
+        })
+        .expect("a row")
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn another_counters_sale_is_listed_but_never_alerts_or_takes_the_screen() {
+    let monokulo = monokulo().await;
+    let square = square_with_device("dev_bar", "Bar iPad", r#""source_type":"EXTERNAL""#).await;
+    let platform = signed_in_till(&monokulo);
+    platform.set(
+        "counter.device",
+        r#"{"id":"dev_front","name":"Front iPad","learnedAt":1761148000}"#,
+    );
+    let (engine, rx, _) = start(config(Some(&square)), platform.clone());
+    engine.send(Action::Backgrounded);
+    screen(&rx, Screen::Till);
+    let shift = shift_with(&rx, 1);
+    let row = first_row(&shift);
+    assert!(row.other_counter);
+    assert_eq!(row.device.as_deref(), Some("Bar iPad"));
+    assert_eq!(row.name, "Sam", "the ticket's name leads the row");
+    let menu = shift.counters.expect("the title menu");
+    assert_eq!(
+        menu.title, "All counters",
+        "other counters' sales show by default"
+    );
+    // Everything the batch published is in: no alert, and the shift stays.
+    let (alert, on) = engine.peek(|s| (s.alert_for.clone(), s.screen.clone()));
+    assert_eq!((alert, on), (None, Screen::Till));
+    for heard in rx.try_iter() {
+        if let Heard::Update(Update::Notification { view }) = heard {
+            assert_eq!(view.alert, None, "another counter's sale never alerts");
+        }
+    }
+    engine.send(Action::ChooseCounter {
+        choice: CounterChoice::Device {
+            device_id: "dev_front".into(),
+        },
+    });
+    let mine = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Shift { view }) if rows(view) == 0 => Some(view.clone()),
+        _ => None,
+    });
+    assert_eq!(mine.counters.unwrap().title, "Front iPad");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn alerts_for_every_device_take_another_counters_sale_too() {
+    let monokulo = monokulo().await;
+    let square = square_with_device("dev_bar", "Bar iPad", r#""source_type":"EXTERNAL""#).await;
+    let platform = signed_in_till(&monokulo);
+    platform.set(
+        "counter.device",
+        r#"{"id":"dev_front","name":"Front iPad","learnedAt":1761148000}"#,
+    );
+    platform.set("counter.every", "true");
+    let (engine, rx, _) = start(config(Some(&square)), platform.clone());
+    engine.send(Action::Backgrounded);
+    let alert = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Notification { view }) => view.alert.clone(),
+        _ => None,
+    });
+    assert_eq!(alert.title, "Sam · $13.88");
+    assert_eq!(alert.body, "Monero sale. Tap to show Sam the code.");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_test_sale_names_this_counters_device_and_c4_asks_which_sales_alert() {
+    let monokulo = monokulo().await;
+    let square = square_with_device("dev_front", "Front iPad", r#""source_type":"EXTERNAL""#).await;
+    let platform = signed_in_till(&monokulo);
+    platform.set("setup.done", "false");
+    let mut config = config(Some(&square));
+    config.device = Device::Ipad;
+    let (engine, rx, _) = start(config, platform.clone());
+    // Signed in at a location, setup opens on Alerts: back to the test sale.
+    screen(&rx, Screen::Alerts);
+    engine.send(Action::Back);
+    screen(&rx, Screen::PointOfSale);
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Onboarding { view }) => match &view.page {
+            OnboardingPage::PointOfSale { view } => {
+                view.status.as_ref().filter(|s| s.found).map(|_| ())
+            }
+            _ => None,
+        },
+        _ => None,
+    });
+    engine.send(Action::Next);
+    screen(&rx, Screen::Counter);
+    let kept = platform.get("counter.device").expect("the device kept");
+    assert!(
+        kept.contains(r#""id":"dev_front""#) && kept.contains("Front iPad"),
+        "{kept}"
+    );
+    let step = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Onboarding { view }) => match &view.page {
+            OnboardingPage::Counter { view } => Some(view.clone()),
+            _ => None,
+        },
+        _ => None,
+    });
+    assert_eq!(step.device, "Front iPad");
+    assert_eq!(step.found, "Test sale found · $13.88 · Sale #bP9m");
+    engine.send(Action::SetAlertFor { every_device: true });
+    wait_for(&rx, |_| platform.get("counter.every"));
+    engine.send(Action::Next);
+    screen(&rx, Screen::Alerts);
+    engine.send(Action::Next);
+    screen(&rx, Screen::ShowSales);
+    engine.send(Action::ChooseShowSales {
+        mode: crate::ShowSales::FloatingWindow,
+    });
+    wait_for(&rx, |_| platform.get("sales.show").filter(|v| v == "pip"));
+    engine.send(Action::Next);
+    screen(&rx, Screen::Ready);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn with_cash_offered_a_cash_sale_waits_quietly_and_take_it_in_monero_opens_its_code() {
+    let monokulo = monokulo().await;
+    let square = square_with_device("dev_front", "Front iPad", r#""source_type":"CASH""#).await;
+    let platform = signed_in_till(&monokulo);
+    platform.set("cash.monero", "false");
+    let (engine, rx, _) = start(config(Some(&square)), platform.clone());
+    engine.send(Action::Backgrounded);
+    let shift = shift_with(&rx, 1);
+    let order_id = shift
+        .entries
+        .iter()
+        .find_map(|e| match e {
+            till_screens::shift::ShiftEntry::Row { order_id, .. } => Some(order_id.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(order_id, "cash:pay_monero");
+    assert!(shift.entries.iter().any(|e| matches!(
+        e,
+        till_screens::shift::ShiftEntry::Earlier { label } if label == "Cash · paying in Monero?"
+    )));
+    engine.send(Action::Opened);
+    engine.send(Action::TakeInMonero { order_id });
+    screen(
+        &rx,
+        Screen::Sale {
+            order_id: "ord_1".into(),
+        },
+    );
+    let page = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Sale { view, .. }) => Some(view.clone()),
+        _ => None,
+    });
+    assert_eq!(page.title, "Sam");
+    assert_eq!(
+        page.cash
+            .iter()
+            .map(|b| b.press.label.as_str())
+            .collect::<Vec<_>>(),
+        ["Paid in cash"]
+    );
+    engine.send(Action::PaidInCash {
+        order_id: "ord_1".into(),
+    });
+    // The sale's page says how it ended.
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Sale { page, .. }) if page.heading == "Paid in cash" => Some(()),
+        _ => None,
+    });
+    assert!(
+        !square
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .any(|r| r.url.path() == "/v2/refunds"),
+        "a cash sale is never refunded in Square"
+    );
 }

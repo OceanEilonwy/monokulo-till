@@ -11,7 +11,7 @@ use tokio::runtime::Handle;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
-use crate::{Shift, ShiftStore, Standing, Till, TillState, WakeCause};
+use crate::{Shift, ShiftStore, Standing, Till, TillOptions, TillState, WakeCause};
 
 /// The till as the screens and the service see it.
 #[derive(Clone, Debug, PartialEq)]
@@ -118,6 +118,12 @@ pub trait RunnerSide: Send + Sync {
     /// Registers with the Bell again, so a registration the Bell dropped
     /// comes back (decision 95): a shift is starting.
     fn recheck_wake_ups(&self);
+
+    /// How the cashier set the till up: this counter's device, and cash
+    /// (core.md decisions 113 and 116). Read as each till is made.
+    fn till_options(&self) -> TillOptions {
+        TillOptions::default()
+    }
 }
 
 /// What the runner holds while it has a till.
@@ -353,6 +359,20 @@ impl TillRunner {
         }
     }
 
+    /// "Keep as cash" on an offered cash sale.
+    pub fn keep_as_cash(&self, order_id: &str) {
+        if let Some(till) = self.till() {
+            till.keep_as_cash(order_id);
+        }
+    }
+
+    /// "Paid in cash" on a cash sale with a code.
+    pub fn paid_in_cash(&self, order_id: &str) {
+        if let Some(till) = self.till() {
+            till.paid_in_cash(order_id);
+        }
+    }
+
     /// The till on screen, once there is one.
     pub fn till(&self) -> Option<Arc<Till>> {
         self.inner.parts().till.clone()
@@ -384,6 +404,7 @@ impl Inner {
         self.state.send_modify(|s| s.source = pos);
         Arc::new(
             Till::new(source, self.monokulo.clone(), connection)
+                .with_options(&self.side.till_options())
                 .with_clock(self.clock.clone())
                 .with_store(self.side.shift_store()),
         )
@@ -641,6 +662,8 @@ mod tests {
             order_id: Some("o_1".into()),
             created_at: "2026-10-22T22:50:00Z".into(),
             device_id: None,
+            device_name: None,
+            cash: false,
             title: None,
             point_of_sale: PointOfSale::Square,
         };

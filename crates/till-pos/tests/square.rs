@@ -202,12 +202,24 @@ async fn only_completed_monero_tenders_are_sales_and_handled_ones_arent_given_ag
     let sales = source.new_sales().await.unwrap();
     assert_eq!(
         sales.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
-        ["pay_monero"]
+        ["pay_monero", "pay_cash"],
+        "Monero and completed cash, not card, other tenders or open payments"
     );
     let sale = &sales[0];
     assert_eq!(sale.amount_minor, 1388);
     assert_eq!(sale.reference.as_deref(), Some("bP9m"));
     assert_eq!(sale.device_id.as_deref(), Some("dev_front"));
+    assert_eq!(
+        sale.device_name.as_deref(),
+        Some("Front iPad"),
+        "on one line, trimmed"
+    );
+    assert!(!sale.cash);
+    let cash = &sales[1];
+    assert!(cash.cash);
+    assert_eq!(cash.amount_minor, 2450);
+    assert_eq!(cash.device_id.as_deref(), Some("dev_bar"));
+    assert_eq!(cash.device_name.as_deref(), Some("Bar iPad"));
     let request = f.stand.take_request().await;
     assert_eq!(query(&request, "location_id").as_deref(), Some("L1"));
     assert_eq!(
@@ -226,6 +238,7 @@ async fn only_completed_monero_tenders_are_sales_and_handled_ones_arent_given_ag
         cursor.since_value().as_deref(),
         Some("2026-10-22T16:07:00.512Z")
     );
+    source.handled(cash);
     f.stand.enqueue(json(&fixture("square/payments.json")));
     assert!(source.new_sales().await.unwrap().is_empty());
 }
@@ -362,6 +375,40 @@ fn a_recipients_name_is_read_defensively_and_a_strange_shape_never_costs_the_rec
     assert_eq!(name("null"), None);
 }
 
+#[test]
+fn the_name_typed_at_the_counter_names_the_order_when_no_recipient_does() {
+    let name = |fields: &str| {
+        serde_json::from_str::<SquareOrder>(&format!(
+            r#"{{"id":"o","location_id":"L1","created_at":"2026-10-22T16:06:41Z","total_money":{{"amount":1,"currency":"USD"}}{fields}}}"#
+        ))
+        .unwrap()
+        .customer_name()
+    };
+    assert_eq!(
+        name(r##","ticket_name":"  Sam\n""##).as_deref(),
+        Some("Sam"),
+        "on one line, trimmed"
+    );
+    assert_eq!(
+        name(
+            r#","ticket_name":"Sam","fulfillments":[{"pickup_details":{"recipient":{"display_name":"Ana López"}}}]"#
+        )
+        .as_deref(),
+        Some("Ana López"),
+        "a named recipient comes first (decision 112)"
+    );
+    assert_eq!(
+        name(
+            r#","ticket_name":"Sam","fulfillments":[{"pickup_details":{"recipient":{"display_name":" "}}}]"#
+        )
+        .as_deref(),
+        Some("Sam"),
+        "a blank recipient falls back to the ticket"
+    );
+    assert_eq!(name(r##","ticket_name":"   ""##), None);
+    assert_eq!(name(""), None);
+}
+
 #[tokio::test]
 async fn a_refund_is_the_whole_sale_once() {
     let f = Fixture::start().await;
@@ -379,6 +426,8 @@ async fn a_refund_is_the_whole_sale_once() {
             order_id: Some("ord_sq_1".into()),
             created_at: "2026-10-22T16:07:00Z".into(),
             device_id: None,
+            device_name: None,
+            cash: false,
             title: None,
             point_of_sale: PointOfSale::Square,
         })
@@ -486,6 +535,8 @@ async fn a_cursor_that_cant_be_read_is_an_error_and_never_saved_over() {
         order_id: None,
         created_at: "2026-10-22T16:07:00Z".into(),
         device_id: None,
+        device_name: None,
+        cash: false,
         title: None,
         point_of_sale: PointOfSale::Square,
     });

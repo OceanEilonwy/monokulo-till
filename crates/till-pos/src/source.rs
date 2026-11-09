@@ -96,6 +96,17 @@ pub struct FoundSale {
     /// its own till only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_id: Option<String>,
+    /// What the point of sale calls that device ("Front iPad"), when it
+    /// says: Square's `device_details.device_name`. Clover's payments name
+    /// only the device's id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_name: Option<String>,
+    /// Rung up as cash at the point of sale (Square's `CASH` tender), not
+    /// as the Monero tender (core.md decision 116). The till never refunds
+    /// such a sale through the point of sale: the money was never taken by
+    /// card.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cash: bool,
     /// The name the cashier gave the order ("Table 4"), when the point of
     /// sale has one: Clover's title; Square leaves it `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -222,6 +233,28 @@ mod tests {
         assert!(json.contains(r#""pointOfSale":"Clover""#), "{json}");
         assert!(json.contains(r#""title":"Table 4""#), "{json}");
         assert!(!json.contains("deviceId"), "{json}");
+        assert!(!json.contains("cash"), "{json}");
         assert_eq!(serde_json::from_str::<FoundSale>(&json).unwrap(), clover);
+    }
+
+    #[test]
+    fn a_cash_sale_keeps_its_device_and_that_it_was_cash() {
+        let sale = FoundSale {
+            id: "pay_2".into(),
+            amount_minor: 2450,
+            currency: "USD".into(),
+            reference: None,
+            order_id: None,
+            created_at: "2026-11-09T16:07:00Z".into(),
+            device_id: Some("dev_front".into()),
+            device_name: Some("Front iPad".into()),
+            cash: true,
+            title: None,
+            point_of_sale: PointOfSale::Square,
+        };
+        let json = serde_json::to_string(&sale).unwrap();
+        assert!(json.contains(r#""deviceName":"Front iPad""#), "{json}");
+        assert!(json.contains(r#""cash":true"#), "{json}");
+        assert_eq!(serde_json::from_str::<FoundSale>(&json).unwrap(), sale);
     }
 }

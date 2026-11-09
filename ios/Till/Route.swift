@@ -19,7 +19,8 @@ enum Route: Equatable {
     static func of(_ screen: Screen?) -> Route {
         guard let screen else { return .starting }
         switch screen {
-        case .welcome, .scan, .confirm, .connected, .pointOfSale, .locations, .alerts, .float, .ready:
+        case .welcome, .scan, .confirm, .connected, .pointOfSale, .locations, .counter, .alerts, .float,
+             .showSales, .ready:
             return .onboarding
         case .till:
             return .shift

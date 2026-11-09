@@ -100,10 +100,10 @@ async fn a_look_makes_orders_for_new_sales_keeps_them_and_says_what_the_alert_sa
     assert_eq!(check.alerts.len(), 1);
     let alert = &check.alerts[0];
     assert_eq!(alert.order_id, "ord_1");
-    assert_eq!(alert.title, "New Monero sale · $13.88");
+    assert_eq!(alert.title, "Sale #bP9m · $13.88");
     assert_eq!(
         alert.body,
-        "Front counter. Tap here to show the payment code."
+        "Monero sale. Tap to show the customer the code."
     );
     assert_eq!(check.ongoing, None, "iOS has no ongoing notification");
     assert!(
