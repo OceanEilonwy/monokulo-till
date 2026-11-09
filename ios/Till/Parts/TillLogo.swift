@@ -288,9 +288,9 @@ struct TillRound: View {
             TillLogoPart(kind: .disc(TillLogoGeometry.disc), box: box)
                 .fill(Color(hex: colours.body))
             TillScreenFace(colours: colours, paid: state == .paid, box: box, round: true, scale: scale * TillLogoGeometry.roundScale, reduceMotion: reduceMotion)
-            TillLogoPart(kind: .outlineFromTop, box: box, round: round)
+            TillLogoPart(kind: .outlineFromTop, box: box, round: true)
                 .stroke(Color(hex: colours.roundOutline), lineWidth: stroke)
-            TillLogoPart(kind: .outlineFromTop, box: box, round: round)
+            TillLogoPart(kind: .outlineFromTop, box: box, round: true)
                 .trim(from: 0, to: state.progress)
                 .stroke(Color(hex: colours.barFill), style: StrokeStyle(lineWidth: stroke, lineCap: .round))
         }
