@@ -61,6 +61,8 @@ pub(crate) fn found(
         reference: reference.map(Into::into),
         order_id: Some(order_id.into()),
         created_at: created_at.into(),
+        updated_at: None,
+        status: None,
         device_id: None,
         device_name: None,
         cash: false,

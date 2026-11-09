@@ -516,6 +516,29 @@ impl Ledger {
         Ok(())
     }
 
+    /// Deletes the rows of every scope but this ledger's, each as
+    /// [`Ledger::delete_scope`] does: the store or the point of sale's
+    /// account changed while the app wasn't running. Returns how many
+    /// scopes went.
+    pub fn keep_only_scope(&mut self) -> Result<usize, LedgerError> {
+        let others: Vec<String> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT scope FROM journal WHERE scope != ?1
+                 UNION SELECT scope FROM sales WHERE scope != ?1
+                 UNION SELECT scope FROM orders WHERE scope != ?1
+                 UNION SELECT scope FROM pending_events WHERE scope != ?1
+                 UNION SELECT scope FROM alerts WHERE scope != ?1
+                 UNION SELECT scope FROM cursors WHERE scope != ?1",
+            )?;
+            let rows = stmt.query_map([&self.scope.0], |r| r.get(0))?;
+            rows.collect::<Result<_, _>>()?
+        };
+        for scope in &others {
+            self.delete_scope(&Scope(scope.clone()))?;
+        }
+        Ok(others.len())
+    }
+
     /// Compaction and retention, when due: what the engine calls at shift
     /// start and on its timer.
     pub fn maintain(&mut self) -> Result<(), LedgerError> {
@@ -1284,7 +1307,13 @@ fn apply(
         }
         _ => {}
     }
+    // Sales kept from Monokulo alone that this one takes in: what they
+    // showed already isn't alerted again.
+    let mut folded: Vec<SaleRow> = Vec::new();
     for (order, attempt) in created {
+        if let Some(kept) = fold_kept(conn, scope, &sale, &order, attempt, &mut row, at)? {
+            folded.push(kept);
+        }
         conn.execute(
             "INSERT INTO orders(order_id, scope, sale_key, attempt) VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(scope, order_id) DO UPDATE SET sale_key = excluded.sale_key, attempt = excluded.attempt",
@@ -1329,7 +1358,11 @@ fn apply(
         let settings = &live.cx.settings;
         let old_view = old.as_ref().map(|o| o.view(settings));
         let new_view = row.view(settings);
+        let shown: Vec<SaleView> = folded.iter().map(|k| k.view(settings)).collect();
         for effect in diff(old_view.as_ref(), &new_view, &live.cx) {
+            if shown_already(&shown, effect.kind) {
+                continue;
+            }
             if get_alert(conn, scope, &sale, effect.kind)?.is_some() {
                 continue;
             }
@@ -1355,6 +1388,93 @@ fn apply(
         }
     }
     Ok(applied)
+}
+
+/// Whether a sale kept from Monokulo alone, folded in, already showed what
+/// an alert of `kind` would say: paid, or ended. A new sale's alert is
+/// left to the alerts it had, which the fold moved over: one kept quietly
+/// as another counter's still alerts when this counter's till finds it.
+fn shown_already(shown: &[SaleView], kind: AlertKind) -> bool {
+    shown.iter().any(|v| match kind {
+        AlertKind::Paid | AlertKind::PaidMoment => {
+            v.payment.is_some_and(crate::model::PaymentPhase::is_paid)
+        }
+        AlertKind::Ended => matches!(
+            v.payment,
+            Some(
+                crate::model::PaymentPhase::Expired
+                    | crate::model::PaymentPhase::Cancelled
+                    | crate::model::PaymentPhase::DoubleSpend
+            )
+        ),
+        _ => false,
+    })
+}
+
+/// When `order`, which point-of-sale sale `sale` has just taken as its
+/// `attempt`, belongs to a sale kept from Monokulo alone (an older build's
+/// shift, imported before this till found the sale at its point of sale),
+/// folds that row into `row`: what Monokulo said about the order, the
+/// local marks and the alerts; its journal rows go with `sale` (so
+/// compaction and retention take them with it) and its row is deleted.
+/// Runs in the caller's transaction, on replay too, so a rebuild folds
+/// alike. The row folded in, if any.
+fn fold_kept(
+    conn: &Connection,
+    scope: &Scope,
+    sale: &SaleKey,
+    order: &OrderId,
+    attempt: u8,
+    row: &mut SaleRow,
+    at: i64,
+) -> Result<Option<SaleRow>, LedgerError> {
+    if !matches!(sale, SaleKey::Pos { .. }) {
+        return Ok(None);
+    }
+    let kept_key = match order_sale(conn, scope, order)? {
+        Some((key @ SaleKey::Order(_), _)) if key != *sale => key,
+        _ => return Ok(None),
+    };
+    let kept = load_row(conn, scope, &kept_key)?;
+    if let Some(kept) = &kept {
+        row.shared.take_observations(&kept.shared, order, attempt);
+        row.marks.join(&kept.marks);
+        row.marks.saw(&row.shared, at);
+    }
+    let alerts: Vec<(String, String, Option<i64>, Option<String>)> = {
+        let mut stmt = conn.prepare(
+            "SELECT kind, state, claimed_at, by FROM alerts WHERE scope = ?1 AND sale_key = ?2",
+        )?;
+        let rows = stmt.query_map([&scope.0, &kept_key.text()], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        })?;
+        rows.collect::<Result<_, _>>()?
+    };
+    for (kind, state, claimed_at, by) in alerts {
+        let Some(kind) = AlertKind::from_wire(&kind) else {
+            continue;
+        };
+        match get_alert(conn, scope, sale, kind)? {
+            None => set_alert(conn, scope, sale, kind, &state, claimed_at, by.as_deref())?,
+            Some((mine, _, _)) if mine != "posted" && state == "posted" => {
+                set_alert(conn, scope, sale, kind, "posted", None, None)?;
+            }
+            Some(_) => {}
+        }
+    }
+    let key = sale.text();
+    let kept_text = kept_key.text();
+    for sql in [
+        "DELETE FROM alerts WHERE scope = ?1 AND sale_key = ?2",
+        "DELETE FROM sales WHERE scope = ?1 AND sale_key = ?2",
+    ] {
+        conn.execute(sql, [&scope.0, &kept_text])?;
+    }
+    conn.execute(
+        "UPDATE journal SET sale_key = ?1 WHERE scope = ?2 AND sale_key = ?3",
+        params![key, scope.0, kept_text],
+    )?;
+    Ok(kept)
 }
 
 /// Folds a fact about no sale into `settings` or `meta`; `true` when it

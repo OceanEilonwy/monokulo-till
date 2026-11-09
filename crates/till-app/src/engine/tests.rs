@@ -619,7 +619,7 @@ async fn an_upgraded_till_runs_its_shift_makes_orders_and_tells_the_platform() {
             .await
             .unwrap()
             .into_iter()
-            .filter(|r| r.url.path() == "/v2/refunds")
+            .filter(|r| r.method.as_str() == "POST" && r.url.path() == "/v2/refunds")
             .count();
         if refunds == 1 {
             break;
@@ -631,7 +631,7 @@ async fn an_upgraded_till_runs_its_shift_makes_orders_and_tells_the_platform() {
         .await
         .unwrap()
         .into_iter()
-        .find(|r| r.url.path() == "/v2/refunds")
+        .find(|r| r.method.as_str() == "POST" && r.url.path() == "/v2/refunds")
         .expect("a refund asked of Square");
     let body = String::from_utf8(refund.body).unwrap();
     assert!(body.contains(r#""payment_id":"pay_monero""#), "{body}");
@@ -1809,7 +1809,7 @@ async fn with_cash_offered_a_cash_sale_waits_quietly_and_take_it_in_monero_opens
             .await
             .unwrap()
             .iter()
-            .any(|r| r.url.path() == "/v2/refunds"),
+            .any(|r| r.method.as_str() == "POST" && r.url.path() == "/v2/refunds"),
         "a cash sale is never refunded in Square"
     );
 }

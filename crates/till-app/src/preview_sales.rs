@@ -162,6 +162,8 @@ impl PreviewSale {
                 reference: Some(reference),
                 order_id: Some("o".into()),
                 created_at: "2026-10-22T22:50:00Z".into(),
+                updated_at: None,
+                status: None,
                 device_id: None,
                 device_name: None,
                 cash: false,

@@ -182,6 +182,8 @@ impl CloverSource {
             reference: None,
             order_id,
             created_at: crate::time::format(crate::time::from_millis(payment.created_time)),
+            updated_at: None,
+            status: None,
             device_id: payment.device.map(|d| d.id),
             device_name: None,
             cash: false,

@@ -160,14 +160,6 @@ impl Books {
     fn publish(&self, ledger: &Ledger) -> Result<(), LedgerError> {
         let window = ledger.shift_window()?;
         let views = ledger.sales()?;
-        // Orders a point-of-sale sale has: a sale known only by one of them
-        // (kept from Monokulo before this till found it at the point of
-        // sale, in an older build's shift) is that sale.
-        let found_orders: std::collections::BTreeSet<String> = views
-            .iter()
-            .filter(|v| matches!(v.sale, SaleKey::Pos { .. }))
-            .flat_map(|v| v.attempts.iter().map(|a| a.order_id.clone()))
-            .collect();
         let mut sales = Vec::new();
         let mut shown = Vec::new();
         for view in views {
@@ -175,15 +167,14 @@ impl Books {
             if view.waiting_for_order {
                 continue;
             }
-            if let SaleKey::Order(order) = &view.sale
-                && found_orders.contains(order.as_str())
-            {
-                continue;
-            }
             let sale = TillSale::of_view(&view);
+            let in_window = window.contains(view.created_at.saturating_mul(1000));
+            // Another counter's cash sale waits for its own till's order,
+            // which this till never hears of: it's listed with the shift it
+            // was rung up in, not for ever.
             let keep = view.live
-                || (sale.offered && sale.kept_as_cash_at.is_none())
-                || window.contains(view.created_at.saturating_mul(1000))
+                || (sale.offered && sale.kept_as_cash_at.is_none() && !view.for_its_counter)
+                || in_window
                 || sale.needs_action();
             if keep {
                 sales.push(sale);

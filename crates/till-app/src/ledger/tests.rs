@@ -241,6 +241,51 @@ fn another_point_of_sale_account_deletes_the_old_scopes_sales() {
     );
 }
 
+/// A scope that changed while the app wasn't running (another location
+/// chosen, say) has its old rows deleted as the app next opens the ledger,
+/// keeping only the current scope's; the extension leaves that to the app.
+#[test]
+fn the_app_deletes_old_scopes_rows_at_its_next_open() {
+    let platform = platform();
+    let dir = tempfile::tempdir().unwrap();
+    {
+        let (app, _) = side(&platform, &dir, Process::App);
+        app.books().record(payment("p1"));
+        app.books().record(order("p1", "o1"));
+        assert_eq!(app.books().state().sales.len(), 1);
+        app.books().suspend();
+    }
+    let at =
+        |id: &str| format!(r#"{{"id":"{id}","name":"Counter","country":"US","currency":"USD"}}"#);
+    platform.set("square.location", &at("L2"));
+    {
+        let (extension, _) = side(&platform, &dir, Process::Extension);
+        extension.books().suspend();
+    }
+    platform.set("square.location", &at("L1"));
+    {
+        let (app, _) = side(&platform, &dir, Process::App);
+        assert_eq!(
+            app.books().state().sales.len(),
+            1,
+            "the extension deleted nothing"
+        );
+        app.books().suspend();
+    }
+    platform.set("square.location", &at("L2"));
+    {
+        let (app, _) = side(&platform, &dir, Process::App);
+        assert!(app.books().state().sales.is_empty(), "the new scope's");
+        app.books().suspend();
+    }
+    platform.set("square.location", &at("L1"));
+    let (app, _) = side(&platform, &dir, Process::App);
+    assert!(
+        app.books().state().sales.is_empty(),
+        "the old scope's rows were deleted at the open"
+    );
+}
+
 /// An older build's kept shift and alert record become the ledger's once,
 /// whichever process opens it first, and are deleted (docs/ledger.md §10).
 #[test]

@@ -13,6 +13,13 @@ pub fn unix_seconds(text: &str) -> Option<i64> {
     parse(text).map(|at| at.as_second())
 }
 
+/// The Unix milliseconds of an RFC 3339 instant with any offset (a
+/// payment's `updated_at`), any finer fraction dropped; `None` when it
+/// isn't one.
+pub fn unix_millis(text: &str) -> Option<i64> {
+    parse(text).map(|at| at.as_millisecond())
+}
+
 /// The instant `seconds` after the Unix epoch, written as Java's
 /// `Instant.toString()` wrote it (`2026-10-22T16:07:00Z`), clamped to what
 /// an RFC 3339 instant can say.

@@ -1193,22 +1193,29 @@ the engine and the extension writing facts and reading projections.
      warnings, the sale's key) in `TillSale::extras`, left out of the kept
      shift's JSON. A sale whose order is still being made isn't listed (it
      has no code), and a sale kept from Monokulo alone whose order a
-     point-of-sale sale has since taken is shown as that sale. The
+     point-of-sale sale has since taken is folded into that sale
+     (decision 164). The
      `ShiftStore`, the kept shift's writes, `alerted.rs`, the phase diff
      (`Phases`, `NewSales`) and `reload_shift` are gone; `kotlin_json`
      stays for previews and fixtures.
-154. **What a listing doesn't say.** A point of sale's listing gives no
-     update time, so a payment's `updated_at` is its own time (the POS
-     lists it once completed) and its order is read once; a read that
-     fails is recorded with why, which the sale page shows. Refunds the
-     till makes through Square are recorded as `PosRefundSeen`, completed,
-     under the refund's idempotency key; Clover's stay the cashier's
-     `RefundPending` and `RefundConfirmed` marks. Listing Square's
-     `/v2/refunds` for refunds made in Square itself is left for a
-     follow-up (till-pos has no client for it yet). An order read again
-     that gives the store's confirmation threshold, when the order as made
-     had none, records the order again with it, which the ledger's merge
-     takes over the one without: no ledger API change.
+154. **What a listing says, and what it doesn't.** Square's payments
+     listing gives each payment's `status` and `updated_at`, which the
+     till records as they are (`PosPaymentSeen`), so a payment Square
+     changes (a later refund, a status change) replaces the one seen and
+     has its order read again; a source remembers a handled payment with
+     its update time (`pay_1@2026-…`), so one changed since is given
+     again. The listing is by creation time, so a change Square makes
+     after a payment leaves the listing's window is seen through the
+     refunds listing (decision 163), not the payment. Clover's listing
+     gives no update time, so there a payment's `updated_at` is its own
+     time (the POS lists it once completed) and its order is read once.
+     A read that fails is recorded with why, which the sale page shows.
+     Refunds made at Square, by the till or in Square's own app, are
+     recorded as `PosRefundSeen` (decision 163); Clover's stay the
+     cashier's `RefundPending` and `RefundConfirmed` marks. An order read
+     again that gives the store's confirmation threshold, when the order
+     as made had none, records the order again with it, which the
+     ledger's merge takes over the one without: no ledger API change.
 155. **Learning ends before the first look.** The app learns what the
      ledger held as it started (the old shift imported, a recovery) and
      ends learning before its first look at the point of sale, as the
@@ -1242,7 +1249,8 @@ the engine and the extension writing facts and reading projections.
      when it changes (signed out, another location or merchant, the store
      forgotten or another connected) the old scope's rows are deleted and
      the ledger reads the new one's. A scope that changed while the app
-     wasn't running is left to retention.
+     wasn't running is deleted as the app next opens the ledger (decision
+     166).
 159. **The shift is the ledger's window, on iOS too.** Start watching
      records `ShiftMarked(Started)` and runs upkeep (`maintain`); Stop
      closes every live code and records `ShiftMarked(Stopped)`. The list
@@ -1273,3 +1281,63 @@ the engine and the extension writing facts and reading projections.
      as expired with "No payment yet" until Monokulo says; and the
      confirmations count only grows. The till's tests that said otherwise
      now say this.
+
+## The ledger's follow-ups (2026-11-10)
+
+What the integration (decisions 153 to 162) left open: refunds made in
+Square itself, what the payments listing says of a change, the sales an
+older build kept from Monokulo alone, other counters' cash sales, and a
+scope that changed while the app wasn't running.
+
+163. **Refunds made in Square's own app are read from its refunds
+     listing.** Each look, after the payments, lists the location's
+     refunds (`GET /v2/refunds` with `location_id`, `begin_time`,
+     ascending, page by page by `cursor`, at `SquareConfig::API_VERSION`,
+     which the `PAYMENTS_READ` scope the till already has allows) from
+     the till's refunds cursor less two minutes, or from the shift's
+     window before the first. Each refund of a sale the ledger has is
+     recorded as `PosRefundSeen` under Square's refund id and status; a
+     refund of a payment the ledger doesn't have (a card sale) makes no
+     sale. The cursor is the ledger's (`cursors`, `square.refunds`, a hint
+     like every cursor): it moves to the newest refund listed, but no
+     further than the oldest still pending, so that one's completion is
+     listed again. A refund the till makes through Square is recorded
+     under the id and status Square answers with, so every till records
+     the same refund; its idempotency key stands in only when the answer
+     has none. `SaleSource::refunds_since` lists none by default, which
+     is Clover's (its API lists no refunds).
+164. **A sale kept from Monokulo alone is folded into the point-of-sale
+     sale that finds it.** When a point-of-sale sale's `OrderCreated`
+     links an order the ledger already has under a `SaleKey::Order` sale
+     (an older build's shift, imported before this till found the sale at
+     the point of sale), that row is folded into the point-of-sale sale in
+     the same transaction: what Monokulo said about the order, its local
+     marks (the later close and reopen, the earliest of each first time,
+     the actions the point-of-sale row has no word of) and its alerts (a
+     posted one stays posted); its journal rows are re-keyed to the
+     point-of-sale sale, so compaction and retention take them with it,
+     and its row is deleted. The fold runs on replay too, so a rebuild
+     folds alike, and the projections' version goes to 2, so a ledger that
+     kept both rows folds them as it opens. Nothing the folded row already
+     showed is alerted again: a paid one isn't announced paid, an ended
+     one isn't announced ended, and a new-sale alert it had posted stays
+     posted; one kept quietly as another counter's still alerts when this
+     counter's till finds it. This replaces decision 153's hiding of the
+     Monokulo-only row.
+165. **Another counter's cash sale is listed as soon as its payment is
+     seen.** With cash as Monero on, a cash sale whose order this till
+     doesn't make (another counter's, decision 147) is offered here, as
+     waiting for its counter (`SaleView::for_its_counter`), instead of
+     hidden until an order this till never hears of: quiet, never
+     alerted, and no order made here unless the cashier taps Take it in
+     Monero, which asks with the sale's own idempotency key and so gets
+     the order its own counter made, if it has. It's listed with the
+     shift it was rung up in, unlike a sale offered with cash as Monero
+     off, which stays listed until it's settled, since this till never
+     learns of the order its counter made.
+166. **A scope changed while the app wasn't running is deleted at the next
+     open.** As the app opens the ledger, after the old shift's import,
+     the rows of every scope but the current one are deleted, each as a
+     scope change while running deletes them (decision 158), so only the
+     current scope's rows are kept. The extension never does: it leaves
+     scope decisions to the app.

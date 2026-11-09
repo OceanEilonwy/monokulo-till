@@ -899,6 +899,133 @@ fn deleting_a_scope_deletes_its_rows_only() {
     assert!(l.journal().unwrap().iter().all(|r| r.scope == other.0));
 }
 
+/// The rows of every scope but the ledger's go at once: the store or the
+/// POS changed while the app wasn't running.
+#[test]
+fn only_the_current_scope_is_kept() {
+    let fx = Fixture::new();
+    let mut l = fx.open(Process::App);
+    let current = l.scope().clone();
+    for (scope, id) in [
+        (Scope::of("store", Some((PointOfSale::Clover, "C1"))), "p1"),
+        (Scope::of("old store", None), "p2"),
+    ] {
+        l.set_scope(scope);
+        l.record(payment(id, "front", Tender::Monero, 1)).unwrap();
+        l.set_cursor("square.refunds", "2026-11-09T17:00:00Z")
+            .unwrap();
+    }
+    l.set_scope(current.clone());
+    l.record(payment("p3", "front", Tender::Monero, 1)).unwrap();
+    assert_eq!(l.keep_only_scope().unwrap(), 2);
+    assert_eq!(l.keep_only_scope().unwrap(), 0);
+    assert!(l.row(&sale("p3")).unwrap().is_some());
+    assert!(l.journal().unwrap().iter().all(|r| r.scope == current.0));
+}
+
+/// A shift an older build kept, with sales it knew only from Monokulo.
+const MONOKULO_ONLY_SHIFT: &str = r#"[
+ {"orderId":"ord_7","amount":"24.50","currency":"USD","code":{"uri":"monero:8B7?tx_amount=0.15","hasReceipt":false},
+  "phase":"Waiting","expiresAt":1794248000,"xmr":"0.15","address":"8B7","deviceName":"Front iPad",
+  "createdAt":1794243600,"closedAt":1794244100},
+ {"orderId":"ord_8","amount":"24.50","currency":"USD","code":{"uri":"monero:8B8?tx_amount=0.15","hasReceipt":false},
+  "phase":"Paid","expiresAt":1794248000,"xmr":"0.15","address":"8B8","settled":true,
+  "createdAt":1794243700,"paidAt":1794243800}
+]"#;
+
+/// After an upgrade, a sale the old build kept only from Monokulo is folded
+/// into the point-of-sale sale whose order it is, once the till finds it at
+/// the POS: one row, with the old row's marks and alerts and what Monokulo
+/// said, nothing alerted again, and a replay, compaction and retention
+/// that agree.
+#[test]
+fn a_sale_kept_from_monokulo_alone_is_folded_into_the_pos_sale_that_finds_it() {
+    let fx = Fixture::new();
+    let mut l = fx.open(Process::App);
+    assert_eq!(
+        l.import_shift(MONOKULO_ONLY_SHIFT, &["ord_7".to_owned()])
+            .unwrap(),
+        Imported::Done {
+            sales: 2,
+            alerts: 1
+        }
+    );
+    l.set_learning(false).unwrap();
+    let kept7 = SaleKey::order("ord_7");
+    assert!(l.row(&kept7).unwrap().is_some());
+
+    let mut claimed = Vec::new();
+    for fact in [
+        payment("p7", "front", Tender::Monero, 1),
+        created("p7", "ord_7", 1),
+        payment("p8", "front", Tender::Monero, 1),
+        created("p8", "ord_8", 1),
+    ] {
+        fx.clock.advance(1000);
+        claimed.extend(l.record(fact).unwrap().effects_claimed);
+    }
+    assert!(claimed.is_empty(), "nothing alerted again: {claimed:?}");
+
+    let rows = l.rows().unwrap();
+    assert_eq!(
+        rows.iter().map(|r| r.sale.text()).collect::<Vec<_>>(),
+        ["sq:p7", "sq:p8"],
+        "the Monokulo-only rows are gone"
+    );
+    let seven = l.sale(&sale("p7")).unwrap().unwrap();
+    assert_eq!(seven.closed_at, Some(1794244100), "its close kept");
+    assert!(!seven.live);
+    assert_eq!(seven.order_id, "ord_7");
+    assert_eq!(
+        l.alert(&sale("p7"), AlertKind::NewSale)
+            .unwrap()
+            .unwrap()
+            .state,
+        "posted"
+    );
+    assert!(l.alert(&kept7, AlertKind::NewSale).unwrap().is_none());
+    let eight = l.sale(&sale("p8")).unwrap().unwrap();
+    assert_eq!(eight.phase, SalePhase::Paid, "what Monokulo said, kept");
+    assert_eq!(eight.paid_at, Some(1794243800));
+    assert!(eight.settled);
+    assert_eq!(
+        l.order(&"ord_7".into()).unwrap(),
+        Some((sale("p7"), 1)),
+        "its order is the POS sale's"
+    );
+    let kept_prefix = format!("{}:", "mk");
+    assert!(
+        l.journal().unwrap().iter().all(|r| !r
+            .sale_key
+            .as_deref()
+            .is_some_and(|k| k.starts_with(&kept_prefix))),
+        "its journal rows go with the POS sale"
+    );
+
+    // A later observation of the order reaches the POS sale.
+    l.record(observed("ord_7", SalePhase::Seen, false)).unwrap();
+    assert_eq!(phase(&l, "p7"), Some(PaymentPhase::Seen));
+
+    let before = l.dump_projections().unwrap();
+    l.rebuild().unwrap();
+    assert_eq!(
+        before,
+        l.dump_projections().unwrap(),
+        "a replay folds alike"
+    );
+    l.compact(true).unwrap();
+    let after = l.dump_projections().unwrap();
+    l.rebuild().unwrap();
+    assert_eq!(after, l.dump_projections().unwrap());
+    fx.clock.advance(31 * 24 * 60 * 60 * 1000);
+    l.retain().unwrap();
+    assert!(l.rows().unwrap().is_empty());
+    assert!(
+        l.journal().unwrap().iter().all(|r| r.sale_key.is_none()),
+        "no row of the folded sale left behind"
+    );
+}
+
 /// §15.2, after compaction: the projections still equal a replay, and an
 /// ended sale before the shift has one journal row.
 #[test]

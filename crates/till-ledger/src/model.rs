@@ -380,6 +380,20 @@ impl SharedSale {
         }
     }
 
+    /// Joins what Monokulo said about `order` in `other` (a sale kept from
+    /// Monokulo alone) into this sale's `attempt`, whose order it is: the
+    /// observations only, since this sale's own create-order answer stands
+    /// for the order.
+    pub fn take_observations(&mut self, other: &SharedSale, order: &OrderId, attempt: u8) {
+        let Some(mine) = self.attempts.iter_mut().find(|a| a.attempt == attempt) else {
+            return;
+        };
+        for theirs in other.attempts.iter().filter(|a| a.order.order_id == *order) {
+            mine.observed.join(&theirs.observed);
+        }
+        mine.payment = mine.observed.phase();
+    }
+
     /// Joins another view of the same sale (a snapshot over a row).
     pub fn join(&mut self, other: &SharedSale) {
         if let Some(p) = &other.pos.payment {
@@ -564,6 +578,46 @@ impl LocalMarks {
                 entry.done_at = Some(at);
                 entry.outcome = Some(outcome.clone());
             }
+        }
+    }
+
+    /// Joins another row's marks for the same sale (a sale kept from
+    /// Monokulo alone, folded into the point-of-sale sale it is): the later
+    /// close and reopen, the earliest of every first time, and the actions
+    /// this row has no word of.
+    pub fn join(&mut self, other: &LocalMarks) {
+        if let Some(c) = other.closed
+            && self.closed.is_none_or(|mine| c.at > mine.at)
+        {
+            self.closed = Some(c);
+        }
+        if let Some(r) = other.reopened
+            && self.reopened.is_none_or(|mine| r > mine)
+        {
+            self.reopened = Some(r);
+        }
+        let earliest = |mine: &mut Option<i64>, theirs: Option<i64>| {
+            if let Some(t) = theirs {
+                *mine = min_opt(*mine, t);
+            }
+        };
+        earliest(&mut self.kept_as_cash, other.kept_as_cash);
+        earliest(&mut self.paid_in_cash, other.paid_in_cash);
+        earliest(&mut self.clock_lapsed, other.clock_lapsed);
+        earliest(&mut self.first_at, other.first_at);
+        earliest(&mut self.seen_at, other.seen_at);
+        earliest(&mut self.paid_at, other.paid_at);
+        earliest(&mut self.ended_at, other.ended_at);
+        earliest(&mut self.refunded_at, other.refunded_at);
+        if let Some(theirs) = other.refund {
+            let mine = self.refund.get_or_insert_default();
+            earliest(&mut mine.pending_at, theirs.pending_at);
+            earliest(&mut mine.confirmed_at, theirs.confirmed_at);
+        }
+        for (name, action) in &other.actions {
+            self.actions
+                .entry(name.clone())
+                .or_insert_with(|| action.clone());
         }
     }
 

@@ -129,8 +129,14 @@ pub struct SaleView {
     pub refund_pending_at: Option<i64>,
     pub confirmations: Option<u32>,
     pub confirmations_required: Option<u32>,
-    /// A cash sale offered in Monero, with no order (cash-as-Monero off).
+    /// A cash sale offered in Monero, with no order: cash as Monero is off,
+    /// or it's another counter's, whose till makes its order
+    /// ([`SaleView::for_its_counter`]).
     pub offered: bool,
+    /// Offered only because it's another counter's cash sale, with cash as
+    /// Monero on: its own counter's till makes the order. Listed quietly,
+    /// never alerted, until the cashier here takes it in Monero.
+    pub for_its_counter: bool,
     pub kept_as_cash_at: Option<i64>,
     pub paid_in_cash_at: Option<i64>,
 
@@ -178,7 +184,20 @@ pub fn view(
     let deciding = shared.deciding();
     let order = deciding.map(|a| &a.order);
     let cash = payment.is_some_and(|p| p.tender == Tender::Cash);
-    let offered = cash && deciding.is_none() && !settings.cash_as_monero;
+    let other_counter = match &settings.device {
+        None => false,
+        Some(mine) => match payment {
+            Some(p) => p.device_id.as_ref().is_some_and(|d| d != mine),
+            None => true,
+        },
+    };
+    // A cash sale with no order is offered here when this till doesn't
+    // make its order: with cash as Monero off, or as another counter's
+    // sale, whose own till makes it (§7). That one waits for its counter,
+    // quietly, until the cashier here takes it in Monero.
+    let makes_cash_orders = settings.cash_as_monero && (settings.every_device || !other_counter);
+    let offered = cash && deciding.is_none() && !makes_cash_orders;
+    let for_its_counter = offered && settings.cash_as_monero;
     let waiting_for_order = deciding.is_none() && !offered;
 
     let found = payment.map(|p| FoundSale {
@@ -188,6 +207,8 @@ pub fn view(
         reference: p.receipt_number.clone(),
         order_id: p.order_ref.clone(),
         created_at: p.created_at.clone(),
+        updated_at: None,
+        status: None,
         device_id: p.device_id.as_ref().map(|d| d.0.clone()),
         device_name: p.device_name.clone(),
         cash,
@@ -248,13 +269,6 @@ pub fn view(
         .collect();
 
     let device_id = payment.and_then(|p| p.device_id.clone());
-    let other_counter = match &settings.device {
-        None => false,
-        Some(mine) => match payment {
-            Some(p) => p.device_id.as_ref().is_some_and(|d| d != mine),
-            None => true,
-        },
-    };
     let pos_refunded = shared
         .refund
         .as_ref()
@@ -320,6 +334,7 @@ pub fn view(
         confirmations: deciding.and_then(|a| a.observed.confirmations),
         confirmations_required: order.and_then(|o| o.confirmations_required),
         offered,
+        for_its_counter,
         kept_as_cash_at: secs(marks.kept_as_cash),
         paid_in_cash_at: secs(marks.paid_in_cash),
         cash,

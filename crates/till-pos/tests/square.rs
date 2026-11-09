@@ -13,7 +13,7 @@ use monokulo_client::FixedClock;
 use till_pos::square::{
     SquareApi, SquareAuth, SquareConfig, SquareLocation, SquareOrder, SquareSource,
 };
-use till_pos::{FoundSale, Pkce, PointOfSale, Refunds, SaleSource, decimal_amount};
+use till_pos::{FoundSale, ListedRefund, Pkce, PointOfSale, Refunds, SaleSource, decimal_amount};
 
 const NOW: &str = "2026-10-22T16:10:00Z";
 
@@ -215,6 +215,8 @@ async fn only_completed_monero_tenders_are_sales_and_handled_ones_arent_given_ag
         "on one line, trimmed"
     );
     assert!(!sale.cash);
+    assert_eq!(sale.updated_at.as_deref(), Some("2026-10-22T16:07:01.004Z"));
+    assert_eq!(sale.status.as_deref(), Some("COMPLETED"));
     let cash = &sales[1];
     assert!(cash.cash);
     assert_eq!(cash.amount_minor, 2450);
@@ -233,7 +235,11 @@ async fn only_completed_monero_tenders_are_sales_and_handled_ones_arent_given_ag
     );
 
     source.handled(sale);
-    assert_eq!(cursor.handled_ids(), ["pay_monero"]);
+    assert_eq!(
+        cursor.handled_ids(),
+        ["pay_monero@2026-10-22T16:07:01.004Z"],
+        "as it was when handled"
+    );
     assert_eq!(
         cursor.since_value().as_deref(),
         Some("2026-10-22T16:07:00.512Z")
@@ -241,6 +247,79 @@ async fn only_completed_monero_tenders_are_sales_and_handled_ones_arent_given_ag
     source.handled(cash);
     f.stand.enqueue(json(&fixture("square/payments.json")));
     assert!(source.new_sales().await.unwrap().is_empty());
+
+    // Square changes the payment (a refund, say): it's given again.
+    f.stand.enqueue(json(
+        &fixture("square/payments.json")
+            .replace("2026-10-22T16:07:01.004Z", "2026-10-22T16:12:30.250Z"),
+    ));
+    let again = source.new_sales().await.unwrap();
+    assert_eq!(
+        again
+            .iter()
+            .map(|s| (s.id.as_str(), s.updated_at.as_deref()))
+            .collect::<Vec<_>>(),
+        [("pay_monero", Some("2026-10-22T16:12:30.250Z"))]
+    );
+}
+
+/// Refunds made anywhere at the location (the till, Square's own app, the
+/// Dashboard) are listed from a time, page by page, with `PAYMENTS_READ`.
+#[tokio::test]
+async fn the_locations_refunds_are_listed_page_by_page() {
+    let f = Fixture::start().await;
+    let source = f.source(MemoryCursor::since(Some("2026-10-22T16:05:00Z")));
+    f.stand.enqueue(json(
+        r#"{"refunds":[{"id":"rf_1","status":"COMPLETED","amount_money":{"amount":1388,"currency":"USD"},
+            "payment_id":"pay_monero","order_id":"ord_sq_1","location_id":"L1",
+            "created_at":"2026-10-22T16:08:00Z","updated_at":"2026-10-22T16:08:02Z"}],"cursor":"c2"}"#,
+    ));
+    f.stand.enqueue(json(
+        r#"{"refunds":[{"id":"rf_2","status":"PENDING","amount_money":{"amount":2450,"currency":"USD"},
+            "payment_id":"pay_cash","created_at":"2026-10-22T16:09:00Z"}]}"#,
+    ));
+    let listed = source
+        .refunds_since("2026-10-22T16:00:00Z")
+        .await
+        .unwrap()
+        .expect("Square lists refunds");
+    assert_eq!(
+        listed,
+        [
+            ListedRefund {
+                id: "rf_1".into(),
+                payment_id: "pay_monero".into(),
+                amount_minor: 1388,
+                status: "COMPLETED".into(),
+                created_at: Some("2026-10-22T16:08:00Z".into()),
+            },
+            ListedRefund {
+                id: "rf_2".into(),
+                payment_id: "pay_cash".into(),
+                amount_minor: 2450,
+                status: "PENDING".into(),
+                created_at: Some("2026-10-22T16:09:00Z".into()),
+            },
+        ]
+    );
+    let first = f.stand.take_request().await;
+    assert_eq!(first.url.path(), "/v2/refunds");
+    assert_eq!(query(&first, "location_id").as_deref(), Some("L1"));
+    assert_eq!(
+        query(&first, "begin_time").as_deref(),
+        Some("2026-10-22T16:00:00Z")
+    );
+    assert_eq!(query(&first, "cursor"), None);
+    assert_eq!(
+        header(&first, "Square-Version").as_deref(),
+        Some(SquareConfig::API_VERSION)
+    );
+    let second = f.stand.take_request().await;
+    assert_eq!(query(&second, "cursor").as_deref(), Some("c2"));
+    assert_eq!(
+        query(&second, "begin_time").as_deref(),
+        Some("2026-10-22T16:00:00Z")
+    );
 }
 
 #[tokio::test]
@@ -413,11 +492,13 @@ fn the_name_typed_at_the_counter_names_the_order_when_no_recipient_does() {
 async fn a_refund_is_the_whole_sale_once() {
     let f = Fixture::start().await;
     let source = f.source(MemoryCursor::since(Some("2026-10-22T16:05:00Z")));
-    f.stand.enqueue(json(r#"{"refund":{"id":"r"}}"#));
+    f.stand.enqueue(json(
+        r#"{"refund":{"id":"r","status":"PENDING","amount_money":{"amount":1388,"currency":"USD"},"payment_id":"pay_monero","created_at":"2026-10-22T16:10:00Z"}}"#,
+    ));
     let Refunds::ByTill(refunds) = source.refunds() else {
         panic!("the till refunds a Square sale");
     };
-    refunds
+    let made = refunds
         .refund(&FoundSale {
             id: "pay_monero".into(),
             amount_minor: 1388,
@@ -425,6 +506,8 @@ async fn a_refund_is_the_whole_sale_once() {
             reference: Some("bP9m".into()),
             order_id: Some("ord_sq_1".into()),
             created_at: "2026-10-22T16:07:00Z".into(),
+            updated_at: None,
+            status: None,
             device_id: None,
             device_name: None,
             cash: false,
@@ -432,7 +515,9 @@ async fn a_refund_is_the_whole_sale_once() {
             point_of_sale: PointOfSale::Square,
         })
         .await
-        .unwrap();
+        .unwrap()
+        .expect("Square answers with the refund");
+    assert_eq!((made.id.as_str(), made.status.as_str()), ("r", "PENDING"));
     let body = body_text(&f.stand.take_request().await);
     assert!(
         body.contains(r#""payment_id":"pay_monero""#) && body.contains(r#""amount":1388"#),
@@ -534,6 +619,8 @@ async fn a_cursor_that_cant_be_read_is_an_error_and_never_saved_over() {
         reference: None,
         order_id: None,
         created_at: "2026-10-22T16:07:00Z".into(),
+        updated_at: None,
+        status: None,
         device_id: None,
         device_name: None,
         cash: false,

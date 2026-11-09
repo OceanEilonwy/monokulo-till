@@ -29,6 +29,17 @@ pub trait SaleSource: Send + Sync {
     /// How a sale never paid in Monero is refunded at this point of sale.
     fn refunds(&self) -> Refunds<'_>;
 
+    /// The refunds made at the point of sale at or after `begin_time` (RFC
+    /// 3339), oldest first, whoever made them: the till, or the point of
+    /// sale's own app. `None` from a point of sale whose API lists none
+    /// (Clover), which is the default.
+    async fn refunds_since(
+        &self,
+        _begin_time: &str,
+    ) -> Result<Option<Vec<ListedRefund>>, PosError> {
+        Ok(None)
+    }
+
     /// `sale` has its order: don't give it again.
     fn handled(&self, sale: &FoundSale);
 }
@@ -61,8 +72,24 @@ pub enum Refunds<'a> {
 /// A point of sale the till refunds through.
 #[async_trait]
 pub trait RefundByTill: Send + Sync {
-    /// Refunds `sale` in full.
-    async fn refund(&self, sale: &FoundSale) -> Result<(), PosError>;
+    /// Refunds `sale` in full: the refund as the point of sale answered
+    /// with it, when it said.
+    async fn refund(&self, sale: &FoundSale) -> Result<Option<ListedRefund>, PosError>;
+}
+
+/// A refund of a payment, as the point of sale lists it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ListedRefund {
+    /// The point of sale's id for the refund.
+    pub id: String,
+    /// The refunded payment's id ([`FoundSale::id`]).
+    pub payment_id: String,
+    /// In the currency's minor unit.
+    pub amount_minor: i64,
+    /// As the point of sale wrote it (Square's `COMPLETED`).
+    pub status: String,
+    /// RFC 3339, when the point of sale says.
+    pub created_at: Option<String>,
 }
 
 /// A point of sale the cashier refunds in, which the till asks.
@@ -92,6 +119,14 @@ pub struct FoundSale {
     pub order_id: Option<String>,
     /// RFC 3339.
     pub created_at: String,
+    /// When the point of sale last changed the payment, RFC 3339, when it
+    /// says (Square's `updated_at`; Clover's listing gives none).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+    /// The point of sale's status for the payment (Square's `COMPLETED`),
+    /// when it says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
     /// The device that took it, when the point of sale says: to show it on
     /// its own till only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -177,7 +212,26 @@ pub(crate) const OVERLAP_SECONDS: i64 = 120;
 #[cfg(any(feature = "square", feature = "clover"))]
 const REMEMBERED: usize = 500;
 
-/// Marks `sale` handled in `cursor`: its id remembered (the newest
+/// What `sale` is remembered as once handled: its id, with `@` and its
+/// `updated_at` after it when the point of sale gives one, so a payment the
+/// point of sale changes since is given again ([`is_handled`]).
+#[cfg(any(feature = "square", feature = "clover"))]
+pub(crate) fn handled_marker(sale: &FoundSale) -> String {
+    match &sale.updated_at {
+        Some(updated) => format!("{}@{updated}", sale.id),
+        None => sale.id.clone(),
+    }
+}
+
+/// Whether `sale` is among `handled` as it is now: by its marker, or by its
+/// bare id (remembered before markers carried the update time, or from a
+/// point of sale that gives none).
+#[cfg(any(feature = "square", feature = "clover"))]
+pub(crate) fn is_handled(handled: &[String], sale: &FoundSale) -> bool {
+    handled.contains(&sale.id) || handled.contains(&handled_marker(sale))
+}
+
+/// Marks `sale` handled in `cursor`: its marker ([`handled_marker`]) remembered (the newest
 /// [`REMEMBERED`] kept), and the cursor moved up to the sale, never back.
 /// A cursor whose time can't be parsed is replaced by the sale's time; a
 /// sale whose time can't be read leaves the cursor where it was. A cursor
@@ -188,8 +242,9 @@ pub(crate) fn mark_handled(cursor: &dyn CursorStore, sale: &FoundSale) {
     let (Ok(mut handled), Ok(saved)) = (cursor.handled(), cursor.since()) else {
         return;
     };
-    if !handled.contains(&sale.id) {
-        handled.push(sale.id.clone());
+    let marker = handled_marker(sale);
+    if !handled.contains(&marker) {
+        handled.push(marker);
     }
     let excess = handled.len().saturating_sub(REMEMBERED);
     handled.drain(..excess);
@@ -246,6 +301,8 @@ mod tests {
             reference: None,
             order_id: None,
             created_at: "2026-11-09T16:07:00Z".into(),
+            updated_at: None,
+            status: None,
             device_id: Some("dev_front".into()),
             device_name: Some("Front iPad".into()),
             cash: true,

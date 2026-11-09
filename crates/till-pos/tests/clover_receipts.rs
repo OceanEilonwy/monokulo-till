@@ -33,6 +33,8 @@ fn sale() -> FoundSale {
         reference: None,
         order_id: Some("ORDER_CL_1".into()),
         created_at: "2026-10-28T08:56:00Z".into(),
+        updated_at: None,
+        status: None,
         device_id: Some("DEV_FRONT".into()),
         device_name: None,
         cash: false,
