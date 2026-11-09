@@ -836,9 +836,19 @@ impl State {
     /// tried now (decision 123), the shift started if it should be running
     /// and the point of sale asked now. A shift another process (the iOS
     /// extension) added sales to meanwhile is read again.
+    /// Asks Android to look for Orbot ([`Effect::ProbeTor`]); iOS has no
+    /// Tor (docs/ios-plan.md §11).
+    fn probe_tor(&self) {
+        if self.config.device == Device::Android {
+            self.effect(Effect::ProbeTor);
+        }
+    }
+
     fn opened(&mut self) {
         self.visible = true;
         self.published = Published::default();
+        // Orbot's probe as the app comes forward (decision 54).
+        self.probe_tor();
         if self.parts.is_none() {
             self.build();
             return;
@@ -1876,6 +1886,12 @@ impl State {
                 steps,
             }
         });
+        // Orbot's probe as step 3 and Settings open (decision 54), once
+        // each time one of them comes up.
+        let probes = |s: &Screen| matches!(s, Screen::Confirm | Screen::Settings);
+        if probes(&self.screen) && self.published.screen.as_ref().is_some_and(|s| !probes(s)) {
+            self.probe_tor();
+        }
         send!(screen, self.screen.clone(), |screen| Update::Screen {
             screen
         });

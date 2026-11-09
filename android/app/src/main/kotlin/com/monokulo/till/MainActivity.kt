@@ -36,7 +36,6 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.monokulo.till.engine.CloseSheet
 import com.monokulo.till.engine.Nav
-import com.monokulo.till.engine.TorProbe
 import com.monokulo.till.ui.AlertsScreen
 import com.monokulo.till.ui.CodeScreen
 import com.monokulo.till.ui.ConfirmScreen
@@ -168,14 +167,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        TorProbes(screen)
-    }
-
-    /** Orbot's probe as the app comes forward and as step 3 and Settings open (docs/decisions/core.md 54). */
-    @Composable
-    private fun TorProbes(screen: Screen) {
-        val probes = screen == Screen.Confirm || screen == Screen.Settings
-        LaunchedEffect(probes) { if (probes) TorProbe.probe(::send) }
     }
 
     /** The engine's flows as states, collected once at the root and read below it. */
@@ -310,6 +301,8 @@ class MainActivity : ComponentActivity() {
             is Effect.CopyText, is Effect.Notify, is Effect.ClearNotification -> Unit
             // The overlay collapses its own panel; Till on screen has none up.
             is Effect.LowerPanel -> Unit
+            // TillService.follow probes for Orbot whether or not this activity has started collecting yet.
+            is Effect.ProbeTor -> Unit
         }
     }
 
@@ -317,7 +310,6 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         send(Action.Opened)
         (application as TillApp).clockMayHaveChanged()
-        lifecycleScope.launch { TorProbe.probe(::send) }
     }
 
     override fun onResume() {

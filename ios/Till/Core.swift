@@ -168,6 +168,9 @@ final class Core {
             UIPasteboard.general.string = text
         case .clearNotification(let id):
             SaleAlerts.clear(id)
+        case .probeTor, .lowerPanel:
+            // No Tor and no bubble on iOS: the engine never sends these here.
+            break
         case .haptic:
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         default:

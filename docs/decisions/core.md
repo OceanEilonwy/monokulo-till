@@ -644,3 +644,11 @@ on from 1; the Android app's own choices are in [android.md](android.md).
      for which screen goes underneath, and treats a back gesture's preview
      as going back, since the engine hasn't heard of it yet. iOS's
      navigation is its own and ignores the fields.
+102. **The engine says when to look for Orbot** (`Effect::ProbeTor`,
+     Android only): as the app comes forward (`Action::Opened`) and each
+     time step 3 or Settings comes up from another screen, as
+     `MainActivity`'s `TorProbes` and `onStart` did (decision 54). Android
+     runs the probe in `TillService.follow`, whose collector lives as
+     long as the process, so the probe sent while the activity is still
+     starting isn't dropped. iOS has no Tor, never gets the effect, and
+     its `perform` names it with `LowerPanel` as one it ignores.

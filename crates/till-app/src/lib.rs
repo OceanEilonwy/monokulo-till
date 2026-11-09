@@ -717,6 +717,11 @@ pub enum Effect {
     /// into the bubble. The bubble stays green until the platform says the
     /// panel has gone ([`Action::PanelShown`] with `up: false`).
     LowerPanel,
+    /// Android: see whether Orbot is running and say so with
+    /// [`Action::TorProbed`]. Sent as the app comes forward and as step 3
+    /// or Settings comes up (decision 54, core.md 102); iOS has no Tor and
+    /// never gets it.
+    ProbeTor,
     /// Put `text` on the clipboard; `kind` says what it is, for the
     /// platform's confirmation ("Address copied") and for marking an
     /// address sensitive, without reading the text.

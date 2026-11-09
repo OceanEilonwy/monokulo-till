@@ -1021,6 +1021,58 @@ fn settings_says_when_orbot_isnt_running_for_a_till_on_tor() {
     assert!(footnote.ends_with("or turn this off."), "{footnote}");
 }
 
+/// Decision 102: Android looks for Orbot as the app comes forward and as
+/// Settings (or step 3) comes up, when the engine asks; iOS never does.
+#[test]
+fn android_probes_for_orbot_when_the_engine_asks_and_ios_never_does() {
+    let till = || {
+        let platform = FakePlatform::with(&[("setup.done", "true")]);
+        platform.set(
+            "connection",
+            r#"{"app_key":"ak_1","api":"https://pay.example/api/v1"}"#,
+        );
+        platform
+    };
+    let android = EngineConfig {
+        device: Device::Android,
+        ..config(None)
+    };
+    let (engine, rx, _) = start(android, till());
+    screen(&rx, Screen::Till);
+    engine.send(Action::Opened);
+    wait_for(&rx, |heard| match heard {
+        Heard::Effect(Effect::ProbeTor) => Some(()),
+        _ => None,
+    });
+    // Published again as it came forward, on the shift.
+    screen(&rx, Screen::Till);
+    engine.send(Action::OpenSettings);
+    let mut probed = false;
+    wait_for(&rx, |heard| match heard {
+        Heard::Effect(Effect::ProbeTor) => {
+            probed = true;
+            None
+        }
+        Heard::Update(Update::Screen {
+            screen: Screen::Settings,
+        }) => Some(()),
+        _ => None,
+    });
+    assert!(probed, "Settings came up: the probe goes before it");
+
+    let (engine, rx, _) = start(config(None), till());
+    screen(&rx, Screen::Till);
+    engine.send(Action::Opened);
+    engine.send(Action::OpenSettings);
+    wait_for(&rx, |heard| match heard {
+        Heard::Effect(Effect::ProbeTor) => panic!("iOS has no Tor"),
+        Heard::Update(Update::Screen {
+            screen: Screen::Settings,
+        }) => Some(()),
+        _ => None,
+    });
+}
+
 /// The screen and how it came, as the platform hears them: the `Nav` sent
 /// before each `Screen`.
 fn arrival(rx: &Receiver<Heard>, wanted: Screen) -> bool {
