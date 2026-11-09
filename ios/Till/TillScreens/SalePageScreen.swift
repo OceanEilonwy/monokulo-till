@@ -17,7 +17,7 @@ struct SalePageScreen: View {
     var celebrate = false
     let send: Send
     /// Paid's "Back to Square" (A3), when it's offered (``BackToSquare``).
-    var backToSquare: (@MainActor () -> Void)?
+    var backToSquare: (@MainActor @Sendable () -> Void)?
 
     @State private var logo: TillLogoState = .paid
 
