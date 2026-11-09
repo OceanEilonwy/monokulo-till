@@ -90,7 +90,8 @@ object TestPlatform : Platform {
     override fun secretGet(key: String): ByteArray? = null
     override fun secretPut(key: String, value: ByteArray) = Unit
     override fun secretRemove(key: String) = Unit
-    override fun formatMoney(minor: Long, currency: String) = Money.format(minor, currency)
+    override fun formatMoney(minor: Long, currency: String) = Money.pattern(minor, currency)
+    override fun currencySymbols(currency: String) = Money.symbols(currency)
 }
 
 /** A till on Square at "Front" with [sales], watching, at the clock's [now]: the engine's preview of its screens. */

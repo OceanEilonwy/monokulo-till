@@ -65,9 +65,30 @@ pub trait Platform: Send + Sync {
     fn secret_get(&self, key: String) -> Result<Option<Vec<u8>>, SecretError>;
     fn secret_put(&self, key: String, value: Vec<u8>) -> Result<(), SecretError>;
     fn secret_remove(&self, key: String) -> Result<(), SecretError>;
-    /// `minor` units of `currency` (ISO 4217) in the device's locale: 2450
-    /// and "USD" is "$24.50" in the US (docs/design.md §6).
+    /// `minor` units of `currency` (ISO 4217) in the device locale's money
+    /// pattern, with `¤` (U+00A4) where the symbol goes: 2450 and "USD" is
+    /// "¤24.50" in the US, "24,50 ¤" in Germany (docs/design.md §6). The
+    /// engine chooses the symbol (`monokulo_client::amounts::written`,
+    /// core.md decision 99), so both platforms write the same one.
     fn format_money(&self, minor: i64, currency: String) -> String;
+    /// How the device's locale names `currency`'s symbol, and its own
+    /// country's currency.
+    fn currency_symbols(&self, currency: String) -> CurrencySymbols;
+}
+
+/// What the device's locale knows about a currency's symbol (core.md
+/// decision 99).
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct CurrencySymbols {
+    /// The locale's own symbol for it ("$", "R$", "A$"), or the code
+    /// itself where the locale writes only the code.
+    pub local: String,
+    /// International English's (`en-001`): "US$", "A$", "CN¥", or the code.
+    pub international: String,
+    /// The currency of the device's country; `None` for a locale with no
+    /// country.
+    pub home: Option<String>,
 }
 
 /// The platform's secret store couldn't do what was asked, for now at least.

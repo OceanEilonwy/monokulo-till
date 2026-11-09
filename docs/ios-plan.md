@@ -101,7 +101,8 @@ trait Platform {
     secret_get(key) -> Result<Option<Vec<u8>>, SecretError>  // a failure is an error, never "none" (Tern's lesson)
     secret_put(key, value) -> Result<(), SecretError>
     secret_remove(key) -> Result<(), SecretError>
-    format_money(minor: i64, currency: String) -> String   // the device's locale (design.md §6)
+    format_money(minor: i64, currency: String) -> String   // the locale's pattern, ¤ for the symbol (core.md 99)
+    currency_symbols(currency: String) -> CurrencySymbols  // the locale's symbols; the core picks one
 }
 ```
 
@@ -114,7 +115,7 @@ trait Platform {
   has no Tor (§11).
 - **Time** is a `Clock` trait inside the core, faked in tests. It doesn't
   cross the FFI.
-- **Money is formatted by the platform** through one synchronous callback,
+- **Money is formatted with the platform's locale data** through two synchronous callbacks (the pattern and the symbols; the core picks the symbol, core.md 99),
   so `$24.50` follows the device's locale exactly as it does today
   (decision 34) without bundling ICU data. Copy that contains an amount gets
   the formatted string from `format_money`.

@@ -1,8 +1,8 @@
 //! Ported from the Android app's `AmountsTest`, the parts that don't depend
-//! on a locale. How a locale writes money (its symbol, which dollar, where
-//! the sign goes) is the platform's `format_money` now, so the tests of that
-//! (the narrow symbol, the dollar clashes, a currency at home, letters in a
-//! symbol, a currency with no symbol) stay with it. Here a stand-in formatter
+//! on a locale. Which symbol an amount carries is `amounts::written`'s now,
+//! tested in `tests/money.rs` (core.md decision 99); the tests of the
+//! narrow symbol, the dollar clashes, a currency at home, letters in a
+//! symbol and a currency with no symbol are there. Here a stand-in formatter
 //! shows what reaches it: minor units and an upper-case ISO 4217 code.
 
 use monokulo_client::amounts;

@@ -5,17 +5,35 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use monokulo_client::amounts::{self, MoneyLocale, Symbols};
 use monokulo_client::{MoneyFormat, SalePhase};
 use till_sales::TillSale;
 
 use crate::Platform;
 
-/// Amounts written by the platform, in the device's locale (decision 9).
+/// Amounts in the device's locale (decision 9): its pattern and symbols
+/// from the platform, which symbol to use from `amounts::written`
+/// (decision 99).
 pub(crate) struct Money(pub Arc<dyn Platform>);
+
+impl MoneyLocale for Money {
+    fn pattern(&self, minor: i64, currency: &str) -> String {
+        self.0.format_money(minor, currency.to_owned())
+    }
+
+    fn symbols(&self, currency: &str) -> Symbols {
+        let s = self.0.currency_symbols(currency.to_owned());
+        Symbols {
+            local: s.local,
+            international: s.international,
+            home: s.home,
+        }
+    }
+}
 
 impl MoneyFormat for Money {
     fn format(&self, minor: i64, currency: &str) -> String {
-        self.0.format_money(minor, currency.to_owned())
+        amounts::written(minor, currency, self)
     }
 }
 

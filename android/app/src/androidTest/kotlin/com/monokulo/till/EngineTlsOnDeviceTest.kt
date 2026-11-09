@@ -11,6 +11,7 @@ import uniffi.till_app.Action
 import uniffi.till_app.Effect
 import uniffi.till_app.Engine
 import uniffi.till_app.EngineListener
+import uniffi.till_app.CurrencySymbols
 import uniffi.till_app.Platform
 import uniffi.till_app.PushPlatform
 import uniffi.till_app.Distributors
@@ -36,7 +37,8 @@ class EngineTlsOnDeviceTest {
         override fun secretRemove(key: String) {
             kept.remove(key)
         }
-        override fun formatMoney(minor: Long, currency: String) = "$minor $currency"
+        override fun formatMoney(minor: Long, currency: String) = "$minor ¤"
+        override fun currencySymbols(currency: String) = CurrencySymbols(currency, currency, null)
     }
 
     private object NoPush : PushPlatform {

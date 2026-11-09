@@ -64,6 +64,7 @@ on from 1; the Android app's own choices are in [android.md](android.md).
    keeps only ISO 4217 exponents and decimal-to-minor parsing (half to
    even). Six of AmountsTest's nine tests assert the JVM locale's symbols
    and go with the Android side of `format_money`; three are ported.
+   (Amended by 99: the symbol policy moved back into Rust.)
 10. **The Orbot probe stays on the platform, behind `TorProbe`.** The core
     keeps the onion rule and the `socks5h` proxy choice
     (`tor::http_client`).
@@ -612,3 +613,15 @@ on from 1; the Android app's own choices are in [android.md](android.md).
     keeps only the stage's own rule that a second Back while the shift is
     still arriving stays in the app (android.md 260 c), which is about the
     animation. iOS has no system Back and ignores the field.
+99. **The engine picks an amount's symbol; the platform gives only locale
+    data** (amends 9). Android's `Money.kt` held the policy: the narrow
+    symbol, country letters taken off shared signs ("US$" becomes "$"),
+    the clash with the till's own dollar ("US$4.50" in Australia), and a
+    symbol-less currency after the number ("4.50 CHF"). iOS printed
+    whatever `NumberFormatter` gave, so the two differed. The policy is
+    now `monokulo_client::amounts::written`. `Platform::format_money`
+    returns the locale's pattern with `¤` where the symbol goes, and the
+    new `Platform::currency_symbols` returns how the locale and `en-001`
+    write a currency's symbol, plus the locale's own currency.
+    `MoneyTest`'s cases are ported to `monokulo-client/tests/money.rs`
+    against stand-in locales holding the JVM's data for each one.
