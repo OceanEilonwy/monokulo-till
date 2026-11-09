@@ -35,6 +35,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.monokulo.till.engine.CloseSheet
+import com.monokulo.till.engine.EngineStore
 import com.monokulo.till.engine.Nav
 import com.monokulo.till.engine.Work
 import com.monokulo.till.ui.AlertsScreen
@@ -327,6 +328,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         send(Action.Opened)
+        EngineStore.appStarted()
         (application as TillApp).clockMayHaveChanged()
     }
 
@@ -343,6 +345,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         send(Action.Backgrounded)
+        EngineStore.appStopped()
         super.onStop()
     }
 

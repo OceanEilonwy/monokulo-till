@@ -1049,3 +1049,64 @@ journal and are not done here.
      Merchant read, which the till's Clover app already asks for
      (development.md), so no new permission; a refused read leaves the
      devices unnamed and is logged.
+
+## The ledger on the devices (2026-11-09)
+
+The platform side of [ledger.md](../ledger.md) §4, §11 and §14: SQLCipher
+in the one library on every target, and what only iOS and Android can do
+for the ledger. The ledger's own crate and its integration record theirs
+after these.
+
+143. **SQLCipher is compiled into the library everywhere.** The workspace
+     takes `rusqlite` 0.41.1 (libsqlite3-sys 0.39.1) with default
+     features off and `bundled-sqlcipher`, so there is one libsqlite3-sys
+     and never the system's SQLite. Its crypto differs by target: on
+     Apple targets (the XCFramework's `aarch64-apple-ios` and
+     `aarch64-apple-ios-sim`, and the Mac build the Swift bindings come
+     from) it is CommonCrypto, in libSystem, with Security and
+     CoreFoundation, which the TillCore package already links for the
+     app and the extension; on Linux (CI, and the library Android's JVM
+     tests load) the system's libcrypto; on Android, which has no
+     libcrypto an app may link, till-ffi adds
+     `bundled-sqlcipher-vendored-openssl` for that target only, so
+     OpenSSL's libcrypto is built from source into each ABI's `.so`
+     (a cold build's cost, which rust-cache then keeps).
+     `OPENSSL_DIR` must stay unset on the Mac, or libsqlite3-sys would
+     take Homebrew's OpenSSL for the iOS targets. till-ffi exports
+     `sqlcipher_check(dir)` (its own bindings, `till_ffi`), which opens a
+     scratch database with a raw key and salt, a 32-byte plain-text
+     header and WAL, writes and reads a row, checks the file's header is
+     plain and the row isn't, that another key reads nothing, and returns
+     `PRAGMA cipher_version`. Rust CI, Android's JVM tests and iOS's
+     simulator tests call it. It goes once the ledger's open does the same
+     check (ledger.md §4).
+144. **The platforms only pass on the process's life; the core decides.**
+     The engine has `suspend()` (blocks until any write is done and the
+     ledger is closed), `resume()` and `ledger_changed()`, stubs until the
+     integration: iOS calls `suspend` as the app goes to the background,
+     off the main thread under a background task assertion, and `resume`
+     as it comes to the front, both in order on one queue; Android calls
+     them from the activity's `onStop` and `onStart` on a thread of their
+     own. The extension posts the Darwin notification
+     `com.monokulo.till.ledger-changed` after every round, whether or not
+     it wrote, and the app calls `ledger_changed` when it hears it; the
+     engine works out whether anything changed. Android has one process
+     writing the ledger and never calls it. Around each write the core
+     takes `till_app::lifecycle::hold`, which begins and ends a hold
+     through the platform's `BackgroundWork` (`set_background_work`, once
+     per process before the engine or `background_check`): on iOS
+     `ProcessInfo.performExpiringActivity`, which the app and the
+     extension alike may call from any thread; Android gives none. The
+     key and salt are made in Rust and kept through `Platform::secret_get`
+     and `secret_put`, which on iOS are already `AfterFirstUnlockThisDevice
+     Only` items in the access group the extension shares, so the
+     extension reads them while the device is locked after the first
+     unlock.
+145. **Nothing of the core's is backed up.** iOS marks the core's data
+     directory (the App Group's container) excluded from backup each time
+     it's looked up, rather than `till.db` and its WAL and shared-memory
+     files one by one, which come and go and would lose the flag. That
+     matches Android, where the core's files are in `noBackupFilesDir`,
+     `allowBackup` is off and the backup rules exclude every domain, and
+     costs nothing: the Keychain items are this device's only, so a
+     restored container could open nothing.

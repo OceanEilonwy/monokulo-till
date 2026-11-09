@@ -24,6 +24,7 @@ uniffi::setup_scaffolding!();
 mod alerted;
 mod background;
 mod engine;
+pub mod lifecycle;
 mod phases;
 mod preview;
 mod preview_sales;
@@ -40,6 +41,7 @@ use std::sync::{Arc, OnceLock};
 use tokio::sync::mpsc::UnboundedSender;
 
 pub use background::{BackgroundCheck, background_check, is_relayed_ding};
+pub use lifecycle::{BackgroundWork, set_background_work};
 use monokulo_client::PointOfSale;
 pub use preview::{TillPreview, preview_close, preview_panel, preview_sale, preview_shift};
 pub use preview_sales::{
