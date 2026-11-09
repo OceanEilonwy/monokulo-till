@@ -94,6 +94,9 @@ pub struct StatusCard {
     pub footnote: String,
     /// What the Bell learns.
     pub privacy: String,
+    /// "Open alert settings", for [`StatusAction::OpenAlertSettings`].
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub open_alert_settings: String,
 }
 
 /// What the cashier can do about a status, as a row of its card.
@@ -241,8 +244,12 @@ fn status_card(input: &WakeUpsInput, device: Device, clock: DeviceClock) -> Stat
         action,
         footnote: text::footnote(status, pos, device),
         privacy: text::privacy(pos),
+        open_alert_settings: OPEN_ALERT_SETTINGS.into(),
     }
 }
+
+/// [`StatusAction::OpenAlertSettings`]'s words.
+pub const OPEN_ALERT_SETTINGS: &str = "Open alert settings";
 
 #[cfg(test)]
 mod tests {
@@ -324,6 +331,7 @@ mod tests {
                 action: None,
                 footnote: "Square wakes this till through the Bell within a second or two of a sale. Till still checks every 30 seconds in case a wake-up is lost.".into(),
                 privacy: "The Bell learns which Square location this till is at and when it takes payments, not what was sold. Your Square sign-in is shown to it once, to prove the location, and never kept.".into(),
+                open_alert_settings: "Open alert settings".into(),
             })
         );
         assert_eq!(view.alerts, None, "Android has no alerts note");

@@ -165,8 +165,15 @@ pub struct PaymentProgress {
     pub total: u8,
     pub label: String,
     pub count: String,
-    /// What a screen reader says: "Seen on the network, 1 of 3".
+    /// What a screen reader says: "Seen on the network, 1 of 3", or
+    /// "Confirming, 4 of 10 confirmations".
     pub said: String,
+    /// The one line under the bar, never wrapped: the words and the count
+    /// ("Seen on the network · 1 of 3"), or while confirming the
+    /// confirmations where the engine knows them ("Confirming · 4 of 10
+    /// confirmations"; core.md decision 129).
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub line: String,
 }
 
 /// `sale`'s [`PaymentProgress`]; one that ended unpaid has none to show.
@@ -181,10 +188,29 @@ pub fn progress(sale: &TillSale) -> Option<PaymentProgress> {
     };
     const TOTAL: u8 = 3;
     let count = format!("{value} of {TOTAL}");
+    // The bar stays in thirds; the words count confirmations once there
+    // are some to count, as the shift's row does.
+    let beside = match (
+        sale.phase,
+        sale.confirmations,
+        sale.confirmations_required.filter(|&n| n > 0),
+    ) {
+        (monokulo_client::SalePhase::Confirming, Some(have), Some(need)) => format!(
+            "{} of {need} {}",
+            have.min(need),
+            if need == 1 {
+                "confirmation"
+            } else {
+                "confirmations"
+            }
+        ),
+        _ => count.clone(),
+    };
     Some(PaymentProgress {
         value,
         total: TOTAL,
-        said: format!("{label}, {count}"),
+        said: format!("{label}, {beside}"),
+        line: format!("{label} · {beside}"),
         label: label.into(),
         count,
     })
@@ -364,6 +390,42 @@ mod ring_tests {
         let paid = of(Paid).unwrap();
         assert_eq!((paid.value, paid.label.as_str()), (3, "Paid"));
         assert_eq!(of(Expired), None);
+    }
+
+    /// Decision 129: one line, the thirds' words and count, with the
+    /// confirmations while confirming where they're known.
+    #[test]
+    fn progress_line_counts_confirmations_while_confirming() {
+        use monokulo_client::SalePhase::*;
+        let of = |phase, have: Option<u32>, need: Option<u32>| {
+            progress(&TillSale {
+                phase,
+                confirmations: have,
+                confirmations_required: need,
+                ..till_sales_fixture()
+            })
+            .unwrap()
+        };
+        assert_eq!(of(Seen, None, None).line, "Seen on the network · 1 of 3");
+        let confirming = of(Confirming, Some(4), Some(10));
+        assert_eq!(confirming.line, "Confirming · 4 of 10 confirmations");
+        assert_eq!(confirming.said, "Confirming, 4 of 10 confirmations");
+        assert_eq!(
+            (confirming.value, confirming.count.as_str()),
+            (2, "2 of 3"),
+            "the bar keeps its thirds"
+        );
+        assert_eq!(
+            of(Confirming, Some(12), Some(10)).line,
+            "Confirming · 10 of 10 confirmations"
+        );
+        assert_eq!(
+            of(Confirming, Some(0), Some(1)).line,
+            "Confirming · 0 of 1 confirmation"
+        );
+        assert_eq!(of(Confirming, None, Some(10)).line, "Confirming · 2 of 3");
+        assert_eq!(of(Confirming, Some(3), Some(0)).line, "Confirming · 2 of 3");
+        assert_eq!(of(Paid, Some(10), Some(10)).line, "Paid · 3 of 3");
     }
 
     fn till_sales_fixture() -> TillSale {

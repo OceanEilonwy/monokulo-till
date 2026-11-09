@@ -210,7 +210,7 @@ struct TillScreen: View {
             SaleDetail(core: core, orderId: orderId, celebrate: lastLive == orderId, send: send)
                 .id(orderId)
         } else if let shift = core.shift {
-            EmptyTill(idle: shift.idle, chips: statusChips, send: send)
+            EmptyTill(idle: shift.idle, ready: shift.ready, chips: shift.status, send: send)
                 .toolbar(.hidden, for: .navigationBar)
         } else {
             TillLoading()
@@ -244,7 +244,6 @@ struct TillScreen: View {
         if let shift = core.shift {
             ShiftScreen(
                 view: shift,
-                chips: statusChips,
                 sidebar: sidebar,
                 selected: sidebar ? TillScreen.orderId(shown) : nil,
                 send: send
@@ -252,15 +251,6 @@ struct TillScreen: View {
         } else {
             TillLoading()
         }
-    }
-
-    /// The empty till's status chips, from what the engine publishes now.
-    private var statusChips: [StatusChip] {
-        StatusChip.chips(
-            top: core.shift?.top,
-            alerts: core.settings?.alerts.on,
-            bell: core.wakeUps.map { $0.monokuloBell.selected || $0.ownBell.selected }
-        )
     }
 }
 

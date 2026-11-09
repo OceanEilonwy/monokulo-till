@@ -98,6 +98,8 @@ struct LookTests {
         #expect(StatusGlyphKind.of(.ring, step: 3) == .seen)
         #expect(StatusGlyphKind.of(.tick, step: 4) == .paid)
         #expect(StatusGlyphKind.of(.clock, step: 1) == .closed)
+        // Offered, kept as cash or paid in cash: the banknote (core.md 126).
+        #expect(StatusGlyphKind.of(.cash, step: 1) == .cash)
         #expect(StatusGlyphKind.paid.colour == Palette.paid)
         #expect(StatusGlyphKind.seen.colour == Palette.progress)
         #expect(StatusGlyphKind.waiting.colour == Palette.secondary)

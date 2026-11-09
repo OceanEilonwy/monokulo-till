@@ -111,6 +111,9 @@ pub fn preview_shift(preview: TillPreview, platform: Arc<dyn Platform>) -> Optio
         folded: preview.folded,
         counters: Default::default(),
         counter: None,
+        alerts: None,
+        bell: false,
+        show_sales: Default::default(),
     };
     Some(shift::shift(
         &input,

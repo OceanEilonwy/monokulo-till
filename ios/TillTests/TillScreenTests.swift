@@ -77,6 +77,21 @@ struct TillScreenTests {
         #expect(SaleRowLook.subColour(paid) == Palette.paid)
     }
 
+    @Test func aCashSalesRowShowsTheBanknote() {
+        let ring = Ring(step: 4, confirmations: nil, required: nil, fill: 1, spins: false, green: true)
+        let paidInMonero = ShiftRow(
+            title: "Sam · $8.40", sub: "Paid in Monero · cash in Square", tone: .paid, quiet: false, icon: .tick,
+            ring: ring, opens: .details, cash: true
+        )
+        #expect(SaleRowLook.cashMark(paidInMonero), "beside the amount, the tick being the glyph")
+        let offered = ShiftRow(
+            title: "Ana · $9.00", sub: "Cash in Square", tone: .link, quiet: false, icon: .cash,
+            ring: ring, opens: .details, cash: true
+        )
+        #expect(StatusGlyphKind.of(offered.icon, step: 4) == .cash)
+        #expect(!SaleRowLook.cashMark(offered), "once is enough")
+    }
+
     @Test func theTitleMenuListsTheCountersThenAllCountersApart() {
         let mine = CounterItem(
             choice: .device(deviceId: "d1"), name: "Front iPad", sub: "This counter · alerts", count: "1 waiting", selected: true
@@ -112,8 +127,6 @@ struct TillScreenTests {
         #expect(abs(EngineProgress.fraction(value: 1, total: 3) - 1.0 / 3) < 1e-9)
         #expect(EngineProgress.fraction(value: 3, total: 3) == 1)
         #expect(EngineProgress.fraction(value: 1, total: 0) == 0)
-        #expect(EngineProgress.status(label: "Seen on the network", count: "1 of 3") == "Seen on the network · 1 of 3")
-        #expect(EngineProgress.status(label: "Paid", count: "") == "Paid")
     }
 
     @Test func alertsOffIsTheEnginesWarning() {
@@ -151,15 +164,20 @@ struct TillScreenTests {
         #expect(ShiftTitle.subtitle(bare) == "Not watching")
     }
 
-    @Test func theEmptyTillsChipsSayWhatTheEnginePublishes() {
-        let top = ShiftTop(place: "Front Counter", state: "Watching", tone: .paid, said: "", mark: .square)
-        let chips = StatusChip.chips(top: top, alerts: true, bell: true)
-        #expect(chips.map(\.text) == ["Watching Square", "Alerts on", "Instant with the Bell"])
-        #expect(chips[0].glyph == .watching)
-        let off = StatusChip.chips(top: ShiftTop(place: nil, state: "Not watching", tone: .muted, said: "", mark: .square), alerts: false, bell: false)
-        #expect(off.map(\.text) == ["Not watching", "Alerts off"])
-        #expect(off[1].warn)
-        #expect(StatusChip.chips(top: nil, alerts: nil, bell: nil).isEmpty)
+    @Test func theEmptyTillsChipsAreDrawnAsTheEngineSaysThem() {
+        #expect(StatusChipLook.symbol(.watching) == nil, "the watching glyph is drawn")
+        #expect(StatusChipLook.symbol(.alertsOff) == "bell.slash")
+        #expect(StatusChipLook.symbol(.bell) == "bolt")
+        #expect(StatusChipLook.warn(StatusChip(kind: .alertsOff, text: "Alerts off", tone: .warn)))
+        #expect(!StatusChipLook.warn(StatusChip(kind: .alertsOn, text: "Alerts on", tone: .plain)))
+    }
+
+    @Test func theEmptyTillSaysTheIdlePanelElseReady() {
+        let idle = ShiftIdle(title: "Ready for the next sale", hint: "Ring it up in Square and choose Monero.", start: nil)
+        let ready = ShiftReady(title: "Ready for the next sale", line: "The last one was paid 4 minutes ago.")
+        #expect(EmptyTill.words(idle: idle, ready: ready).line == "Ring it up in Square and choose Monero.")
+        #expect(EmptyTill.words(idle: nil, ready: ready).line == "The last one was paid 4 minutes ago.")
+        #expect(EmptyTill.words(idle: nil, ready: nil).title.isEmpty)
     }
 
     @Test func aPaymentsBarFollowsTheTillLogo() {
@@ -173,7 +191,6 @@ struct TillScreenTests {
         let uri = "monero:888tN?tx_amount=0.05552"
         #expect(SaleShare.uri(code: uri, address: "888tN") == uri)
         #expect(SaleShare.uri(code: "ORF1:…", address: "888tN") == "monero:888tN")
-        #expect(SaleShare.preview(amount: "$13.88") == "Monero payment · $13.88")
     }
 
     @Test func readysChecksDifferByShapeNotOnlyColour() {
@@ -212,6 +229,8 @@ struct TillScreenTests {
         #expect(Roles.badgeGround(.ring) == .chip)
         #expect(Roles.badgeGround(.refund) == .chip)
         #expect(Roles.badgeGround(.close) == .chip)
+        #expect(Roles.badgeGround(.cash) == .chip)
+        #expect(Roles.symbol(.cash) == "banknote")
         // The live ring is drawn; every other glyph is a symbol.
         #expect(Roles.symbol(.ring) == nil)
         #expect(Roles.symbol(.tick) == "checkmark")

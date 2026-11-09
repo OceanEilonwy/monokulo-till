@@ -57,6 +57,8 @@ object MkIcons {
     val Tray = icon("tray", 24f, "M6.5 5h11A2.5 2.5 0 0 1 20 7.5v9a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5v-9A2.5 2.5 0 0 1 6.5 5Z M4 10h16" to 2f)
     /** Arrows out to the corners: enlarge the code. */
     val Expand = icon("expand", 24f, "M14 4h6v6M10 20H4v-6M20 4l-6 6M4 20l6-6" to 2.2f)
+    /** A banknote: a cash sale offered in Monero, kept as cash or paid in cash (core.md decision 126). */
+    val Cash = icon("cash", 24f, "M4.5 6.5h15a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 16V8a1.5 1.5 0 0 1 1.5-1.5Z" to 2f, "M12 9.5a2.5 2.5 0 1 0 0.01 0Z M6.5 12h.1 M17.4 12h.1" to 2f)
     /** Arrows in from the corners: shrink it. */
     val Shrink = icon("shrink", 24f, "M4 10h6V4M20 14h-6v6M10 10L3 3M14 14l7 7" to 2.2f)
 }

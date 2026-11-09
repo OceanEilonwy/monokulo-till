@@ -54,6 +54,7 @@ enum StatusGlyphKind: Hashable, Sendable {
         case .tick: .paid
         case .refund: .refund
         case .close: .otherTill
+        case .cash: .cash
         }
     }
 }

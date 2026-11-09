@@ -26,7 +26,7 @@ struct SaleScreen: View {
                     HStack(alignment: .center, spacing: 40) {
                         codeColumn
                         VStack(alignment: .leading, spacing: 10) {
-                            SectionCaption(text: "Order")
+                            SectionCaption(text: view.orderTitle)
                             OrderCardSection(card: order) { send(.showOrder(orderId: orderId)) }
                                 .padding(.horizontal, -16)
                         }
@@ -64,9 +64,9 @@ struct SaleScreen: View {
                         send(.askClose(orderId: orderId))
                     } label: {
                         if regular {
-                            Text("Close the sale")
+                            Text(view.closeLabel)
                         } else {
-                            Label("Close the sale", systemImage: "xmark")
+                            Label(view.closeLabel, systemImage: "xmark")
                         }
                     }
                     .tint(Palette.danger)
@@ -105,7 +105,7 @@ struct SaleScreen: View {
         if let progress = view.progress {
             PaymentProgress(
                 step: Int(view.step),
-                status: EngineProgress.status(label: progress.label, count: progress.count),
+                status: progress.line,
                 hint: view.hint,
                 fraction: EngineProgress.fraction(value: progress.value, total: progress.total),
                 said: progress.said
@@ -136,7 +136,7 @@ struct SaleScreen: View {
             Button {
                 send(.enlarge(orderId: orderId))
             } label: {
-                Label("Customer view", systemImage: "arrow.2.circlepath")
+                Label(view.customerView, systemImage: "arrow.2.circlepath")
             }
             .buttonStyle(.primary)
             .frame(maxWidth: regular ? 260 : .infinity)
@@ -144,9 +144,9 @@ struct SaleScreen: View {
             ShareLink(
                 item: SaleShare.uri(code: view.code, address: view.address),
                 subject: Text(view.amount),
-                preview: SharePreview(SaleShare.preview(amount: view.amount))
+                preview: SharePreview(view.shareTitle)
             ) {
-                Label("Share", systemImage: "square.and.arrow.up")
+                Label(view.share, systemImage: "square.and.arrow.up")
             }
             .buttonStyle(.secondary)
             .frame(maxWidth: regular ? 180 : .infinity)
@@ -161,10 +161,6 @@ struct SaleScreen: View {
 enum SaleShare {
     static func uri(code: String, address: String) -> String {
         code.lowercased().hasPrefix("monero:") ? code : "monero:\(address)"
-    }
-
-    static func preview(amount: String) -> String {
-        "Monero payment · \(amount)"
     }
 }
 
@@ -271,9 +267,9 @@ struct CodeScreen: View {
                 .padding(.trailing, 10)
                 .padding(.top, 6)
                 Spacer(minLength: 8)
-                QRCodeView(text: view.code, label: "Payment code for \(view.amount)", size: side, padding: 12, cornerRadius: 0)
+                QRCodeView(text: view.code, label: view.codeSaid, size: side, padding: 12, cornerRadius: 0)
                 Spacer(minLength: 8)
-                PaymentProgress(step: Int(view.step), status: "Scan with any Monero wallet")
+                PaymentProgress(step: Int(view.step), status: view.scan)
                     .frame(maxWidth: min(side, 320))
                     .padding(.bottom, 12)
             }
@@ -296,8 +292,8 @@ struct CodeScreen: View {
                     .font(.subheadline.monospacedDigit())
                     .foregroundStyle(Color(hex: 0x5A564C))
                     .lineLimit(1)
-                QRCodeView(text: view.code, label: "Payment code for \(view.amount)", size: side, padding: 12, cornerRadius: 0)
-                PaymentProgress(step: Int(view.step), status: "Scan with any Monero wallet")
+                QRCodeView(text: view.code, label: view.codeSaid, size: side, padding: 12, cornerRadius: 0)
+                PaymentProgress(step: Int(view.step), status: view.scan)
                     .frame(maxWidth: side)
                 Spacer(minLength: 8)
             }
@@ -384,7 +380,7 @@ struct OrderScreen: View {
                                 .accessibilityElement(children: .combine)
                             }
                             HStack(alignment: .firstTextBaseline) {
-                                Text("Total")
+                                Text(order.totalLabel)
                                 Spacer(minLength: 8)
                                 Text(order.total)
                                     .monospacedDigit()
@@ -402,7 +398,7 @@ struct OrderScreen: View {
         .readableWidth()
         .foregroundStyle(Palette.ink)
         .background(Palette.ground)
-        .navigationTitle("The order")
+        .navigationTitle(order?.title ?? "")
         .navigationSubtitle(order?.subtitle ?? title)
         .navigationBarTitleDisplayMode(.inline)
     }

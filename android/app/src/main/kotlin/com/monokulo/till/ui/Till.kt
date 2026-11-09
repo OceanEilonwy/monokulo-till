@@ -756,6 +756,7 @@ fun StateBadge(ring: Ring?, icon: StateIcon, ground: Ground, size: Dp, glyph: Dp
         StateIcon.TICK -> MkIcons.Tick to mk.paid
         StateIcon.REFUND -> MkIcons.Refund to if (quiet) mk.muted else mk.ink
         StateIcon.CLOSE, StateIcon.RING -> MkIcons.Close to if (quiet) mk.muted else mk.ink
+        StateIcon.CASH -> MkIcons.Cash to if (quiet) mk.muted else mk.ink
     }
     Box(Modifier.size(size).clip(CircleShape).background(groundColor(ground)), contentAlignment = Alignment.Center) {
         Icon(vector, contentDescription = null, tint = tint, modifier = Modifier.size(glyph))
