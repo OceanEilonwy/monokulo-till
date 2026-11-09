@@ -658,3 +658,8 @@ on from 1; the Android app's own choices are in [android.md](android.md).
      "not a link" as before), and nothing happens when there's no link.
      Android used to pick the first word containing "://" itself. iOS has
      no share path; it opens connect links as URLs (`Action::ConnectLink`).
+104. **`ShiftTop.mark` is the till's point of sale's mark** (the same
+     `PosMark` as `BackToPos`, from the till's point of sale; `None`
+     without one). Android's shift badge used to dig the mark out of
+     `SettingsView`'s point-of-sale section. iOS's top bar shows the
+     Monokulo logo, not the point of sale's mark, so it doesn't use it.

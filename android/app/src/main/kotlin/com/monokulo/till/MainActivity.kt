@@ -71,7 +71,6 @@ import uniffi.till_app.RefundSheetView
 import uniffi.till_app.Update
 import uniffi.till_screens.OnboardingPage
 import uniffi.till_screens.OnboardingView
-import uniffi.till_screens.PosSection
 import uniffi.till_screens.SettingsView
 import uniffi.till_screens.ShiftView
 import uniffi.till_screens.PosMark
@@ -157,8 +156,8 @@ class MainActivity : ComponentActivity() {
         // Where the shift's list was when a row was tapped: the shift is not composed while a sale is up, so a
         // Back finds it here (decision 296).
         val shiftPlace = rememberShiftPlace()
-        // The till's point of sale names its marks; the engine says it in Settings.
-        val pos by remember { derivedStateOf { tillPointOfSale(flows.settings.value) } }
+        // The till's point of sale names its marks: the shift's top row carries it (docs/decisions/core.md 104).
+        val pos by remember { derivedStateOf { flows.shift.value?.top?.mark } }
         CompositionLocalProvider(LocalPointOfSale provides pos, LocalReceiptFolds provides model.receiptFolds) {
             TillStage(stage, cameUpByItself = { flows.nav.value.byItself }, scrub, way = { flows.nav.value.way }) { s ->
                 when (s) {
@@ -411,11 +410,4 @@ private fun OnboardingPage.isFor(screen: Screen): Boolean = when (this) {
     is OnboardingPage.Alerts -> screen == Screen.Alerts
     is OnboardingPage.Float -> screen == Screen.Float
     is OnboardingPage.Ready -> screen == Screen.Ready
-}
-
-/** The till's point of sale, as Settings names it: the one signed in to, else the one chosen. */
-private fun tillPointOfSale(settings: SettingsView?): PosMark? = when (val p = settings?.pointOfSale) {
-    is PosSection.SignedIn -> p.mark
-    is PosSection.Choosing -> p.choices.firstOrNull { it.choice.selected }?.mark
-    null -> null
 }

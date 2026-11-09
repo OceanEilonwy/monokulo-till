@@ -13,7 +13,7 @@ use crate::close;
 use crate::pos_text;
 use crate::sale_text;
 use crate::time::{DeviceClock, time};
-use crate::view::{Device, Press, Ring, Tone};
+use crate::view::{Device, PosMark, Press, Ring, Tone, mark};
 
 /// The shift's filter chips.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -517,6 +517,9 @@ pub struct ShiftTop {
     /// What a screen reader says for the row: "The Bean Room, Front
     /// Counter, Watching".
     pub said: String,
+    /// The till's point of sale's mark beside the place; `None` for a till
+    /// that runs without one (core.md decision 104).
+    pub mark: Option<PosMark>,
 }
 
 /// No sale yet, or not watching: the faded mark and what happens next.
@@ -634,6 +637,7 @@ pub fn shift(
         state: state.into(),
         tone,
         said: said.join(", "),
+        mark: input.till.map(mark),
     };
     if input.disconnected {
         return ShiftView {
@@ -1540,6 +1544,24 @@ pub(crate) mod tests {
         }
     }
 
+    /// Decision 104: the top row carries the till's mark, so Android needn't
+    /// dig it out of Settings.
+    #[test]
+    fn the_top_row_carries_the_tills_point_of_sale_mark() {
+        let clover = ShiftInput {
+            till: Some(PointOfSale::Clover),
+            ..input(fixture_shift())
+        };
+        let view = shift(&clover, Device::Android, la(at()), &money);
+        assert_eq!(view.top.mark, Some(PosMark::Clover));
+        let without = ShiftInput {
+            till: None,
+            ..input(fixture_shift())
+        };
+        let view = shift(&without, Device::Android, la(at()), &money);
+        assert_eq!(view.top.mark, None, "another till's sales only");
+    }
+
     #[test]
     fn the_shift_draws_its_top_row_summary_chips_and_rows() {
         let waiting = TillSale {
@@ -1556,6 +1578,7 @@ pub(crate) mod tests {
                 state: "Watching".into(),
                 tone: Tone::Paid,
                 said: "The Bean Room, Front Counter, Watching".into(),
+                mark: Some(PosMark::Square),
             }
         );
         assert_eq!(view.summary, "3 paid · $41.50 · since 9:02 AM");
