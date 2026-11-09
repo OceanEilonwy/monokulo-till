@@ -196,10 +196,10 @@ class SaleFace(
 class TillActions(
     val send: (Action) -> Unit,
     /**
-     * Back to the point-of-sale app on this phone: Square's only (the engine says when, decision 135), null when
-     * Square is already beside Till (split screen).
+     * Back to the point-of-sale app the engine names ([uniffi.till_screens.BackToPos.mark]; it says when, decision 135), null when
+     * Till shares the screen with it (split screen).
      */
-    val onBackToPos: (() -> Unit)?,
+    val onBackToPos: ((PosMark) -> Unit)?,
 )
 
 /**
@@ -576,7 +576,7 @@ private fun Buttons(sale: SaleFace, actions: TillActions) = Row(Modifier.fillMax
     val back = sale.view.backToPos
     val open = actions.onBackToPos
     if (back != null && open != null) {
-        PrimaryButton(back.label, open, Modifier.weight(1f), height = 56.dp, size = 16, enabled = back.enabled)
+        PrimaryButton(back.press.label, { open(back.mark) }, Modifier.weight(1f), height = 56.dp, size = 16, enabled = back.press.enabled)
     }
 }
 

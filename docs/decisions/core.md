@@ -560,3 +560,15 @@ on from 1; the Android app's own choices are in [android.md](android.md).
     core has no client for Monokulo's push targets, so Live Activity
     updates while Till is in the background wait for one. The relay URL is
     `https://relay.monokulo.com`, a placeholder until it's deployed.
+
+## The engine owns what Android still decided (2026-11-09)
+
+94. **`SaleView.back_to_pos` names the point of sale it opens**
+    (`BackToPos { press, mark: PosMark }`): Android opened Square whatever
+    the label said. It opens Square Point of Sale (`com.squareup`) for
+    `PosMark::Square`. For `PosMark::Clover` it steps back
+    (`moveTaskToBack`): Till runs on the Clover device, over the Register
+    it was opened from, and we haven't confirmed a launcher package for
+    Clover's Register app. Today the engine offers the button only on a
+    till on Square (decision 135 of android.md), so the Clover branch is
+    for when that changes. iOS never gets the button.

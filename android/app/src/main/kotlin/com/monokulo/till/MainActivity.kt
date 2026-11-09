@@ -139,7 +139,7 @@ class MainActivity : ComponentActivity() {
         // Re-read on every bump of `resumed`, which onMultiWindowModeChanged makes, so the till's actions follow it.
         @Suppress("UNUSED_VARIABLE") val tick = resumed.intValue
         val multiWindow = isInMultiWindowMode
-        val actions = remember(multiWindow) { TillActions(::send, onBackToPos = if (multiWindow) null else ::backToSquare) }
+        val actions = remember(multiWindow) { TillActions(::send, onBackToPos = if (multiWindow) null else ::backToPos) }
         val stage = remember { SeekableTransitionState(first) }
         // Android's back (decision 77: everywhere but the first step, the shift and step 4 in setup). From a sale's
         // screens and Settings the gesture previews the way back the engine names; nothing changes before it commits.
@@ -385,10 +385,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Square Point of Sale, if it's installed; else Till steps back to whatever was behind it. */
-    private fun backToSquare() {
-        val square = packageManager.getLaunchIntentForPackage(SQUARE_POS)
-        if (square != null) startActivity(square) else moveTaskToBack(true)
+    /**
+     * Back to the point of sale the engine named: Square Point of Sale, if it's installed. On Clover, Till runs on the
+     * Clover device itself, over the Register it was opened from, so Till steps back to it, as it does when Square
+     * isn't installed (docs/decisions/core.md 94).
+     */
+    private fun backToPos(pos: PosMark) {
+        val app = when (pos) {
+            PosMark.SQUARE -> packageManager.getLaunchIntentForPackage(SQUARE_POS)
+            PosMark.CLOVER -> null
+        }
+        if (app != null) startActivity(app) else moveTaskToBack(true)
     }
 
     companion object {

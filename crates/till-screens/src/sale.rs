@@ -15,7 +15,7 @@ use till_sales::TillSale;
 use crate::order_text::{OrderCard, order_card};
 use crate::sale_page::header;
 use crate::time::DeviceClock;
-use crate::view::{Device, Press, Ring, ring};
+use crate::view::{Device, PosMark, Press, Ring, mark, ring};
 use crate::{close, pos_text, sale_text};
 
 /// What the sale screen shows.
@@ -61,12 +61,33 @@ pub struct SaleView {
     /// "Copy address", and what it copies.
     pub copy_address: Press,
     pub address: String,
-    /// Android: "Back to Square".
-    pub back_to_pos: Option<Press>,
+    /// Android: "Back to Square", and which point of sale it opens.
+    pub back_to_pos: Option<BackToPos>,
     /// The bar's X, which asks whether the customer is paying.
     pub closes: bool,
     /// The countdown is on screen: draw it again in a second.
     pub ticks: bool,
+}
+
+/// Android's way back to the point of sale beside "Copy address": its
+/// words, and whose app it opens, so the button opens the point of sale it
+/// names.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct BackToPos {
+    /// "Back to Square".
+    pub press: Press,
+    /// The point of sale it names, and opens.
+    pub mark: PosMark,
+}
+
+impl BackToPos {
+    pub fn new(pos: PointOfSale) -> BackToPos {
+        BackToPos {
+            press: Press::new(pos_text::back_to(Some(pos))),
+            mark: mark(pos),
+        }
+    }
 }
 
 /// What a screen reader says for `sale`'s code.
@@ -110,8 +131,10 @@ pub fn sale(
             .map(|receipt| order_card(receipt, header.pos, true)),
         copy_address: Press::new("Copy address"),
         address: sale.address.clone(),
-        back_to_pos: (header.back_to_pos && !device.is_ios())
-            .then(|| Press::new(pos_text::back_to(header.pos))),
+        back_to_pos: header
+            .pos
+            .filter(|_| header.back_to_pos && !device.is_ios())
+            .map(BackToPos::new),
         closes: !close::choices(sale, header.elsewhere).is_empty(),
         ticks: live && sale.phase.counts_down(),
     }
@@ -183,7 +206,25 @@ mod tests {
         assert_eq!(order.total, "13.88 USD");
         assert_eq!(view.copy_address, Press::new("Copy address"));
         assert_eq!(view.address, "4abc");
-        assert_eq!(view.back_to_pos, Some(Press::new("Back to Square")));
+        assert_eq!(
+            view.back_to_pos,
+            Some(BackToPos {
+                press: Press::new("Back to Square"),
+                mark: PosMark::Square,
+            })
+        );
+    }
+
+    #[test]
+    fn back_to_the_point_of_sale_opens_the_one_it_names() {
+        for pos in PointOfSale::ALL {
+            let back = BackToPos::new(pos);
+            assert_eq!(back.press.label, format!("Back to {}", pos.display_name()));
+            assert_eq!(back.mark, mark(pos), "the button opens {pos:?}, as it says");
+        }
+        let view = sale(&input(bp9m(), SQUARE), Device::Android, la(at()), &money);
+        let back = view.back_to_pos.expect("a Square till offers it");
+        assert_eq!(back.mark, PosMark::Square, "Square's app, never another");
     }
 
     #[test]
