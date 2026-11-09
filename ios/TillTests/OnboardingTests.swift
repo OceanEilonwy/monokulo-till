@@ -66,6 +66,21 @@ struct OnboardingTests {
         #expect(SignInCallback.of(page: bare, fallback: self.square) == .https(host: "till.monokulo.com", path: "/square"))
     }
 
+    @Test func aSandboxSignInEndsAtTheDebugPageAndComesBackThroughTheScheme() throws {
+        let square = TillShared.squareRedirect(sandbox: true)
+        let clover = TillShared.cloverRedirect(environment: "sandbox")
+        #expect(square == "https://till.monokulo.com/square/debug/")
+        #expect(clover == "https://till.monokulo.com/clover/debug/")
+        #expect(TillShared.squareRedirect(sandbox: false) == self.square)
+        #expect(TillShared.cloverRedirect(environment: "europe") == self.clover)
+        let page = try #require(URL(string: "https://example.com/oauth"))
+        #expect(SignInCallback.of(page: page, fallback: square) == .https(host: "till.monokulo.com", path: "/square/debug/"))
+        // The debug page's forward to the app reaches the engine as its redirect.
+        let back = try #require(URL(string: "monokulo-till://square?code=c&state=s"))
+        #expect(IncomingLink.of(back, square: square, clover: clover)
+            == .signInReturned("https://till.monokulo.com/square/debug/?code=c&state=s"))
+    }
+
     @Test func alertsCountAsAllowedWhenTheyReachTheCashier() {
         #expect(AlertsPermission.allows(.authorized))
         #expect(AlertsPermission.allows(.provisional))

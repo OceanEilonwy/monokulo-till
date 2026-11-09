@@ -38,6 +38,22 @@ enum TillShared {
         )) ?? FileManager.default.temporaryDirectory
     }
 
+    /// Where Square sends the sign-in back. A sandbox application ends at
+    /// the debug page, as Android's debug builds do, since Square takes one
+    /// redirect URL per environment and both platforms share the sandbox
+    /// application: `ASWebAuthenticationSession` stops at that https address
+    /// (the `webcredentials` domain), and should the page load anyway it
+    /// forwards an iPhone or iPad to `monokulo-till://square`, which
+    /// `IncomingLink` reads back to this address (docs/release.md).
+    static func squareRedirect(sandbox: Bool) -> String {
+        sandbox ? "https://till.monokulo.com/square/debug/" : "https://till.monokulo.com/square"
+    }
+
+    /// As `squareRedirect`, for Clover's sandbox.
+    static func cloverRedirect(environment: String) -> String {
+        environment == "sandbox" ? "https://till.monokulo.com/clover/debug/" : "https://till.monokulo.com/clover"
+    }
+
     /// What the engine needs to know about this device and build
     /// (`EngineConfig`, docs/ios-plan.md §2), for the app and the extension
     /// alike, so both read and write the same kept state.
@@ -60,13 +76,13 @@ enum TillShared {
             square: SquareSetup(
                 applicationId: Build.squareApplicationId,
                 sandbox: Build.squareSandbox,
-                redirectUri: "https://till.monokulo.com/square",
+                redirectUri: squareRedirect(sandbox: Build.squareSandbox),
                 baseUrl: nil
             ),
             clover: CloverSetup(
                 applicationId: Build.cloverApplicationId,
                 environment: Build.cloverEnvironment,
-                redirectUri: "https://till.monokulo.com/clover",
+                redirectUri: cloverRedirect(environment: Build.cloverEnvironment),
                 baseUrl: nil
             ),
             bellUrl: bellUrl,

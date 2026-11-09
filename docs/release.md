@@ -85,14 +85,18 @@ This page lists the one-time setup, in order (docs/ios-plan.md §5, phase I7).
    gh variable set TILL_CLOVER_APPLICATION_ID --env testflight --body …
    gh variable set TILL_CLOVER_ENVIRONMENT --env testflight --body north_america
    ```
-   The Square application's OAuth redirect URL (for the environment the id
-   belongs to) must be `https://till.monokulo.com/square`, and the Clover
-   app's Site URL `https://till.monokulo.com/clover`: the iOS app signs in
-   through those universal links. Square allows one redirect URL per
-   environment, so a sandbox application set up for Android debug builds
-   (`/square/debug/`) has to change to `/square` for an iOS build, and back.
-   These are not the Bell's webhook URLs (`/v1/square/production/webhook` on
-   the Bell's own host), which are set on Square's webhook subscription.
+   The iOS app signs in through universal links on `till.monokulo.com`.
+   A production Square application's OAuth redirect URL must be
+   `https://till.monokulo.com/square`, and a production Clover app's Site
+   URL `https://till.monokulo.com/clover`. With a sandbox id
+   (`TILL_SQUARE_SANDBOX=true`, `TILL_CLOVER_ENVIRONMENT=sandbox`) the app
+   signs in through the debug pages instead, `/square/debug/` and
+   `/clover/debug/`, as Android's debug builds do: Square takes one redirect
+   URL per environment, so the sandbox application keeps `/square/debug/`
+   for both platforms. The page forwards an iPhone or iPad to
+   `monokulo-till://` and Android to its debug build. These are not the
+   Bell's webhook URLs (`/v1/square/production/webhook` on the Bell's own
+   host), which are set on Square's webhook subscription.
 
    The workflow's first step stops with an error naming any of these that is
    missing or malformed, before any macOS minutes are spent on a build.

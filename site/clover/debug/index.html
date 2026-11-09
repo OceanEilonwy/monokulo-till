@@ -27,7 +27,14 @@
   // (merchant_id, employee_id, client_id and code, state when Clover echoes
   // it, or error) to the debug build's own scheme. The code is no use without the verifier, which
   // never leaves the device (PKCE). Nothing else is loaded or sent.
-  const back = "intent://clover" + location.search + "#Intent;scheme=monokulo-till-debug;end";
+  // An iPhone or iPad (iPadOS asks as a Mac, but with touch) signed in to
+  // the sandbox goes back through the iOS app's scheme; Android's debug
+  // build through its own.
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent)
+    || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+  const back = ios
+    ? "monokulo-till://clover" + location.search
+    : "intent://clover" + location.search + "#Intent;scheme=monokulo-till-debug;end";
   const open = document.getElementById("open");
   open.href = back;
   if (location.search) {
@@ -37,7 +44,7 @@
       open.hidden = false;
     }, 1500);
   } else {
-    document.getElementById("say").textContent = "Clover sends a debug build of Till here after signing in. There's nothing to do on its own.";
+    document.getElementById("say").textContent = "Clover sends Till here after signing in to its sandbox. There's nothing to do on its own.";
   }
 </script>
 <noscript><p>Till's debug sign-in needs JavaScript on this page to return to the app.</p></noscript>
