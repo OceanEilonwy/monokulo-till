@@ -34,6 +34,7 @@ import com.monokulo.till.engine.EngineStore
 import uniffi.till_app.Action
 import uniffi.till_app.CopyKind
 import uniffi.till_app.endedSummary
+import uniffi.till_screens.EndedSummary
 import uniffi.till_screens.Face
 import uniffi.till_screens.FaceIcon
 import uniffi.till_screens.FaceTint
@@ -199,14 +200,12 @@ class SaleNotifications(private val context: Context) {
 
     /**
      * Posts [orderId]'s own [notice] ([uniffi.till_app.Effect.Notify]) in the
-     * ended group: a [paid] one with the green tick, gone after a while;
-     * [quiet] (no banner) while Till is on screen saying so. Once there are two, the
-     * group's summary goes up too: left to itself Android bundles them under
-     * the launcher icon, a solid square in the status bar. The summary goes
-     * when the Paid ones would, so it never outlives them for long; an unpaid
-     * one left after that stands alone.
+     * ended group: a [paid] one with the green tick; gone after [timeoutMs]
+     * when the engine sets one; [quiet] (no banner) while Till is on screen
+     * saying so. The group's summary goes up when the engine says, for the
+     * count showing ([endedSummary], docs/decisions/core.md 106).
      */
-    fun notice(orderId: String, notice: Notice, paid: Boolean, quiet: Boolean) {
+    fun notice(orderId: String, notice: Notice, paid: Boolean, timeoutMs: ULong?, quiet: Boolean) {
         val builder = NotificationCompat.Builder(context, CHANNEL_SALES)
             .setSmallIcon(R.drawable.ic_mark)
             .setColor(if (paid) paidGreen else accent)
@@ -217,7 +216,8 @@ class SaleNotifications(private val context: Context) {
             .setAutoCancel(true)
             .setSilent(quiet)
             .setContentIntent(openApp(orderId))
-        if (paid) builder.setLargeIcon(tick()).setTimeoutAfter(ENDED_MS)
+        if (paid) builder.setLargeIcon(tick())
+        timeoutMs?.let { builder.setTimeoutAfter(it.toLong()) }
         val id = idOf(orderId)
         notify(id, builder.build())
         // The system posts in its own time, so the one just sent may not be listed yet: count the others and add it.
@@ -225,8 +225,7 @@ class SaleNotifications(private val context: Context) {
             context.getSystemService(NotificationManager::class.java).activeNotifications
                 .count { it.notification.group == GROUP_ENDED && it.id != SUMMARY_ID && it.id != id }
         }.getOrDefault(0)
-        val ended = others + 1
-        if (ended >= 2) notify(SUMMARY_ID, summary(ended))
+        endedSummary((others + 1).toUInt())?.let { notify(SUMMARY_ID, summary(it)) }
     }
 
     /** The sale [orderId] is gone from the shift: its notice goes with it. */
@@ -234,16 +233,16 @@ class SaleNotifications(private val context: Context) {
         runCatching { NotificationManagerCompat.from(context).cancel(idOf(orderId)) }
     }
 
-    private fun summary(ended: Int): Notification = NotificationCompat.Builder(context, CHANNEL_SALES)
+    private fun summary(summary: EndedSummary): Notification = NotificationCompat.Builder(context, CHANNEL_SALES)
         .setSmallIcon(R.drawable.ic_mark)
         .setColor(accent)
-        .setContentTitle(endedSummary(ended.toUInt()).title)
+        .setContentTitle(summary.notice.title)
         .setGroup(GROUP_ENDED)
         .setGroupSummary(true)
         .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
         .setSilent(true)
         .setAutoCancel(true)
-        .setTimeoutAfter(ENDED_MS)
+        .setTimeoutAfter(summary.timeoutMs.toLong())
         .setContentIntent(openShift())
         .build()
 
@@ -325,9 +324,6 @@ class SaleNotifications(private val context: Context) {
         private const val GROUP_ENDED = "ended"
         const val CHANNEL_SHIFT = "shift"
         const val CHANNEL_SALES = "sales"
-
-        /** How long a "Paid" notification stays. */
-        const val ENDED_MS = 5 * 60 * 1000L
 
         private fun idOf(orderId: String) = 1000 + (orderId.hashCode() and 0x7FFFFF)
 

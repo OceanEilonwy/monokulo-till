@@ -151,7 +151,7 @@ class TillService : LifecycleService() {
             scope.launch {
                 app.engineStore.effects.collect { effect ->
                     when (effect) {
-                        is Effect.Notify -> notes.notice(effect.orderId, effect.notice, effect.paid, effect.quiet)
+                        is Effect.Notify -> notes.notice(effect.orderId, effect.notice, effect.paid, effect.timeoutMs, effect.quiet)
                         is Effect.ClearNotification -> notes.clear(effect.id)
                         is Effect.CopyText -> SaleNotifications.copyText(app, effect.text, effect.kind)
                         // Orbot's probe, as the app comes forward and as step 3 or Settings opens (docs/decisions/core.md 102).

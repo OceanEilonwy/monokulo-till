@@ -1656,6 +1656,7 @@ impl State {
                             order_id,
                             notice: notification::paid_notice(sale, &money),
                             paid: true,
+                            timeout_ms: notification::notice_timeout(true),
                             quiet,
                         });
                     }
@@ -1675,6 +1676,7 @@ impl State {
                             order_id,
                             notice: notification::unpaid_notice(sale, pos, &money),
                             paid: false,
+                            timeout_ms: notification::notice_timeout(false),
                             quiet,
                         });
                     }

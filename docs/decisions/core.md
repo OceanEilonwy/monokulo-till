@@ -673,3 +673,14 @@ on from 1; the Android app's own choices are in [android.md](android.md).
      One edge: if the receiver wakes a process whose kept state can't be
      read yet, the copy is dropped with the other actions that wait for
      it.
+106. **The engine says how long ended notifications stay and when they
+     are bundled.** `Effect::Notify` carries `timeout_ms`
+     (`notification::notice_timeout`: five minutes for "Paid", none for an
+     unpaid one). The exported `ended_summary(showing)` now returns
+     `Option<EndedSummary>`: `None` below two, else the summary's notice and
+     its own timeout. Android had a hard-coded `ENDED_MS` and its own
+     "two or more" rule. Android still counts how many of the group are
+     showing, since only the system knows. These aren't fields on
+     `NotificationView` because the count is the platform's, and a field
+     there would be a guess. iOS posts only the new-sale alert (decision
+     41), so none of this applies to it.

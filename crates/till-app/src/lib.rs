@@ -705,13 +705,15 @@ pub enum Effect {
     },
     /// Android: post a sale's own notification in the ended group (its
     /// "Paid", or "No payment yet" with how to refund it), replacing one for
-    /// the same `order_id`. `paid` gives it the paid look and the timeout;
+    /// the same `order_id`. `paid` gives it the paid look; `timeout_ms`, when
+    /// set, is how long it stays (a "Paid" one, core.md decision 106);
     /// `quiet` posts it without sound or banner, the app being on screen.
-    /// Once two are posted, their summary is [`ended_summary`].
+    /// With two or more showing, their summary is [`ended_summary`]'s.
     Notify {
         order_id: String,
         notice: Notice,
         paid: bool,
+        timeout_ms: Option<u64>,
         quiet: bool,
     },
     /// The sale `id` left the shift: what was posted about it goes.
@@ -751,10 +753,11 @@ pub enum CopyKind {
     Other,
 }
 
-/// The summary of Android's ended group, once it holds `ended`
-/// notifications (two or more): "3 sales ended".
+/// The summary of Android's ended group with `ended` of its notifications
+/// showing, and how long it stays: "3 sales ended"; `None` below two,
+/// where the platform posts none (core.md decision 106).
 #[cfg_attr(feature = "uniffi", uniffi::export)]
-pub fn ended_summary(ended: u32) -> Notice {
+pub fn ended_summary(ended: u32) -> Option<till_screens::notification::EndedSummary> {
     till_screens::notification::ended_summary(ended)
 }
 
