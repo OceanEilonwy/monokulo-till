@@ -11,6 +11,19 @@ struct RootView: View {
 
     var body: some View {
         content
+            // What the engine is busy with and what went wrong, where no
+            // screen's own view says it (docs/decisions/core.md 109).
+            .overlay(alignment: .top) {
+                VStack(spacing: 0) {
+                    if core.shownBusy {
+                        ProgressView()
+                            .padding(.top, 8)
+                            .tint(Palette.accent)
+                    }
+                    ProblemNote(text: core.shownProblem)
+                        .background(core.shownProblem == nil ? Color.clear : Palette.ground)
+                }
+            }
             .animation(.easeInOut(duration: 0.25), value: core.screen)
             // Universal links on till.monokulo.com and the monokulo-till scheme.
             .onOpenURL { url in core.open(url) }

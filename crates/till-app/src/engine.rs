@@ -145,12 +145,21 @@ struct Parts {
 /// steps.
 type NavSlice = (bool, Option<Screen>, bool, bool, bool);
 
+/// `Update::Work`'s fields.
+#[derive(Clone, PartialEq)]
+struct WorkSlice {
+    busy: bool,
+    problem: Option<String>,
+    shown_busy: bool,
+    shown_problem: Option<String>,
+}
+
 /// What was last published, slice by slice.
 #[derive(Default)]
 struct Published {
     core: Option<String>,
     screen: Option<Screen>,
-    work: Option<(bool, Option<String>)>,
+    work: Option<WorkSlice>,
     service: Option<bool>,
     onboarding: Option<OnboardingView>,
     settings: Option<SettingsView>,
@@ -1920,9 +1929,24 @@ impl State {
             screen
         });
         let problem = self.problem.clone().or(self.load_problem.clone());
-        send!(work, (self.busy, problem), |(busy, problem)| Update::Work {
-            busy,
-            problem
+        // Step 3 and step 4 draw the busy button and the problem in their
+        // own views; elsewhere the platform shows them (decision 109).
+        let in_view = matches!(self.screen, Screen::Confirm | Screen::PointOfSale);
+        let work = WorkSlice {
+            shown_busy: self.busy && !in_view,
+            shown_problem: if in_view {
+                self.load_problem.clone()
+            } else {
+                problem.clone()
+            },
+            busy: self.busy,
+            problem,
+        };
+        send!(work, work, |w: WorkSlice| Update::Work {
+            busy: w.busy,
+            problem: w.problem,
+            shown_busy: w.shown_busy,
+            shown_problem: w.shown_problem,
         });
         let Some(p) = &self.parts else { return };
         let device = self.config.device;

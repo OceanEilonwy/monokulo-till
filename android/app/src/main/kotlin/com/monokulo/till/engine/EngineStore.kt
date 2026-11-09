@@ -24,8 +24,8 @@ import uniffi.till_screens.OnboardingView
 import uniffi.till_screens.SettingsView
 import uniffi.till_screens.ShiftView
 
-/** Busy with a network call (buttons wait), and what went wrong last. */
-data class Work(val busy: Boolean = false, val problem: String? = null)
+/** Busy with a network call (buttons wait), and what went wrong last; and of those, what no screen's own view says. */
+data class Work(val busy: Boolean = false, val problem: String? = null, val shownBusy: Boolean = false, val shownProblem: String? = null)
 
 /** How the screen came ([Update.Nav]), where Back would go from it, and whether the system's Back is the app's there. */
 data class Nav(val byItself: Boolean = false, val backTarget: Screen? = null, val backEnabled: Boolean = false, val way: Way = Way.None)
@@ -91,7 +91,7 @@ object EngineStore {
             // Android shows neither the core's version nor a separate Wake-ups screen (it draws them inside Settings).
             is Update.Core, is Update.WakeUps -> Unit
             is Update.Screen -> mutableScreen.value = update.screen
-            is Update.Work -> mutableWork.value = Work(update.busy, update.problem)
+            is Update.Work -> mutableWork.value = Work(update.busy, update.problem, update.shownBusy, update.shownProblem)
             is Update.Service -> mutableService.value = update.running
             is Update.Onboarding -> mutableOnboarding.value = update.view
             is Update.Settings -> mutableSettings.value = update.view

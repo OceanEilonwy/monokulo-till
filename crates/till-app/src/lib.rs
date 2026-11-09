@@ -568,8 +568,17 @@ pub enum Update {
     Core { version: String },
     /// Where the app is.
     Screen { screen: Screen },
-    /// Busy with a network call (buttons wait), and what went wrong last.
-    Work { busy: bool, problem: Option<String> },
+    /// Busy with a network call (buttons wait), and what went wrong last;
+    /// and of those, what the platform shows itself (core.md decision
+    /// 109): `shown_busy` and `shown_problem` leave out what the screen's
+    /// own view already shows (step 3's and step 4's busy button and
+    /// problem), so nothing is said twice.
+    Work {
+        busy: bool,
+        problem: Option<String>,
+        shown_busy: bool,
+        shown_problem: Option<String>,
+    },
     /// Android keeps its foreground service while the till runs.
     Service { running: bool },
     /// Onboarding's step, as `till_screens::onboarding` draws it, while

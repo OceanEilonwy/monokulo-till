@@ -36,6 +36,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.monokulo.till.engine.CloseSheet
 import com.monokulo.till.engine.Nav
+import com.monokulo.till.engine.Work
 import com.monokulo.till.ui.AlertsScreen
 import com.monokulo.till.ui.CodeScreen
 import com.monokulo.till.ui.ConfirmScreen
@@ -56,6 +57,7 @@ import com.monokulo.till.ui.SettingsScreen
 import com.monokulo.till.ui.ShiftPlace
 import com.monokulo.till.ui.ShiftScreen
 import com.monokulo.till.ui.TillActions
+import com.monokulo.till.ui.WorkBar
 import com.monokulo.till.ui.TillTheme
 import com.monokulo.till.ui.WelcomeScreen
 import com.monokulo.till.ui.confirm
@@ -122,8 +124,13 @@ class MainActivity : ComponentActivity() {
                     refund = store.refund.collectAsStateWithLifecycle(),
                 )
                 // The engine says where the app is as it starts; until then, the ground.
-                val first = screenState.value ?: return@TillTheme Box(Modifier.fillMaxSize().background(mk.ground))
-                Stage(first, flows)
+                val work = store.work.collectAsStateWithLifecycle()
+                Box(Modifier.fillMaxSize()) {
+                    val first = screenState.value
+                    if (first == null) Box(Modifier.fillMaxSize().background(mk.ground)) else Stage(first, flows)
+                    // What the engine is busy with and what went wrong, where no screen's view says it (core.md 109).
+                    WorkOverlay(work)
+                }
             }
         }
     }
@@ -395,6 +402,10 @@ class MainActivity : ComponentActivity() {
         const val SQUARE_POS = "com.squareup"
     }
 }
+
+/** The engine's [Work] as [WorkBar] shows it, read here alone so a change recomposes nothing else. */
+@Composable
+private fun WorkOverlay(work: State<Work>) = WorkBar(work.value.shownBusy, work.value.shownProblem)
 
 /** Whether [page] is the step [screen] shows. */
 private fun OnboardingPage.isFor(screen: Screen): Boolean = when (this) {

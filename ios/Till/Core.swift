@@ -21,6 +21,10 @@ final class Core {
     /// A network call is under way, and what went wrong last (`Update.work`).
     private(set) var busy = false
     private(set) var problem: String?
+    /// Of those, what no screen's own view shows, for the root to show
+    /// (docs/decisions/core.md 109).
+    private(set) var shownBusy = false
+    private(set) var shownProblem: String?
     /// The till's screens (`Update.shift`, `.sale`, `.closeSheet`,
     /// `.refundSheet`, `.settings`, `.wakeUps`): nil until the engine says.
     private(set) var shift: ShiftView?
@@ -119,7 +123,9 @@ final class Core {
         case .core(let version): self.version = version
         case .screen(let screen): self.screen = screen
         case .onboarding(let view): onboarding = view
-        case .work(let busy, let problem):
+        case .work(let busy, let problem, let shownBusy, let shownProblem):
+            self.shownBusy = shownBusy
+            self.shownProblem = shownProblem
             self.busy = busy
             self.problem = problem
         case .nav(let byItself, _, _, _, _): self.byItself = byItself

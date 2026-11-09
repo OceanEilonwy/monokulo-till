@@ -705,3 +705,13 @@ on from 1; the Android app's own choices are in [android.md](android.md).
      `CustomerNameTitleTest` stays: besides the wording (which
      `sale_text`'s tests cover), it checks that the bar is one TalkBack
      heading, which only a device can.
+109. **`Update::Work` is shown on both platforms, where no view already
+     shows it.** Neither app drew it: Android didn't read it, and iOS kept
+     `busy` and `problem` without drawing them. So a refused write from
+     Settings, a store that couldn't be forgotten, or kept state that
+     couldn't be read went unsaid. `Update::Work` now also carries
+     `shown_busy` and `shown_problem`, which leave out what step 3's and
+     step 4's own views already show (their busy button and problem), so
+     nothing is said twice. Each app draws them over the top of the
+     screen with a part it already had: Android a thin progress bar and
+     its `Notice` (`WorkBar`), iOS a `ProgressView` and its `ProblemNote`.

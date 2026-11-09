@@ -240,6 +240,33 @@ fn a_store_that_cant_answer_says_so_and_is_read_again_when_opened() {
     );
 }
 
+/// Decision 109: a problem no screen's view carries (a refused write from
+/// Settings) is for the platform to show itself.
+#[test]
+fn a_problem_no_view_shows_is_the_platforms_to_show() {
+    let platform = FakePlatform::with(&[("setup.done", "true")]);
+    platform.set(
+        "connection",
+        r#"{"app_key":"ak_1","api":"https://pay.example/api/v1"}"#,
+    );
+    let (engine, rx, _) = start(config(None), platform.clone());
+    screen(&rx, Screen::Till);
+    engine.send(Action::OpenSettings);
+    screen(&rx, Screen::Settings);
+    platform.fail(true);
+    engine.send(Action::SetLiveActivity { on: false });
+    let (problem, shown) = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Work {
+            problem: Some(problem),
+            shown_problem,
+            ..
+        }) => Some((problem.clone(), shown_problem.clone())),
+        _ => None,
+    });
+    assert!(problem.starts_with("Couldn't keep that"), "{problem}");
+    assert_eq!(shown, Some(problem), "Settings has no place for it: shown");
+}
+
 /// Step 2's next problem, as its page says it.
 fn scan_problem(rx: &Receiver<Heard>) -> String {
     wait_for(rx, |heard| match heard {

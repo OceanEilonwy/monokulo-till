@@ -30,6 +30,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -315,6 +316,17 @@ fun Notice(text: String?, modifier: Modifier = Modifier) {
         modifier = modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(mk.inset)
             .border(1.dp, mk.edge, RoundedCornerShape(12.dp)).padding(14.dp),
     )
+}
+
+/**
+ * What the engine is busy with and what went wrong, where the screen's own view doesn't say it
+ * (`Update::Work`'s `shownBusy` and `shownProblem`, docs/decisions/core.md 109): a thin bar while [busy], and the
+ * [problem] as a [Notice], over the top of the screen.
+ */
+@Composable
+fun WorkBar(busy: Boolean, problem: String?) = Column(Modifier.fillMaxWidth().safeDrawingPadding()) {
+    if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp), color = mk.accent)
+    Notice(problem, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
 }
 
 /** The one confirming buzz a payment gets (`docs/motion.md` §6); the system's haptic settings apply. */
