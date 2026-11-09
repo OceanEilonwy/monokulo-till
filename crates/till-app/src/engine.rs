@@ -217,6 +217,9 @@ pub(crate) struct State {
     pos_confirmed: bool,
     /// "Find this device again" waits for a sale that isn't one of these.
     finding: Option<BTreeSet<String>>,
+    /// The Clover devices whose names were asked for since the till
+    /// started, named or not (core.md decision 142): each is asked once.
+    devices_asked: BTreeSet<String>,
     refund_sheet: Option<RefundSheet>,
     visible: bool,
     alerts_allowed: bool,
@@ -307,6 +310,7 @@ impl State {
             counter: None,
             pos_confirmed: false,
             finding: None,
+            devices_asked: BTreeSet::new(),
             refund_sheet: None,
             visible: true,
             alerts_allowed: false,
@@ -382,6 +386,7 @@ impl State {
     fn after(&mut self) {
         self.step(|s| {
             s.learn_found_device();
+            s.name_clover_devices();
             s.follow();
             s.follow_sales();
             s.publish();
@@ -971,6 +976,47 @@ impl State {
         }
     }
 
+    /// Reads Clover's devices for their names when a sale (or this
+    /// counter) names a device Clover's list hasn't named yet, so the
+    /// counters menu says "Front counter" rather than "Device 3F2A" (core.md
+    /// decision 142). Each device is asked about once a run; a failed read
+    /// leaves it unnamed.
+    fn name_clover_devices(&mut self) {
+        let Some(p) = &self.parts else { return };
+        let model = p.side.model();
+        if model.point_of_sale != Some(PointOfSale::Clover) {
+            return;
+        }
+        let Some(merchant) = model.clover_merchant.clone() else {
+            return;
+        };
+        let sales = p.runner.state().till.sales;
+        let unnamed: BTreeSet<String> = sales
+            .iter()
+            .filter_map(|sale| sale.pos_device().map(|(id, _)| id.to_owned()))
+            .chain(model.counter_device.iter().map(|d| d.id.clone()))
+            .filter(|id| !model.clover_devices.contains_key(id) && !self.devices_asked.contains(id))
+            .collect();
+        if unnamed.is_empty() || !p.side.signed_in(PointOfSale::Clover) {
+            return;
+        }
+        self.devices_asked.extend(unnamed);
+        let api = p.side.clover_api();
+        self.task(async move {
+            let devices = api.devices(&merchant.id).await;
+            apply(move |s| match devices {
+                Ok(devices) => {
+                    let named: Vec<(String, String)> = devices
+                        .iter()
+                        .filter_map(|d| d.label().map(|label| (d.id.clone(), label)))
+                        .collect();
+                    let _ = s.keep(|m| m.clover_devices.extend(named));
+                }
+                Err(e) => s.log(format!("till-core: couldn't read Clover's devices: {e}")),
+            })
+        });
+    }
+
     /// Keeps `id` as this counter's device, and starts the till again
     /// with it.
     fn learn_device(&mut self, id: String, name: Option<String>) {
@@ -1201,16 +1247,12 @@ impl State {
                 self.left.extend(sales.into_iter().map(|s| s.order_id));
             }
             // A test sale that names its device names this counter's (C4,
-            // decision 113); skipped, every device's sales are this till's.
-            let device = self
-                .test_sale()
-                .and_then(|sale| {
-                    sale.pos_device()
-                        .map(|(id, name)| (id.to_owned(), name.map(str::to_owned)))
-                })
-                .filter(|_| {
-                    self.model().and_then(|m| m.point_of_sale) == Some(PointOfSale::Square)
-                });
+            // decision 113), on Square or Clover (decision 142); skipped,
+            // every device's sales are this till's.
+            let device = self.test_sale().and_then(|sale| {
+                sale.pos_device()
+                    .map(|(id, name)| (id.to_owned(), name.map(str::to_owned)))
+            });
             match device {
                 Some((id, name)) => {
                     self.learn_device(id, name);
@@ -1782,6 +1824,7 @@ impl State {
         self.tender = None;
         self.pos_confirmed = false;
         self.finding = None;
+        self.devices_asked.clear();
         self.counter = None;
         self.refund_sheet = None;
         self.left.clear();

@@ -2111,6 +2111,7 @@ pub(crate) mod tests {
             }),
             every_device: false,
             show_others: true,
+            names: Default::default(),
         };
         let paid_only = ShiftInput {
             counters: counters.clone(),
@@ -2369,6 +2370,7 @@ pub(crate) mod tests {
             }),
             every_device: false,
             show_others: false,
+            names: Default::default(),
         };
         let view = |counter: Option<CounterChoice>| {
             shift(

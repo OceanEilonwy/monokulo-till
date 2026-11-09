@@ -300,8 +300,9 @@ pub struct SettingsView {
     pub island: Option<IslandSection>,
     /// Debug builds: a stand-in's address for each point of sale.
     pub stand_ins: Vec<StandIn>,
-    /// Square, signed in: which device's sales alert, and whether other
-    /// counters' show in the list (C5).
+    /// Signed in to Square or Clover: which device's sales alert, and
+    /// whether other counters' show in the list (C5; Clover's since core.md
+    /// decision 142).
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub counters: Option<CountersSection>,
     /// Square, signed in: cash sales (K4).
@@ -363,6 +364,7 @@ fn day(at: i64, clock: DeviceClock) -> String {
 
 fn counters_section(
     c: &SaleChoices,
+    pos: PointOfSale,
     place: Option<&str>,
     device: Device,
     clock: DeviceClock,
@@ -398,12 +400,18 @@ fn counters_section(
             "Find this device with a test sale".to_owned()
         }),
         footnote: if c.finding_device {
-            format!(
-                "Ring up any small sale on {}'s Square and choose Monero. Tap again to stop waiting.",
-                pos_text::this_device(device)
-            )
+            match pos {
+                PointOfSale::Square => format!(
+                    "Ring up any small sale on {}'s Square and choose Monero. Tap again to stop waiting.",
+                    pos_text::this_device(device)
+                ),
+                PointOfSale::Clover => "Ring up any small sale on the Clover device at this counter and choose Monero. Tap again to stop waiting.".into(),
+            }
         } else if this.is_some() {
-            "Square names the device that took each payment. Use \"Find again\" if this counter's Square moves to another device.".into()
+            format!(
+                "{name} names the device that took each payment. Use \"Find again\" if this counter's {name} moves to another device.",
+                name = pos.display_name()
+            )
         } else {
             "The test sale was skipped, so every device's sales alert here. A test sale names this counter's device.".into()
         },
@@ -579,9 +587,9 @@ impl IslandSection {
             title: "Dynamic Island".into(),
             live_activity_label: "Live Activity".into(),
             code_label: "Show code in island".into(),
-            footnote: "Showing the code in the island sends each sale's payment address through the Till push service, which otherwise only sees amount and status. Live Activities end after 8 hours: start Till again each shift.".into(),
+            footnote: "The island's code is the one Till shows, with what was bought, and it shows on the lock screen too. Live Activities end after 8 hours: start Till again each shift.".into(),
             ask_title: "Show the code in the island?".into(),
-            ask: "Each sale's payment address will pass through the Till push service. The island's code has no receipt: the customer's wallet won't show what was bought.".into(),
+            ask: "Each waiting sale's code, with what was bought, will show in the Dynamic Island and on the lock screen, where anyone near this iPhone can see it.".into(),
             ask_confirm: "Show code".into(),
         }
     }
@@ -656,13 +664,12 @@ pub fn settings(input: &SettingsInput, device: Device, clock: DeviceClock) -> Se
         } else {
             Vec::new()
         },
-        counters: square_connected.then(|| {
-            counters_section(
-                &input.choices,
-                input.pos.location.as_ref().map(|l| l.name.as_str()),
-                device,
-                clock,
-            )
+        counters: pos.filter(|_| input.pos.connected()).map(|pos| {
+            let place = match pos {
+                PointOfSale::Square => input.pos.location.as_ref().map(|l| l.name.as_str()),
+                PointOfSale::Clover => input.pos.merchant.as_deref(),
+            };
+            counters_section(&input.choices, pos, place, device, clock)
         }),
         cash: square_connected.then(|| cash_section(&input.choices)),
         alerts_status: device.is_ios().then(|| alerts_status(input.alerts)),
@@ -1080,6 +1087,66 @@ mod tests {
     }
 
     #[test]
+    fn clover_settings_say_which_device_alerts_by_clovers_names_and_have_no_cash() {
+        use crate::counters::{CounterDevice, Counters};
+        let clover = SettingsInput {
+            pos: PosState {
+                chosen: Some(PointOfSale::Clover),
+                signed_in: true,
+                location: None,
+                merchant: Some("The Bean Room".into()),
+                tender_name: "Monero".into(),
+                tender: CloverTender::Ready,
+            },
+            choices: SaleChoices {
+                counters: Counters {
+                    device: Some(CounterDevice {
+                        id: "DEV_FRONT".into(),
+                        name: None,
+                    }),
+                    names: [("DEV_FRONT".to_owned(), "Front counter".to_owned())].into(),
+                    ..Counters::default()
+                },
+                devices: vec!["Front counter".into()],
+                learned_at: None,
+                finding_device: false,
+                cash_as_monero: true,
+                show_sales: ShowSales::Alert,
+            },
+            ..input()
+        };
+        let view = settings(&clover, Device::Iphone, CLOCK);
+        let counters = view
+            .counters
+            .expect("Clover's payments name their device too");
+        assert_eq!(
+            counters.this_device.unwrap().label,
+            "This device: Front counter",
+            "Clover's own name for it, not \"Device ONT\""
+        );
+        assert_eq!(counters.every_device.label, "Every device at The Bean Room");
+        assert_eq!(
+            counters.footnote,
+            "Clover names the device that took each payment. Use \"Find again\" if this counter's Clover moves to another device."
+        );
+        assert_eq!(view.cash, None, "Clover's cash isn't read");
+        let finding = SettingsInput {
+            choices: SaleChoices {
+                finding_device: true,
+                ..clover.choices.clone()
+            },
+            ..clover
+        };
+        assert_eq!(
+            settings(&finding, Device::Iphone, CLOCK)
+                .counters
+                .unwrap()
+                .footnote,
+            "Ring up any small sale on the Clover device at this counter and choose Monero. Tap again to stop waiting."
+        );
+    }
+
+    #[test]
     fn not_signed_in_shows_the_choices_and_the_chosen_ones_sign_in() {
         let none = SettingsInput {
             pos: PosState::default(),
@@ -1395,6 +1462,7 @@ mod tests {
                     }),
                     every_device: false,
                     show_others: true,
+                    names: Default::default(),
                 },
                 devices: vec!["Front iPad".into(), "Bar iPad".into(), "Kiosk".into()],
                 // 9 Nov 2026, 10:00 UTC.

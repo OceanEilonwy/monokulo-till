@@ -196,6 +196,7 @@ mod tests {
             }),
             every_device: false,
             show_others: true,
+            names: Default::default(),
         }
     }
 

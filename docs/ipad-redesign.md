@@ -29,7 +29,10 @@ The board names below (A1, P2, O3 …) are the canvas's.
    there is no confirmation prompt; Safari's "Open in Square?" prompt is
    Safari's own. Add `square-commerce-v1` to `LSApplicationQueriesSchemes`
    and show the button only when `canOpenURL` says Square is installed. Till
-   then returns to the shift by itself, so the next alert opens fresh.
+   then returns to the shift by itself, so the next alert opens fresh. The
+   engine offers it on iPhone too (core.md decision 141). There is no Back to
+   Clover: Clover runs on its own device, with Till on a phone or iPad
+   beside it (core.md decision 142).
 2. **Picture in Picture is the second mode** (P1–P4), chosen in onboarding
    (O4) or Settings. iOS draws the window; Till supplies its picture through
    `AVPictureInPictureController` with an `AVSampleBufferDisplayLayer`
@@ -39,8 +42,9 @@ The board names below (A1, P2, O3 …) are the canvas's.
    - Watching: a short, wide strip (about 3:1) with the Till logo (idle,
      dark) and "Watching / Front Counter".
    - A sale: Till switches the frames to 1:1 and iOS reshapes the window into
-     a square with the customer's name, the code and the amount with time
-     left. Below about 200 pt the code isn't drawn (it can't be scanned);
+     a square with the customer's name, the code (with its receipt, as the
+     window is drawn on the device: core.md decision 140) and the amount with
+     time left. Below about 200 pt the code isn't drawn (it can't be scanned);
      the amount and "Tap ⤢ to show the customer" show instead.
    - Paid: back to the strip with the green Till logo and "Paid · $24.50 /
      Sam", then after a few seconds back to Watching.
@@ -69,7 +73,9 @@ The board names below (A1, P2, O3 …) are the canvas's.
 6. Settings (C5): "Alert for: This device: Front iPad / Every device at Front
    Counter", "Find this device again with a test sale", and "Show other
    counters' sales in the list". If the test was skipped, Till takes every
-   device's sales and Settings offers the test sale.
+   device's sales and Settings offers the test sale. A Clover counter gets
+   the same, its devices named from Clover's device list (core.md decision
+   142).
 
 ### Cash sales
 

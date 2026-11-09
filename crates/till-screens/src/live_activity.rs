@@ -51,9 +51,11 @@ pub struct LiveActivityState {
     /// The till's own sales still waiting for a payment, this one included
     /// while it is: "+1 more" at 2.
     pub waiting_count: u32,
-    /// Only with "Show code in island" on, and only while the sale waits
-    /// for its first payment: the plain payment URI, never the receipt
-    /// (design.md §4).
+    /// Only with "Show code in island" on (always in the iPad's floating
+    /// window), and only while the sale waits for its first payment: the
+    /// sale's code, with its receipt when the state is drawn on the device
+    /// alone, and the plain payment URI where it would go through the relay
+    /// (design.md §4; core.md decision 140).
     pub payment_uri: Option<String>,
     /// Whom the sale is for ("Sam"), which leads the activity (core.md
     /// decision 118). The app sets it on the device; the relay's pushes
@@ -76,6 +78,10 @@ pub struct LiveActivityInput {
     pub just_ended: Option<String>,
     /// Settings › Dynamic Island › "Show code in island" (off by default).
     pub code_in_island: bool,
+    /// The code keeps its receipt: the state is drawn on this device alone
+    /// (the iPad's floating window, or a Live Activity with no push token
+    /// in use), never sent through the relay (core.md decision 140).
+    pub receipt: bool,
 }
 
 /// `uri` without its receipt: the payment URI as the order gave it.
@@ -163,7 +169,13 @@ pub fn live_activity(input: &LiveActivityInput, device: Device) -> Option<LiveAc
         waiting_count,
         payment_uri: shown
             .filter(|sale| input.code_in_island && sale.live() && sale.phase == SalePhase::Waiting)
-            .map(|sale| plain_uri(&sale.code.uri)),
+            .map(|sale| {
+                if input.receipt {
+                    sale.code.uri.clone()
+                } else {
+                    plain_uri(&sale.code.uri)
+                }
+            }),
         name: shown
             .and_then(crate::sale_text::customer)
             .map(str::to_owned),
@@ -206,6 +218,7 @@ mod tests {
             just_paid: None,
             just_ended: None,
             code_in_island: false,
+            receipt: false,
         }
     }
 
@@ -268,7 +281,21 @@ mod tests {
         assert_eq!(
             on.payment_uri.as_deref(),
             Some("monero:4abc?tx_amount=0.1421#x"),
-            "the plain URI: the receipt never goes through the relay"
+            "the plain URI where it would go through the relay"
+        );
+        let on_device = live_activity(
+            &LiveActivityInput {
+                code_in_island: true,
+                receipt: true,
+                ..input(vec![sale("o2", SalePhase::Waiting, true)])
+            },
+            Device::Ipad,
+        )
+        .unwrap();
+        assert_eq!(
+            on_device.payment_uri.as_deref(),
+            Some("monero:4abc?tx_amount=0.1421&orf=Q0RF#x"),
+            "drawn on the device alone, the code keeps its receipt"
         );
         let named = TillSale {
             customer_name: Some(" Sam ".into()),

@@ -122,14 +122,13 @@ struct PipTests {
         #expect(PipPicture.watching(place: "").timeLeft(now: now) == nil)
     }
 
-    @Test func backToSquareOnlyOnAnIPadAtASquareTillWithSquareInstalled() {
-        #expect(BackToSquare.shown(pad: true, pointOfSale: .square, showSales: .alert, squareInstalled: true))
-        #expect(BackToSquare.shown(pad: true, pointOfSale: .square, showSales: .floatingWindow, squareInstalled: true))
-        #expect(!BackToSquare.shown(pad: true, pointOfSale: .square, showSales: .sideBySide, squareInstalled: true), "Square is beside")
-        #expect(!BackToSquare.shown(pad: true, pointOfSale: .square, showSales: .alert, squareInstalled: false))
-        #expect(!BackToSquare.shown(pad: true, pointOfSale: .clover, showSales: .alert, squareInstalled: true))
-        #expect(!BackToSquare.shown(pad: true, pointOfSale: nil, showSales: .alert, squareInstalled: true))
-        #expect(!BackToSquare.shown(pad: false, pointOfSale: .square, showSales: .alert, squareInstalled: true))
+    @Test func backToSquareWhereTheEngineOffersItAndSquareIsInstalled() {
+        #expect(BackToSquare.shown(offered: .square, showSales: .alert, squareInstalled: true))
+        #expect(BackToSquare.shown(offered: .square, showSales: .floatingWindow, squareInstalled: true))
+        #expect(!BackToSquare.shown(offered: .square, showSales: .sideBySide, squareInstalled: true), "Square is beside")
+        #expect(!BackToSquare.shown(offered: .square, showSales: .alert, squareInstalled: false))
+        #expect(!BackToSquare.shown(offered: .clover, showSales: .alert, squareInstalled: true))
+        #expect(!BackToSquare.shown(offered: nil, showSales: .alert, squareInstalled: true), "the engine didn't offer it")
         #expect(BackToSquare.url.absoluteString == "square-commerce-v1://")
     }
 
