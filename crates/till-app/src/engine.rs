@@ -10,6 +10,7 @@ use std::future::Future;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Weak};
 
+use monokulo_client::connect_code;
 use monokulo_client::{
     Clock, ConnectCode, Connection, MonokuloApi, PointOfSale, SystemClock, problems, tor,
 };
@@ -652,6 +653,12 @@ impl State {
                 ScanProblem::NothingToPaste,
                 ScanProblem::NotALink,
             ),
+            Action::SharedText { text } => {
+                if let Some(link) = connect_code::shared_link(&text, self.config.debug) {
+                    let link = link.to_owned();
+                    self.connect_link(Some(&link), ScanProblem::NotALink, ScanProblem::NotALink);
+                }
+            }
             Action::ScanConnectCode { text } => {
                 self.connect_link(Some(&text), ScanProblem::NotACode, ScanProblem::NotACode)
             }

@@ -29,6 +29,18 @@ fn is_token(text: &str) -> bool {
     })
 }
 
+/// The link in text another app shared ("Connect your till:
+/// https://…#token=…"): the first word that is a store's connect code, else
+/// the first word that is any link (so the cashier hears it isn't a
+/// store's); `None` when it holds no link at all.
+pub fn shared_link(text: &str, allow_cleartext: bool) -> Option<&str> {
+    let mut words = text.split_whitespace();
+    let code = words
+        .clone()
+        .find(|word| ConnectCode::parse(word, allow_cleartext).is_some());
+    code.or_else(|| words.find(|word| word.contains("://")))
+}
+
 impl ConnectCode {
     /// The code in `text`, or `None` for anything that isn't one. Plain
     /// `http` is only taken for an onion address, or with `allow_cleartext`

@@ -357,6 +357,12 @@ pub enum Action {
     PasteConnectLink {
         text: Option<String>,
     },
+    /// Text another app shared with Till, whole: the engine finds the
+    /// connect link in it (`connect_code::shared_link`, core.md 103), and
+    /// does nothing when it holds no link.
+    SharedText {
+        text: String,
+    },
     /// Step 2's camera read a code: one that isn't a store's connect code is
     /// said so.
     ScanConnectCode {

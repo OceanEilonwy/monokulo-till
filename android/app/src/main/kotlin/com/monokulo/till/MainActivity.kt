@@ -341,10 +341,8 @@ class MainActivity : ComponentActivity() {
             // A point of sale's sign-in coming back, on its redirect or the build's return link (the setups'
             // `returnUri`): the engine says which, and ignores anything else.
             Intent.ACTION_VIEW -> intent.data?.let { send(Action.SignInReturned(it.toString())) }
-            // A shared connect link: the first word that is a link; the engine says whether it's a store's.
-            Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)?.let { text ->
-                text.split(Regex("\\s+")).firstOrNull { it.contains("://") }?.let { send(Action.ConnectLink(it)) }
-            }
+            // Shared text, whole: the engine finds the connect link in it (docs/decisions/core.md 103).
+            Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)?.let { send(Action.SharedText(it)) }
         }
     }
 

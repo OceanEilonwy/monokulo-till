@@ -1021,6 +1021,21 @@ fn settings_says_when_orbot_isnt_running_for_a_till_on_tor() {
     assert!(footnote.ends_with("or turn this off."), "{footnote}");
 }
 
+/// Decision 103: the platform hands over shared text whole, and the engine
+/// finds the store's connect link in it.
+#[test]
+fn shared_text_with_a_connect_link_in_it_asks_to_connect() {
+    let (engine, rx, _) = start(config(None), Arc::new(FakePlatform::default()));
+    screen(&rx, Screen::Welcome);
+    engine.send(Action::SharedText {
+        text: "nothing to see".into(),
+    });
+    engine.send(Action::SharedText {
+        text: format!("Connect your till:\nhttps://pay.example/apps/connect#token={TOKEN} thanks"),
+    });
+    screen(&rx, Screen::Confirm);
+}
+
 /// Decision 102: Android looks for Orbot as the app comes forward and as
 /// Settings (or step 3) comes up, when the engine asks; iOS never does.
 #[test]

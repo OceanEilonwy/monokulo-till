@@ -652,3 +652,9 @@ on from 1; the Android app's own choices are in [android.md](android.md).
      long as the process, so the probe sent while the activity is still
      starting isn't dropped. iOS has no Tor, never gets the effect, and
      its `perform` names it with `LowerPanel` as one it ignores.
+103. **Shared text goes to the engine whole** (`Action::SharedText`).
+     `connect_code::shared_link` picks the first word that is a store's
+     connect code, else the first word that is any link (which then gets
+     "not a link" as before), and nothing happens when there's no link.
+     Android used to pick the first word containing "://" itself. iOS has
+     no share path; it opens connect links as URLs (`Action::ConnectLink`).

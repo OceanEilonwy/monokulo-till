@@ -84,3 +84,24 @@ fn plain_http_is_for_onion_addresses_or_a_debug_builds_own_machine() {
     );
     assert!(!ConnectCode::parse(&local, true).unwrap().encrypted());
 }
+
+/// Decision 103 of core.md: text another app shares is read here, not by
+/// Android's `MainActivity`, which took the first word with "://" in it.
+#[test]
+fn shared_text_gives_its_connect_code_else_its_first_link() {
+    use monokulo_client::connect_code::shared_link;
+    let link = format!("https://pay.yourshop.com/apps/connect#token={}", token());
+    let message = format!("Docs at https://monokulo.com, then connect: {link} \nThanks");
+    assert_eq!(
+        shared_link(&message, false),
+        Some(link.as_str()),
+        "the store's code, past an earlier link"
+    );
+    assert_eq!(
+        shared_link("see https://example.com/page", false),
+        Some("https://example.com/page"),
+        "a link that isn't a store's still goes, to be told so"
+    );
+    assert_eq!(shared_link("no link here", false), None);
+    assert_eq!(shared_link("", false), None);
+}
