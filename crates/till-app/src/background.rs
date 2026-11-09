@@ -9,7 +9,7 @@
 //! lock as the app's (decision 13), so the two never spend one refresh
 //! token twice.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -149,22 +149,35 @@ pub(crate) async fn check(
         // A look now would save its orders over the shift it couldn't read.
         return BackgroundCheck::failed("Couldn't read the shift this till keeps.");
     }
-    let before: HashSet<String> = till
+    // Another counter's sales never alert here (core.md decision 113).
+    let counters = model.counters();
+    // The sales kept before the look, and whether each was quiet then.
+    let before: HashMap<String, bool> = till
         .state()
         .sales
-        .into_iter()
-        .map(|sale| sale.order_id)
+        .iter()
+        .map(|sale| (sale.order_id.clone(), counters.quiet(sale)))
         .collect();
     let finished = tokio::time::timeout_at(deadline, till.check())
         .await
         .is_ok();
     let state = till.state();
-    // Another counter's sales never alert here (core.md decision 113).
-    let counters = model.counters();
+    // New to the till, or quiet until this look found it on this counter's
+    // device; and claimed here, so the app, another extension run for a
+    // second ding of the same payment, or a later look never alert it
+    // again (decision 123).
+    let fresh: Vec<String> = state
+        .sales
+        .iter()
+        .filter(|sale| sale.live() && !counters.quiet(sale))
+        .filter(|sale| before.get(&sale.order_id).is_none_or(|quiet| *quiet))
+        .map(|sale| sale.order_id.clone())
+        .collect();
+    let claimed = side.alerted().claim(&fresh);
     let new: Vec<&TillSale> = state
         .sales
         .iter()
-        .filter(|sale| !before.contains(&sale.order_id) && sale.live() && !counters.quiet(sale))
+        .filter(|sale| claimed.contains(&sale.order_id))
         .collect();
     let money = Money(platform);
     // What the notifications say about `sale`, as it arrives.
