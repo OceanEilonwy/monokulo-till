@@ -38,6 +38,22 @@ enum SaleAlerts {
         try? await center.add(request)
     }
 
+    /// A sale's notice while Till is behind (`Effect.notify`): paid, or its
+    /// code ran out unpaid. It replaces the sale's alert, as one sale has
+    /// one notification.
+    static func notice(orderId: String, _ notice: Notice) async {
+        let content = UNMutableNotificationContent()
+        content.title = notice.title
+        content.body = notice.text ?? ""
+        content.sound = .default
+        content.userInfo = [orderKey: orderId]
+        let center = UNUserNotificationCenter.current()
+        let earlier = await TillShared.deliveredAlerts(for: orderId)
+        center.removeDeliveredNotifications(withIdentifiers: earlier)
+        let request = UNNotificationRequest(identifier: orderId, content: content, trigger: nil)
+        try? await center.add(request)
+    }
+
     /// The sale left the shift: its alert goes (`Effect.clearNotification`),
     /// the extension's too.
     static func clear(_ id: String) {

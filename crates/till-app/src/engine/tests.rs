@@ -1929,3 +1929,60 @@ async fn a_clover_till_names_the_device_by_clovers_list_and_offers_the_counters_
     assert_eq!(asked, 1, "Clover's devices are read once");
     drop(engine);
 }
+
+/// The owner's fix 2: a payment while Till is behind is a notice on iPad and
+/// on an iPhone without the Live Activity, as on Android; on an iPhone with
+/// the Live Activity, the island says it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_payment_while_behind_is_a_notice_on_ipad_and_on_an_iphone_without_the_live_activity() {
+    for (device, island, notice) in [
+        (Device::Ipad, None, true),
+        (Device::Iphone, Some("false"), true),
+        (Device::Iphone, None, false),
+    ] {
+        let monokulo = monokulo().await;
+        let square = square().await;
+        let platform = signed_in_till(&monokulo);
+        if let Some(on) = island {
+            platform.set("island.activity", on);
+        }
+        let mut config = config(Some(&square));
+        config.device = device;
+        let (engine, rx, _) = start(config, platform);
+        engine.send(Action::Backgrounded);
+        wait_for(&rx, |heard| match heard {
+            Heard::Update(Update::Notification { view }) => view.alert.clone(),
+            _ => None,
+        });
+        engine.poke(|s| {
+            let p = s.parts.as_ref().unwrap();
+            p.side.books().record(till_ledger::Fact::OrderObserved(
+                till_ledger::OrderObserved {
+                    order_id: till_ledger::OrderId::new("ord_1"),
+                    phase: monokulo_client::SalePhase::Paid,
+                    confirmations: None,
+                    is_final: true,
+                    received: None,
+                    overpaid: false,
+                },
+            ));
+        });
+        // Two round trips through the engine's queue: the claim it made as
+        // it recorded the payment is delivered by the second.
+        let mut noticed = false;
+        for _ in 0..2 {
+            engine.send(Action::CopyAmount {
+                order_id: "ord_1".into(),
+            });
+            wait_for(&rx, |heard| match heard {
+                Heard::Effect(Effect::Notify { paid: true, .. }) => {
+                    noticed = true;
+                    None
+                }
+                Heard::Effect(Effect::CopyText { .. }) => Some(()),
+                _ => None,
+            });
+        }
+        assert_eq!(noticed, notice, "{device:?}, island {island:?}");
+    }
+}

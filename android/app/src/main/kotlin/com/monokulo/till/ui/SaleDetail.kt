@@ -123,6 +123,11 @@ fun SaleDetail(
                                     button.press.label, { actions.send(Action.Reopen(sale.orderId)) }, Modifier.fillMaxWidth(),
                                     enabled = button.press.enabled, height = 52.dp,
                                 )
+                                // New code (docs/ledger.md §7), drawn plainly.
+                                PageAction.NEW_CODE -> OutlineButton(
+                                    button.press.label, { actions.send(Action.NewCode(sale.orderId)) }, Modifier.fillMaxWidth(),
+                                    enabled = button.press.enabled, height = 52.dp,
+                                )
                             }
                         }
                     }

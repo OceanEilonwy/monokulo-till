@@ -43,12 +43,13 @@ impl PageNote {
 }
 
 /// What a page offers: refund the point of sale's sale, put the code back
-/// up.
+/// up, make a sale whose code ran out a new one (docs/ledger.md §7).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum PageAction {
     Refund,
     ShowCodeAgain,
+    NewCode,
 }
 
 /// A sale's page (the design's row 2b), in words and roles.
@@ -419,7 +420,46 @@ pub fn page(
     if let Some(title) = sale.found.as_ref().and_then(|found| found.title.as_deref()) {
         here.facts.insert(0, Fact::new("Order", title));
     }
+    ledger_lines(sale, &mut here);
     here
+}
+
+/// What the ledger adds to a page (docs/ledger.md §5, §7): New code on a
+/// sale whose code ran out unpaid, its earlier codes, two payments to
+/// return one of, and why its code has no receipt.
+fn ledger_lines(sale: &TillSale, here: &mut SalePageModel) {
+    if sale.may_new_code() && !here.actions.contains(&PageAction::NewCode) {
+        here.actions.push(PageAction::NewCode);
+    }
+    for attempt in &sale.extras.attempts {
+        if attempt.order_id == sale.order_id {
+            continue;
+        }
+        let said = if attempt.superseded {
+            "Replaced: another code was paid"
+        } else if attempt.phase == SalePhase::Paid {
+            "Paid"
+        } else {
+            "Replaced by a new code"
+        };
+        here.facts
+            .push(Fact::new(format!("Code {}", attempt.attempt), said));
+    }
+    if sale.extras.paid_twice {
+        here.heading_warn = true;
+        here.note = Some(PageNote {
+            text: "Two of this sale's codes were paid. Return one of the payments to the customer."
+                .into(),
+            ground: Ground::Warn,
+        });
+    }
+    if !sale.code.has_receipt
+        && !sale.code.uri.is_empty()
+        && let Some(why) = &sale.code.why
+    {
+        here.facts
+            .push(Fact::new("No receipt in the code", why.clone()));
+    }
 }
 
 /// What a cash sale offers (core.md decision 116).
@@ -601,6 +641,7 @@ pub fn sale_page(
                 PageAction::Refund => Press::new(pos_text::refund_button(header.pos, &amount))
                     .enabled(!input.refunding),
                 PageAction::ShowCodeAgain => Press::new("Show the code again"),
+                PageAction::NewCode => Press::new("New code").enabled(!input.taking),
             },
         })
         .collect();
@@ -663,6 +704,45 @@ mod tests {
         let mut sale = sale;
         sale.found.as_mut().unwrap().point_of_sale = PointOfSale::Clover;
         sale
+    }
+
+    #[test]
+    fn a_sales_earlier_codes_two_payments_and_why_its_code_has_no_receipt_show_on_its_page() {
+        let mut sale = sale_of("o2").phase(SalePhase::Paid).paid_at(at()).build();
+        sale.code = till_sales::PaymentCode {
+            uri: "monero:4abc".into(),
+            has_receipt: false,
+            why: Some("This till isn't signed in to the point of sale.".into()),
+        };
+        sale.extras.attempts = vec![
+            till_sales::AttemptLine {
+                attempt: 1,
+                order_id: "o1".into(),
+                phase: SalePhase::Expired,
+                superseded: true,
+            },
+            till_sales::AttemptLine {
+                attempt: 2,
+                order_id: "o2".into(),
+                phase: SalePhase::Paid,
+                superseded: false,
+            },
+        ];
+        let model = page(&sale, SQUARE, la(at()), false);
+        assert!(
+            model
+                .facts
+                .contains(&Fact::new("Code 1", "Replaced: another code was paid"))
+        );
+        assert!(model.facts.contains(&Fact::new(
+            "No receipt in the code",
+            "This till isn't signed in to the point of sale."
+        )));
+        assert!(!model.heading_warn);
+        sale.extras.paid_twice = true;
+        let twice = page(&sale, SQUARE, la(at()), false);
+        assert!(twice.heading_warn);
+        assert!(note(&twice).starts_with("Two of this sale's codes were paid"));
     }
 
     #[test]
@@ -883,8 +963,8 @@ mod tests {
         assert!(note(&settled).ends_with("Monokulo has stopped watching it."));
         assert_eq!(
             settled.actions,
-            [PageAction::Refund],
-            "an expired code can't be shown again"
+            [PageAction::Refund, PageAction::NewCode],
+            "an expired code can't be shown again, but it can have a new one (docs/ledger.md §7)"
         );
 
         let reversed = of("reversed");

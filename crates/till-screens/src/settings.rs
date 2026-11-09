@@ -282,6 +282,10 @@ pub struct ShowSalesSection {
     pub title: String,
 }
 
+/// What "Watch for sales" says on iOS, where the app has no notification of
+/// its own to keep.
+pub const IOS_SHIFT: &str = "While it's on, Till watches for sales and the shift's totals run from when it started, or from 4 AM if that's later. Turn it off at the end of the day.";
+
 /// Settings, ready to draw.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
@@ -290,7 +294,8 @@ pub struct SettingsView {
     /// Android, while the store has an onion address.
     pub tor: Option<TorSection>,
     pub point_of_sale: PosSection,
-    /// Android: "Watch for sales".
+    /// "Watch for sales": on every device (iOS too since the ledger,
+    /// docs/ledger.md §9).
     pub shift: Option<SwitchSection>,
     pub alerts: SwitchSection,
     /// Android: "Float over other apps".
@@ -623,9 +628,13 @@ pub fn settings(input: &SettingsInput, device: Device, clock: DeviceClock) -> Se
             .filter(|_| android)
             .and_then(|c| tor_section(c, input.store.onion_api.as_deref(), input.tor_running)),
         point_of_sale: pos_section(&input.pos, device),
-        shift: android.then(|| SwitchSection {
+        shift: Some(SwitchSection {
             on: input.shift_on,
-            footnote: wake_ups_text::shift(&input.wake_ups.status, pos),
+            footnote: if android {
+                wake_ups_text::shift(&input.wake_ups.status, pos)
+            } else {
+                IOS_SHIFT.to_owned()
+            },
         }),
         alerts: SwitchSection {
             on: input.alerts,
@@ -1298,7 +1307,7 @@ mod tests {
     }
 
     #[test]
-    fn an_iphone_has_a_wake_ups_row_and_the_dynamic_island_and_no_shift_bubble_or_tor() {
+    fn an_iphone_has_a_wake_ups_row_the_dynamic_island_and_the_shift_and_no_bubble_or_tor() {
         let onion = SettingsInput {
             connection: Some(Connection {
                 onion_api: Some("http://abc.onion".into()),
@@ -1307,7 +1316,14 @@ mod tests {
             ..input()
         };
         let view = settings(&onion, Device::Iphone, CLOCK);
-        assert_eq!(view.shift, None);
+        assert_eq!(
+            view.shift,
+            Some(SwitchSection {
+                on: true,
+                footnote: IOS_SHIFT.into()
+            }),
+            "Stop and Start watching on iOS too (docs/ledger.md §9)"
+        );
         assert_eq!(view.bubble, None);
         assert_eq!(view.tor, None, "no Orbot on iOS");
         assert_eq!(

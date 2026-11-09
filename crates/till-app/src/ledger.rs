@@ -155,3 +155,6 @@ impl LedgerHost for AppLedger {
         self.kept.log(line);
     }
 }
+
+#[cfg(test)]
+mod tests;

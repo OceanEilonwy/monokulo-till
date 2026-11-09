@@ -2268,3 +2268,91 @@ async fn a_confirming_sale_is_read_again_at_once_and_then_every_20_s_until_its_p
     assert_eq!(f.request_count(), 5, "paid, it's read no more");
     following.abort();
 }
+
+/// Receipts on every till signed in to the point of sale (docs/ledger.md
+/// §8): two counters' tills, each with its own ledger, show the same code,
+/// items and name for a sale either counter rang up.
+#[tokio::test]
+async fn every_till_signed_in_to_the_point_of_sale_shows_the_receipt() {
+    for device in ["dev_front", "dev_back"] {
+        let f = fixture().await;
+        let till = f
+            .till(FakeSource::with(vec![sale()], Some(receipt()), Some("Sam")))
+            .with_device_id(device);
+        f.enqueue(order());
+        till.check().await;
+        let shown = only(&till);
+        assert!(shown.code.has_receipt, "{device}: {:?}", shown.code.why);
+        assert_eq!(shown.receipt, Some(receipt()), "{device}");
+        assert_eq!(shown.customer_name.as_deref(), Some("Sam"), "{device}");
+    }
+}
+
+/// A cash sale's order is made only by a till set to its device, or to
+/// every device (docs/ledger.md §7): another counter's till lists nothing
+/// until that counter makes it.
+#[tokio::test]
+async fn a_cash_sale_gets_its_order_only_from_its_own_counters_till() {
+    let f = fixture().await;
+    let source = FakeSource::new(vec![cash_sale()]);
+    let till = f.till(source.clone()).with_device_id("dev_back");
+    till.check().await;
+    assert_eq!(f.request_count(), 0, "no order made here");
+    assert!(till.state().sales.is_empty());
+    assert_eq!(source.handled_ids(), ["pay_cash"], "and not asked again");
+
+    let f = fixture().await;
+    let till = f
+        .till(FakeSource::new(vec![cash_sale()]))
+        .with_device_id("dev_front");
+    f.enqueue(order());
+    till.check().await;
+    assert_eq!(only(&till).order_id, "ord_1");
+}
+
+/// New code (docs/ledger.md §7): a sale whose code ran out unpaid gets its
+/// next order, with the first's key and `#2`; a payment on either pays the
+/// sale, the other shows as replaced, and two payments warn.
+#[tokio::test]
+async fn new_code_makes_the_next_order_and_a_payment_on_either_pays_the_sale() {
+    let f = fixture().await;
+    let till = f.till(FakeSource::new(vec![sale()]));
+    f.enqueue(order());
+    till.check().await;
+    assert!(till.new_code("ord_1").await.is_err(), "not while it's live");
+    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired).settled(true));
+    assert!(only(&till).may_new_code());
+    f.enqueue(second_order());
+    assert_eq!(till.new_code("ord_1").await.as_deref(), Ok("ord_2"));
+    let sent = (0..f.request_count())
+        .map(|_| f.take_request())
+        .map(|r| body(&r))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        sent.contains(&format!(
+            r#""idempotency_key":"{}#2""#,
+            Till::idempotency_key(&sale())
+        )),
+        "{sent}"
+    );
+    let shown = only(&till);
+    assert_eq!(shown.order_id, "ord_2");
+    assert!(shown.live());
+    assert_eq!(shown.extras.attempts.len(), 2);
+
+    // The first code is paid after all: the sale is paid, the new one replaced.
+    till.on_status("ord_1", OrderStatus::of(SalePhase::Paid).settled(true));
+    let paid = only(&till);
+    assert_eq!(paid.phase, SalePhase::Paid);
+    assert_eq!(paid.order_id, "ord_1");
+    assert!(
+        paid.extras
+            .attempts
+            .iter()
+            .any(|a| a.order_id == "ord_2" && a.superseded)
+    );
+    assert!(!paid.extras.paid_twice);
+    till.on_status("ord_2", OrderStatus::of(SalePhase::Paid).settled(true));
+    assert!(only(&till).extras.paid_twice, "two payments: return one");
+}
