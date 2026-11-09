@@ -79,6 +79,10 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.business
+        # Export compliance, answered here so TestFlight never asks: Till's
+        # only encryption is the system's HTTPS/TLS and the Keychain, which
+        # is exempt (docs/release.md §4).
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
         # The Live Activity (docs/design.md §6), updated often while a sale waits.
         INFOPLIST_KEY_NSSupportsLiveActivities: YES
         INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates: YES

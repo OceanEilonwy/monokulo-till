@@ -123,11 +123,13 @@ brings it).
    process the build. If the run fails, its `till-ios-release-logs-<n>`
    artifact has the xcodebuild and distribution logs. dSYMs are kept as
    `till-ios-dsyms-<n>`.
-3. **Export compliance**: on the first build, TestFlight asks about
-   encryption (the build shows "Missing Compliance"). Answer it once in
-   App Store Connect › the build. To stop the question, set
-   `INFOPLIST_KEY_ITSAppUsesNonExemptEncryption` in project.yml to match
-   your answer.
+3. **Export compliance**: project.yml sets
+   `INFOPLIST_KEY_ITSAppUsesNonExemptEncryption` to `NO`, because Till's
+   only encryption is the system's HTTPS/TLS and the Keychain, which is
+   exempt. TestFlight therefore doesn't ask. A build made before that
+   setting shows "Missing Compliance". Answer it once in App Store Connect
+   › the build: "None of the algorithms mentioned above". If Till ever adds
+   its own cryptography, revisit the setting.
 4. **Testers**: TestFlight › Internal Testing › `+` group "Owner". Add
    yourself and turn on automatic distribution. Install TestFlight on the
    iPhone and the iPad, signed in with that Apple Account, and install
