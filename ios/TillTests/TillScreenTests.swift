@@ -55,25 +55,70 @@ struct TillScreenTests {
         #expect(ReadableMargins.margin(width: 0, maxWidth: 560) == 0)
     }
 
-    @Test func aRowsAmountStandsApartFromItsName() {
-        let plain = SaleRowLook.split("Sale #m2Qe · $8.40")
-        #expect(plain.name == "Sale #m2Qe")
-        #expect(plain.amount == "$8.40")
-        let named = SaleRowLook.split("Sam · Sale #m2Qe · €13,88")
-        #expect(named.name == "Sam · Sale #m2Qe")
-        #expect(named.amount == "€13,88")
-        #expect(SaleRowLook.split("Sale #m2Qe").amount == nil)
-        let noAmount = SaleRowLook.split("Sam · Front")
-        #expect(noAmount.name == "Sam · Front")
-        #expect(noAmount.amount == nil)
+    @Test func theCustomersNameLeadsARow() {
+        let ring = Ring(step: 1, confirmations: nil, required: nil, fill: 0.25, spins: false, green: false)
+        let named = ShiftRow(
+            title: "Sam · $8.40", sub: "Waiting · 14:40 left · #m2Qe", tone: .link, quiet: false, icon: .ring,
+            ring: ring, opens: .code, name: "Sam", amount: "$8.40"
+        )
+        #expect(SaleRowLook.name(named) == "Sam")
+        // A core with no name for it: its one-line title, whole.
+        let bare = ShiftRow(title: "Sale #m2Qe · $8.40", sub: "Waiting", tone: .link, quiet: false, icon: .ring, ring: ring, opens: .code)
+        #expect(SaleRowLook.name(bare) == "Sale #m2Qe · $8.40")
     }
 
-    @Test func aLiveRowsLineIsMutedNotGreen() {
-        let ring = Ring(step: 2, confirmations: nil, required: nil, fill: 0.5, spins: true, green: true)
-        let seen = ShiftRow(title: "Sale #m2Qe · $8.40", sub: "Seen on the network", tone: .paid, quiet: false, icon: .ring, ring: ring, opens: .code)
+    @Test func aRowsLineIsInTheEnginesTone() {
+        let ring = Ring(step: 2, confirmations: nil, required: nil, fill: 0.5, spins: true, green: false)
+        let seen = ShiftRow(title: "Sam · $8.40", sub: "Seen on the network", tone: .muted, quiet: false, icon: .ring, ring: ring, opens: .code)
         #expect(SaleRowLook.subColour(seen) == Palette.secondary)
-        let paid = ShiftRow(title: "Sale #m2Qe · $8.40", sub: "Paid", tone: .paid, quiet: false, icon: .tick, ring: ring, opens: .details)
+        let waiting = ShiftRow(title: "Sam · $8.40", sub: "Waiting", tone: .link, quiet: false, icon: .ring, ring: ring, opens: .code)
+        #expect(SaleRowLook.subColour(waiting) == Palette.link)
+        let paid = ShiftRow(title: "Sam · $8.40", sub: "Paid", tone: .paid, quiet: false, icon: .tick, ring: ring, opens: .details)
         #expect(SaleRowLook.subColour(paid) == Palette.paid)
+    }
+
+    @Test func theTitleMenuListsTheCountersThenAllCountersApart() {
+        let mine = CounterItem(
+            choice: .device(deviceId: "d1"), name: "Front iPad", sub: "This counter · alerts", count: "1 waiting", selected: true
+        )
+        let bar = CounterItem(choice: .device(deviceId: "d2"), name: "Bar iPad", sub: "No alerts here", count: nil, selected: false)
+        let all = CounterItem(choice: .all, name: "All counters", sub: nil, count: "3 waiting", selected: false)
+        let menu = CounterMenu(title: "Front iPad", heading: "Show sales from", items: [mine, bar, all])
+        #expect(CounterTitleMenu.counters(menu).map(\.name) == ["Front iPad", "Bar iPad"])
+        #expect(CounterTitleMenu.all(menu)?.name == "All counters")
+        #expect(CounterTitleMenu.line(mine) == "This counter · alerts · 1 waiting")
+        #expect(CounterTitleMenu.line(bar) == "No alerts here")
+        #expect(CounterTitleMenu.line(all) == "3 waiting")
+        #expect(CounterTitleMenu.line(CounterItem(choice: .otherTills, name: "Other tills", sub: nil, count: nil, selected: false)) == nil)
+    }
+
+    @Test func underTheTitleMenusCounterIsTheWholePlace() {
+        let top = ShiftTop(place: "The Bean Room · Front Counter", state: "Watching", tone: .plain, said: "", mark: .square)
+        #expect(ShiftTitle.subtitle(top, menu: true) == "Watching · The Bean Room · Front Counter")
+        #expect(ShiftTitle.subtitle(top) == "Watching · The Bean Room")
+    }
+
+    @Test func cashButtonsAskTheEngine() {
+        #expect(CashButtons.action(.takeInMonero, orderId: "cash:p1") == .takeInMonero(orderId: "cash:p1"))
+        #expect(CashButtons.action(.keepAsCash, orderId: "cash:p1") == .keepAsCash(orderId: "cash:p1"))
+        #expect(CashButtons.action(.paidInCash, orderId: "o1") == .paidInCash(orderId: "o1"))
+        #expect(CashButtons.primary(.takeInMonero))
+        #expect(!CashButtons.primary(.keepAsCash))
+        #expect(!CashButtons.primary(.paidInCash))
+    }
+
+    @Test func theBarFollowsTheEnginesThirds() {
+        #expect(EngineProgress.fraction(value: 0, total: 3) == 0)
+        #expect(abs(EngineProgress.fraction(value: 1, total: 3) - 1.0 / 3) < 1e-9)
+        #expect(EngineProgress.fraction(value: 3, total: 3) == 1)
+        #expect(EngineProgress.fraction(value: 1, total: 0) == 0)
+        #expect(EngineProgress.status(label: "Seen on the network", count: "1 of 3") == "Seen on the network · 1 of 3")
+        #expect(EngineProgress.status(label: "Paid", count: "") == "Paid")
+    }
+
+    @Test func alertsOffIsTheEnginesWarning() {
+        #expect(AlertsStatusRow.off(Fact(label: "New sales and payments", value: "Off", tone: .warn, mono: false)))
+        #expect(!AlertsStatusRow.off(Fact(label: "New sales and payments", value: "On", tone: .plain, mono: false)))
     }
 
     @Test func theListsHeadersStartItsSections() {
@@ -175,16 +220,10 @@ struct TillScreenTests {
         #expect(Roles.glyph(.tick, quiet: true) == Palette.paid)
     }
 
-    @Test func onlyAPaidPageIsPaid() {
-        #expect(SalePageScreen.isPaid(page(.tick)))
-        #expect(!SalePageScreen.isPaid(page(.clock)))
-    }
-
-    private func page(_ icon: StateIcon) -> SalePageView {
-        SalePageView(
-            title: "Sam", titleLine: "Sale #m2Qe", icon: icon, ground: .paid, heading: "Paid", headingWarn: false,
-            amount: "$13.88", amountMuted: false, line: "", note: nil, order: nil, facts: [], refundProblem: nil, buttons: []
-        )
+    @Test func aSaleIsPaidWhenItsProgressIsFull() {
+        #expect(SalePageScreen.full(value: 3, total: 3))
+        #expect(!SalePageScreen.full(value: 2, total: 3))
+        #expect(!SalePageScreen.full(value: 0, total: 0))
     }
 
     @Test func aPagesButtonsAskTheEngine() {
