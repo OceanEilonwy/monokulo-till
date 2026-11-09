@@ -95,7 +95,8 @@ got linked).
 Rows are scoped to the current Monokulo connection and POS account
 (`scope` = a hash of the store id and the POS merchant); signing out,
 forgetting the store or changing the POS deletes that scope's rows in one
-transaction.
+transaction, and the app deletes every other scope's rows as it opens the
+ledger, for a change made while it wasn't running.
 
 ### 4.1 The journal
 
@@ -213,7 +214,8 @@ where everything combines: a Paid on any attempt shows as Paid; a Paid on a
 refunded or closed sale shows as Paid with a flag ("Paid after it was
 refunded: refund the Monero" / "Paid after closing"); a Paid on two attempts
 shows "Paid twice: refund one". Cash with no attempt is Offered or, with the
-setting on, a sale waiting for its order. The device clock's lapse
+setting on, a sale waiting for its order; another counter's cash sale, whose
+order its own till makes, is Offered as waiting for its counter, quietly. The device clock's lapse
 (`ClockLapsed`) is a local mark: it can show "No payment yet" here before
 Monokulo says Expired, and never changes the shared phase.
 
@@ -279,6 +281,10 @@ deliver claimed effects; on success: alerts.state='posted' + AlertPosted
   shared close needs a Monokulo endpoint (follow-up).
 - **Refunds made in the POS** are seen by listing Square refunds since the
   cursor (`/v2/refunds`), not by re-listing old payments.
+- **A sale kept from Monokulo alone** (an older build's shift) is folded into
+  the POS sale whose `OrderCreated` links its order: its marks, alerts and
+  observations move over, its journal rows are re-keyed, and its row goes,
+  in the same transaction.
 
 ## 8. Reading
 
