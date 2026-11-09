@@ -240,6 +240,33 @@ fn a_store_that_cant_answer_says_so_and_is_read_again_when_opened() {
     );
 }
 
+/// Decision 109: a problem no screen's view carries (a refused write from
+/// Settings) is for the platform to show itself.
+#[test]
+fn a_problem_no_view_shows_is_the_platforms_to_show() {
+    let platform = FakePlatform::with(&[("setup.done", "true")]);
+    platform.set(
+        "connection",
+        r#"{"app_key":"ak_1","api":"https://pay.example/api/v1"}"#,
+    );
+    let (engine, rx, _) = start(config(None), platform.clone());
+    screen(&rx, Screen::Till);
+    engine.send(Action::OpenSettings);
+    screen(&rx, Screen::Settings);
+    platform.fail(true);
+    engine.send(Action::SetLiveActivity { on: false });
+    let (problem, shown) = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Work {
+            problem: Some(problem),
+            shown_problem,
+            ..
+        }) => Some((problem.clone(), shown_problem.clone())),
+        _ => None,
+    });
+    assert!(problem.starts_with("Couldn't keep that"), "{problem}");
+    assert_eq!(shown, Some(problem), "Settings has no place for it: shown");
+}
+
 /// Step 2's next problem, as its page says it.
 fn scan_problem(rx: &Receiver<Heard>) -> String {
     wait_for(rx, |heard| match heard {
@@ -743,6 +770,75 @@ async fn the_bubbles_panel_counts_down_while_it_is_up_and_its_place_is_kept() {
     assert_eq!(platform.get("bubble.y").as_deref(), Some("900"));
 }
 
+/// Decision 95: the bubble's paid moment is the engine's. A payment holds
+/// the bubble green for the dwell; with the panel up on that sale and no
+/// code waiting, the dwell's end asks Android to collapse the panel, and
+/// the bubble stays green until the panel has gone. The dwell's timer is
+/// stood in for by calling its end.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_bubbles_paid_moment_holds_green_through_the_collapse_it_asks_for() {
+    use till_screens::bubble::{BubbleLook, PaidMoment};
+    let monokulo = monokulo().await;
+    let square = square().await;
+    let android = EngineConfig {
+        device: Device::Android,
+        ..config(Some(&square))
+    };
+    let (engine, rx, _) = start(android, signed_in_till(&monokulo));
+    engine.send(Action::Permissions {
+        alerts: true,
+        bubble: true,
+    });
+    engine.send(Action::Backgrounded);
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Bubble { view }) if view.shown && view.panel.is_some() => Some(()),
+        _ => None,
+    });
+    engine.send(Action::PanelShown { up: true });
+
+    // A code still waiting when the dwell ends: the panel moves on to it,
+    // no collapse.
+    engine.poke(|s| s.just_paid("ord_1".into()));
+    assert_eq!(engine.peek(|s| s.paid_moment), PaidMoment::Held);
+    engine.poke(|s| s.paid_dwell_ended("ord_1"));
+    assert_eq!(engine.peek(|s| s.paid_moment), PaidMoment::None);
+
+    // Nothing waiting: the dwell's end collapses the panel.
+    engine.send(Action::Close {
+        order_id: "ord_1".into(),
+        choice: CloseChoice::CloseForNow,
+    });
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Bubble { view }) if view.look == BubbleLook::Idle => Some(()),
+        _ => None,
+    });
+    engine.poke(|s| s.just_paid("ord_1".into()));
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Bubble { view }) if view.look == BubbleLook::Paid => Some(()),
+        _ => None,
+    });
+    engine.poke(|s| s.paid_dwell_ended("ord_1"));
+    wait_for(&rx, |heard| match heard {
+        Heard::Effect(Effect::LowerPanel) => Some(()),
+        Heard::Update(Update::Bubble { view }) => {
+            assert_eq!(
+                view.look,
+                BubbleLook::Paid,
+                "green until the collapse lands"
+            );
+            None
+        }
+        _ => None,
+    });
+    assert_eq!(engine.peek(|s| s.paid_moment), PaidMoment::Lowering);
+    engine.send(Action::PanelShown { up: false });
+    let after = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Bubble { view }) => Some(view.look),
+        _ => None,
+    });
+    assert_eq!(after, BubbleLook::Idle, "landed: the green fades");
+}
+
 #[test]
 fn choosing_wake_ups_keeps_the_choice_in_stores_kts_key() {
     let platform = Arc::new(FakePlatform::default());
@@ -952,6 +1048,125 @@ fn settings_says_when_orbot_isnt_running_for_a_till_on_tor() {
     assert!(footnote.ends_with("or turn this off."), "{footnote}");
 }
 
+/// Decision 105: Settings' "Copy wallet address" goes through the engine,
+/// which copies the store's whole address as every other copy does.
+#[tokio::test(flavor = "multi_thread")]
+async fn settings_copies_the_stores_whole_wallet_address_through_the_engine() {
+    let monokulo = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            r#"{"_links":{"self":{"href":"/api/v1"},"mk:store":{"href":"/api/v1/store"},"mk:app":{"href":"/api/v1/app"}}}"#,
+            "application/prs.hal-forms+json",
+        ))
+        .mount(&monokulo)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/store"))
+        .respond_with(json(
+            r#"{"name":"The Bean Room","base_currency":"USD","wallet":{"name":"Shop","network":"mainnet","address":"4AwholeADDRESS"}}"#,
+        ))
+        .mount(&monokulo)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/app"))
+        .respond_with(json(r#"{"app_id":"a1","device_name":"Front"}"#))
+        .mount(&monokulo)
+        .await;
+    let platform = FakePlatform::with(&[("setup.done", "true")]);
+    platform.set(
+        "connection",
+        &format!(r#"{{"app_key":"ak_1","api":"{}/api/v1"}}"#, monokulo.uri()),
+    );
+    let (engine, rx, _) = start(config(None), platform);
+    screen(&rx, Screen::Till);
+    engine.send(Action::OpenSettings);
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view })
+            if view
+                .store
+                .as_ref()
+                .is_some_and(|s| s.wallet_address.is_some()) =>
+        {
+            Some(())
+        }
+        _ => None,
+    });
+    engine.send(Action::CopyWalletAddress);
+    let copied = wait_for(&rx, |heard| match heard {
+        Heard::Effect(Effect::CopyText { text, kind }) => Some((text.clone(), *kind)),
+        _ => None,
+    });
+    assert_eq!(copied, ("4AwholeADDRESS".into(), CopyKind::Address));
+}
+
+/// Decision 103: the platform hands over shared text whole, and the engine
+/// finds the store's connect link in it.
+#[test]
+fn shared_text_with_a_connect_link_in_it_asks_to_connect() {
+    let (engine, rx, _) = start(config(None), Arc::new(FakePlatform::default()));
+    screen(&rx, Screen::Welcome);
+    engine.send(Action::SharedText {
+        text: "nothing to see".into(),
+    });
+    engine.send(Action::SharedText {
+        text: format!("Connect your till:\nhttps://pay.example/apps/connect#token={TOKEN} thanks"),
+    });
+    screen(&rx, Screen::Confirm);
+}
+
+/// Decision 102: Android looks for Orbot as the app comes forward and as
+/// Settings (or step 3) comes up, when the engine asks; iOS never does.
+#[test]
+fn android_probes_for_orbot_when_the_engine_asks_and_ios_never_does() {
+    let till = || {
+        let platform = FakePlatform::with(&[("setup.done", "true")]);
+        platform.set(
+            "connection",
+            r#"{"app_key":"ak_1","api":"https://pay.example/api/v1"}"#,
+        );
+        platform
+    };
+    let android = EngineConfig {
+        device: Device::Android,
+        ..config(None)
+    };
+    let (engine, rx, _) = start(android, till());
+    screen(&rx, Screen::Till);
+    engine.send(Action::Opened);
+    wait_for(&rx, |heard| match heard {
+        Heard::Effect(Effect::ProbeTor) => Some(()),
+        _ => None,
+    });
+    // Published again as it came forward, on the shift.
+    screen(&rx, Screen::Till);
+    engine.send(Action::OpenSettings);
+    let mut probed = false;
+    wait_for(&rx, |heard| match heard {
+        Heard::Effect(Effect::ProbeTor) => {
+            probed = true;
+            None
+        }
+        Heard::Update(Update::Screen {
+            screen: Screen::Settings,
+        }) => Some(()),
+        _ => None,
+    });
+    assert!(probed, "Settings came up: the probe goes before it");
+
+    let (engine, rx, _) = start(config(None), till());
+    screen(&rx, Screen::Till);
+    engine.send(Action::Opened);
+    engine.send(Action::OpenSettings);
+    wait_for(&rx, |heard| match heard {
+        Heard::Effect(Effect::ProbeTor) => panic!("iOS has no Tor"),
+        Heard::Update(Update::Screen {
+            screen: Screen::Settings,
+        }) => Some(()),
+        _ => None,
+    });
+}
+
 /// The screen and how it came, as the platform hears them: the `Nav` sent
 /// before each `Screen`.
 fn arrival(rx: &Receiver<Heard>, wanted: Screen) -> bool {
@@ -965,6 +1180,33 @@ fn arrival(rx: &Receiver<Heard>, wanted: Screen) -> bool {
         _ => None,
     });
     by_itself
+}
+
+/// Decision 96: the close sheet's answer lands where `close::outcome` says,
+/// whoever asked it. "No: refund it" from the shift's row opens the sale,
+/// whose page shows the refund; the platform sends the answer alone.
+#[tokio::test(flavor = "multi_thread")]
+async fn refunding_from_the_shifts_row_opens_the_sale_where_the_refund_shows() {
+    let monokulo = monokulo().await;
+    let square = square().await;
+    let (engine, rx, _) = start(config(Some(&square)), signed_in_till(&monokulo));
+    let sale = Screen::Sale {
+        order_id: "ord_1".into(),
+    };
+    screen(&rx, sale.clone());
+    engine.send(Action::Back);
+    screen(&rx, Screen::Till);
+    engine.send(Action::AskClose {
+        order_id: "ord_1".into(),
+    });
+    engine.send(Action::Close {
+        order_id: "ord_1".into(),
+        choice: CloseChoice::RefundIt,
+    });
+    assert!(
+        !arrival(&rx, sale),
+        "the cashier's answer put it there, not the sales"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1064,6 +1306,111 @@ fn back_from_settings_previews_where_it_was_opened_from() {
     screen(&rx, Screen::PointOfSale);
     engine.send(Action::Back);
     screen(&rx, Screen::Settings);
+}
+
+/// The Nav sent before `wanted`: whether the system's Back is the app's
+/// there.
+fn back_enabled_on(rx: &Receiver<Heard>, wanted: Screen) -> bool {
+    let mut enabled = None;
+    wait_for(rx, |heard| match heard {
+        Heard::Update(Update::Nav { back_enabled, .. }) => {
+            enabled = Some(*back_enabled);
+            None
+        }
+        Heard::Update(Update::Screen { screen }) if *screen == wanted => Some(()),
+        _ => None,
+    });
+    enabled.expect("a Nav before the screen")
+}
+
+/// Decision 98 (android.md 77): the system's Back is the app's everywhere
+/// but Welcome, the shift and step 4 during setup; step 4 opened from
+/// Settings goes back to it.
+#[test]
+fn back_is_the_apps_everywhere_but_welcome_the_shift_and_setups_step_4() {
+    let (engine, rx, _) = start(config(None), Arc::new(FakePlatform::default()));
+    assert!(!back_enabled_on(&rx, Screen::Welcome));
+    engine.send(Action::Next);
+    assert!(back_enabled_on(&rx, Screen::Scan));
+
+    let platform = FakePlatform::with(&[("setup.done", "true")]);
+    platform.set(
+        "connection",
+        r#"{"app_key":"ak_1","api":"https://pay.example/api/v1"}"#,
+    );
+    let (engine, rx, _) = start(config(None), platform);
+    assert!(!back_enabled_on(&rx, Screen::Till));
+    engine.send(Action::OpenSettings);
+    assert!(back_enabled_on(&rx, Screen::Settings));
+    engine.send(Action::OpenPointOfSale);
+    assert!(
+        back_enabled_on(&rx, Screen::PointOfSale),
+        "from Settings, step 4 goes back"
+    );
+}
+
+/// Ported from Android's `NavTest` (decision 101): back is toward the
+/// shift, and backwards through setup, whose steps slide.
+#[test]
+fn back_is_toward_the_shift_and_backwards_through_setup() {
+    use super::till::direction;
+    let sale = |id: &str| Screen::Sale {
+        order_id: id.into(),
+    };
+    let back = |from: Screen, to: Screen| direction(&from, &to).0;
+    assert!(back(sale("a"), Screen::Till));
+    assert!(back(
+        Screen::Code {
+            order_id: "a".into()
+        },
+        sale("a")
+    ));
+    assert!(back(Screen::Settings, Screen::Till));
+    assert!(back(Screen::Scan, Screen::Welcome));
+    assert!(!back(Screen::Till, sale("a")));
+    assert!(!back(
+        sale("a"),
+        Screen::Order {
+            order_id: "a".into()
+        }
+    ));
+    assert!(!back(Screen::Welcome, Screen::Scan));
+
+    let steps = |from: Screen, to: Screen| direction(&from, &to);
+    assert_eq!(steps(Screen::Welcome, Screen::Scan), (false, true));
+    assert_eq!(steps(Screen::Scan, Screen::Welcome), (true, true));
+    assert_eq!(steps(Screen::Float, Screen::Ready), (false, true));
+    assert_eq!(
+        steps(Screen::Ready, Screen::Till),
+        (false, true),
+        "starting the first shift"
+    );
+    assert_eq!(steps(Screen::Alerts, Screen::PointOfSale), (true, true));
+    assert!(!steps(sale("a"), Screen::Till).1, "a sale isn't a step");
+    assert!(!steps(Screen::Till, Screen::Settings).1);
+}
+
+/// The Nav before a screen says which way the change to it went.
+#[test]
+fn the_nav_before_a_screen_says_which_way_it_went() {
+    let (engine, rx, _) = start(config(None), Arc::new(FakePlatform::default()));
+    screen(&rx, Screen::Welcome);
+    engine.send(Action::Next);
+    let way = |rx: &Receiver<Heard>, wanted: Screen| {
+        let mut way = None;
+        wait_for(rx, |heard| match heard {
+            Heard::Update(Update::Nav { back, steps, .. }) => {
+                way = Some((*back, *steps));
+                None
+            }
+            Heard::Update(Update::Screen { screen }) if *screen == wanted => Some(()),
+            _ => None,
+        });
+        way
+    };
+    assert_eq!(way(&rx, Screen::Scan), Some((false, true)));
+    engine.send(Action::Back);
+    assert_eq!(way(&rx, Screen::Welcome), Some((true, true)));
 }
 
 #[test]

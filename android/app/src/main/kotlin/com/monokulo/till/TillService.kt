@@ -12,6 +12,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.monokulo.till.engine.EngineStore
+import com.monokulo.till.engine.TorProbe
 import com.monokulo.till.notify.SaleNotifications
 import com.monokulo.till.overlay.Overlay
 import kotlinx.coroutines.CoroutineScope
@@ -150,9 +151,11 @@ class TillService : LifecycleService() {
             scope.launch {
                 app.engineStore.effects.collect { effect ->
                     when (effect) {
-                        is Effect.Notify -> notes.notice(effect.orderId, effect.notice, effect.paid, effect.quiet)
+                        is Effect.Notify -> notes.notice(effect.orderId, effect.notice, effect.paid, effect.timeoutMs, effect.quiet)
                         is Effect.ClearNotification -> notes.clear(effect.id)
                         is Effect.CopyText -> SaleNotifications.copyText(app, effect.text, effect.kind)
+                        // Orbot's probe, as the app comes forward and as step 3 or Settings opens (docs/decisions/core.md 102).
+                        is Effect.ProbeTor -> launch { TorProbe.probe(app.engineStore::send) }
                         else -> Unit
                     }
                 }

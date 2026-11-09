@@ -40,10 +40,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.LongState
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -69,7 +67,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import androidx.compose.ui.unit.sp
@@ -97,7 +94,6 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.constrainWidth
 import kotlin.math.roundToInt
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.takeWhile
 import uniffi.till_app.Action
@@ -108,6 +104,7 @@ import uniffi.till_screens.CodeView
 import uniffi.till_screens.Ground
 import uniffi.till_screens.OrderPageView
 import uniffi.till_screens.Ring
+import uniffi.till_screens.ringOf
 import uniffi.till_screens.SalePageView
 import uniffi.till_screens.SaleView
 import uniffi.till_screens.StateIcon
@@ -121,50 +118,6 @@ import uniffi.till_screens.PosMark
  * (Every word that names it is the engine's.)
  */
 val LocalPointOfSale = compositionLocalOf<PosMark?> { null }
-
-/** Seconds from [now] until [expiresAt], Unix seconds both; 0 once it's passed. */
-fun secondsLeft(expiresAt: Long, now: Long): Long = (expiresAt - now).coerceAtLeast(0)
-
-/**
- * The time now, Unix seconds, ticking on each second's boundary: one clock
- * for a whole screen (`docs/motion.md` amendment 10), made at its root and
- * handed down, and read only by the [Countdown]s that show it, so a tick
- * recomposes those texts and nothing above them. A [LongState], so reading
- * it doesn't box.
- */
-@Composable
-fun rememberNowSeconds(): LongState {
-    val now = remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
-    LaunchedEffect(now) {
-        while (true) {
-            val ms = System.currentTimeMillis()
-            now.longValue = ms / 1000
-            delay(1000 - ms % 1000)
-        }
-    }
-    return now
-}
-
-/**
- * A line with a countdown in it: [words] for the seconds left until
- * [expiresAt] at [now], in [tabular] figures so the digits tick without
- * the words moving. The clock is read here, so a tick recomposes this text
- * alone.
- */
-@Composable
-fun Countdown(
-    now: LongState,
-    expiresAt: Long,
-    modifier: Modifier = Modifier,
-    fontSize: TextUnit = TextUnit.Unspecified,
-    color: Color = Color.Unspecified,
-    maxLines: Int = Int.MAX_VALUE,
-    overflow: TextOverflow = TextOverflow.Clip,
-    words: (secondsLeft: Long) -> String,
-) = Text(
-    words(secondsLeft(expiresAt, now.longValue)), modifier, color = color, fontSize = fontSize,
-    overflow = overflow, maxLines = maxLines, style = LocalTextStyle.current.merge(tabular),
-)
 
 /**
  * A sale's screens as the engine drew them ([Update.Sale]): its live
@@ -196,10 +149,10 @@ class SaleFace(
 class TillActions(
     val send: (Action) -> Unit,
     /**
-     * Back to the point-of-sale app on this phone: Square's only (the engine says when, decision 135), null when
-     * Square is already beside Till (split screen).
+     * Back to the point-of-sale app the engine names ([uniffi.till_screens.BackToPos.mark]; it says when, decision 135), null when
+     * Till shares the screen with it (split screen).
      */
-    val onBackToPos: (() -> Unit)?,
+    val onBackToPos: ((PosMark) -> Unit)?,
 )
 
 /**
@@ -576,7 +529,7 @@ private fun Buttons(sale: SaleFace, actions: TillActions) = Row(Modifier.fillMax
     val back = sale.view.backToPos
     val open = actions.onBackToPos
     if (back != null && open != null) {
-        PrimaryButton(back.label, open, Modifier.weight(1f), height = 56.dp, size = 16, enabled = back.enabled)
+        PrimaryButton(back.press.label, { open(back.mark) }, Modifier.weight(1f), height = 56.dp, size = 16, enabled = back.press.enabled)
     }
 }
 
@@ -790,7 +743,7 @@ val HeroSize = 72.dp
 @Composable
 fun StateBadge(ring: Ring?, icon: StateIcon, ground: Ground, size: Dp, glyph: Dp, quiet: Boolean = false) {
     if (icon == StateIcon.RING) {
-        PhaseRing(ring ?: Ring(1u, null, null), size)
+        PhaseRing(ring ?: ringOf(1u, null, null), size)
         return
     }
     val (vector, tint) = when (icon) {

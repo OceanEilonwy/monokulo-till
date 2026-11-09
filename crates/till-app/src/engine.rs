@@ -10,6 +10,7 @@ use std::future::Future;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Weak};
 
+use monokulo_client::connect_code;
 use monokulo_client::{
     Clock, ConnectCode, Connection, MonokuloApi, PointOfSale, SystemClock, problems, tor,
 };
@@ -18,6 +19,8 @@ use till_pos::clover::TenderState;
 use till_pos::square::SquareLocation;
 use till_pos::{Pkce, PosError};
 use till_sales::{LiveStore, PosSwitch, Standing, TillRunner, TillSale};
+use till_screens::bubble::PaidMoment;
+use till_screens::close::{self, CloseThen};
 use till_screens::onboarding::{CloverTender, OnboardingInput, PosSetup, ScanProblem, Step};
 use till_screens::settings::{PosState, SettingsInput, StoreNow};
 use till_screens::shift::ShiftFilter;
@@ -55,6 +58,9 @@ pub(crate) enum Msg {
     /// Tests look at the state.
     #[cfg(test)]
     Peek(Box<dyn FnOnce(&State) + Send>),
+    /// Tests change the state, as a timer's end would.
+    #[cfg(test)]
+    Poke(Apply),
 }
 
 pub(crate) type Apply = Box<dyn FnOnce(&mut State) + Send>;
@@ -135,17 +141,30 @@ struct Parts {
     runner: TillRunner,
 }
 
+/// `Update::Nav`'s fields: by itself, the back target, Back enabled, back,
+/// steps.
+type NavSlice = (bool, Option<Screen>, bool, bool, bool);
+
+/// `Update::Work`'s fields.
+#[derive(Clone, PartialEq)]
+struct WorkSlice {
+    busy: bool,
+    problem: Option<String>,
+    shown_busy: bool,
+    shown_problem: Option<String>,
+}
+
 /// What was last published, slice by slice.
 #[derive(Default)]
 struct Published {
     core: Option<String>,
     screen: Option<Screen>,
-    work: Option<(bool, Option<String>)>,
+    work: Option<WorkSlice>,
     service: Option<bool>,
     onboarding: Option<OnboardingView>,
     settings: Option<SettingsView>,
     wake_ups: Option<WakeUpsView>,
-    nav: Option<(bool, Option<Screen>)>,
+    nav: Option<NavSlice>,
     shift: Option<till_screens::ShiftView>,
     sale: Option<Update>,
     close: Option<(Option<String>, Option<till_screens::CloseView>)>,
@@ -220,6 +239,8 @@ pub(crate) struct State {
     /// The sale that arrived while the app wasn't in front, alerted in the
     /// next notification update only.
     alert_for: Option<String>,
+    /// Where the bubble's paid moment is (decision 95).
+    paid_moment: PaidMoment,
     /// The sale the bubble showed last.
     bubble_focus: Option<String>,
     /// Android's bubble panel is up, as the platform last said.
@@ -288,6 +309,7 @@ impl State {
             just_ended: None,
             just_ended_token: 0,
             alert_for: None,
+            paid_moment: PaidMoment::None,
             bubble_focus: None,
             panel_up: false,
             ticking: false,
@@ -327,6 +349,8 @@ impl State {
             Msg::Changed => {}
             #[cfg(test)]
             Msg::Peek(look) => look(self),
+            #[cfg(test)]
+            Msg::Poke(change) => self.step(change),
             Msg::Disconnected => {
                 if let Some(p) = &self.parts {
                     p.runner.disconnected();
@@ -621,7 +645,7 @@ impl State {
                 self.bubble_allowed = bubble;
             }
             Action::TorProbed { running } => self.tor_running = Some(running),
-            Action::PanelShown { up } => self.panel_up = up,
+            Action::PanelShown { up } => self.panel_shown(up),
             action if self.parts.is_none() => {
                 self.log(format!(
                     "till-core: nothing kept could be read, so {action:?} waits"
@@ -638,6 +662,12 @@ impl State {
                 ScanProblem::NothingToPaste,
                 ScanProblem::NotALink,
             ),
+            Action::SharedText { text } => {
+                if let Some(link) = connect_code::shared_link(&text, self.config.debug) {
+                    let link = link.to_owned();
+                    self.connect_link(Some(&link), ScanProblem::NotALink, ScanProblem::NotALink);
+                }
+            }
             Action::ScanConnectCode { text } => {
                 self.connect_link(Some(&text), ScanProblem::NotACode, ScanProblem::NotACode)
             }
@@ -713,6 +743,21 @@ impl State {
                     self.effect(Effect::CopyText {
                         text: sale.xmr,
                         kind: CopyKind::Amount,
+                    });
+                }
+            }
+            Action::CopyWalletAddress => {
+                let address = self.parts.as_ref().and_then(|p| {
+                    p.live
+                        .now()
+                        .store
+                        .and_then(|store| store.wallet)
+                        .map(|wallet| wallet.address)
+                });
+                if let Some(text) = address {
+                    self.effect(Effect::CopyText {
+                        text,
+                        kind: CopyKind::Address,
                     });
                 }
             }
@@ -822,9 +867,19 @@ impl State {
     /// tried now (decision 123), the shift started if it should be running
     /// and the point of sale asked now. A shift another process (the iOS
     /// extension) added sales to meanwhile is read again.
+    /// Asks Android to look for Orbot ([`Effect::ProbeTor`]); iOS has no
+    /// Tor (docs/ios-plan.md §11).
+    fn probe_tor(&self) {
+        if self.config.device == Device::Android {
+            self.effect(Effect::ProbeTor);
+        }
+    }
+
     fn opened(&mut self) {
         self.visible = true;
         self.published = Published::default();
+        // Orbot's probe as the app comes forward (decision 54).
+        self.probe_tor();
         if self.parts.is_none() {
             self.build();
             return;
@@ -1355,20 +1410,27 @@ impl State {
         }
     }
 
-    /// The close sheet's answer, while the sale's code is still up.
+    /// The close sheet's answer, while the sale's code is still up: what it
+    /// does ([`close::outcome`]), and where the cashier lands, from the sale
+    /// or from the shift's row alike (decision 96).
     fn close(&mut self, order_id: String, choice: CloseChoice) {
-        if !self.sale(&order_id).is_some_and(|sale| sale.live()) {
+        if !close::applies(self.sale(&order_id).as_ref()) {
             return;
         }
-        match choice {
-            CloseChoice::RefundIt => self.refund(order_id, true),
-            CloseChoice::CloseForNow => {
-                if let Some(p) = &self.parts {
-                    p.runner.close(&order_id);
-                }
-                self.leave(order_id);
-            }
-            CloseChoice::KeepUp => {}
+        let outcome = close::outcome(choice);
+        if outcome.refund {
+            self.refund(order_id.clone(), outcome.close);
+        } else if outcome.close
+            && let Some(p) = &self.parts
+        {
+            p.runner.close(&order_id);
+        }
+        match outcome.then {
+            // The refund shows on the sale's page, which asks for the
+            // cashier's word when the point of sale refunds it.
+            CloseThen::Sale => self.open(order_id),
+            CloseThen::Shift => self.leave(order_id),
+            CloseThen::Stay => {}
         }
     }
 
@@ -1603,6 +1665,7 @@ impl State {
                             order_id,
                             notice: notification::paid_notice(sale, &money),
                             paid: true,
+                            timeout_ms: notification::notice_timeout(true),
                             quiet,
                         });
                     }
@@ -1622,6 +1685,7 @@ impl State {
                             order_id,
                             notice: notification::unpaid_notice(sale, pos, &money),
                             paid: false,
+                            timeout_ms: notification::notice_timeout(false),
                             quiet,
                         });
                     }
@@ -1828,18 +1892,61 @@ impl State {
         send!(core, CORE_VERSION.to_owned(), |version| Update::Core {
             version
         });
-        let nav = (self.by_itself, self.back_target());
-        send!(nav, nav, |(by_itself, back_target)| Update::Nav {
-            by_itself,
-            back_target
+        // Which way the change goes, from the screen last published; with
+        // the screen unchanged, the way the last change went stands.
+        let (back, steps) = match &self.published.screen {
+            Some(from) if *from != self.screen => till::direction(from, &self.screen),
+            _ => self
+                .published
+                .nav
+                .as_ref()
+                .map_or((false, false), |nav| (nav.3, nav.4)),
+        };
+        let nav = (
+            self.by_itself,
+            self.back_target(),
+            self.back_enabled(),
+            back,
+            steps,
+        );
+        send!(nav, nav, |nav: NavSlice| {
+            let (by_itself, back_target, back_enabled, back, steps) = nav;
+            Update::Nav {
+                by_itself,
+                back_target,
+                back_enabled,
+                back,
+                steps,
+            }
         });
+        // Orbot's probe as step 3 and Settings open (decision 54), once
+        // each time one of them comes up.
+        let probes = |s: &Screen| matches!(s, Screen::Confirm | Screen::Settings);
+        if probes(&self.screen) && self.published.screen.as_ref().is_some_and(|s| !probes(s)) {
+            self.probe_tor();
+        }
         send!(screen, self.screen.clone(), |screen| Update::Screen {
             screen
         });
         let problem = self.problem.clone().or(self.load_problem.clone());
-        send!(work, (self.busy, problem), |(busy, problem)| Update::Work {
-            busy,
-            problem
+        // Step 3 and step 4 draw the busy button and the problem in their
+        // own views; elsewhere the platform shows them (decision 109).
+        let in_view = matches!(self.screen, Screen::Confirm | Screen::PointOfSale);
+        let work = WorkSlice {
+            shown_busy: self.busy && !in_view,
+            shown_problem: if in_view {
+                self.load_problem.clone()
+            } else {
+                problem.clone()
+            },
+            busy: self.busy,
+            problem,
+        };
+        send!(work, work, |w: WorkSlice| Update::Work {
+            busy: w.busy,
+            problem: w.problem,
+            shown_busy: w.shown_busy,
+            shown_problem: w.shown_problem,
         });
         let Some(p) = &self.parts else { return };
         let device = self.config.device;

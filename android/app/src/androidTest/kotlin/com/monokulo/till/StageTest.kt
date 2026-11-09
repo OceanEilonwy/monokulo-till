@@ -189,7 +189,7 @@ class StageTest {
     @Test
     fun backFromTheThirdRowsSaleLandsOnThatRowWithTheRowsAroundItAtRest() {
         // Three live sales fill the tray's three rows, unfolded; the fourth row is a paid one, under Earlier.
-        val rows = listOf(testSale("r1", expiresAt = 1_600), testSale("r2", expiresAt = 1_600), testSale("r3", expiresAt = 1_600), testSale("r4", SalePhase.Paid, paidAt = 990))
+        val rows = listOf(testSale("r1", expiresAt = 1_600), testSale("r2", expiresAt = 1_600), testSale("r3", expiresAt = 1_600), testSale("r4", SalePhase.PAID, paidAt = 990))
         var screen by mutableStateOf<Screen>(Screen.Till)
         val state = SeekableTransitionState<Screen>(Screen.Till)
         compose.setContent {

@@ -29,6 +29,22 @@ pub fn under(sale: &TillSale, pos: Option<PointOfSale>, seconds_left: i64) -> St
     )
 }
 
+/// "$79.21 · 0.31684 XMR · 14:52 left": the line on the "Show the code"
+/// bar under a sale's whole order, in the app and on the panel (core.md
+/// decision 107).
+pub fn show_code_line(
+    sale: &TillSale,
+    pos: Option<PointOfSale>,
+    seconds_left: i64,
+    money: &dyn MoneyFormat,
+) -> String {
+    format!(
+        "{} · {}",
+        sale_text::amount(sale, money),
+        under(sale, pos, seconds_left)
+    )
+}
+
 /// What the enlarged code shows.
 #[derive(Clone, Debug)]
 pub struct CodeInput {
@@ -44,6 +60,9 @@ pub struct CodeView {
     pub amount: String,
     /// "0.05552 XMR · 14:52 left".
     pub under: String,
+    /// "$13.88 · 0.05552 XMR · 14:52 left", on the "Show the code" bar
+    /// under the sale's whole order ([`show_code_line`]).
+    pub show_code: String,
     /// The payment URI the code says, with the receipt when it has one.
     pub code: String,
     /// Which of the four steps the ring beside "Scan with any Monero
@@ -61,9 +80,11 @@ pub fn code(input: &CodeInput, clock: DeviceClock, money: &dyn MoneyFormat) -> C
     let sale = &input.sale;
     let seconds = sale_text::seconds_left(sale.expires_at, clock.now);
     let live = sale.live();
+    let pos = pos_text::of(sale, input.till);
     CodeView {
         amount: sale_text::amount(sale, money),
-        under: under(sale, pos_text::of(sale, input.till), seconds),
+        under: under(sale, pos, seconds),
+        show_code: show_code_line(sale, pos, seconds, money),
         code: sale.code.uri.clone(),
         step: sale_text::step(sale.phase),
         ring: ring(sale),
@@ -138,13 +159,10 @@ mod tests {
             CodeView {
                 amount: "$79.21".into(),
                 under: "0.31684 XMR · 14:52 left".into(),
+                show_code: "$79.21 · 0.31684 XMR · 14:52 left".into(),
                 code: "monero:4abc".into(),
                 step: 1,
-                ring: Ring {
-                    step: 1,
-                    confirmations: None,
-                    required: None,
-                },
+                ring: Ring::new(1, None, None),
                 done: false,
                 ticks: true,
             }

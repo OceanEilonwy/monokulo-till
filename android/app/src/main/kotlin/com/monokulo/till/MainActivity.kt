@@ -36,7 +36,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.monokulo.till.engine.CloseSheet
 import com.monokulo.till.engine.Nav
-import com.monokulo.till.engine.TorProbe
+import com.monokulo.till.engine.Work
 import com.monokulo.till.ui.AlertsScreen
 import com.monokulo.till.ui.CodeScreen
 import com.monokulo.till.ui.ConfirmScreen
@@ -57,6 +57,7 @@ import com.monokulo.till.ui.SettingsScreen
 import com.monokulo.till.ui.ShiftPlace
 import com.monokulo.till.ui.ShiftScreen
 import com.monokulo.till.ui.TillActions
+import com.monokulo.till.ui.WorkBar
 import com.monokulo.till.ui.TillTheme
 import com.monokulo.till.ui.WelcomeScreen
 import com.monokulo.till.ui.confirm
@@ -64,15 +65,12 @@ import com.monokulo.till.ui.mk
 import com.monokulo.till.ui.pos
 import com.monokulo.till.ui.rememberShiftPlace
 import kotlinx.coroutines.launch
-import com.monokulo.till.notify.SaleNotifications
 import uniffi.till_app.Action
-import uniffi.till_app.CopyKind
 import uniffi.till_app.Effect
 import uniffi.till_app.RefundSheetView
 import uniffi.till_app.Update
 import uniffi.till_screens.OnboardingPage
 import uniffi.till_screens.OnboardingView
-import uniffi.till_screens.PosSection
 import uniffi.till_screens.SettingsView
 import uniffi.till_screens.ShiftView
 import uniffi.till_screens.PosMark
@@ -126,8 +124,13 @@ class MainActivity : ComponentActivity() {
                     refund = store.refund.collectAsStateWithLifecycle(),
                 )
                 // The engine says where the app is as it starts; until then, the ground.
-                val first = screenState.value ?: return@TillTheme Box(Modifier.fillMaxSize().background(mk.ground))
-                Stage(first, flows)
+                val work = store.work.collectAsStateWithLifecycle()
+                Box(Modifier.fillMaxSize()) {
+                    val first = screenState.value
+                    if (first == null) Box(Modifier.fillMaxSize().background(mk.ground)) else Stage(first, flows)
+                    // What the engine is busy with and what went wrong, where no screen's view says it (core.md 109).
+                    WorkOverlay(work)
+                }
             }
         }
     }
@@ -139,48 +142,35 @@ class MainActivity : ComponentActivity() {
         // Re-read on every bump of `resumed`, which onMultiWindowModeChanged makes, so the till's actions follow it.
         @Suppress("UNUSED_VARIABLE") val tick = resumed.intValue
         val multiWindow = isInMultiWindowMode
-        val actions = remember(multiWindow) { TillActions(::send, onBackToPos = if (multiWindow) null else ::backToSquare) }
+        val actions = remember(multiWindow) { TillActions(::send, onBackToPos = if (multiWindow) null else ::backToPos) }
         val stage = remember { SeekableTransitionState(first) }
-        // Android's back (decision 77: everywhere but the first step, the shift and step 4 in setup). From a sale's
+        // Android's back where the engine says it is the app's (decision 77; docs/decisions/core.md 98). From a sale's
         // screens and Settings the gesture previews the way back the engine names; nothing changes before it commits.
         val scrub = remember { BackScrub() }
-        val stepFour by remember {
-            derivedStateOf {
-                screenState.value == Screen.PointOfSale &&
-                    (flows.onboarding.value?.page as? OnboardingPage.PointOfSale)?.view?.back != true
-            }
-        }
+        val backEnabled by remember { derivedStateOf { flows.nav.value.backEnabled } }
         FollowScreen(stage, scrub, screenState, onLanded = { send(Action.Landed(it)) })
         // A second Back while the shift is still arriving lands on the shift, never leaves the app (decision 260 c):
         // Back stays the stage's until it rests there. Read as a derived state, so the root recomposes as a change
         // starts and as it lands, never a frame.
         val arriving by remember { derivedStateOf { stage.currentState != stage.targetState } }
         StageBack(
-            enabled = (screen != Screen.Welcome && screen != Screen.Till && !stepFour) || (screen == Screen.Till && arriving),
+            enabled = backEnabled || (screen == Screen.Till && arriving),
             state = stage, scrub = scrub, current = { screenState.value }, target = { flows.nav.value.backTarget },
             onCommit = { send(Action.Back) },
         )
         // Where the shift's list was when a row was tapped: the shift is not composed while a sale is up, so a
         // Back finds it here (decision 296).
         val shiftPlace = rememberShiftPlace()
-        // The till's point of sale names its marks; the engine says it in Settings.
-        val pos by remember { derivedStateOf { tillPointOfSale(flows.settings.value) } }
+        // The till's point of sale names its marks: the shift's top row carries it (docs/decisions/core.md 104).
+        val pos by remember { derivedStateOf { flows.shift.value?.top?.mark } }
         CompositionLocalProvider(LocalPointOfSale provides pos, LocalReceiptFolds provides model.receiptFolds) {
-            TillStage(stage, cameUpByItself = { flows.nav.value.byItself }, scrub) { s ->
+            TillStage(stage, cameUpByItself = { flows.nav.value.byItself }, scrub, way = { flows.nav.value.way }) { s ->
                 when (s) {
                     Screen.Till, is Screen.Sale, is Screen.Code, is Screen.Order -> TillScreens(s, flows, actions, shiftPlace)
                     else -> SetupScreens(s, flows)
                 }
             }
         }
-        TorProbes(screen)
-    }
-
-    /** Orbot's probe as the app comes forward and as step 3 and Settings open (docs/decisions/core.md 54). */
-    @Composable
-    private fun TorProbes(screen: Screen) {
-        val probes = screen == Screen.Confirm || screen == Screen.Settings
-        LaunchedEffect(probes) { if (probes) TorProbe.probe(::send) }
     }
 
     /** The engine's flows as states, collected once at the root and read below it. */
@@ -214,7 +204,7 @@ class MainActivity : ComponentActivity() {
             // A sale not drawn (yet) shows the shift until it is.
             face == null -> if (shift != null) ShiftScreen(shift, actions, shiftPlace, close?.takeIf { s == Screen.Till })
             s is Screen.Code -> CodeScreen(face) { send(Action.Back) }
-            s is Screen.Order -> OrderPage(face, "Back to the sale", onBack = { send(Action.Back) }, onShowCode = { send(Action.Back) })
+            s is Screen.Order -> OrderPage(face, onBack = { send(Action.Back) }, onShowCode = { send(Action.Back) })
             else -> SaleScreen(face, actions, close?.takeIf { it.orderId == id }?.view, flows.refund.value.takeIf { target })
         }
     }
@@ -297,7 +287,7 @@ class MainActivity : ComponentActivity() {
                 send(Action.SetBubble(on))
                 if (on && !Settings.canDrawOverlays(this)) openOverlaySettings()
             },
-            onCopyAddress = ::copy,
+            onCopyAddress = { send(Action.CopyWalletAddress) },
             onGetDistributor = { openInTab(NTFY) },
             distributorName = { pkg ->
                 runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg)
@@ -313,6 +303,10 @@ class MainActivity : ComponentActivity() {
             is Effect.Haptic -> window.decorView.confirm()
             // TillService.follow copies, and posts the notifications, whether or not Till is on screen.
             is Effect.CopyText, is Effect.Notify, is Effect.ClearNotification -> Unit
+            // The overlay collapses its own panel; Till on screen has none up.
+            is Effect.LowerPanel -> Unit
+            // TillService.follow probes for Orbot whether or not this activity has started collecting yet.
+            is Effect.ProbeTor -> Unit
         }
     }
 
@@ -320,7 +314,6 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         send(Action.Opened)
         (application as TillApp).clockMayHaveChanged()
-        lifecycleScope.launch { TorProbe.probe(::send) }
     }
 
     override fun onResume() {
@@ -352,16 +345,13 @@ class MainActivity : ComponentActivity() {
             // A point of sale's sign-in coming back, on its redirect or the build's return link (the setups'
             // `returnUri`): the engine says which, and ignores anything else.
             Intent.ACTION_VIEW -> intent.data?.let { send(Action.SignInReturned(it.toString())) }
-            // A shared connect link: the first word that is a link; the engine says whether it's a store's.
-            Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)?.let { text ->
-                text.split(Regex("\\s+")).firstOrNull { it.contains("://") }?.let { send(Action.ConnectLink(it)) }
-            }
+            // Shared text, whole: the engine finds the connect link in it (docs/decisions/core.md 103).
+            Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)?.let { send(Action.SharedText(it)) }
         }
     }
 
     private fun permissionsMayHaveChanged() = (application as TillApp).permissionsMayHaveChanged()
 
-    private fun copy(text: String) = SaleNotifications.copyText(this, text, CopyKind.ADDRESS)
 
     private fun openInTab(url: String) {
         runCatching { CustomTabsIntent.Builder().build().launchUrl(this, url.toUri()) }
@@ -385,10 +375,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Square Point of Sale, if it's installed; else Till steps back to whatever was behind it. */
-    private fun backToSquare() {
-        val square = packageManager.getLaunchIntentForPackage(SQUARE_POS)
-        if (square != null) startActivity(square) else moveTaskToBack(true)
+    /**
+     * Back to the point of sale the engine named: Square Point of Sale, if it's installed. On Clover, Till runs on the
+     * Clover device itself, over the Register it was opened from, so Till steps back to it, as it does when Square
+     * isn't installed (docs/decisions/core.md 94).
+     */
+    private fun backToPos(pos: PosMark) {
+        val app = when (pos) {
+            PosMark.SQUARE -> packageManager.getLaunchIntentForPackage(SQUARE_POS)
+            PosMark.CLOVER -> null
+        }
+        if (app != null) startActivity(app) else moveTaskToBack(true)
     }
 
     companion object {
@@ -406,6 +403,10 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/** The engine's [Work] as [WorkBar] shows it, read here alone so a change recomposes nothing else. */
+@Composable
+private fun WorkOverlay(work: State<Work>) = WorkBar(work.value.shownBusy, work.value.shownProblem)
+
 /** Whether [page] is the step [screen] shows. */
 private fun OnboardingPage.isFor(screen: Screen): Boolean = when (this) {
     is OnboardingPage.Welcome -> screen == Screen.Welcome
@@ -417,11 +418,4 @@ private fun OnboardingPage.isFor(screen: Screen): Boolean = when (this) {
     is OnboardingPage.Alerts -> screen == Screen.Alerts
     is OnboardingPage.Float -> screen == Screen.Float
     is OnboardingPage.Ready -> screen == Screen.Ready
-}
-
-/** The till's point of sale, as Settings names it: the one signed in to, else the one chosen. */
-private fun tillPointOfSale(settings: SettingsView?): PosMark? = when (val p = settings?.pointOfSale) {
-    is PosSection.SignedIn -> p.mark
-    is PosSection.Choosing -> p.choices.firstOrNull { it.choice.selected }?.mark
-    null -> null
 }

@@ -20,7 +20,7 @@ struct SettingsScreen: View {
         NavigationStack {
             List {
                 if let store = view.store {
-                    StoreSettings(store: store)
+                    StoreSettings(store: store, send: send)
                 }
                 PosSettings(section: view.pointOfSale, send: send)
                 Section {
@@ -141,6 +141,7 @@ struct IslandSettings: View {
 /// The store, its wallet and this device.
 struct StoreSettings: View {
     let store: StoreSection
+    let send: Send
 
     var body: some View {
         Section {
@@ -167,7 +168,7 @@ struct StoreSettings: View {
             }
             .padding(.vertical, 4)
             ForEach(Array(store.facts.enumerated()), id: \.offset) { _, fact in
-                if fact.mono, let address = store.walletAddress {
+                if fact.mono, store.walletAddress != nil {
                     HStack(alignment: .firstTextBaseline) {
                         LabeledContent(fact.label) {
                             Text(fact.value)
@@ -175,7 +176,8 @@ struct StoreSettings: View {
                                 .foregroundStyle(toneColor(fact.tone))
                         }
                         Button {
-                            UIPasteboard.general.string = address
+                            // The engine copies it, as every copy (docs/decisions/core.md 105).
+                            send(.copyWalletAddress)
                         } label: {
                             Image(systemName: "doc.on.doc")
                         }

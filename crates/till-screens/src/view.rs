@@ -122,22 +122,70 @@ impl Press {
 
 /// A sale's phase ring: which of the four steps it's at ([`sale_text::step`]),
 /// and, seen or confirming, its payment's confirmations of those the store
-/// asks for. How far the arc goes and how it turns is the platform's drawing.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// asks for; and, from those, how much of it the arc fills, whether it
+/// turns and whether it's green (core.md decision 100). How the arc sweeps
+/// and turns is the platform's drawing.
+#[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct Ring {
     pub step: u8,
     pub confirmations: Option<u32>,
     pub required: Option<u32>,
+    /// How much of the ring the arc fills, 0 to 1, from the top, clockwise:
+    /// a quarter while it waits, the whole ring paid. Seen and confirming,
+    /// the payment's way to the store's threshold: [`SEEN_FILL`] seen, and
+    /// the rest shared out over the confirmations asked for. With no count
+    /// from Monokulo, a quarter a step.
+    pub fill: f32,
+    /// The arc turns: the payment is on the network, seen (step 2) or
+    /// confirming (3), and not yet paid.
+    pub spins: bool,
+    /// The arc is the paid green, from the moment the payment is seen;
+    /// else the accent, waiting for money.
+    pub green: bool,
+}
+
+impl Eq for Ring {}
+
+/// How much of the ring a seen payment with no confirmation yet fills.
+pub const SEEN_FILL: f32 = 0.12;
+
+impl Ring {
+    /// The ring at `step` with `confirmations` of `required`.
+    pub fn new(step: u8, confirmations: Option<u32>, required: Option<u32>) -> Ring {
+        let spins = step == 2 || step == 3;
+        let fill = match required.filter(|&r| spins && r > 0) {
+            Some(required) => {
+                let have = confirmations.unwrap_or(0).min(required);
+                SEEN_FILL + (1.0 - SEEN_FILL) * have as f32 / required as f32
+            }
+            None => f32::from(step) / 4.0,
+        };
+        Ring {
+            step,
+            confirmations,
+            required,
+            fill,
+            spins,
+            green: spins || step == 4,
+        }
+    }
+}
+
+/// The ring at `step` with `confirmations` of `required`, for a platform
+/// that draws one without a sale (a row's badge, a preview).
+#[cfg_attr(feature = "uniffi", uniffi::export)]
+pub fn ring_of(step: u8, confirmations: Option<u32>, required: Option<u32>) -> Ring {
+    Ring::new(step, confirmations, required)
 }
 
 /// `sale`'s ring.
 pub fn ring(sale: &TillSale) -> Ring {
-    Ring {
-        step: sale_text::step(sale.phase),
-        confirmations: sale.confirmations,
-        required: sale.confirmations_required,
-    }
+    Ring::new(
+        sale_text::step(sale.phase),
+        sale.confirmations,
+        sale.confirmations_required,
+    )
 }
 
 /// `pos`'s mark.
@@ -159,5 +207,86 @@ pub(crate) fn capitalised(text: &str) -> String {
     match chars.next() {
         Some(first) => first.to_uppercase().chain(chars).collect(),
         None => String::new(),
+    }
+}
+
+/// Ported from Android's `PhaseRingTest`.
+#[cfg(test)]
+mod ring_tests {
+    use super::*;
+
+    const WAITING: u8 = 1;
+    const SEEN: u8 = 2;
+    const CONFIRMING: u8 = 3;
+    const PAID: u8 = 4;
+    const ENDED: u8 = 0;
+
+    fn fill(step: u8, have: Option<u32>, required: Option<u32>) -> f32 {
+        Ring::new(step, have, required).fill
+    }
+
+    fn close(a: f32, b: f32) -> bool {
+        (a - b).abs() < 1e-6
+    }
+
+    #[test]
+    fn with_no_count_from_monokulo_the_ring_fills_a_quarter_a_step_and_is_empty_once_a_sale_ended_unpaid()
+     {
+        assert_eq!(fill(WAITING, None, None), 0.25);
+        assert_eq!(fill(SEEN, None, None), 0.5);
+        assert_eq!(fill(CONFIRMING, None, None), 0.75);
+        assert_eq!(fill(PAID, None, None), 1.0, "paid closes the ring");
+        assert_eq!(fill(ENDED, None, None), 0.0);
+    }
+
+    #[test]
+    fn seen_and_confirming_the_arc_is_the_payments_way_to_the_stores_threshold() {
+        assert!(
+            close(fill(SEEN, Some(0), Some(10)), 0.12),
+            "seen: a short arc"
+        );
+        assert!(close(fill(SEEN, None, Some(10)), 0.12));
+        assert!(close(fill(CONFIRMING, Some(1), Some(10)), 0.12 + 0.088));
+        assert!(close(
+            fill(CONFIRMING, Some(4), Some(10)),
+            0.12 + 0.88 * 0.4
+        ));
+        assert!(close(
+            fill(CONFIRMING, Some(8), Some(10)),
+            0.12 + 0.88 * 0.8
+        ));
+        assert!(
+            close(fill(CONFIRMING, Some(12), Some(10)), 1.0),
+            "never past the full ring"
+        );
+        assert!(
+            close(fill(CONFIRMING, Some(1), Some(3)), 0.12 + 0.88 / 3.0),
+            "a store asking three grows in thirds"
+        );
+        assert_eq!(
+            fill(CONFIRMING, Some(0), Some(0)),
+            0.75,
+            "no threshold to share out: by step"
+        );
+        assert_eq!(
+            fill(WAITING, Some(0), Some(10)),
+            0.25,
+            "waiting stays the still quarter"
+        );
+        assert_eq!(fill(PAID, Some(4), Some(10)), 1.0, "paid closes it");
+    }
+
+    #[test]
+    fn the_arc_turns_green_and_spins_once_the_payment_is_seen_and_stops_paid() {
+        for step in [SEEN, CONFIRMING] {
+            let ring = Ring::new(step, None, None);
+            assert!(ring.spins && ring.green, "step {step}");
+        }
+        let paid = Ring::new(PAID, None, None);
+        assert!(paid.green && !paid.spins, "paid stops");
+        for step in [WAITING, ENDED] {
+            let ring = Ring::new(step, None, None);
+            assert!(!ring.spins && !ring.green, "step {step} stands still");
+        }
     }
 }

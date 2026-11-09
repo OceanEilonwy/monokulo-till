@@ -1,6 +1,7 @@
 package com.monokulo.till.engine
 
 import android.util.Log
+import com.monokulo.till.Way
 import java.util.concurrent.ConcurrentLinkedQueue
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -22,13 +23,12 @@ import uniffi.till_screens.NotificationView
 import uniffi.till_screens.OnboardingView
 import uniffi.till_screens.SettingsView
 import uniffi.till_screens.ShiftView
-import uniffi.till_screens.WakeUpsView
 
-/** Busy with a network call (buttons wait), and what went wrong last. */
-data class Work(val busy: Boolean = false, val problem: String? = null)
+/** Busy with a network call (buttons wait), and what went wrong last; and of those, what no screen's own view says. */
+data class Work(val busy: Boolean = false, val problem: String? = null, val shownBusy: Boolean = false, val shownProblem: String? = null)
 
-/** How the screen came ([Update.Nav]), and where Back would go from it. */
-data class Nav(val byItself: Boolean = false, val backTarget: Screen? = null)
+/** How the screen came ([Update.Nav]), where Back would go from it, and whether the system's Back is the app's there. */
+data class Nav(val byItself: Boolean = false, val backTarget: Screen? = null, val backEnabled: Boolean = false, val way: Way = Way.None)
 
 /** The close sheet over a sale, while one is asked. */
 data class CloseSheet(val orderId: String?, val view: CloseView?)
@@ -39,13 +39,11 @@ data class CloseSheet(val orderId: String?, val view: CloseView?)
  * no state of its own; Compose draws these and sends [Action]s back.
  */
 object EngineStore {
-    private val mutableCore = MutableStateFlow<String?>(null)
     private val mutableScreen = MutableStateFlow<Screen?>(null)
     private val mutableWork = MutableStateFlow(Work())
     private val mutableService = MutableStateFlow(false)
     private val mutableOnboarding = MutableStateFlow<OnboardingView?>(null)
     private val mutableSettings = MutableStateFlow<SettingsView?>(null)
-    private val mutableWakeUps = MutableStateFlow<WakeUpsView?>(null)
     private val mutableNav = MutableStateFlow(Nav())
     private val mutableShift = MutableStateFlow<ShiftView?>(null)
     private val mutableSale = MutableStateFlow<Update.Sale?>(null)
@@ -55,15 +53,12 @@ object EngineStore {
     private val mutableNotification = MutableStateFlow<NotificationView?>(null)
     private val mutableEffects = MutableSharedFlow<Effect>(extraBufferCapacity = 16, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
-    /** The core's version, once it runs. */
-    val core: StateFlow<String?> = mutableCore.asStateFlow()
     val screen: StateFlow<Screen?> = mutableScreen.asStateFlow()
     val work: StateFlow<Work> = mutableWork.asStateFlow()
     /** The till runs: Android keeps its foreground service meanwhile. */
     val service: StateFlow<Boolean> = mutableService.asStateFlow()
     val onboarding: StateFlow<OnboardingView?> = mutableOnboarding.asStateFlow()
     val settings: StateFlow<SettingsView?> = mutableSettings.asStateFlow()
-    val wakeUps: StateFlow<WakeUpsView?> = mutableWakeUps.asStateFlow()
     val nav: StateFlow<Nav> = mutableNav.asStateFlow()
     val shift: StateFlow<ShiftView?> = mutableShift.asStateFlow()
     /** The sale on screen, as each of its screens draws it; kept while it leaves. */
@@ -93,14 +88,14 @@ object EngineStore {
 
     internal fun update(update: Update) {
         when (update) {
-            is Update.Core -> mutableCore.value = update.version
+            // Android shows neither the core's version nor a separate Wake-ups screen (it draws them inside Settings).
+            is Update.Core, is Update.WakeUps -> Unit
             is Update.Screen -> mutableScreen.value = update.screen
-            is Update.Work -> mutableWork.value = Work(update.busy, update.problem)
+            is Update.Work -> mutableWork.value = Work(update.busy, update.problem, update.shownBusy, update.shownProblem)
             is Update.Service -> mutableService.value = update.running
             is Update.Onboarding -> mutableOnboarding.value = update.view
             is Update.Settings -> mutableSettings.value = update.view
-            is Update.WakeUps -> mutableWakeUps.value = update.view
-            is Update.Nav -> mutableNav.value = Nav(update.byItself, update.backTarget)
+            is Update.Nav -> mutableNav.value = Nav(update.byItself, update.backTarget, update.backEnabled, Way(update.back, update.steps))
             is Update.Shift -> mutableShift.value = update.view
             is Update.Sale -> mutableSale.value = update
             is Update.CloseSheet -> mutableClose.value = CloseSheet(update.orderId, update.view)

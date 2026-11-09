@@ -5,7 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -31,6 +30,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -318,9 +318,16 @@ fun Notice(text: String?, modifier: Modifier = Modifier) {
     )
 }
 
-/** Splits [content] across two panes when the window is wide (a tablet, or a wide free-form window). */
+/**
+ * What the engine is busy with and what went wrong, where the screen's own view doesn't say it
+ * (`Update::Work`'s `shownBusy` and `shownProblem`, docs/decisions/core.md 109): a thin bar while [busy], and the
+ * [problem] as a [Notice], over the top of the screen.
+ */
 @Composable
-fun Adaptive(wide: @Composable (Boolean) -> Unit) = BoxWithConstraints { wide(maxWidth >= 840.dp) }
+fun WorkBar(busy: Boolean, problem: String?) = Column(Modifier.fillMaxWidth().safeDrawingPadding()) {
+    if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp), color = mk.accent)
+    Notice(problem, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+}
 
 /** The one confirming buzz a payment gets (`docs/motion.md` §6); the system's haptic settings apply. */
 fun android.view.View.confirm() {

@@ -274,7 +274,7 @@ struct SaleRow: View {
             open()
         } label: {
             HStack(spacing: 12) {
-                StateBadge(icon: row.icon, ground: Roles.badgeGround(row.icon), quiet: row.quiet)
+                StateBadge(icon: row.icon, ground: Roles.badgeGround(row.icon), quiet: row.quiet, ring: row.ring)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(row.title)
                         .font(.body.weight(.semibold))

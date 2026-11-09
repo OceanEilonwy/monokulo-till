@@ -9,7 +9,7 @@ use till_sales::{Standing, TillSale};
 use crate::order_text::{OrderPageView, order_page};
 use crate::sale::{SaleInput, SaleView};
 use crate::time::DeviceClock;
-use crate::view::Device;
+use crate::view::{Device, Press};
 use crate::{code, pos_text, sale, sale_text};
 
 /// What the bubble shows.
@@ -202,15 +202,82 @@ pub fn pulses(look: BubbleLook, phase: SalePhase, panel_up: bool) -> bool {
     look == BubbleLook::Lit && !panel_up && matches!(phase, SalePhase::Waiting | SalePhase::Partial)
 }
 
-/// Whether the sale the panel showed, `shown`, live at the last look
-/// (`was_live`), has just been paid: the panel then shows it paid for the
-/// paid dwell before moving on to the next sale waiting.
-pub fn landed(sales: &[TillSale], shown: Option<&str>, was_live: bool) -> bool {
-    was_live
-        && sales
-            .iter()
-            .find(|sale| Some(sale.order_id.as_str()) == shown)
-            .is_some_and(|sale| sale.phase == SalePhase::Paid)
+/// Where the bubble's paid moment is (`docs/motion.md` M9, android.md
+/// decision 158): held for the paid dwell after a payment lands, the bubble
+/// green and the panel showing the sale paid; then, with the panel still
+/// up on that sale and no other code waiting, the panel collapses into the
+/// green bubble, which fades to lit or idle only once the collapse has
+/// landed. The engine keeps it; Android only animates the collapse it asks
+/// for and says when the panel has gone (decision 95 of core.md).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PaidMoment {
+    #[default]
+    None,
+    /// The dwell: green, and the panel holds the paid sale.
+    Held,
+    /// The dwell, the panel lowered meanwhile (Done, the grabber, a tap
+    /// beside it): green to the dwell's end, with no collapse then.
+    HeldDown,
+    /// The dwell is over and the panel collapses into the still green
+    /// bubble.
+    Lowering,
+}
+
+impl PaidMoment {
+    /// Whether the bubble is green and the panel holds the paid sale.
+    pub fn paid(self) -> bool {
+        self != PaidMoment::None
+    }
+}
+
+/// What moves a paid moment on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PaidEvent {
+    /// A payment landed.
+    Paid,
+    /// The paid dwell went by.
+    DwellEnded,
+    /// The panel went back into the bubble: its collapse landed, or it went
+    /// without one (Android's `Action::PanelShown { up: false }`).
+    PanelDown,
+}
+
+/// The next paid moment, and whether the panel is to collapse now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PaidStep {
+    pub moment: PaidMoment,
+    pub lower: bool,
+}
+
+impl From<PaidMoment> for PaidStep {
+    fn from(moment: PaidMoment) -> PaidStep {
+        PaidStep {
+            moment,
+            lower: false,
+        }
+    }
+}
+
+/// The moment after `event`, with `on_panel` whether the panel is up on the
+/// sale just paid, and `next_waiting` whether another sale's code is up.
+pub fn paid_next(
+    moment: PaidMoment,
+    event: PaidEvent,
+    on_panel: bool,
+    next_waiting: bool,
+) -> PaidStep {
+    use PaidMoment::*;
+    match (event, moment) {
+        (PaidEvent::Paid, _) => Held.into(),
+        (PaidEvent::DwellEnded, Held) if on_panel && !next_waiting => PaidStep {
+            moment: Lowering,
+            lower: true,
+        },
+        (PaidEvent::DwellEnded, Held | HeldDown) => None.into(),
+        (PaidEvent::PanelDown, Held) => HeldDown.into(),
+        (PaidEvent::PanelDown, Lowering) => None.into(),
+        (_, moment) => moment.into(),
+    }
 }
 
 /// What the panel's middle shows (Android's `PanelFace` and the folded
@@ -243,6 +310,84 @@ pub fn hero(sale: &TillSale) -> PanelHero {
     }
 }
 
+/// Which face the panel shows: the code and its status row while the sale
+/// is live; the tick, "Paid" and what came in once paid; else how it ended
+/// and what to do about it (acceptance P15). Its hero says how it looks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum PanelFace {
+    Code,
+    Paid,
+    Ended,
+}
+
+/// `hero`'s face, `ended` when the code came down unpaid: a sale paid
+/// after it ended (a late payment, or one after its refund) is an ended
+/// face with the tick.
+pub fn face(hero: PanelHero, ended: bool) -> PanelFace {
+    match hero {
+        PanelHero::Code => PanelFace::Code,
+        PanelHero::Paid if !ended => PanelFace::Paid,
+        _ => PanelFace::Ended,
+    }
+}
+
+/// What a panel button does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum PanelAction {
+    /// Copies the sale's address.
+    CopyAddress,
+    /// Opens Till full screen on the sale.
+    FullScreen,
+    /// Lowers the panel into the bubble.
+    Done,
+    /// Opens Till on the shift.
+    OpenShift,
+}
+
+/// One of the panel's buttons, under its face.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct PanelButton {
+    pub action: PanelAction,
+    pub press: Press,
+    /// Filled in the accent; else outlined.
+    pub primary: bool,
+}
+
+impl PanelButton {
+    fn new(action: PanelAction, press: Press, primary: bool) -> PanelButton {
+        PanelButton {
+            action,
+            press,
+            primary,
+        }
+    }
+}
+
+/// The buttons under `face`: "Copy address" (`copy`, the sale's own) and
+/// "Full screen" while the code is up, "Done" once paid, "Open the shift"
+/// once it ended.
+pub fn buttons(face: PanelFace, copy: &Press) -> Vec<PanelButton> {
+    match face {
+        PanelFace::Code => vec![
+            PanelButton::new(PanelAction::CopyAddress, copy.clone(), false),
+            PanelButton::new(PanelAction::FullScreen, Press::new("Full screen"), true),
+        ],
+        PanelFace::Paid => vec![PanelButton::new(
+            PanelAction::Done,
+            Press::new("Done"),
+            true,
+        )],
+        PanelFace::Ended => vec![PanelButton::new(
+            PanelAction::OpenShift,
+            Press::new("Open the shift"),
+            true,
+        )],
+    }
+}
+
 /// What the bubble's panel shows about its sale.
 #[derive(Clone, Debug)]
 pub struct PanelInput {
@@ -269,7 +414,18 @@ pub struct PanelView {
     /// "14:52 left", beside the status, while the code counts down; else
     /// `None`. (The sale's `hint` says more, for the sale screen.)
     pub time_left: Option<String>,
+    /// The status row's tail, "· 14:52 left", on the code's face while it
+    /// counts down.
+    pub status_left: Option<String>,
     pub hero: PanelHero,
+    pub face: PanelFace,
+    /// "0.31684 XMR received", under "Paid" on the paid face.
+    pub received: Option<String>,
+    /// The buttons under the face, in order.
+    pub buttons: Vec<PanelButton>,
+    /// "$79.21 · 0.31684 XMR · 14:52 left", on the whole order's "Show the
+    /// code" bar (core.md decision 107).
+    pub show_code: String,
     /// The whole order, every line: the panel's order page, as the app's
     /// own order page draws it. (The ring, confirmations and all, is the
     /// sale's `ring`.)
@@ -302,12 +458,23 @@ pub fn panel(
     );
     let ended = !s.live() && s.phase != SalePhase::Paid;
     let seconds = sale_text::seconds_left(s.expires_at, clock.now);
+    let hero = hero(s);
+    let face = face(hero, ended);
+    let time_left = s.live().then(|| code::left(s, seconds)).flatten();
     PanelView {
         order_id: s.order_id.clone(),
         where_from: panel_where(s, input.location.as_deref()),
         created: (s.created_at > 0).then(|| sale_text::time_of(s.created_at, clock)),
-        time_left: s.live().then(|| code::left(s, seconds)).flatten(),
-        hero: hero(s),
+        status_left: time_left
+            .as_ref()
+            .filter(|_| face == PanelFace::Code)
+            .map(|left| format!("· {left}")),
+        time_left,
+        hero,
+        face,
+        received: (face == PanelFace::Paid).then(|| view.hint.clone()),
+        buttons: buttons(face, &view.copy_address),
+        show_code: code::show_code_line(s, pos_text::of(s, input.till), seconds, money),
         order: order_page(s, pos_text::of(s, input.till), clock),
         ended_heading: ended.then(|| panel_ended_heading(s, input.till)),
         ended_line: ended.then(|| panel_ended_line(s, input.till)),
@@ -479,7 +646,8 @@ mod tests {
 /// Ported from Android's `PanelTest`: its words, where the sale is from,
 /// the ended sale's rule, the pulse, the hero and whether the overlay is
 /// up. Its geometry and motion (the raise, the grabber, the windows'
-/// handoff, the paid moment) stay with Android's drawing.
+/// handoff, the collapse) stay with Android's drawing; the paid moment is
+/// the engine's now, its three tests below.
 #[cfg(test)]
 mod panel_tests {
     use super::*;
@@ -605,10 +773,6 @@ mod panel_tests {
             sale(Paid, true, None, "1044"),
             sale(Waiting, true, None, "1043"),
         ];
-        assert!(
-            landed(&paid, Some("1044"), true),
-            "it was live a moment ago, now paid"
-        );
         assert_eq!(
             focus(&paid, Some("1044"), true).as_deref(),
             Some("1044"),
@@ -619,13 +783,81 @@ mod panel_tests {
             Some("1043"),
             "then the next one waiting"
         );
-        assert!(
-            !landed(&paid, Some("1044"), false),
-            "already paid at the last look: not news"
+    }
+
+    /// Ported from Android's `PanelTest` (the paid moment's three), which
+    /// the overlay ran on its own timer before the engine owned it.
+    #[test]
+    fn a_paid_moment_is_held_for_the_dwell_then_the_panel_collapses_into_the_green_bubble_which_fades_once_it_lands()
+     {
+        use PaidMoment::*;
+        let held = paid_next(None, PaidEvent::Paid, true, false);
+        assert_eq!(held, Held.into());
+        assert!(held.moment.paid(), "the bubble is green");
+        let dwelt = paid_next(Held, PaidEvent::DwellEnded, true, false);
+        assert_eq!(
+            dwelt,
+            PaidStep {
+                moment: Lowering,
+                lower: true
+            },
+            "the panel collapses"
         );
-        assert!(
-            !landed(&paid, Some("1043"), true),
-            "another sale, still waiting"
+        assert!(dwelt.moment.paid(), "into a bubble still green");
+        assert_eq!(
+            paid_next(Lowering, PaidEvent::PanelDown, false, false),
+            None.into()
+        );
+    }
+
+    #[test]
+    fn done_during_the_dwell_keeps_the_bubble_green_to_its_end_without_a_second_collapse() {
+        use PaidMoment::*;
+        let done = paid_next(Held, PaidEvent::PanelDown, false, false);
+        assert_eq!(done, HeldDown.into(), "the cashier's lower is the collapse");
+        assert!(done.moment.paid(), "still green till the dwell ends");
+        assert_eq!(
+            paid_next(HeldDown, PaidEvent::DwellEnded, true, false),
+            None.into(),
+            "raised again meanwhile: no collapse the cashier didn't ask for"
+        );
+        assert_eq!(
+            paid_next(HeldDown, PaidEvent::PanelDown, false, false),
+            HeldDown.into()
+        );
+    }
+
+    #[test]
+    fn with_another_sale_waiting_or_no_panel_up_the_moment_ends_at_the_dwell_without_a_collapse() {
+        use PaidMoment::*;
+        assert_eq!(
+            paid_next(Held, PaidEvent::DwellEnded, true, true),
+            None.into(),
+            "the next code comes up in the panel"
+        );
+        assert_eq!(
+            paid_next(Held, PaidEvent::DwellEnded, false, false),
+            None.into(),
+            "the bubble alone: green for the dwell, then it fades"
+        );
+        assert_eq!(
+            paid_next(Lowering, PaidEvent::Paid, false, false),
+            Held.into(),
+            "another payment mid-collapse: green again"
+        );
+        assert_eq!(
+            paid_next(Lowering, PaidEvent::DwellEnded, false, false),
+            Lowering.into(),
+            "a late dwell changes nothing"
+        );
+        assert_eq!(
+            paid_next(None, PaidEvent::PanelDown, false, false),
+            None.into(),
+            "a collapse with nothing paid"
+        );
+        assert_eq!(
+            paid_next(None, PaidEvent::DwellEnded, true, false),
+            None.into()
         );
     }
 
@@ -720,6 +952,7 @@ mod panel_tests {
         assert_eq!(view.where_from, "Front Counter");
         assert_eq!(view.created.as_deref(), Some("4:07 PM"));
         assert_eq!(view.time_left.as_deref(), Some("14:52 left"));
+        assert_eq!(view.show_code, "$79.21 · 0.31684 XMR · 14:52 left");
         assert_eq!(view.sale.hint, "Scan with any Monero wallet · 14:52 left");
         assert_eq!(view.hero, PanelHero::Code);
         let order = view.order.unwrap();
@@ -765,6 +998,84 @@ mod panel_tests {
         assert_eq!(
             view.ended_line.as_deref(),
             Some("Open the shift to refund it in Square.")
+        );
+    }
+
+    /// Ported from Android's `PanelTest` (the face, the status row and the
+    /// buttons, which `PanelSale.of` and `Faces.kt` worked out from the
+    /// hero and the ended words).
+    #[test]
+    fn the_panel_says_its_face_its_status_tail_and_its_buttons() {
+        use SalePhase::*;
+        let draw = |sale: TillSale| {
+            panel(
+                &PanelInput {
+                    sale: TillSale {
+                        expires_at: at() + 892,
+                        ..sale
+                    },
+                    till: SQUARE,
+                    location: Some("Front Counter".into()),
+                },
+                Device::Android,
+                la(at()),
+                &money,
+            )
+        };
+        let actions = |view: &PanelView| {
+            view.buttons
+                .iter()
+                .map(|b| (b.action, b.press.label.clone(), b.primary))
+                .collect::<Vec<_>>()
+        };
+
+        let waiting = draw(of(Waiting));
+        assert_eq!(waiting.face, PanelFace::Code);
+        assert_eq!(waiting.status_left.as_deref(), Some("· 14:52 left"));
+        assert_eq!(waiting.received, None);
+        assert_eq!(
+            actions(&waiting),
+            [
+                (
+                    PanelAction::CopyAddress,
+                    waiting.sale.copy_address.label.clone(),
+                    false
+                ),
+                (PanelAction::FullScreen, "Full screen".into(), true),
+            ],
+            "the sale's own Copy address, outlined, and Full screen"
+        );
+
+        let confirming = draw(TillSale {
+            confirmations: Some(4),
+            confirmations_required: Some(10),
+            ..of(Confirming)
+        });
+        assert_eq!(confirming.face, PanelFace::Code);
+        assert_eq!(confirming.status_left, None, "a payment on its way");
+
+        let paid = draw(TillSale {
+            paid_at: Some(at()),
+            ..of(Paid)
+        });
+        assert_eq!(paid.face, PanelFace::Paid);
+        assert_eq!(paid.status_left, None);
+        assert_eq!(paid.received.as_deref(), Some("0.31684 XMR received"));
+        assert_eq!(actions(&paid), [(PanelAction::Done, "Done".into(), true)]);
+
+        for ended in [of(Expired), of(DoubleSpend), refunded(Expired)] {
+            let view = draw(ended);
+            assert_eq!(view.face, PanelFace::Ended, "{:?}", view.hero);
+            assert_eq!(view.received, None);
+            assert_eq!(
+                actions(&view),
+                [(PanelAction::OpenShift, "Open the shift".into(), true)]
+            );
+        }
+        assert_eq!(
+            face(PanelHero::Paid, true),
+            PanelFace::Ended,
+            "paid after it ended: the tick, with how it ended"
         );
     }
 }

@@ -96,5 +96,5 @@ fun ModelStage(model: TestModel, content: @Composable (Screen) -> Unit) {
         enabled = model.screen.value != Screen.Till || arriving, state = state, scrub = scrub,
         current = { model.screen.value }, target = { model.backTarget() }, onCommit = model::back,
     )
-    TillStage(state, cameUpByItself = { model.cameUpByItself }, scrub, content)
+    TillStage(state, cameUpByItself = { model.cameUpByItself }, scrub, content = content)
 }

@@ -6,7 +6,7 @@
 use std::time::Duration;
 
 use till_sales::TillSale;
-use till_screens::bubble::{self, PanelInput};
+use till_screens::bubble::{self, PaidEvent, PanelInput};
 use till_screens::close::{self, CloseInput};
 use till_screens::code::{self, CodeInput};
 use till_screens::live_activity::{self, LiveActivityInput, LiveActivityState};
@@ -23,7 +23,7 @@ use till_screens::{CloseView, Device, NotificationView, ShiftView};
 
 use super::{Parts, State, apply};
 use crate::phases::Money;
-use crate::{BubbleView, RefundSheetView, Screen};
+use crate::{BubbleView, Effect, RefundSheetView, Screen};
 
 /// How long a sale paid on screen stays before it steps back to the shift,
 /// and how long the bubble and the ongoing notification show it as paid
@@ -63,6 +63,48 @@ pub(crate) fn screen(place: TillPlace) -> Option<Screen> {
         TillPlace::Order { order_id } => Screen::Order { order_id },
         TillPlace::Other => return None,
     })
+}
+
+/// Where a sale's screens sit: the shift under its sales, a sale under its
+/// code and order, Settings over them all.
+fn depth(screen: &Screen) -> Option<u8> {
+    match screen {
+        Screen::Till => Some(0),
+        Screen::Sale { .. } => Some(1),
+        Screen::Code { .. } | Screen::Order { .. } => Some(2),
+        Screen::Settings => Some(3),
+        _ => None,
+    }
+}
+
+/// Setup's order, the shift last.
+fn setup_step(screen: &Screen) -> Option<u8> {
+    Some(match screen {
+        Screen::Welcome => 0,
+        Screen::Scan => 1,
+        Screen::Confirm => 2,
+        Screen::Connected => 3,
+        Screen::PointOfSale => 4,
+        Screen::Locations => 5,
+        Screen::Alerts => 6,
+        Screen::Float => 7,
+        Screen::Ready => 8,
+        Screen::Till => 9,
+        _ => return None,
+    })
+}
+
+/// Which way going `from` to `to` goes (core.md decision 101): `back` up
+/// from a sale to the shift, from a code to its sale, from Settings, or
+/// backwards through setup; and `steps` when both are steps of setup (the
+/// shift its last), which slide one way or the other.
+pub(crate) fn direction(from: &Screen, to: &Screen) -> (bool, bool) {
+    let back = match (depth(from), depth(to)) {
+        (Some(a), Some(b)) => b < a,
+        _ => setup_step(to).unwrap_or(0) < setup_step(from).unwrap_or(0),
+    };
+    let steps = matches!((setup_step(from), setup_step(to)), (Some(a), Some(b)) if a != b);
+    (back, steps)
 }
 
 /// The sale a screen shows, if it shows one.
@@ -135,19 +177,52 @@ impl State {
     }
 
     /// A payment landed on `order_id`: the bubble and the ongoing
-    /// notification show it as paid for [`PAID_DWELL`].
+    /// notification show it as paid for [`PAID_DWELL`], and the bubble's
+    /// paid moment begins (decision 95).
     pub(super) fn just_paid(&mut self, order_id: String) {
-        self.just_paid = Some(order_id);
+        self.just_paid = Some(order_id.clone());
         self.just_paid_token += 1;
+        self.paid_moment =
+            bubble::paid_next(self.paid_moment, PaidEvent::Paid, false, false).moment;
         let token = self.just_paid_token;
         self.task(async move {
             tokio::time::sleep(PAID_DWELL).await;
             apply(move |s| {
                 if s.just_paid_token == token {
                     s.just_paid = None;
+                    s.paid_dwell_ended(&order_id);
                 }
             })
         });
+    }
+
+    /// The paid dwell for `order_id` went by: with the panel still up on
+    /// it and no other code waiting, the panel collapses into the bubble,
+    /// green until Android says the collapse landed
+    /// ([`State::panel_shown`]).
+    pub(super) fn paid_dwell_ended(&mut self, order_id: &str) {
+        let on_panel = self.panel_up && self.bubble_focus.as_deref() == Some(order_id);
+        let next_waiting = self.sales().iter().any(TillSale::live);
+        let step = bubble::paid_next(
+            self.paid_moment,
+            PaidEvent::DwellEnded,
+            on_panel,
+            next_waiting,
+        );
+        self.paid_moment = step.moment;
+        if step.lower {
+            self.effect(Effect::LowerPanel);
+        }
+    }
+
+    /// Android's panel rose, or went back into the bubble: its countdown
+    /// and the pulse follow it, and a paid moment's collapse has landed.
+    pub(super) fn panel_shown(&mut self, up: bool) {
+        self.panel_up = up;
+        if !up {
+            self.paid_moment =
+                bubble::paid_next(self.paid_moment, PaidEvent::PanelDown, false, false).moment;
+        }
     }
 
     /// The till's own sale `order_id` ended unpaid: the Live Activity
@@ -164,6 +239,18 @@ impl State {
                 }
             })
         });
+    }
+
+    /// Whether the system's Back is the app's on the screen up (android.md
+    /// decision 77): not on Welcome, the shift, or step 4 during setup,
+    /// where it leaves the app as the system's would; from Settings step 4
+    /// goes back to Settings.
+    pub(super) fn back_enabled(&self) -> bool {
+        match self.screen {
+            Screen::Welcome | Screen::Till => false,
+            Screen::PointOfSale => self.setup_done(),
+            _ => true,
+        }
     }
 
     /// Where Back would go from the screen up, without going: what a back
@@ -337,7 +424,8 @@ impl State {
         let model = p.side.model();
         let runner = p.runner.state();
         let sales = &runner.till.sales;
-        let just_paid = self.just_paid.is_some();
+        // Green, on the sale just paid, through the moment's collapse too.
+        let just_paid = self.paid_moment.paid();
         let focus = bubble::focus(sales, self.bubble_focus.as_deref(), just_paid);
         let sale = focus
             .as_deref()

@@ -46,7 +46,7 @@ class InterruptTest(private val move: Moved, private val interruption: Interrupt
 
     private val now = mutableLongStateOf(1_000)
     private val other = testSale("b2", expiresAt = 1_600)
-    private var sale by mutableStateOf(testSale("a1", expiresAt = 1_600).copy(receipt = sampleReceipt()))
+    private var sale by mutableStateOf(testSale("a1", expiresAt = 1_600).copy(receipt = true))
     private lateinit var dispatcher: OnBackPressedDispatcher
 
     @Test
@@ -60,7 +60,7 @@ class InterruptTest(private val move: Moved, private val interruption: Interrupt
                     when (s) {
                         // As the activity does: the enlarged code goes back by itself once its sale isn't live.
                         is Screen.Code -> CodeScreen(rememberFace(shown), onBack = { model.back(s) })
-                        is Screen.Order -> OrderPage(rememberFace(shown), "Back to the sale", onBack = { model.back(s) }, onShowCode = { model.back(s) })
+                        is Screen.Order -> OrderPage(rememberFace(shown), onBack = { model.back(s) }, onShowCode = { model.back(s) })
                         is Screen.Sale -> SaleScreen(rememberFace(shown, now.longValue), noActions)
                         else -> EngineShift(listOf(sale, other), now.longValue, noActions)
                     }
@@ -89,8 +89,8 @@ class InterruptTest(private val move: Moved, private val interruption: Interrupt
         when (interruption) {
             Interruption.Back -> compose.runOnUiThread { dispatcher.onBackPressed() }
             Interruption.WayBack -> model.back(model.screen.value)
-            Interruption.Paid -> sale = sale.copy(phase = SalePhase.Paid, paidAt = 1_001)
-            Interruption.Expired -> sale = sale.copy(phase = SalePhase.Expired)
+            Interruption.Paid -> sale = sale.copy(phase = SalePhase.PAID, paidAt = 1_001)
+            Interruption.Expired -> sale = sale.copy(phase = SalePhase.EXPIRED)
             Interruption.NewSale -> model.go(Screen.Sale("b2"), byItself = true)
         }
         compose.mainClock.advanceTimeByFrame()

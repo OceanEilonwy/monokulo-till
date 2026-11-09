@@ -86,13 +86,22 @@ impl Platform for FakePlatform {
         Ok(())
     }
 
-    /// "$24.50" for USD, "24.50 EUR" for anything else.
-    fn format_money(&self, minor: i64, currency: String) -> String {
-        let amount = format!("{}.{:02}", minor / 100, (minor % 100).abs());
-        if currency == "USD" {
-            format!("${amount}")
+    /// A US locale that knows only the dollar's symbol: the engine writes
+    /// "$24.50" for USD and "24.50 EUR" for anything else.
+    fn format_money(&self, minor: i64, _currency: String) -> String {
+        format!("¤{}.{:02}", minor / 100, (minor % 100).abs())
+    }
+
+    fn currency_symbols(&self, currency: String) -> crate::CurrencySymbols {
+        let local = if currency == "USD" {
+            "$".into()
         } else {
-            format!("{amount} {currency}")
+            currency.clone()
+        };
+        crate::CurrencySymbols {
+            local,
+            international: currency,
+            home: Some("USD".into()),
         }
     }
 }

@@ -25,6 +25,7 @@ mod background;
 mod engine;
 mod phases;
 mod preview;
+mod preview_sales;
 mod push;
 mod relay;
 mod side;
@@ -40,6 +41,9 @@ use tokio::sync::mpsc::UnboundedSender;
 pub use background::{BackgroundCheck, background_check, is_relayed_ding};
 use monokulo_client::PointOfSale;
 pub use preview::{TillPreview, preview_close, preview_panel, preview_sale, preview_shift};
+pub use preview_sales::{
+    PreviewPhase, PreviewSale, preview_phase_step, preview_sale_live, preview_sales_json,
+};
 pub use till_screens::Device;
 use till_screens::bubble::{BubbleLook, BubbleTap, PanelView};
 use till_screens::notification::Notice;
@@ -65,9 +69,30 @@ pub trait Platform: Send + Sync {
     fn secret_get(&self, key: String) -> Result<Option<Vec<u8>>, SecretError>;
     fn secret_put(&self, key: String, value: Vec<u8>) -> Result<(), SecretError>;
     fn secret_remove(&self, key: String) -> Result<(), SecretError>;
-    /// `minor` units of `currency` (ISO 4217) in the device's locale: 2450
-    /// and "USD" is "$24.50" in the US (docs/design.md §6).
+    /// `minor` units of `currency` (ISO 4217) in the device locale's money
+    /// pattern, with `¤` (U+00A4) where the symbol goes: 2450 and "USD" is
+    /// "¤24.50" in the US, "24,50 ¤" in Germany (docs/design.md §6). The
+    /// engine chooses the symbol (`monokulo_client::amounts::written`,
+    /// core.md decision 99), so both platforms write the same one.
     fn format_money(&self, minor: i64, currency: String) -> String;
+    /// How the device's locale names `currency`'s symbol, and its own
+    /// country's currency.
+    fn currency_symbols(&self, currency: String) -> CurrencySymbols;
+}
+
+/// What the device's locale knows about a currency's symbol (core.md
+/// decision 99).
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct CurrencySymbols {
+    /// The locale's own symbol for it ("$", "R$", "A$"), or the code
+    /// itself where the locale writes only the code.
+    pub local: String,
+    /// International English's (`en-001`): "US$", "A$", "CN¥", or the code.
+    pub international: String,
+    /// The currency of the device's country; `None` for a locale with no
+    /// country.
+    pub home: Option<String>,
 }
 
 /// The platform's secret store couldn't do what was asked, for now at least.
@@ -336,6 +361,12 @@ pub enum Action {
     PasteConnectLink {
         text: Option<String>,
     },
+    /// Text another app shared with Till, whole: the engine finds the
+    /// connect link in it (`connect_code::shared_link`, core.md 103), and
+    /// does nothing when it holds no link.
+    SharedText {
+        text: String,
+    },
     /// Step 2's camera read a code: one that isn't a store's connect code is
     /// said so.
     ScanConnectCode {
@@ -383,6 +414,8 @@ pub enum Action {
     /// Android's bubble panel rose (`up`) or went back into the bubble. While
     /// it is up the panel's countdown is redrawn each second though the app
     /// is in the back (decision 56), and the free bubble doesn't pulse.
+    /// Down, after the panel's window has gone (its collapse landed, or it
+    /// went without one): that ends a paid moment's green (decision 95).
     PanelShown {
         up: bool,
     },
@@ -438,6 +471,9 @@ pub enum Action {
     CopyAmount {
         order_id: String,
     },
+    /// Settings' "Copy wallet address": the store's whole wallet address
+    /// is copied (core.md decision 105).
+    CopyWalletAddress,
     OpenSettings,
     /// Settings' "Change the point of sale": step 4, back to Settings once
     /// the new sign-in is done.
@@ -532,8 +568,17 @@ pub enum Update {
     Core { version: String },
     /// Where the app is.
     Screen { screen: Screen },
-    /// Busy with a network call (buttons wait), and what went wrong last.
-    Work { busy: bool, problem: Option<String> },
+    /// Busy with a network call (buttons wait), and what went wrong last;
+    /// and of those, what the platform shows itself (core.md decision
+    /// 109): `shown_busy` and `shown_problem` leave out what the screen's
+    /// own view already shows (step 3's and step 4's busy button and
+    /// problem), so nothing is said twice.
+    Work {
+        busy: bool,
+        problem: Option<String>,
+        shown_busy: bool,
+        shown_problem: Option<String>,
+    },
     /// Android keeps its foreground service while the till runs.
     Service { running: bool },
     /// Onboarding's step, as `till_screens::onboarding` draws it, while
@@ -548,10 +593,19 @@ pub enum Update {
     /// the sales put it there (a new sale rising, a code going down), not
     /// the cashier, so it arrives without growing out of anything (M7);
     /// and where Back would go from it, for a back gesture's preview
-    /// (`None` where Back shows none). Sent before the screen it describes.
+    /// (`None` where Back shows none); and whether the system's Back is the
+    /// app's there at all (`back_enabled`): everywhere but Welcome, the
+    /// shift and step 4 during setup, where Back leaves the app (android.md
+    /// decision 77, core.md 98); and which way the change to it goes from
+    /// the screen before (core.md 101): `back` toward the shift or back
+    /// through setup, and `steps` when both are steps of setup, which slide.
+    /// Sent before the screen it describes.
     Nav {
         by_itself: bool,
         back_target: Option<Screen>,
+        back_enabled: bool,
+        back: bool,
+        steps: bool,
     },
     /// The shift, as `till_screens::shift` draws it, once the till is set up.
     Shift { view: ShiftView },
@@ -624,6 +678,8 @@ pub struct BubbleView {
     /// Its height on screen, in pixels, as last let go; `None` until it has
     /// been moved (Android puts it a third of the way down).
     pub y: Option<i32>,
+    /// Green from a payment through the paid dwell, and through the
+    /// collapse at its end until the panel has gone (decision 95).
     pub look: BubbleLook,
     /// The sale the bubble and its panel are about.
     pub order_id: Option<String>,
@@ -662,13 +718,15 @@ pub enum Effect {
     },
     /// Android: post a sale's own notification in the ended group (its
     /// "Paid", or "No payment yet" with how to refund it), replacing one for
-    /// the same `order_id`. `paid` gives it the paid look and the timeout;
+    /// the same `order_id`. `paid` gives it the paid look; `timeout_ms`, when
+    /// set, is how long it stays (a "Paid" one, core.md decision 106);
     /// `quiet` posts it without sound or banner, the app being on screen.
-    /// Once two are posted, their summary is [`ended_summary`].
+    /// With two or more showing, their summary is [`ended_summary`]'s.
     Notify {
         order_id: String,
         notice: Notice,
         paid: bool,
+        timeout_ms: Option<u64>,
         quiet: bool,
     },
     /// The sale `id` left the shift: what was posted about it goes.
@@ -678,6 +736,16 @@ pub enum Effect {
     Haptic {
         haptic: Haptic,
     },
+    /// Android: the paid dwell is over with the bubble's panel still up on
+    /// the sale just paid and no other code waiting, so the panel collapses
+    /// into the bubble. The bubble stays green until the platform says the
+    /// panel has gone ([`Action::PanelShown`] with `up: false`).
+    LowerPanel,
+    /// Android: see whether Orbot is running and say so with
+    /// [`Action::TorProbed`]. Sent as the app comes forward and as step 3
+    /// or Settings comes up (decision 54, core.md 102); iOS has no Tor and
+    /// never gets it.
+    ProbeTor,
     /// Put `text` on the clipboard; `kind` says what it is, for the
     /// platform's confirmation ("Address copied") and for marking an
     /// address sensitive, without reading the text.
@@ -698,10 +766,11 @@ pub enum CopyKind {
     Other,
 }
 
-/// The summary of Android's ended group, once it holds `ended`
-/// notifications (two or more): "3 sales ended".
+/// The summary of Android's ended group with `ended` of its notifications
+/// showing, and how long it stays: "3 sales ended"; `None` below two,
+/// where the platform posts none (core.md decision 106).
 #[cfg_attr(feature = "uniffi", uniffi::export)]
-pub fn ended_summary(ended: u32) -> Notice {
+pub fn ended_summary(ended: u32) -> Option<till_screens::notification::EndedSummary> {
     till_screens::notification::ended_summary(ended)
 }
 
@@ -790,6 +859,12 @@ impl Engine {
         })));
         rx.recv_timeout(std::time::Duration::from_secs(10))
             .expect("the engine answers")
+    }
+
+    /// Changes the engine's state with `change` on its task, as the end of
+    /// one of its timers would; what changed is published after.
+    pub(crate) fn poke(&self, change: impl FnOnce(&mut engine::State) + Send + 'static) {
+        let _ = self.tx.send(engine::Msg::Poke(Box::new(change)));
     }
 }
 

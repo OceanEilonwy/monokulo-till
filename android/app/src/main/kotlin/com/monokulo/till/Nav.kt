@@ -129,6 +129,13 @@ sealed interface Move {
     data object Crossfade : Move
 }
 
+/** Which way a change goes, as the engine says (`Update::Nav`): [back] toward the shift or back through setup, and [steps] when both screens are steps of setup. */
+data class Way(val back: Boolean, val steps: Boolean) {
+    companion object {
+        val None = Way(back = false, steps = false)
+    }
+}
+
 /** Which [Move] takes the till from one screen to the next. */
 object Nav {
     /**
@@ -152,7 +159,11 @@ object Nav {
      */
     const val HALF_WAY = 0.5f
 
-    fun move(from: Screen, to: Screen, cameUpByItself: Boolean, still: Boolean): Move {
+    /**
+     * The move [from] to [to]; [way] is which way the engine says the change goes (`Update::Nav`'s `back` and `steps`,
+     * docs/decisions/core.md 101): setup's steps slide forward, or back the other way.
+     */
+    fun move(from: Screen, to: Screen, cameUpByItself: Boolean, still: Boolean, way: Way = Way.None): Move {
         val same = from.orderIdOrNull() != null && from.orderIdOrNull() == to.orderIdOrNull()
         return when {
             still -> Move.Crossfade
@@ -163,11 +174,8 @@ object Nav {
             from is Screen.Sale && to is Screen.Sale -> Move.Rise
             same && (from is Screen.Order || to is Screen.Order) -> Move.OrderGrow
             same && (from is Screen.Code || to is Screen.Code) -> Move.CodeGrow
-            else -> {
-                val a = step(from)
-                val b = step(to)
-                if (a != null && b != null && a != b) Move.Slide(forward = b > a) else Move.Crossfade
-            }
+            way.steps -> Move.Slide(forward = !way.back)
+            else -> Move.Crossfade
         }
     }
 
@@ -178,37 +186,6 @@ object Nav {
      */
     fun through(toward: Float, isArriving: Boolean, leaving: Float, arriving: Float): Float =
         if (isArriving) ((toward - 1f + arriving) / arriving).coerceIn(0f, 1f) else ((leaving - toward) / leaving).coerceIn(0f, 1f)
-
-    /** Whether going [from] to [to] is going back: up from a sale to the shift, from a code to its sale, through setup backwards. */
-    fun isBack(from: Screen, to: Screen): Boolean {
-        val a = depth(from)
-        val b = depth(to)
-        return if (a != null && b != null) b < a else (step(to) ?: 0) < (step(from) ?: 0)
-    }
-
-    /** Where a sale's screens sit: the shift under its sales, a sale under its code and order. */
-    private fun depth(screen: Screen): Int? = when (screen) {
-        Screen.Till -> 0
-        is Screen.Sale -> 1
-        is Screen.Code, is Screen.Order -> 2
-        Screen.Settings -> 3
-        else -> null
-    }
-
-    /** Onboarding's order, the shift last. */
-    private fun step(screen: Screen): Int? = when (screen) {
-        Screen.Welcome -> 0
-        Screen.Scan -> 1
-        is Screen.Confirm -> 2
-        is Screen.Connected -> 3
-        Screen.PointOfSale -> 4
-        is Screen.Locations -> 5
-        Screen.Alerts -> 6
-        Screen.Float -> 7
-        Screen.Ready -> 8
-        Screen.Till -> 9
-        else -> null
-    }
 }
 
 /**
@@ -275,9 +252,6 @@ class Stage internal constructor(
      * driven by it stays in step with them. Read in draw or layout.
      */
     fun shown(): Float = shownState.value
-
-    /** [shown] while the screens change by [move]; 1 otherwise, as at rest. */
-    fun shownDuring(move: Move): Float = if (moving() == move) shownState.value else 1f
 
     /**
      * This screen's face of a surface while the screens change by [move]:
@@ -346,10 +320,18 @@ class Stage internal constructor(
  * answer until the stage is at rest, so a flag the till sets mid-move
  * can't turn a row's grow into a rise half way through it.
  */
-internal class HeldMove(private val cameUpByItself: () -> Boolean, private val still: Boolean) {
+internal class HeldMove(
+    private val cameUpByItself: () -> Boolean,
+    private val still: Boolean,
+    private val way: () -> Way = { Way.None },
+) {
     private var from: Screen? = null
     private var to: Screen? = null
     private var move: Move = Move.Crossfade
+
+    /** Whether the held change goes back: the screen arriving goes underneath. */
+    var back = false
+        private set
 
     /** Which change this is, counted up as each starts: a surface's course starts again on a new one. */
     var generation = 0L
@@ -377,7 +359,9 @@ internal class HeldMove(private val cameUpByItself: () -> Boolean, private val s
             generation++
             this.from = from
             this.to = to
-            move = Nav.move(from, to, cameUpByItself(), still)
+            val w = way()
+            back = w.back
+            move = Nav.move(from, to, cameUpByItself(), still, w)
         }
         return move
     }
@@ -502,12 +486,14 @@ fun TillStage(
     state: SeekableTransitionState<Screen>,
     cameUpByItself: () -> Boolean,
     scrub: BackScrub = remember { BackScrub() },
+    way: () -> Way = { Way.None },
     content: @Composable (Screen) -> Unit,
 ) {
     val m = motion
     val transition = rememberTransition(state, label = "screen")
     val root = remember { StageRoot() }
-    val held = remember(m) { HeldMove(cameUpByItself, m.still) }
+    // A back gesture's preview goes back before the engine has heard of it; else the engine says which way.
+    val held = remember(m) { HeldMove(cameUpByItself, m.still) { if (scrub.active) Way(back = true, steps = false) else way() } }
     val geometry = remember(transition, held) { StageGeometry(transition, held, { state.fraction }, root, m.fadeOutOnTrack) }
     // One collector on whether a change runs (nothing recomposes for it; the flow runs off the frame). While one does,
     // the frame being drawn, so each surface is placed once a frame however many parts ask. At rest, the held move is
@@ -536,7 +522,7 @@ fun TillStage(
         Box {
         transition.AnimatedContent(
             transitionSpec = {
-                transform(held.during(initialState, targetState) ?: Move.Crossfade, m, Nav.isBack(initialState, targetState))
+                transform(held.during(initialState, targetState) ?: Move.Crossfade, m, held.back)
             },
         ) { screen ->
             val visibility = (this as AnimatedVisibilityScope).transition

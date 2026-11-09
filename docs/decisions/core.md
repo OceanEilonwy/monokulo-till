@@ -64,6 +64,7 @@ on from 1; the Android app's own choices are in [android.md](android.md).
    keeps only ISO 4217 exponents and decimal-to-minor parsing (half to
    even). Six of AmountsTest's nine tests assert the JVM locale's symbols
    and go with the Android side of `format_money`; three are ported.
+   (Amended by 99: the symbol policy moved back into Rust.)
 10. **The Orbot probe stays on the platform, behind `TorProbe`.** The core
     keeps the onion rule and the `socks5h` proxy choice
     (`tor::http_client`).
@@ -560,3 +561,157 @@ on from 1; the Android app's own choices are in [android.md](android.md).
     core has no client for Monokulo's push targets, so Live Activity
     updates while Till is in the background wait for one. The relay URL is
     `https://relay.monokulo.com`, a placeholder until it's deployed.
+
+## The engine owns what Android still decided (2026-11-09)
+
+94. **`SaleView.back_to_pos` names the point of sale it opens**
+    (`BackToPos { press, mark: PosMark }`): Android opened Square whatever
+    the label said. It opens Square Point of Sale (`com.squareup`) for
+    `PosMark::Square`. For `PosMark::Clover` it steps back
+    (`moveTaskToBack`): Till runs on the Clover device, over the Register
+    it was opened from, and we haven't confirmed a launcher package for
+    Clover's Register app. Today the engine offers the button only on a
+    till on Square (decision 135 of android.md), so the Clover branch is
+    for when that changes. iOS never gets the button.
+95. **The engine owns the bubble's paid moment** (android.md 158 moves
+    here). The overlay ran a second five-second timer beside the engine's
+    `PAID_DWELL`. Now the engine keeps a `bubble::PaidMoment` (`None`,
+    `Held`, `HeldDown`, `Lowering`; the pure `bubble::paid_next`, with
+    Android's `PanelTest` cases ported). A payment starts `Held`. When the
+    dwell ends with the panel still up on that sale and no code waiting,
+    the engine sends `Effect::LowerPanel`, and `BubbleView.look` stays
+    `Paid` until Android says the panel's window has gone. No new action
+    was needed for that: `Action::PanelShown { up: false }` is already sent
+    exactly when the collapse lands, or when the panel goes without one.
+    A panel lowered during the dwell (`HeldDown`) keeps the bubble green
+    to the dwell's end, with no collapse then. `bubble::landed` is gone:
+    the engine's own paid change, checked against the bubble's focus,
+    replaces it. Android keeps only the collapse's animation.
+96. **The engine follows `close::outcome` for every close-sheet answer**,
+    wherever the sheet was asked. "No: refund it" refunds the sale and
+    opens it (`CloseThen::Sale`), "Not sure" closes it and leaves it for
+    the shift, "Yes" does nothing. Android's shift used to send
+    `OpenSale` itself after "No" from a row, and iOS didn't, so the two
+    differed. Now both send `Action::Close` alone and land in the same
+    place. `CloseAnswer.then` tells the platform where an answer lands, so
+    Android's stage can grow the sale out of its row without its own copy
+    of the rule.
+97. **`PanelView` says its face and its buttons**: `face: PanelFace`
+    (`Code`, `Paid`, `Ended`, from the hero and whether the code came down
+    unpaid), `status_left` ("· 14:52 left"), `received` ("… XMR received"
+    on the paid face) and `buttons: Vec<PanelButton>` (a `PanelAction`, a
+    `Press` and whether it is filled), shaped like the sale page's
+    `PageButton`. Android had worked all of these out in `PanelSale.of`
+    and `Faces.kt`, and wrote "Copy address" itself instead of using the
+    sale's `copy_address`. It now draws what the engine lists, and the
+    Kotlin `PanelFace` enum is gone.
+98. **`Update::Nav` says whether the system's Back is the app's**
+    (`back_enabled`): false on Welcome, the shift, and step 4 during
+    setup, where Back leaves the app (android.md 77); true everywhere
+    else, including step 4 opened from Settings. `MainActivity` worked
+    this out from the screen and step 4's view. It now reads the flag, and
+    keeps only the stage's own rule that a second Back while the shift is
+    still arriving stays in the app (android.md 260 c), which is about the
+    animation. iOS has no system Back and ignores the field.
+99. **The engine picks an amount's symbol; the platform gives only locale
+    data** (amends 9). Android's `Money.kt` held the policy: the narrow
+    symbol, country letters taken off shared signs ("US$" becomes "$"),
+    the clash with the till's own dollar ("US$4.50" in Australia), and a
+    symbol-less currency after the number ("4.50 CHF"). iOS printed
+    whatever `NumberFormatter` gave, so the two differed. The policy is
+    now `monokulo_client::amounts::written`. `Platform::format_money`
+    returns the locale's pattern with `¤` where the symbol goes, and the
+    new `Platform::currency_symbols` returns how the locale and `en-001`
+    write a currency's symbol, plus the locale's own currency.
+    `MoneyTest`'s cases are ported to `monokulo-client/tests/money.rs`
+    against stand-in locales holding the JVM's data for each one.
+100. **`Ring` is ready to draw**: besides its step and confirmations it
+     carries `fill` (0 to 1: a quarter a step, or `SEEN_FILL` plus the
+     confirmations' share of the rest), `spins` and `green`, which
+     Android's `PhaseRing.kt` used to work out (`ringFill`, `ringSpins`,
+     `ringGreen`, with `PhaseRingTest` ported to `view::ring_tests`).
+     `ring_of(step, confirmations, required)` is exported for a badge
+     drawn without a sale. Android keeps the sweep, the turn and the
+     colour fade. iOS's `RingGlyph` now draws `fill` in the accent, or in
+     the paid green once `green`, instead of quarters by step.
+101. **`Update::Nav` says which way the change goes**: `back` (toward the
+     shift, from a code to its sale, from Settings, or backwards through
+     setup) and `steps` (both screens are steps of setup, the shift last,
+     so they slide). Both are worked out from the screen last published
+     (`engine::till::direction`, with `NavTest`'s cases ported). `Nav.kt`
+     no longer keeps the depth and setup-order tables: `HeldMove` reads
+     the engine's `Way` when a change starts, uses it for the slide and
+     for which screen goes underneath, and treats a back gesture's preview
+     as going back, since the engine hasn't heard of it yet. iOS's
+     navigation is its own and ignores the fields.
+102. **The engine says when to look for Orbot** (`Effect::ProbeTor`,
+     Android only): as the app comes forward (`Action::Opened`) and each
+     time step 3 or Settings comes up from another screen, as
+     `MainActivity`'s `TorProbes` and `onStart` did (decision 54). Android
+     runs the probe in `TillService.follow`, whose collector lives as
+     long as the process, so the probe sent while the activity is still
+     starting isn't dropped. iOS has no Tor, never gets the effect, and
+     its `perform` names it with `LowerPanel` as one it ignores.
+103. **Shared text goes to the engine whole** (`Action::SharedText`).
+     `connect_code::shared_link` picks the first word that is a store's
+     connect code, else the first word that is any link (which then gets
+     "not a link" as before), and nothing happens when there's no link.
+     Android used to pick the first word containing "://" itself. iOS has
+     no share path; it opens connect links as URLs (`Action::ConnectLink`).
+104. **`ShiftTop.mark` is the till's point of sale's mark** (the same
+     `PosMark` as `BackToPos`, from the till's point of sale; `None`
+     without one). Android's shift badge used to dig the mark out of
+     `SettingsView`'s point-of-sale section. iOS's top bar shows the
+     Monokulo logo, not the point of sale's mark, so it doesn't use it.
+105. **Every copy goes through the engine** as an action that comes back
+     as `Effect::CopyText`. Settings' "Copy wallet address" is the new
+     `Action::CopyWalletAddress` (the store's whole address as last read),
+     on Android and iOS alike. The ongoing notification's "Copy address"
+     now sends `Action::CopyAddress` with the sale's order id instead of
+     carrying the address in its intent. Android's `TillService.follow`
+     puts every copy on the clipboard, and iOS's `perform` does the same.
+     One edge: if the receiver wakes a process whose kept state can't be
+     read yet, the copy is dropped with the other actions that wait for
+     it.
+106. **The engine says how long ended notifications stay and when they
+     are bundled.** `Effect::Notify` carries `timeout_ms`
+     (`notification::notice_timeout`: five minutes for "Paid", none for an
+     unpaid one). The exported `ended_summary(showing)` now returns
+     `Option<EndedSummary>`: `None` below two, else the summary's notice and
+     its own timeout. Android had a hard-coded `ENDED_MS` and its own
+     "two or more" rule. Android still counts how many of the group are
+     showing, since only the system knows. These aren't fields on
+     `NotificationView` because the count is the platform's, and a field
+     there would be a guess. iOS posts only the new-sale alert (decision
+     41), so none of this applies to it.
+107. **The whole order's words come from the engine**: `OrderPageView.back`
+     ("Back to the sale") and the "Show the code" bar's line
+     (`code::show_code_line`, "$79.21 · 0.31684 XMR · 14:52 left"), carried
+     as `CodeView.show_code` for the app (so it's there even without a
+     receipt) and `PanelView.show_code` for the panel. Android used to join
+     amount and under itself, the panel joined its own variant, and
+     `MainActivity` wrote "Back to the sale". The panel's own "Back to the
+     code" and "Show the code" headings stay in its screen, as words
+     written once. iOS's order screen has neither bar nor labelled back.
+108. **The on-device tests' sales are the engine's fixtures.**
+     `till_app::preview_sales` exports `PreviewSale` (with UniFFI
+     defaults: $8.40 of this till's on Square, waiting, unless the test
+     says otherwise; the design's sample receipt behind `receipt: true`),
+     `PreviewPhase`, `preview_sales_json` (the saved shift's JSON, written
+     by `shift_json::encode`), `preview_sale_live` and
+     `preview_phase_step`. Android's `SavedShift.kt`, a 124-line hand copy
+     of `TillSale`'s serde schema, is gone, along with the app's
+     kotlinx-serialization plugin and test dependency, which only it used.
+     `CustomerNameTitleTest` stays: besides the wording (which
+     `sale_text`'s tests cover), it checks that the bar is one TalkBack
+     heading, which only a device can.
+109. **`Update::Work` is shown on both platforms, where no view already
+     shows it.** Neither app drew it: Android didn't read it, and iOS kept
+     `busy` and `problem` without drawing them. So a refused write from
+     Settings, a store that couldn't be forgotten, or kept state that
+     couldn't be read went unsaid. `Update::Work` now also carries
+     `shown_busy` and `shown_problem`, which leave out what step 3's and
+     step 4's own views already show (their busy button and problem), so
+     nothing is said twice. Each app draws them over the top of the
+     screen with a part it already had: Android a thin progress bar and
+     its `Notice` (`WorkBar`), iOS a `ProgressView` and its `ProblemNote`.

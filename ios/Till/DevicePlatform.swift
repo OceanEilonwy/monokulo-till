@@ -57,7 +57,11 @@ final class DevicePlatform: Platform, @unchecked Sendable {
     }
 
     func formatMoney(minor: Int64, currency: String) -> String {
-        TillCore.formatMoney(minor: minor, currency: currency)
+        TillCore.moneyPattern(minor: minor, currency: currency)
+    }
+
+    func currencySymbols(currency: String) -> CurrencySymbols {
+        TillCore.currencySymbols(currency: currency)
     }
 
     private func base(_ key: String) -> [String: Any] {

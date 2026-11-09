@@ -207,12 +207,39 @@ pub fn unpaid_notice(
     }
 }
 
-/// The ended group's summary, once there are two.
-pub fn ended_summary(ended: u32) -> Notice {
-    Notice {
-        title: format!("{ended} sales ended"),
-        text: None,
-    }
+/// How long Android keeps a "Paid" notification, and the ended group's
+/// summary, before taking them down (core.md decision 106).
+pub const ENDED_TIMEOUT_MS: u64 = 5 * 60 * 1000;
+
+/// How long a sale's own notification stays: a paid one goes after
+/// [`ENDED_TIMEOUT_MS`]; one that ended unpaid stays until the cashier
+/// sees to it.
+pub fn notice_timeout(paid: bool) -> Option<u64> {
+    paid.then_some(ENDED_TIMEOUT_MS)
+}
+
+/// The ended group's summary, which goes up once two of its notifications
+/// are showing (left to itself Android bundles them under the launcher
+/// icon, a solid square in the status bar).
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct EndedSummary {
+    /// "3 sales ended".
+    pub notice: Notice,
+    /// It goes when the paid ones would, so it never outlives them long.
+    pub timeout_ms: u64,
+}
+
+/// The ended group's summary with `ended` of its notifications showing;
+/// `None` below two, where there's nothing to bundle.
+pub fn ended_summary(ended: u32) -> Option<EndedSummary> {
+    (ended >= 2).then(|| EndedSummary {
+        notice: Notice {
+            title: format!("{ended} sales ended"),
+            text: None,
+        },
+        timeout_ms: ENDED_TIMEOUT_MS,
+    })
 }
 
 /// A button on a sale's notification.
@@ -643,7 +670,21 @@ mod tests {
                 .as_deref(),
             Some("$13.88. Refund it in Square on the till that took it.")
         );
-        assert_eq!(ended_summary(3).title, "3 sales ended");
+        let summary = ended_summary(3).expect("three ended: bundled");
+        assert_eq!(summary.notice.title, "3 sales ended");
+        assert_eq!(
+            summary.timeout_ms,
+            5 * 60 * 1000,
+            "it goes when the paid ones would"
+        );
+        assert!(ended_summary(2).is_some(), "two are bundled");
+        assert_eq!(ended_summary(1), None, "one stands alone");
+        assert_eq!(
+            notice_timeout(true),
+            Some(300_000),
+            "Paid goes after five minutes"
+        );
+        assert_eq!(notice_timeout(false), None, "unpaid stays until seen to");
     }
 
     fn input(sales: Vec<TillSale>, alert_for: Option<&str>) -> NotificationInput {

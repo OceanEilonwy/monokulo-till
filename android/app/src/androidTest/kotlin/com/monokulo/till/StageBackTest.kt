@@ -34,7 +34,7 @@ class StageBackTest {
     private val sale = testSale("a1", expiresAt = 1_600)
     private val other = testSale("b2", expiresAt = 1_600)
     /** A paid sale: its page's hero is its row's badge, the glyph that moves under the finger. */
-    private val paid = testSale("p1", phase = SalePhase.Paid, paidAt = 990)
+    private val paid = testSale("p1", phase = SalePhase.PAID, paidAt = 990)
     private val sales = listOf(testSale("z0", expiresAt = 1_600), testSale("y0", expiresAt = 1_600), sale, other, paid)
     private val now = mutableLongStateOf(1_000)
     private lateinit var dispatcher: OnBackPressedDispatcher
