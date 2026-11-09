@@ -191,9 +191,14 @@ impl TillRunner {
         self.inner.state.subscribe()
     }
 
-    /// The runner's state now.
+    /// The runner's state now, with the till's as the ledger holds it this
+    /// moment (the copy [`TillRunner::subscribe`] follows may lag behind).
     pub fn state(&self) -> RunnerState {
-        self.inner.state.borrow().clone()
+        let mut state = self.inner.state.borrow().clone();
+        if let Some(till) = self.till() {
+            state.till = till.state();
+        }
+        state
     }
 
     /// Starts a shift, unless one is running or there's no connection: the

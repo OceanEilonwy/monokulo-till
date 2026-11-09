@@ -592,6 +592,12 @@ impl State {
         self.keep_settings();
         if let Some(p) = &self.parts {
             p.side.books().refresh();
+            // What the ledger held as the app started (an older build's
+            // shift, imported) is learnt; what the first look finds is new
+            // (docs/decisions/core.md 155).
+            if let Err(e) = p.side.books().with(|l| l.set_learning(false)) {
+                self.log(format!("till-core: ending the ledger's learning: {e}"));
+            }
             if let Err(e) = p.side.books().with(|l| l.maintain()) {
                 self.log(format!("till-core: the ledger's upkeep: {e}"));
             }
@@ -612,6 +618,9 @@ impl State {
             });
         }
         self.screen = self.home();
+        // The sales already live as the app starts were told of then: none
+        // rises out of the shift on its own.
+        self.live_before = till_screens::till_nav::live_ids(&self.sales_now());
         // The first screen is at rest before anything moves.
         self.resting_on = Some(self.screen.clone());
     }

@@ -128,6 +128,10 @@ pub(crate) fn order_id(screen: &Screen) -> Option<&str> {
 const LIVE_ACTIVITY_PUSHED: bool = false;
 
 impl State {
+    pub(super) fn sales_now(&self) -> Vec<TillSale> {
+        self.sales()
+    }
+
     fn sales(&self) -> Vec<TillSale> {
         self.parts
             .as_ref()

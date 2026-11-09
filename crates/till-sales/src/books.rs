@@ -160,11 +160,24 @@ impl Books {
     fn publish(&self, ledger: &Ledger) -> Result<(), LedgerError> {
         let window = ledger.shift_window()?;
         let views = ledger.sales()?;
+        // Orders a point-of-sale sale has: a sale known only by one of them
+        // (kept from Monokulo before this till found it at the point of
+        // sale, in an older build's shift) is that sale.
+        let found_orders: std::collections::BTreeSet<String> = views
+            .iter()
+            .filter(|v| matches!(v.sale, SaleKey::Pos { .. }))
+            .flat_map(|v| v.attempts.iter().map(|a| a.order_id.clone()))
+            .collect();
         let mut sales = Vec::new();
         let mut shown = Vec::new();
         for view in views {
             // A sale whose order is still being made has no code to show.
             if view.waiting_for_order {
+                continue;
+            }
+            if let SaleKey::Order(order) = &view.sale
+                && found_orders.contains(order.as_str())
+            {
                 continue;
             }
             let sale = TillSale::of_view(&view);
@@ -300,6 +313,8 @@ impl Books {
         if let Some(policy) = self.claims {
             let claims = self.claim_due(policy);
             if !claims.is_empty() {
+                // Another process wrote these sales: show them as they are.
+                self.refresh();
                 self.host.claimed(claims);
             }
         }

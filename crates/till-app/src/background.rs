@@ -156,6 +156,12 @@ pub(crate) async fn check(
         .with_clock(clock)
         .with_options(&model.till_options());
     books.refresh();
+    // Woken by a ding for a sale: what this round finds is new, even on a
+    // ledger just made or imported, as the extension's look always alerted
+    // (docs/decisions/core.md 155). The app's first look still learns.
+    if let Err(e) = books.with(|l| l.set_learning(false)) {
+        return BackgroundCheck::failed(format!("Couldn't read the sales this till keeps: {e}"));
+    }
     let round = async {
         till.check().await;
         // Monokulo's open orders, read again (docs/ledger.md §8).
@@ -176,6 +182,8 @@ pub(crate) async fn check(
     // The one alert this round shows: the newest new sale it left due. The
     // app (or the next push) claims the rest.
     let claims = books.claim_due(ClaimPolicy::NewestNewSale);
+    // Another process may have written what this round found first.
+    books.refresh();
     let state = till.state();
     let new: Vec<TillSale> = claims
         .iter()

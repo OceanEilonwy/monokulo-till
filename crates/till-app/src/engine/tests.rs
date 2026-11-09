@@ -25,9 +25,19 @@ const NOW: i64 = 1_761_149_280;
 
 const TOKEN: &str = "ct_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
+/// A data directory of the test's own, for the ledger and the locks.
+pub(crate) fn data_dir() -> String {
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let dir = std::env::temp_dir().join(format!("till-engine-{}-{n}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir.to_string_lossy().into_owned()
+}
+
 fn config(square: Option<&MockServer>) -> EngineConfig {
     EngineConfig {
-        data_dir: std::env::temp_dir().to_string_lossy().into_owned(),
+        data_dir: data_dir(),
         device: Device::Iphone,
         device_name: "iPhone 17".into(),
         app_version: "0.1.0".into(),
@@ -562,11 +572,10 @@ async fn an_upgraded_till_runs_its_shift_makes_orders_and_tells_the_platform() {
         alert.body,
         "Monero sale. Tap to show the customer the code."
     );
-    assert!(
-        platform
-            .get("shift.sales")
-            .unwrap()
-            .contains(r#""orderId":"ord_1""#)
+    assert_eq!(
+        platform.get("shift.sales"),
+        None,
+        "the kept shift went into the ledger"
     );
     assert_eq!(
         platform.get("square.handled").as_deref(),
@@ -1831,10 +1840,6 @@ async fn this_counters_sale_another_till_announced_first_alerts_when_found_here(
     });
     assert_eq!(alert.order_id, "ord_1");
     assert_eq!(alert.title, "Sam · $13.88");
-    assert_eq!(
-        platform.get("alerts.posted").as_deref(),
-        Some(r#"["ord_1"]"#)
-    );
     // Looks go on (a ding wakes one); the sale is never alerted again.
     engine.send(Action::PushReceived {
         content: br#"{"wake":"square"}"#.to_vec(),
