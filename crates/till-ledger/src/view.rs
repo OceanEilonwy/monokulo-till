@@ -269,26 +269,40 @@ pub fn view(
         .collect();
 
     let device_id = payment.and_then(|p| p.device_id.clone());
-    let pos_refunded = shared
-        .refund
-        .as_ref()
-        .is_some_and(|r| r.status == RefundStatus::Completed);
+    // Refunded once the POS completes the refund, or as soon as it accepts
+    // the one this till asked for: Square answers a refund PENDING and
+    // completes it a little later, and the cashier who asked is done then,
+    // as before the ledger (core.md decision 181). A refund made in the
+    // POS's own app waits for completion, and a failed or rejected one
+    // isn't one; [`SharedSale::ended`] waits for completion either way.
+    let refund_asked = marks
+        .actions
+        .get(&action_name(crate::facts::Action::Refund));
+    let refund_done_at = refund_asked
+        .filter(|a| a.outcome == Some(Outcome::Done))
+        .and_then(|a| a.done_at);
+    let pos_refunded = shared.refund.as_ref().is_some_and(|r| match r.status {
+        RefundStatus::Completed => true,
+        RefundStatus::Pending => refund_done_at.is_some(),
+        RefundStatus::Failed | RefundStatus::Rejected => false,
+    });
     let refunded_at = marks
         .refunded_at
         .or(marks.refund.and_then(|r| r.confirmed_at))
-        .or(if pos_refunded { Some(rung_at) } else { None });
+        .or(if pos_refunded {
+            Some(refund_done_at.unwrap_or(rung_at))
+        } else {
+            None
+        });
     let closed_at = marks.closed_at();
     let live = phase.is_some_and(PaymentPhase::is_live)
         && closed_at.is_none()
         && marks.paid_in_cash.is_none()
         && refunded_at.is_none();
-    let refund_problem = marks
-        .actions
-        .get(&action_name(crate::facts::Action::Refund))
-        .and_then(|a| match &a.outcome {
-            Some(Outcome::Failed(why)) => Some(why.clone()),
-            _ => None,
-        });
+    let refund_problem = refund_asked.and_then(|a| match &a.outcome {
+        Some(Outcome::Failed(why)) => Some(why.clone()),
+        _ => None,
+    });
 
     SaleView {
         sale: sale.clone(),

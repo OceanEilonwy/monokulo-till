@@ -147,7 +147,10 @@ async fn square() -> MockServer {
         .await;
     Mock::given(method("POST"))
         .and(path("/v2/refunds"))
-        .respond_with(json(r#"{"refund":{"id":"r1","status":"PENDING"}}"#))
+        // As Square answers: the refund made, still PENDING.
+        .respond_with(json(
+            r#"{"refund":{"id":"r1","status":"PENDING","amount_money":{"amount":1388,"currency":"USD"},"payment_id":"pay_monero","location_id":"L1","created_at":"2026-10-22T16:08:01.000Z"}}"#,
+        ))
         .mount(&server)
         .await;
     server
@@ -1251,6 +1254,56 @@ async fn refunding_from_the_shifts_row_opens_the_sale_where_the_refund_shows() {
     assert!(
         !arrival(&rx, sale),
         "the cashier's answer put it there, not the sales"
+    );
+}
+
+/// "Close the sale", then "No: refund it in Square": the till refunds the
+/// Square payment once (decision 21's idempotency key) and the sale's page
+/// shows it refunded, though Square answers the refund PENDING (core.md
+/// decision 181).
+#[tokio::test(flavor = "multi_thread")]
+async fn closing_then_refunding_refunds_in_square_and_the_page_shows_it() {
+    let monokulo = monokulo().await;
+    let square = square().await;
+    let (engine, rx, _) = start(config(Some(&square)), signed_in_till(&monokulo));
+    let sale = Screen::Sale {
+        order_id: "ord_1".into(),
+    };
+    screen(&rx, sale.clone());
+    engine.send(Action::AskClose {
+        order_id: "ord_1".into(),
+    });
+    engine.send(Action::Close {
+        order_id: "ord_1".into(),
+        choice: CloseChoice::RefundIt,
+    });
+    let page = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Sale { order_id, page, .. })
+            if order_id == "ord_1" && page.line.starts_with("Refunded") =>
+        {
+            Some(page.clone())
+        }
+        _ => None,
+    });
+    assert!(page.amount_muted, "refunded, it no longer counts");
+    assert!(
+        page.buttons.is_empty(),
+        "nothing left to refund: {:?}",
+        page.buttons
+    );
+    let refunds: Vec<String> = square
+        .received_requests()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.method.as_str() == "POST" && r.url.path() == "/v2/refunds")
+        .map(|r| String::from_utf8(r.body).unwrap())
+        .collect();
+    assert_eq!(refunds.len(), 1, "{refunds:?}");
+    assert!(
+        refunds[0].contains(r#""idempotency_key":"till-refund-pay_monero""#),
+        "{}",
+        refunds[0]
     );
 }
 
