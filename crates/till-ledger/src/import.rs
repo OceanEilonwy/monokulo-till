@@ -185,7 +185,6 @@ pub(crate) fn facts_of_shift(json: &str) -> Result<Vec<ImportedSale>, LedgerErro
                 Fact::OrderCreated(OrderCreated {
                     sale: key.clone(),
                     order_id: order_id.clone(),
-                    attempt: 1,
                     url: sale.url.clone(),
                     payment_uri: plain_uri(&sale.code.uri),
                     address: sale.address.clone(),
@@ -200,6 +199,7 @@ pub(crate) fn facts_of_shift(json: &str) -> Result<Vec<ImportedSale>, LedgerErro
                     } else {
                         None
                     },
+                    renew: None,
                 }),
                 rung,
             ));
@@ -212,6 +212,9 @@ pub(crate) fn facts_of_shift(json: &str) -> Result<Vec<ImportedSale>, LedgerErro
                         is_final: sale.settled && phase == sale.phase,
                         received: (phase == SalePhase::Partial).then_some(0),
                         overpaid: false,
+                        // The kept shift knew one quote: the order's first.
+                        quote: None,
+                        renew: None,
                     }),
                     at.or(rung),
                 )

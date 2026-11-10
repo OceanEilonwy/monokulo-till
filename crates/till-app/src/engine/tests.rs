@@ -1964,6 +1964,8 @@ async fn a_payment_while_behind_is_a_notice_on_ipad_and_on_an_iphone_without_the
                     is_final: true,
                     received: None,
                     overpaid: false,
+                    quote: None,
+                    renew: None,
                 },
             ));
         });

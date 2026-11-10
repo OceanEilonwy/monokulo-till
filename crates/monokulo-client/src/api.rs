@@ -289,6 +289,32 @@ impl MonokuloApi {
         })
     }
 
+    /// Renews an order whose code ran out unpaid with its `renew-order` form
+    /// (`renew`, [`Order::renew`]): the same order, priced again at the
+    /// store's rate now, with a new expiry, at the same address. `expires_at`
+    /// is the expiry of the code being replaced: Monokulo renews only that
+    /// one, so a second till asking at once, or a retry, gets the order as
+    /// it is, renewed once. The order as Monokulo answers. A Monokulo that
+    /// refuses (a payment reached the order) answers `409`
+    /// `order-not-renewable`; one without the form at that address `404` or
+    /// `405`.
+    pub async fn renew_order(
+        &self,
+        connection: &Connection,
+        renew: &str,
+        expires_at: i64,
+    ) -> Result<Order> {
+        #[derive(Serialize)]
+        struct Renewal {
+            expires_at: i64,
+        }
+        let mut call = self.keyed(connection, Method::POST, address(renew)?);
+        call.headers
+            .insert("Content-Type", HeaderValue::from_static("application/json"));
+        call.body = Some(serde_json::to_vec(&Renewal { expires_at })?);
+        self.call(&call, read_order).await
+    }
+
     /// Reads an order again at `url`: its `self` link, or the `mk:order` link
     /// of a sale event. It needs no entry.
     pub async fn order(&self, connection: &Connection, url: &str) -> Result<Order> {
@@ -633,8 +659,20 @@ fn read_order(text: &str, used: &Url) -> Result<Order> {
         .and_then(Value::as_str)
         .and_then(|href| used.join(href).ok())
         .unwrap_or_else(|| used.clone());
+    // Only a `POST` form is one this build knows how to send.
+    let renew = body
+        .pointer("/_templates/renew-order")
+        .filter(|form| {
+            form.get("method")
+                .and_then(Value::as_str)
+                .is_none_or(|m| m.eq_ignore_ascii_case("POST"))
+        })
+        .and_then(|form| form.get("target")?.as_str())
+        .and_then(|target| used.join(target).ok())
+        .map(String::from);
     let mut order: Order = serde_json::from_value(body)?;
     order.url = url.into();
+    order.renew = renew;
     Ok(order)
 }
 

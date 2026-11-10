@@ -40,7 +40,7 @@ pub struct DiffContext<'a> {
 }
 
 fn has_order(view: &SaleView) -> bool {
-    view.attempt > 0
+    view.has_order()
 }
 
 /// The effects of one sale's view going from `old` (none: the sale is new

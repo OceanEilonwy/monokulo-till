@@ -548,6 +548,67 @@ async fn an_order_is_read_again_at_its_link() {
     );
 }
 
+/// An order Monokulo can renew carries its `renew-order` form: the client
+/// keeps where it goes, resolved, and sends it with the expiry of the code
+/// being replaced, reading the renewed order from the answer. An order
+/// without the form (an older Monokulo) has none.
+#[tokio::test]
+async fn an_order_is_renewed_with_its_own_renew_order_form() {
+    let stand = Stand::start().await;
+    let with_form = |status: &str, expires_at: i64| {
+        let mut body: serde_json::Value = serde_json::from_str(&order(status)).unwrap();
+        body["expires_at"] = expires_at.into();
+        body["_templates"] = serde_json::json!({
+            "renew-order": {"method": "POST", "target": "/api/v1/orders/order_1",
+                            "contentType": "application/json", "properties": []}
+        });
+        hal(&body.to_string(), 200)
+    };
+    stand.route("GET /api/v1/orders/order_1", move |_| {
+        with_form("expired", 99)
+    });
+    stand.route("POST /api/v1/orders/order_1", move |_| {
+        with_form("pending", 1_299)
+    });
+    let link = format!("{}/api/v1/orders/order_1", stand.base());
+    let expired = stand.api.order(&stand.connection(), &link).await.unwrap();
+    assert_eq!(expired.renew.as_deref(), Some(link.as_str()));
+    let renewed = stand
+        .api
+        .renew_order(&stand.connection(), expired.renew.as_deref().unwrap(), 99)
+        .await
+        .unwrap();
+    assert_eq!(
+        (
+            renewed.order_id.as_str(),
+            renewed.expires_at,
+            renewed.phase()
+        ),
+        ("order_1", 1_299, SalePhase::Waiting)
+    );
+    let seen = stand.seen();
+    let request = seen.last().unwrap();
+    assert_eq!(line(request), "POST /api/v1/orders/order_1");
+    assert_eq!(header(request, "authorization"), Some("Bearer ak_secret"));
+    assert_eq!(
+        String::from_utf8(request.body.clone()).unwrap(),
+        r#"{"expires_at":99}"#
+    );
+
+    stand.route("GET /api/v1/orders/order_2", |_| {
+        hal(&order("expired"), 200)
+    });
+    let older = stand
+        .api
+        .order(
+            &stand.connection(),
+            &format!("{}/api/v1/orders/order_2", stand.base()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(older.renew, None, "an older Monokulo offers no renewal");
+}
+
 #[tokio::test]
 async fn an_order_monokulo_has_no_price_reference_or_end_for_leaves_them_out_and_reads_as_none() {
     let stand = Stand::start().await;

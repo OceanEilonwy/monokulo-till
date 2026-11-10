@@ -167,23 +167,11 @@ pub struct TillSale {
     /// as the point of sale already has the cash.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub paid_in_cash_at: Option<i64>,
-    /// What only the ledger knows (docs/ledger.md §5, §7): the sale's
-    /// orders when it had more than one, and its warnings. Empty for a sale
-    /// read from a kept shift or a fixture, and left out of their JSON.
+    /// What only the ledger knows (docs/ledger.md §5, §7): whether its order
+    /// can be renewed, and its warnings. Empty for a sale read from a kept
+    /// shift or a fixture, and left out of their JSON.
     #[serde(default, skip_serializing_if = "SaleExtras::is_empty")]
     pub extras: SaleExtras,
-}
-
-/// One of a sale's orders, as its page lists the earlier ones.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AttemptLine {
-    /// 1 for the first code, n for the code the (n-1)th New code made.
-    pub attempt: u8,
-    pub order_id: String,
-    pub phase: SalePhase,
-    /// Another code was paid, so this one is over.
-    pub superseded: bool,
 }
 
 /// What the ledger adds to a sale (docs/ledger.md §5, §7).
@@ -193,13 +181,10 @@ pub struct SaleExtras {
     /// The ledger's key for the sale (`sq:<payment>`, `mk:<order>`).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub sale_key: String,
-    /// Every order the sale has had, oldest first, when it has had more
-    /// than one (New code).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub attempts: Vec<AttemptLine>,
-    /// Two of its codes were paid: one must be refunded.
+    /// Its order offers `renew-order`, so New code can renew it (core.md
+    /// decision 171): false for an order an older Monokulo made.
     #[serde(default, skip_serializing_if = "is_false")]
-    pub paid_twice: bool,
+    pub renewable: bool,
     /// Paid after it was refunded in the point of sale.
     #[serde(default, skip_serializing_if = "is_false")]
     pub paid_after_refund: bool,
@@ -274,20 +259,7 @@ impl TillSale {
             paid_in_cash_at: v.paid_in_cash_at,
             extras: SaleExtras {
                 sale_key: v.sale.text(),
-                attempts: if v.attempts.len() > 1 {
-                    v.attempts
-                        .iter()
-                        .map(|a| AttemptLine {
-                            attempt: a.attempt,
-                            order_id: a.order_id.clone(),
-                            phase: a.phase,
-                            superseded: a.superseded,
-                        })
-                        .collect()
-                } else {
-                    Vec::new()
-                },
-                paid_twice: v.paid_twice,
+                renewable: v.renewable,
                 paid_after_refund: v.paid_after_refund,
                 paid_after_close: v.paid_after_close,
                 other_counter: v.other_counter,
@@ -297,11 +269,13 @@ impl TillSale {
     }
 
     /// Unpaid, its code over by Monokulo's word or this device's clock, and
-    /// not refunded, closed or settled in cash: the cashier may make it a
-    /// new code ("New code", docs/ledger.md §7), when the till can see its
-    /// point-of-sale payment.
+    /// not refunded, closed or settled in cash: the cashier may have its
+    /// order renewed for a new code ("New code", docs/ledger.md §7), when
+    /// the till can see its point-of-sale payment and the store's Monokulo
+    /// can renew the order (core.md decision 171).
     pub fn may_new_code(&self) -> bool {
         self.found.is_some()
+            && self.extras.renewable
             && !self.offered
             && matches!(self.phase, SalePhase::Expired | SalePhase::Cancelled)
             && self.closed_at.is_none()

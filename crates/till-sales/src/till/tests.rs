@@ -2487,49 +2487,116 @@ async fn another_counters_cash_sale_is_listed_quietly_and_its_order_made_only_by
     assert_eq!(only(&till).order_id, "ord_1");
 }
 
-/// New code (docs/ledger.md §7): a sale whose code ran out unpaid gets its
-/// next order, with the first's key and `#2`; a payment on either pays the
-/// sale, the other shows as replaced, and two payments warn.
+/// [`order`], from a Monokulo that can renew it: it carries the order's
+/// `renew-order` form.
+fn renewable_order() -> ResponseTemplate {
+    ResponseTemplate::new(201).set_body_raw(
+        r#"{"order_id":"ord_1","status":"pending","is_final":false,"address":"8Bx","xmr_amount_piconero":80000000000,
+           "amount":"13.88","currency":"USD","merchant_order_id":"bP9m","expires_at":1761312000,
+           "_links":{"self":{"href":"/api/v1/orders/ord_1"}},
+           "_templates":{"renew-order":{"method":"POST","target":"/api/v1/orders/ord_1","properties":[]}}}"#,
+        "application/json",
+    )
+}
+
+/// The order as a renewal answers: the same order and address, priced
+/// again, with a later expiry.
+fn renewed_order() -> ResponseTemplate {
+    ResponseTemplate::new(200).set_body_raw(
+        r#"{"order_id":"ord_1","status":"pending","is_final":false,"address":"8Bx","xmr_amount_piconero":90000000000,
+           "amount":"13.88","currency":"USD","merchant_order_id":"bP9m","expires_at":1761313200,
+           "_links":{"self":{"href":"/api/v1/orders/ord_1"}},
+           "_templates":{"renew-order":{"method":"POST","target":"/api/v1/orders/ord_1","properties":[]}}}"#,
+        "application/json",
+    )
+}
+
+/// New code (docs/ledger.md §7, core.md decisions 167 to 172): a sale whose
+/// code ran out unpaid has its one order renewed through the order's
+/// `renew-order` form, for the code it showed; no second order is made.
+/// The sale keeps its order, now waiting with the new price and expiry.
 #[tokio::test]
-async fn new_code_makes_the_next_order_and_a_payment_on_either_pays_the_sale() {
+async fn new_code_renews_the_one_order_with_its_form() {
+    let f = fixture().await;
+    let till = f.till(FakeSource::new(vec![sale()]));
+    f.enqueue(renewable_order());
+    till.check().await;
+    assert!(till.new_code("ord_1").await.is_err(), "not while it's live");
+    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired));
+    assert!(only(&till).may_new_code());
+    let before = f.request_count();
+    f.enqueue(renewed_order());
+    assert_eq!(till.new_code("ord_1").await.as_deref(), Ok("ord_1"));
+    assert_eq!(f.request_count(), before + 1, "one request: the renewal");
+    while f.taken.load(Ordering::SeqCst) < before {
+        f.take_request();
+    }
+    let renewal = f.take_request();
+    assert_eq!(renewal.method.as_str(), "POST");
+    assert_eq!(renewal.url.path(), "/api/v1/orders/ord_1");
+    assert_eq!(body(&renewal), r#"{"expires_at":1761312000}"#);
+    let shown = only(&till);
+    assert_eq!(shown.order_id, "ord_1");
+    assert!(shown.live(), "waiting again: {:?}", shown.phase);
+    assert_eq!(
+        (shown.xmr.as_str(), shown.expires_at),
+        ("0.09", 1_761_313_200)
+    );
+    assert_eq!(shown.code.uri, "monero:8Bx?tx_amount=0.09");
+    // The first code's ending, heard late, doesn't end the new one.
+    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired));
+    assert!(
+        only(&till).live(),
+        "an observation with no quote is the first's"
+    );
+    // Paid against either: the sale is paid.
+    till.on_status("ord_1", OrderStatus::of(SalePhase::Paid).settled(true));
+    assert_eq!(only(&till).phase, SalePhase::Paid);
+}
+
+/// A Monokulo whose order carries no `renew-order` can't renew it: New code
+/// isn't offered, and asking makes nothing, never a second order (core.md
+/// decision 171). One that refuses says why, and the sale stays as it was;
+/// one whose form has gone says it can't.
+#[tokio::test]
+async fn new_code_makes_no_second_order_and_says_why_it_cant_renew() {
     let f = fixture().await;
     let till = f.till(FakeSource::new(vec![sale()]));
     f.enqueue(order());
     till.check().await;
-    assert!(till.new_code("ord_1").await.is_err(), "not while it's live");
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired).settled(true));
-    assert!(only(&till).may_new_code());
-    f.enqueue(second_order());
-    assert_eq!(till.new_code("ord_1").await.as_deref(), Ok("ord_2"));
-    let sent = (0..f.request_count())
-        .map(|_| f.take_request())
-        .map(|r| body(&r))
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(
-        sent.contains(&format!(
-            r#""idempotency_key":"{}#2""#,
-            Till::idempotency_key(&sale())
-        )),
-        "{sent}"
-    );
-    let shown = only(&till);
-    assert_eq!(shown.order_id, "ord_2");
-    assert!(shown.live());
-    assert_eq!(shown.extras.attempts.len(), 2);
+    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired));
+    let older = only(&till);
+    assert!(!older.extras.renewable && !older.may_new_code());
+    let before = f.request_count();
+    assert!(till.new_code("ord_1").await.is_err());
+    assert_eq!(f.request_count(), before, "nothing was asked");
 
-    // The first code is paid after all: the sale is paid, the new one replaced.
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Paid).settled(true));
-    let paid = only(&till);
-    assert_eq!(paid.phase, SalePhase::Paid);
-    assert_eq!(paid.order_id, "ord_1");
-    assert!(
-        paid.extras
-            .attempts
-            .iter()
-            .any(|a| a.order_id == "ord_2" && a.superseded)
+    let f = fixture().await;
+    let till = f.till(FakeSource::new(vec![sale()]));
+    f.enqueue(renewable_order());
+    till.check().await;
+    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired));
+    f.enqueue(
+        ResponseTemplate::new(409)
+            .insert_header("Content-Type", "application/problem+json")
+            .set_body_raw(
+                r#"{"type":"https://docs.monokulo.com/problems/order-not-renewable","title":"Order can't be renewed","status":409,
+                   "detail":"This order can't be renewed: a payment has reached it."}"#,
+                "application/problem+json",
+            ),
     );
-    assert!(!paid.extras.paid_twice);
-    till.on_status("ord_2", OrderStatus::of(SalePhase::Paid).settled(true));
-    assert!(only(&till).extras.paid_twice, "two payments: return one");
+    let refused = till.new_code("ord_1").await.unwrap_err();
+    assert_eq!(
+        refused,
+        "This order can't be renewed: a payment has reached it."
+    );
+    let still = only(&till);
+    assert_eq!(still.phase, SalePhase::Expired);
+    assert_eq!(still.expires_at, 1_761_312_000);
+    f.enqueue(ResponseTemplate::new(405));
+    let gone = till.new_code("ord_1").await.unwrap_err();
+    assert!(
+        gone.starts_with("This store's Monokulo can't make a new code"),
+        "{gone}"
+    );
 }

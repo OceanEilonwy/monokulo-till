@@ -1094,6 +1094,7 @@ merge, views, effects and database.
      (`Till::idempotency_key`). A Paid on any attempt decides the sale
      and shows the others as superseded; two paid attempts warn ("Paid
      twice"). This reverses android.md 43 by the owner's decision.
+     Replaced by 167 to 174: New code renews the sale's one order.
 146. **Closes, paid in cash and keep as cash stay local** (`Mark` facts
      in `LocalMarks`) until Monokulo lets apps cancel an order. A reopen
      after a close undoes it; a Paid after a close or a refund shows as
@@ -1341,3 +1342,84 @@ scope that changed while the app wasn't running.
      scope change while running deletes them (decision 158), so only the
      current scope's rows are kept. The extension never does: it leaves
      scope decisions to the app.
+
+## New code renews the order (2026-11-10)
+
+Decision 145's New code made a second Monokulo order for one Square
+payment (its key with `#2` after it), so Monokulo's order list showed two
+orders for one sale, which confused the owner. The owner chose the fix:
+Monokulo renews an expired, unpaid order (same id, same address, a new
+price and expiry; Monokulo's `docs/decisions/order-renewal.md`), and Till's
+New code asks for that. These replace 145.
+
+167. **New code renews the sale's one order; one point-of-sale payment is
+     always one Monokulo order.** New code sends the order's
+     `renew-order` form (`POST` on the order, `{ "expires_at": … }`) and
+     records the order Monokulo answers with. The sale keeps its order id,
+     address and alerts; the code, the XMR amount and the countdown are the
+     renewed order's. Who may tap it is unchanged (the cashier, from any
+     till, on a sale whose code ran out unpaid; decision 147), and so is
+     its wording. `#n` keys, attempts, "superseded" and "Paid twice" are
+     gone: a second order for one sale is never made.
+168. **The ledger holds one order per sale.** `SharedSale.order` (a
+     `SaleOrder`: what create-order said, the latest quote, the
+     observations) replaces `attempts`; `OrderKey` is the payment alone
+     (`Till::idempotency_key`'s key, unchanged); `SaleView` loses
+     `attempt`, `attempts` and `paid_twice` and gains `renewable`. The
+     `orders` table keeps its `attempt` column, always 1, so the schema
+     doesn't change.
+169. **A renewal is a new quote on the same order, learnt from Monokulo,
+     not a fact of its own.** `OrderObserved` carries the quote it was made
+     under (`expires_at` and the XMR amount) and, from a read, the order's
+     `renew-order` target: Monokulo's events and reads carry both, so every
+     till learns of a renewal the same way, from the stream or a read,
+     whichever till asked for it, and the renewing till records its answer
+     as one more observation. The order's quote is the latest by
+     `expires_at` (then amount), a join like every other part of
+     `SharedSale`. Considered: an `OrderRenewed` fact written by the till
+     that renewed; the other tills would still have to learn it from the
+     stream, so it would be a second path to the same state.
+170. **An ending belongs to the quote it was seen under; money belongs to
+     the order.** An `Expired` or `Cancelled` observation counts only while
+     the order's quote is the one it was observed under (an observation
+     from before this build, with no quote, belongs to the first quote), so
+     a renewed order is waiting again on every till, whatever order the
+     facts arrive in. Seen, Confirming, Partial, Paid and a double spend
+     count whatever the quote: a payment always shows (principle 3), and a
+     payment at the old price is judged by Monokulo against the new one
+     (Monokulo's order-renewal decision 3). The clock-lapse mark counts
+     only when it was made after the current quote's expiry, and keeps the
+     latest, so a renewed code isn't shown as run out and a renewed code
+     that runs out again is.
+171. **New code only when the store's Monokulo can renew.** The order's
+     `renew-order` form is how Till knows: its target is kept with the
+     order from create-order's answer and from every read, and a sale whose
+     order has none (an older Monokulo) doesn't offer New code. Never a
+     second order instead. A renew answered `404` or `405` (the Monokulo
+     was downgraded) says "This store's Monokulo can't make a new code for
+     a sale. Update it, or ring the sale up again." and changes nothing.
+172. **Renewing twice gives one renewal.** The till sends the `expires_at`
+     of the code it shows; Monokulo renews only that quote, so two tills
+     tapping New code at once, or a retry, get the same renewed order.
+     Monokulo's refusal (`409`: a payment reached the order, it ended too
+     long ago, or the store moved to another wallet) is shown to the
+     cashier in its own words, as the till's problem, and the sale stays as
+     it was; a payment that arrived shows by itself.
+173. **Journals written before this build are replayed under the new
+     model.** The projections' version goes to 3, so every ledger rebuilds
+     as it opens. Facts keep their bodies; an `OrderCreated`'s `attempt` is
+     ignored. Two `OrderCreated`s for one sale with different orders can
+     only come from 145's New code, on the TestFlight build of 2026-11-10:
+     the order with the later expiry stands (the newer code), and what
+     Monokulo said of the other stays in the journal, unapplied. A
+     compacted sale's `attempts` become its paid order if it had one, else
+     its latest. The cost: an older code from that build paid after it was
+     replaced won't show on that till; Monokulo's order list still has it,
+     and every such order is past Monokulo's watch window long before this
+     ships.
+174. **A renewal alerts nothing, and alerts stay once per sale.** The
+     cashier asked for it and the till opens the sale on its new code, so
+     no new-sale alert; other tills see the sale waiting again, quietly.
+     A renewed code that runs out again doesn't alert "ended" a second
+     time (the alert is per sale and kind, docs/ledger.md §6), as 145's second
+     order didn't.
