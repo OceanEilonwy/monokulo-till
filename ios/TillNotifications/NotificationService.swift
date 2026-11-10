@@ -1,17 +1,19 @@
 @preconcurrency import UserNotifications
 import Foundation
+import os
 import TillCore
 import UIKit
 
 /// The Notification Service Extension (design.md §3, docs/ios-plan.md §5):
 /// a Bell's ding comes through the push relay as an alert with
 /// `mutable-content`, its ciphertext beside `aps`, saying only "New sale".
-/// The extension asks the core whether it is a ding for this till
-/// (`isRelayedDing`), looks for the sale once (`backgroundCheck`: Square or
-/// Clover asked, the Monokulo order made, the shift and cursor kept in the
-/// shared Keychain, the sign-in's refresh under the lock in the App
-/// Group's container), and rewrites the alert in the core's words, with
-/// the sale kept for the tap.
+/// The extension asks the core, in one call (`backgroundCheckDing`),
+/// whether it is a ding for this till and, if so, looks for the sale once
+/// (Square or Clover asked, the Monokulo order made, the shift and cursor
+/// kept in the shared Keychain, the sign-in's refresh under the lock in the
+/// App Group's container), and rewrites the alert in the core's words, with
+/// the sale kept for the tap. Each look's steps and their times go to the
+/// unified log (`look`), and when the alert went to iOS.
 ///
 /// Memory is about 24 MB here: the core runs no engine, only a
 /// current-thread runtime for the one look (decision 45). The look gets
@@ -27,7 +29,8 @@ final class NotificationService: UNNotificationServiceExtension {
         _ request: UNNotificationRequest,
         withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void
     ) {
-        let delivery = Delivery(original: request.content, handler: contentHandler)
+        let received = Date()
+        let delivery = Delivery(original: request.content, handler: contentHandler, received: received)
         self.delivery = delivery
         guard let ciphertext = RelayedPush.ciphertext(request.content.userInfo) else {
             delivery.deliver(nil)
@@ -48,15 +51,28 @@ final class NotificationService: UNNotificationServiceExtension {
         delivery?.deliver(nil)
     }
 
+    /// The extension's log: each look's steps and how long they took
+    /// (docs/decisions/core.md 203), at the default level, which the system
+    /// keeps. Console, subsystem `com.monokulo.till`, category `look`.
+    static let log = Logger(subsystem: "com.monokulo.till", category: "look")
+
     /// What the alert should say after one look; nil keeps the relay's.
     private static func look(ciphertext: Data, device: Device, original: UNNotificationContent) -> UNNotificationContent? {
         let platform = DevicePlatform()
-        guard isRelayedDing(platform: platform, content: ciphertext) else { return nil }
         let config = TillShared.config(device: device, deviceName: "")
         // The core holds the extension awake around each ledger write, and
         // the app re-reads the ledger after the round (CoreLifecycle.swift).
         setBackgroundWork(work: DeviceBackgroundWork.shared)
-        let check = backgroundCheck(config: config, platform: platform, deadlineMs: deadlineMs)
+        // Whether it's a ding for this till, and then the look, reading the
+        // kept state once for both.
+        guard let check = backgroundCheckDing(config: config, platform: platform, content: ciphertext, deadlineMs: deadlineMs) else {
+            log.notice("not a ding for this till")
+            return nil
+        }
+        let steps = check.steps.map { "\($0.step) \($0.ms)" }.joined(separator: ", ")
+        let alerts = check.alerts.count
+        let finished = check.finished ? "finished" : "cut short by the deadline"
+        log.notice("look: \(alerts, privacy: .public) alert(s), \(finished, privacy: .public); ms: \(steps, privacy: .public)")
         LedgerSignal.post()
         if let alert = check.alerts.first {
             return RelayedPush.rewritten(original, as: alert)
@@ -77,10 +93,12 @@ private final class Delivery: @unchecked Sendable {
     let original: UNNotificationContent
     private var handler: ((UNNotificationContent) -> Void)?
     private let lock = NSLock()
+    private let received: Date
 
-    init(original: UNNotificationContent, handler: @escaping (UNNotificationContent) -> Void) {
+    init(original: UNNotificationContent, handler: @escaping (UNNotificationContent) -> Void, received: Date) {
         self.original = original
         self.handler = handler
+        self.received = received
     }
 
     /// Hands iOS `content`, or the original when nil.
@@ -90,6 +108,10 @@ private final class Delivery: @unchecked Sendable {
             self.handler = nil
             return handler
         }
-        handler?(content ?? original)
+        guard let handler else { return }
+        let ms = Int(Date().timeIntervalSince(received) * 1000)
+        let words = content == nil ? "relay's words" : "rewritten"
+        NotificationService.log.notice("alert handed to iOS \(ms, privacy: .public) ms after the push arrived (\(words, privacy: .public))")
+        handler(content ?? original)
     }
 }

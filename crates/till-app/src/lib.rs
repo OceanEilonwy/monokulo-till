@@ -40,7 +40,9 @@ use std::sync::{Arc, OnceLock};
 
 use tokio::sync::mpsc::UnboundedSender;
 
-pub use background::{BackgroundCheck, background_check, is_relayed_ding};
+pub use background::{
+    BackgroundCheck, LookStep, background_check, background_check_ding, is_relayed_ding,
+};
 pub use lifecycle::{BackgroundWork, set_background_work};
 use monokulo_client::PointOfSale;
 pub use preview::{TillPreview, preview_close, preview_panel, preview_sale, preview_shift};

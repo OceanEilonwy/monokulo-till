@@ -12,11 +12,15 @@
 //! event stream. The sign-in's refresh takes the same file lock as the
 //! app's (decision 13), so the two never spend one refresh token twice.
 
-use std::sync::Arc;
-use std::time::Duration;
+use std::future::Future;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
-use monokulo_client::{Clock, MonokuloApi, SystemClock, tor};
+use async_trait::async_trait;
+use futures_util::StreamExt;
+use monokulo_client::{Clock, MonokuloApi, PointOfSale, SystemClock, tor};
 use till_ledger::{ClaimPolicy, Process};
+use till_pos::{FoundSale, ListedRefund, PosError, Refunds, SaleOrder, SaleSource};
 use till_sales::{Till, TillSale};
 use till_screens::notification::{self, NotificationInput, OngoingFace, SaleAlert};
 use till_screens::{Device, pos_text};
@@ -44,7 +48,107 @@ pub struct BackgroundCheck {
     /// a sale whose order wasn't made is found again by the next look, and
     /// gets the same order (its idempotency key).
     pub finished: bool,
+    /// How long each step took, in the order they ended, for the
+    /// extension's log (docs/decisions/core.md 203): where a slow alert's
+    /// time went.
+    pub steps: Vec<LookStep>,
 }
+
+/// One step of a look and how long it took. The steps:
+/// - `state`: the kept state read (the Keychain);
+/// - `ding`: the relay's ciphertext opened ([`background_check_ding`]);
+/// - `ledger.open`: the ledger opened and the shift read from it;
+/// - `pos.payments`, `pos.order`, `pos.refunds`: each request to the point
+///   of sale (a sign-in's refresh, when due, is inside the first);
+/// - `monokulo.create`: each Monokulo order made;
+/// - `monokulo.reread`: the shift's open orders read again, together;
+/// - `round`: the point of sale's look and the re-reads, which overlap;
+/// - `ledger.close`: the alert claimed, the shift read again, the ledger
+///   closed;
+/// - `total`: from the call to its answer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct LookStep {
+    pub step: String,
+    pub ms: u64,
+}
+
+/// The steps a look has timed so far, shared with what it hands them to.
+#[derive(Clone, Default)]
+struct Steps(Arc<Mutex<Vec<LookStep>>>);
+
+impl Steps {
+    fn add(&self, step: &str, took: Duration) {
+        let ms = u64::try_from(took.as_millis()).unwrap_or(u64::MAX);
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(LookStep {
+                step: step.to_owned(),
+                ms,
+            });
+    }
+
+    fn time<R>(&self, step: &str, f: impl FnOnce() -> R) -> R {
+        let started = Instant::now();
+        let r = f();
+        self.add(step, started.elapsed());
+        r
+    }
+
+    async fn time_async<F: Future>(&self, step: &str, f: F) -> F::Output {
+        let started = Instant::now();
+        let r = f.await;
+        self.add(step, started.elapsed());
+        r
+    }
+
+    fn taken(&self) -> Vec<LookStep> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+}
+
+/// The look's point of sale, each request timed.
+struct TimedSource {
+    inner: Arc<dyn SaleSource>,
+    steps: Steps,
+}
+
+#[async_trait]
+impl SaleSource for TimedSource {
+    fn point_of_sale(&self) -> PointOfSale {
+        self.inner.point_of_sale()
+    }
+
+    async fn new_sales(&self) -> Result<Vec<FoundSale>, PosError> {
+        self.steps
+            .time_async("pos.payments", self.inner.new_sales())
+            .await
+    }
+
+    async fn order(&self, sale: &FoundSale) -> Result<SaleOrder, PosError> {
+        self.steps
+            .time_async("pos.order", self.inner.order(sale))
+            .await
+    }
+
+    fn refunds(&self) -> Refunds<'_> {
+        self.inner.refunds()
+    }
+
+    async fn refunds_since(&self, begin_time: &str) -> Result<Option<Vec<ListedRefund>>, PosError> {
+        self.steps
+            .time_async("pos.refunds", self.inner.refunds_since(begin_time))
+            .await
+    }
+
+    fn handled(&self, sale: &FoundSale) {
+        self.inner.handled(sale)
+    }
+}
+
+/// How many of the shift's open orders are read again at once.
+const REREADS_AT_ONCE: usize = 4;
 
 impl BackgroundCheck {
     fn nothing() -> BackgroundCheck {
@@ -61,6 +165,14 @@ impl BackgroundCheck {
             ..BackgroundCheck::default()
         }
     }
+
+    fn timed(self, steps: &Steps, started: Instant) -> BackgroundCheck {
+        steps.add("total", started.elapsed());
+        BackgroundCheck {
+            steps: steps.taken(),
+            ..self
+        }
+    }
 }
 
 /// Looks for new sales once and makes their orders, within `deadline_ms`
@@ -74,20 +186,53 @@ pub fn background_check(
     platform: Arc<dyn Platform>,
     deadline_ms: u64,
 ) -> BackgroundCheck {
+    look(config, platform, None, deadline_ms).unwrap_or_else(BackgroundCheck::nothing)
+}
+
+/// [`is_relayed_ding`] and then, for a ding, [`background_check`], reading
+/// the kept state once for both (the Keychain, read item by item, is a
+/// look's slowest local step, docs/decisions/core.md 205): `None` when
+/// `content` isn't a ding for this till, and nothing is looked for. What
+/// iOS's Notification Service Extension calls.
+#[cfg_attr(feature = "uniffi", uniffi::export)]
+pub fn background_check_ding(
+    config: EngineConfig,
+    platform: Arc<dyn Platform>,
+    content: Vec<u8>,
+    deadline_ms: u64,
+) -> Option<BackgroundCheck> {
+    look(config, platform, Some(content), deadline_ms)
+}
+
+fn look(
+    config: EngineConfig,
+    platform: Arc<dyn Platform>,
+    ding: Option<Vec<u8>>,
+    deadline_ms: u64,
+) -> Option<BackgroundCheck> {
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
     {
         Ok(runtime) => runtime,
-        Err(e) => return BackgroundCheck::failed(format!("Couldn't start the core: {e}")),
+        Err(e) => {
+            return Some(BackgroundCheck::failed(format!(
+                "Couldn't start the core: {e}"
+            )));
+        }
     };
     let http = match tor::http_client(tor::SOCKS) {
         Ok(http) => http,
-        Err(e) => return BackgroundCheck::failed(format!("Couldn't start the core: {e}")),
+        Err(e) => {
+            return Some(BackgroundCheck::failed(format!(
+                "Couldn't start the core: {e}"
+            )));
+        }
     };
-    runtime.block_on(check(
+    runtime.block_on(check_ding(
         config,
         platform,
+        ding,
         http,
         Arc::new(SystemClock),
         Duration::from_millis(deadline_ms),
@@ -112,6 +257,7 @@ pub fn is_relayed_ding(platform: Arc<dyn Platform>, content: Vec<u8>) -> bool {
 }
 
 /// [`background_check`] on the runtime it is awaited on.
+#[cfg(test)]
 pub(crate) async fn check(
     config: EngineConfig,
     platform: Arc<dyn Platform>,
@@ -119,15 +265,64 @@ pub(crate) async fn check(
     clock: Arc<dyn Clock>,
     budget: Duration,
 ) -> BackgroundCheck {
+    check_ding(config, platform, None, http, clock, budget)
+        .await
+        .unwrap_or_else(BackgroundCheck::nothing)
+}
+
+/// [`background_check_ding`] on the runtime it is awaited on; with no
+/// `ding`, [`background_check`] (never `None`).
+pub(crate) async fn check_ding(
+    config: EngineConfig,
+    platform: Arc<dyn Platform>,
+    ding: Option<Vec<u8>>,
+    http: reqwest::Client,
+    clock: Arc<dyn Clock>,
+    budget: Duration,
+) -> Option<BackgroundCheck> {
+    let started = Instant::now();
+    let steps = Steps::default();
     let deadline = tokio::time::Instant::now() + budget;
     // No listener to log to: what goes wrong is in the answer.
     let log: Log = Arc::new(|_| {});
-    let kept = match Kept::load(Store::new(platform.clone()), log) {
+    let kept = match steps.time("state", || Kept::load(Store::new(platform.clone()), log)) {
         Ok(kept) => Arc::new(kept),
+        // Not knowing the keys, nobody can say it's a ding: as before, a
+        // ding that can't be opened keeps the relay's words.
+        Err(_) if ding.is_some() => return None,
         Err(e) => {
-            return BackgroundCheck::failed(format!("Couldn't read what this till keeps: {e}"));
+            return Some(
+                BackgroundCheck::failed(format!("Couldn't read what this till keeps: {e}"))
+                    .timed(&steps, started),
+            );
         }
     };
+    let model = kept.model();
+    if let Some(content) = ding {
+        let is_ding = steps.time("ding", || {
+            crate::web_push::open(platform.clone(), &content)
+                .is_some_and(|plain| till_bell::is_ding(&plain, true, model.point_of_sale))
+        });
+        if !is_ding {
+            return None;
+        }
+    }
+    Some(
+        look_kept(config, platform, kept, http, clock, deadline, &steps)
+            .await
+            .timed(&steps, started),
+    )
+}
+
+async fn look_kept(
+    config: EngineConfig,
+    platform: Arc<dyn Platform>,
+    kept: Arc<Kept>,
+    http: reqwest::Client,
+    clock: Arc<dyn Clock>,
+    deadline: tokio::time::Instant,
+    steps: &Steps,
+) -> BackgroundCheck {
     let model = kept.model();
     let Some(connection) = model.connection.clone() else {
         return BackgroundCheck::nothing();
@@ -150,49 +345,77 @@ pub(crate) async fn check(
     let Some(source) = side.sale_source() else {
         return BackgroundCheck::nothing();
     };
+    let source = Arc::new(TimedSource {
+        inner: source,
+        steps: steps.clone(),
+    });
     let books = side.books().clone();
     let monokulo = MonokuloApi::new(http, side.identity(), clock.clone());
+    let timer_steps = steps.clone();
     let till = Till::new(source, monokulo.clone(), connection.clone(), books.clone())
         .with_clock(clock)
+        .with_timer(Arc::new(move |step, took| timer_steps.add(step, took)))
         .with_options(&model.till_options());
-    books.refresh();
-    // Woken by a ding for a sale: what this round finds is new, even on a
-    // ledger just made or imported, as the extension's look always alerted
-    // (docs/decisions/core.md 155).
-    if let Err(e) = books.with(|l| l.set_learning(false)) {
+    let opened = steps.time("ledger.open", || {
+        books.refresh();
+        // Woken by a ding for a sale: what this round finds is new, even on
+        // a ledger just made or imported, as the extension's look always
+        // alerted (docs/decisions/core.md 155).
+        books.with(|l| l.set_learning(false))
+    });
+    if let Err(e) = opened {
         return BackgroundCheck::failed(format!("Couldn't read the sales this till keeps: {e}"));
     }
+    // Monokulo's open orders, read again (docs/ledger.md §8): those the
+    // shift had before this look, read while the point of sale is asked,
+    // a few at once (decision 204). An order this look makes is known
+    // from Monokulo's answer to making it.
+    let urls: Vec<String> = till
+        .state()
+        .sales
+        .iter()
+        .filter(|sale| sale.open())
+        .filter_map(|sale| sale.url.clone())
+        .collect();
     let round = async {
-        till.check().await;
-        // Monokulo's open orders, read again (docs/ledger.md §8).
-        let urls: Vec<String> = till
-            .state()
-            .sales
-            .iter()
-            .filter(|sale| sale.open())
-            .filter_map(|sale| sale.url.clone())
-            .collect();
-        for url in urls {
-            if let Ok(order) = monokulo.order(&connection, &url).await {
-                till.on_order(&order);
-            }
+        let reread = async {
+            futures_util::stream::iter(urls)
+                .map(|url| {
+                    let (monokulo, connection) = (&monokulo, &connection);
+                    async move { monokulo.order(connection, &url).await }
+                })
+                .buffer_unordered(REREADS_AT_ONCE)
+                .collect::<Vec<_>>()
+                .await
+        };
+        let (_, orders) = tokio::join!(
+            till.check_at_once(),
+            steps.time_async("monokulo.reread", reread)
+        );
+        for order in orders.into_iter().flatten() {
+            till.on_order(&order);
         }
     };
-    let finished = tokio::time::timeout_at(deadline, round).await.is_ok();
-    // The one alert this round shows: the newest new sale it left due. The
-    // app (or the next push) claims the rest.
-    let claims = books.claim_due(ClaimPolicy::NewestNewSale);
-    // Another process may have written what this round found first.
-    books.refresh();
-    let state = till.state();
+    let finished = tokio::time::timeout_at(deadline, steps.time_async("round", round))
+        .await
+        .is_ok();
+    let (claims, state) = steps.time("ledger.close", || {
+        // The one alert this round shows: the newest new sale it left due.
+        // The app (or the next push) claims the rest.
+        let claims = books.claim_due(ClaimPolicy::NewestNewSale);
+        // Another process may have written what this round found first.
+        books.refresh();
+        let state = till.state();
+        for claim in &claims {
+            books.posted(claim);
+        }
+        books.suspend();
+        (claims, state)
+    });
     let new: Vec<TillSale> = claims
         .iter()
         .map(|claim| TillSale::of_view(&claim.view))
         .collect();
-    for claim in &claims {
-        books.posted(claim);
-    }
-    books.suspend();
     let money = Money(platform);
     // What the notifications say about `sale`, as it arrives.
     let arriving = |sale: &TillSale| {
@@ -219,6 +442,7 @@ pub(crate) async fn check(
         ongoing,
         problem: state.problem.clone(),
         finished,
+        steps: Vec::new(),
     }
 }
 
