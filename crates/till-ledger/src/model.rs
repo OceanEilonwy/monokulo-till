@@ -270,8 +270,16 @@ impl PaymentPhase {
 pub struct Observations {
     pub paid: Option<PaidSeen>,
     pub double_spend: bool,
-    /// The ending of the latest quote one was seen under.
+    /// The ending of the latest quote one was seen under, while Monokulo
+    /// still watches the order (not `is_final`).
     pub ended: Option<EndedSeen>,
+    /// An ending Monokulo called final (`is_final`). Monokulo renews an
+    /// order only while it isn't final, so there is at most one, whatever
+    /// quote it was seen under: kept apart from [`Self::ended`], it never
+    /// gives way to another quote's ending, so progress dropped under it
+    /// stays dropped whatever order observations arrive in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended_final: Option<FinalEnd>,
     pub seen: bool,
     /// The most confirmations a Confirming observation had.
     pub confirming: Option<u32>,
@@ -289,6 +297,18 @@ pub struct PaidSeen {
     /// A Paid observation said `is_final`: Monokulo's own resolution, which
     /// overrides a double spend.
     pub is_final: bool,
+}
+
+/// A final ending: expired or, if any final observation said so, cancelled.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FinalEnd {
+    pub cancelled: bool,
+}
+
+impl FinalEnd {
+    fn join(mine: &mut Option<FinalEnd>, cancelled: bool) {
+        mine.get_or_insert_default().cancelled |= cancelled;
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -334,11 +354,14 @@ impl Observations {
                 paid.overpaid |= o.overpaid;
                 paid.is_final |= o.is_final;
             }
+            SalePhase::Expired | SalePhase::Cancelled if o.is_final => {
+                FinalEnd::join(&mut self.ended_final, o.phase == SalePhase::Cancelled);
+            }
             SalePhase::Expired | SalePhase::Cancelled => EndedSeen::join(
                 &mut self.ended,
                 EndedSeen {
                     cancelled: o.phase == SalePhase::Cancelled,
-                    is_final: o.is_final,
+                    is_final: false,
                     quote: o.quote.as_ref().map(|q| q.expires_at),
                 },
             ),
@@ -348,17 +371,21 @@ impl Observations {
     }
 
     /// Drops what can no longer change the phase, so a stale observation
-    /// (a Seen after Paid) changes nothing and isn't journalled. Once paid
-    /// or reversed, progress doesn't count; Confirming and Partial imply
-    /// Seen. Both only depend on parts that only grow, so the join stays
-    /// commutative, associative and idempotent. A final ending doesn't drop
-    /// progress: the ending kept can be replaced by another quote's (an
-    /// ending observed before quotes were recorded, `quote: None`, gives
-    /// way to any with a quote), and progress dropped under it would then
-    /// depend on the order observations arrived in. [`Self::phase`] already
-    /// lets a final ending beat progress.
+    /// (a Seen after Paid) changes nothing and isn't journalled. Once paid,
+    /// reversed or finally ended, progress doesn't count; Confirming and
+    /// Partial imply Seen. Both only depend on parts that only grow (a
+    /// final ending is kept apart, in [`Self::ended_final`], so no other
+    /// quote's ending replaces it), so the join stays commutative,
+    /// associative and idempotent.
     fn normalise(&mut self) {
-        let decided = self.paid.is_some() || self.double_spend;
+        // Kept before final endings had their own place: moved there.
+        if let Some(e) = self.ended
+            && e.is_final
+        {
+            FinalEnd::join(&mut self.ended_final, e.cancelled);
+            self.ended = None;
+        }
+        let decided = self.paid.is_some() || self.double_spend || self.ended_final.is_some();
         if decided {
             self.seen = false;
             self.confirming = None;
@@ -377,7 +404,14 @@ impl Observations {
             paid.is_final |= p.is_final;
         }
         if let Some(e) = other.ended {
-            EndedSeen::join(&mut self.ended, e);
+            if e.is_final {
+                FinalEnd::join(&mut self.ended_final, e.cancelled);
+            } else {
+                EndedSeen::join(&mut self.ended, e);
+            }
+        }
+        if let Some(f) = other.ended_final {
+            FinalEnd::join(&mut self.ended_final, f.cancelled);
         }
         self.double_spend |= other.double_spend;
         self.seen |= other.seen;
@@ -395,7 +429,8 @@ impl Observations {
     /// - A double spend stays once seen.
     /// - An ending counts only for the quote it was seen under (one with no
     ///   quote, for the first): a renewed order is waiting again.
-    /// - An ending Monokulo calls final (`is_final`) beats progress; one it
+    /// - An ending Monokulo calls final (`is_final`) beats progress, under
+    ///   whatever quote it was seen (none follows a final ending); one it
     ///   doesn't (it still watches for a late payment) beats only Waiting,
     ///   so a later Seen, Confirming or Partial still shows.
     /// - Otherwise the further phase: Seen < Confirming (more
@@ -411,22 +446,23 @@ impl Observations {
         if self.double_spend {
             return PaymentPhase::DoubleSpend;
         }
+        if let Some(f) = self.ended_final {
+            return if f.cancelled {
+                PaymentPhase::Cancelled
+            } else {
+                PaymentPhase::Expired
+            };
+        }
         let ended = self
             .ended
             .filter(|e| e.quote.unwrap_or(first) >= expires_at)
             .map(|e| {
-                (
-                    e.is_final,
-                    if e.cancelled {
-                        PaymentPhase::Cancelled
-                    } else {
-                        PaymentPhase::Expired
-                    },
-                )
+                if e.cancelled {
+                    PaymentPhase::Cancelled
+                } else {
+                    PaymentPhase::Expired
+                }
             });
-        if let Some((true, phase)) = ended {
-            return phase;
-        }
         if let Some(received) = self.partial {
             return PaymentPhase::Partial { received };
         }
@@ -436,10 +472,7 @@ impl Observations {
         if self.seen {
             return PaymentPhase::Seen;
         }
-        match ended {
-            Some((_, phase)) => phase,
-            None => PaymentPhase::Waiting,
-        }
+        ended.unwrap_or(PaymentPhase::Waiting)
     }
 }
 
