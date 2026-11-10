@@ -21,9 +21,6 @@ use std::sync::OnceLock;
 
 use serde_json::{Map, Number, Value};
 use till_types::CurrencyCode;
-use time::format_description::FormatItem;
-use time::macros::format_description;
-use time::{OffsetDateTime, UtcOffset};
 use zstd::dict::{DecoderDictionary, EncoderDictionary};
 use zstd::zstd_safe::{CParameter, DParameter, FrameFormat};
 
@@ -37,10 +34,6 @@ pub const FORMAT: u8 = 1;
 const EPOCH_2025: i64 = 1_735_689_600;
 const CURRENCIES: [&str; 3] = ["USD", "EUR", "GBP"];
 const SEP: char = '\n';
-const DATETIME: &[FormatItem<'static>] =
-    format_description!("[year]-[month]-[day]T[hour]:[minute]:[second]");
-const OFFSET: &[FormatItem<'static>] =
-    format_description!("[offset_hour sign:mandatory]:[offset_minute]");
 
 /// zstd's compression level. Above 19 makes no difference to receipts, but
 /// costs nothing once the dictionary is prepared.
@@ -437,24 +430,24 @@ impl Enc {
 
     fn timestamp(&mut self, s: &str) -> Result<(), EncodeError> {
         let field = "receipt.issue_timestamp";
-        let t = OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339)
-            .map_err(|_| unsupported(field, "not an RFC 3339 timestamp"))?;
+        let (t, offset) =
+            parse_timestamp(s).ok_or_else(|| unsupported(field, "not an RFC 3339 timestamp"))?;
         let zulu = s.ends_with('Z') || s.ends_with('z');
-        if format_timestamp(t, zulu) != s {
+        if format_timestamp(t, offset, zulu).as_deref() != Some(s) {
             return Err(unsupported(
                 field,
                 "only whole seconds as YYYY-MM-DDTHH:MM:SS with Z or ±HH:MM",
             ));
         }
         // Minutes since 2025, then the seconds only when there are any.
-        let since = t.unix_timestamp() - EPOCH_2025;
+        let since = t - EPOCH_2025;
         self.bits.eg_signed(since.div_euclid(60), 20);
         let secs = since.rem_euclid(60);
         self.bits.flag(secs != 0);
         if secs != 0 {
             self.bits.put(secs as u64, 6);
         }
-        let offset = t.offset().whole_minutes() as i64;
+        let offset = i64::from(offset / 60);
         self.bits.flag(offset == 0);
         if offset == 0 {
             self.bits.flag(zulu);
@@ -515,13 +508,134 @@ fn split_tip(
     (tip, (!rest.is_empty()).then_some(rest))
 }
 
-fn format_timestamp(t: OffsetDateTime, zulu: bool) -> String {
-    let base = t.format(DATETIME).expect("valid format");
-    if zulu && t.offset().is_utc() {
+/// An RFC 3339 timestamp as Unix seconds and its offset in seconds (`Z` is
+/// UTC's); `None` when it isn't one. What it accepts beyond the one form the
+/// codec encodes is refused by comparing the text with
+/// [`format_timestamp`]'s. The arithmetic is the calendar's own, so every
+/// local time from year -9999 to 9999 at any offset counts, as it did when
+/// the `time` crate read it.
+pub(crate) fn parse_timestamp(s: &str) -> Option<(i64, i32)> {
+    if !rfc3339_shape(s) {
+        return None;
+    }
+    let pieces = jiff::fmt::temporal::Pieces::parse(s).ok()?;
+    let offset = pieces.to_numeric_offset()?.seconds();
+    let (date, time) = (pieces.date(), pieces.time()?);
+    // A leap second reads as :59; only 23:59:60 can be one.
+    let leap = s.get(17..19) == Some("60");
+    if leap && (time.hour(), time.minute()) != (23, 59) {
+        return None;
+    }
+    let days = days_from_civil(date.year().into(), date.month().into(), date.day().into());
+    let local = days * 86_400
+        + i64::from(time.hour()) * 3600
+        + i64::from(time.minute()) * 60
+        + i64::from(time.second());
+    Some((local - i64::from(offset), offset))
+}
+
+/// `at`, in whole seconds, at `offset`, as a receipt's `issue_timestamp`:
+/// `2026-10-22T09:06:41-07:00`, or `…Z` for a zero offset. The one form the
+/// codec encodes; a fraction of a second is dropped toward the past.
+pub fn issue_timestamp(at: jiff::Timestamp, offset: jiff::tz::Offset) -> String {
+    format_timestamp(at.as_second(), offset.seconds(), true)
+        .expect("a jiff timestamp's local time is within years -9999 to 9999")
+}
+
+/// Whether `s` is written as RFC 3339 writes a timestamp:
+/// `YYYY-MM-DDTHH:MM:SS` (or a space for `T`), any fraction, then `Z` or
+/// `±HH:MM` (`T` and `Z` in either case), as the `time` crate read it.
+fn rfc3339_shape(s: &str) -> bool {
+    let b = s.as_bytes();
+    let digits =
+        |r: std::ops::Range<usize>| b.get(r).is_some_and(|d| d.iter().all(u8::is_ascii_digit));
+    let fixed = b.len() >= 20
+        && digits(0..4)
+        && b[4] == b'-'
+        && digits(5..7)
+        && b[7] == b'-'
+        && digits(8..10)
+        && matches!(b[10], b'T' | b't' | b' ')
+        && digits(11..13)
+        && b[13] == b':'
+        && digits(14..16)
+        && b[16] == b':'
+        && digits(17..19);
+    if !fixed {
+        return false;
+    }
+    let mut rest = &b[19..];
+    if let Some(fraction) = rest.strip_prefix(b".") {
+        let n = fraction.iter().take_while(|d| d.is_ascii_digit()).count();
+        if n == 0 {
+            return false;
+        }
+        rest = &fraction[n..];
+    }
+    match rest {
+        [b'Z' | b'z'] => true,
+        [b'+' | b'-', h1, h2, b':', m1, m2] => [h1, h2, m1, m2].iter().all(|d| d.is_ascii_digit()),
+        _ => false,
+    }
+}
+
+/// The Unix seconds `secs` at `offset` seconds as `YYYY-MM-DDTHH:MM:SS` and
+/// `±HH:MM`, or `Z` for a zero offset when `zulu`: the one form the codec
+/// encodes. A fraction of a minute of the offset is dropped. `None` when the
+/// local time is outside years -9999 to 9999.
+fn format_timestamp(secs: i64, offset: i32, zulu: bool) -> Option<String> {
+    let local = secs.checked_add(i64::from(offset))?;
+    let (year, month, day) = civil_from_days(local.div_euclid(86_400));
+    if !(-9999..=9999).contains(&year) {
+        return None;
+    }
+    let time = local.rem_euclid(86_400);
+    let base = format!(
+        "{}{:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}",
+        if year < 0 { "-" } else { "" },
+        year.unsigned_abs(),
+        time / 3600,
+        time % 3600 / 60,
+        time % 60,
+    );
+    Some(if zulu && offset == 0 {
         format!("{base}Z")
     } else {
-        format!("{base}{}", t.offset().format(OFFSET).expect("valid format"))
-    }
+        let sign = if offset < 0 { '-' } else { '+' };
+        let offset = offset.unsigned_abs();
+        format!("{base}{sign}{:02}:{:02}", offset / 3600, offset % 3600 / 60)
+    })
+}
+
+/// Days from 1970-01-01 to `year`-`month`-`day` in the proleptic Gregorian
+/// calendar (Howard Hinnant's `days_from_civil`).
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = year.div_euclid(400);
+    let year_of_era = year - era * 400;
+    let day_of_year = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    era * 146_097 + day_of_era - 719_468
+}
+
+/// The date `days` after 1970-01-01, as year, month and day
+/// ([`days_from_civil`]'s inverse).
+fn civil_from_days(days: i64) -> (i64, i64, i64) {
+    let days = days + 719_468;
+    let era = days.div_euclid(146_097);
+    let day_of_era = days - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let shifted = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * shifted + 2) / 5 + 1;
+    let month = if shifted < 10 {
+        shifted + 3
+    } else {
+        shifted - 9
+    };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    (year, month, day)
 }
 
 // ---- decoding ---------------------------------------------------------------
@@ -772,14 +886,17 @@ impl Dec<'_> {
         } else {
             (self.bits.eg_signed(5)?, false)
         };
-        let offset = i32::try_from(minutes * 60)
-            .ok()
-            .and_then(|s| UtcOffset::from_whole_seconds(s).ok())
+        // An offset `time`'s `UtcOffset` takes: under 26 hours.
+        let offset = minutes
+            .checked_mul(60)
+            .and_then(|s| i32::try_from(s).ok())
+            .filter(|s| s.abs() < 26 * 3600)
             .ok_or(DecodeError::Corrupt("time zone offset"))?;
-        let t = OffsetDateTime::from_unix_timestamp(secs)
-            .map_err(|_| DecodeError::Corrupt("timestamp"))?
-            .to_offset(offset);
-        Ok(format_timestamp(t, zulu))
+        // An instant in UTC years -9999 to 9999, then the local time in them.
+        if format_timestamp(secs, 0, true).is_none() {
+            return Err(DecodeError::Corrupt("timestamp"));
+        }
+        format_timestamp(secs, offset, zulu).ok_or(DecodeError::Corrupt("timestamp"))
     }
 
     fn letters(&mut self, n: usize) -> Result<String, DecodeError> {

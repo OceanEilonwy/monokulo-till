@@ -39,7 +39,7 @@ mod digits;
 mod model;
 pub mod query;
 
-pub use codec::{Codec, DEFAULT_DICTIONARY, FORMAT};
+pub use codec::{Codec, DEFAULT_DICTIONARY, FORMAT, issue_timestamp};
 
 /// The ORF version this library encodes: a receipt's `orf_version` must be
 /// this.

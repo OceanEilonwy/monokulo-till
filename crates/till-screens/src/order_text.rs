@@ -88,9 +88,7 @@ pub fn subtitle(
 ) -> String {
     let issued = receipt
         .receipt
-        .issue_timestamp
-        .parse::<jiff::Timestamp>()
-        .ok()
+        .issued()
         .map(|at| time(at.as_second(), clock));
     let mut parts = vec![sale_text::title(sale)];
     if sale.reference.is_some() {

@@ -13,7 +13,8 @@ thiserror = "2"
 # A currency's minor-unit digits, from the one ISO 4217 table the till's
 # crates share.
 till-types = { path = "../till-types" }
-time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
+# The issue timestamp's instant and offset.
+jiff = "0.2.16"
 # Magicless frames need the experimental API.
 zstd = { version = "0.13", features = ["experimental"] }
 

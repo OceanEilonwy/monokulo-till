@@ -23,13 +23,7 @@ pub(crate) fn receipt_timestamp(at: Timestamp, timezone: Option<&str>) -> String
     let zone = timezone
         .and_then(|name| TimeZone::get(name).ok())
         .unwrap_or(TimeZone::UTC);
-    let whole = crate::time::from_seconds(at.as_second());
-    let zoned = whole.to_zoned(zone);
-    if zoned.offset().seconds() == 0 {
-        zoned.strftime("%Y-%m-%dT%H:%M:%SZ").to_string()
-    } else {
-        zoned.strftime("%Y-%m-%dT%H:%M:%S%:z").to_string()
-    }
+    orf_codec::issue_timestamp(at, zone.to_offset(at))
 }
 
 /// The last `n` characters of `text`: an order's id cut to a receipt id.
