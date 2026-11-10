@@ -396,20 +396,23 @@ struct CodeScreen: View {
         .environment(\.colorScheme, .light)
     }
 
+    /// Done at the top right (the design's Q0b and Q8b), which brings the
+    /// code back down to its sale.
     private var shrink: some View {
         Button {
             send(.back)
         } label: {
-            Image(systemName: "arrow.down.right.and.arrow.up.left")
+            Text("Done")
                 .font(.body.weight(.semibold))
-                .frame(width: 48, height: 48)
-                .background(Circle().fill(Color(hex: 0xEFEAE0)))
+                .padding(.horizontal, 20)
+                .frame(minHeight: 44)
+                .background(Capsule().fill(Color(hex: 0xEFEAE0)))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Shrink the code")
+        .accessibilityHint("Shrinks the code back to its sale")
     }
 
-    /// PhoneCode: the amount and its line beside the shrink button, the
+    /// PhoneCode: the amount and its line beside Done, the
     /// code edge to edge, and how the payment stands.
     private var phoneLayout: some View {
         GeometryReader { box in
