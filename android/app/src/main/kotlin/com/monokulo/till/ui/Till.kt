@@ -266,7 +266,11 @@ private fun LiveSale(sale: SaleFace, actions: TillActions, ground: GroundTrack) 
                         horizontalArrangement = Arrangement.spacedBy(48.dp, Alignment.CenterHorizontally),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Code(sale, min(this@BoxWithConstraints.maxHeight - 120.dp, 440.dp), card, ground, onEnlarge = enlarge)
+                        if (view.showsCode) {
+                            Code(sale, min(this@BoxWithConstraints.maxHeight - 120.dp, 440.dp), card, ground, onEnlarge = enlarge)
+                        } else {
+                            Box(words) { StatusHero(view) }
+                        }
                         Column(
                             // Centred beside the code (which is not in it), it settles to the late card's height rather than
                             // jumping; then it lets go, so it never chases (nor clips the buttons under) the card's own fold.
@@ -295,9 +299,13 @@ private fun LiveSale(sale: SaleFace, actions: TillActions, ground: GroundTrack) 
                         Box(words) { Amount(sale, actions) }
                         // The status is the code card's foot (board 8): one white card, the code its own surface above it.
                         val side = codeSide(this@BoxWithConstraints.maxWidth)
-                        Column(Modifier.width(side)) {
-                            Code(sale, side, card, ground, footed = true, onEnlarge = enlarge)
-                            Box(words) { StatusFoot(view) }
+                        if (view.showsCode) {
+                            Column(Modifier.width(side)) {
+                                Code(sale, side, card, ground, footed = true, onEnlarge = enlarge)
+                                Box(words) { StatusFoot(view) }
+                            }
+                        } else {
+                            Box(words) { StatusHero(view) }
                         }
                         view.order?.let { Box(orderWords) { Late(late) { OrderCard(it, room, onOpen = showOrder, shared = "order/${sale.orderId}") } } }
                     }
@@ -442,6 +450,20 @@ private fun Code(sale: SaleFace, side: Dp, card: GroundTrack, ground: GroundTrac
             contentAlignment = Alignment.Center,
         ) { Icon(MkIcons.Expand, contentDescription = null, tint = Fixed.White, modifier = Modifier.size(16.dp)) }
     }
+}
+
+/**
+ * From the moment the payment is seen the code is gone (core.md decision 224), so it can't be shown or paid twice: the
+ * state's badge, with the status under it ([StatusPill]), in the code's place.
+ */
+@Composable
+private fun StatusHero(view: SaleView) = Column(
+    Modifier.fillMaxWidth().padding(vertical = 16.dp),
+    horizontalAlignment = Alignment.CenterHorizontally,
+    verticalArrangement = Arrangement.spacedBy(14.dp),
+) {
+    StateBadge(view.ring, StateIcon.RING, Ground.CHIP, HeroSize, 38.dp)
+    StatusPill(view)
 }
 
 /**

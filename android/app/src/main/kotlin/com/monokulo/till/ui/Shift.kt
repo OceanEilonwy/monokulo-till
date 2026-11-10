@@ -53,6 +53,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.LocalTextStyle
@@ -146,6 +147,7 @@ import uniffi.till_screens.RowEnds
 import uniffi.till_screens.RowOpens
 import uniffi.till_screens.ShiftEntry
 import uniffi.till_screens.ShiftFilter
+import uniffi.till_screens.ShiftHeader
 import uniffi.till_screens.ShiftIdle
 import uniffi.till_screens.ShiftRow
 import uniffi.till_screens.ShiftView
@@ -246,8 +248,13 @@ fun ShiftScreen(
                             }
                         }
                         Head.Summary -> Column(chrome.padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(view.summaryLabel, style = display(28, -0.4), modifier = Modifier.semantics { heading() })
-                            Text(view.summary, fontSize = 14.sp, color = mk.muted)
+                            val header = view.header
+                            if (header != null) {
+                                NewShiftHeader(view.summaryLabel, header, actions)
+                            } else {
+                                Text(view.summaryLabel, style = display(28, -0.4), modifier = Modifier.semantics { heading() })
+                                Text(view.summary, fontSize = 14.sp, color = mk.muted)
+                            }
                             // Cash paid in Monero, and whose sales show (docs/decisions/core.md 114, 117), drawn plainly.
                             view.cashInMonero?.let { Text(it, fontSize = 14.sp, color = mk.muted) }
                             view.counters?.let { menu ->
@@ -875,6 +882,39 @@ private fun TopRow(place: String?, state: String, tone: Tone, said: String, acti
 }
 
 /** No sale yet, or not watching: the faded mark and what happens next. */
+/**
+ * The shift's header (the iPad round 3 designs, core.md decision 223): "This shift" with since when and a New shift button, the
+ * takings and the paid count under them. New shift asks first, then opens a new window now.
+ */
+@Composable
+private fun NewShiftHeader(label: String, header: ShiftHeader, actions: TillActions) {
+    var asking by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.weight(1f)) {
+            Text(label, style = display(28, -0.4), modifier = Modifier.semantics { heading() })
+            header.since?.let { Text(it, fontSize = 14.sp, color = mk.muted) }
+        }
+        OutlineButton(header.newShift.label, { asking = true }, height = 44.dp, enabled = header.newShift.enabled, size = 15)
+    }
+    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(header.total, style = display(34, -0.8))
+        Text("· ${header.paid}", fontSize = 15.sp, color = mk.muted, modifier = Modifier.padding(bottom = 6.dp))
+    }
+    if (asking) {
+        val confirm = header.confirm
+        AlertDialog(
+            onDismissRequest = { asking = false },
+            containerColor = mk.card,
+            titleContentColor = mk.ink,
+            textContentColor = mk.muted,
+            title = { Text(confirm.title) },
+            text = { Text(confirm.message) },
+            confirmButton = { LinkButton(confirm.start, { asking = false; actions.send(Action.NewShift) }) },
+            dismissButton = { LinkButton(confirm.cancel, { asking = false }) },
+        )
+    }
+}
+
 @Composable
 private fun Idle(idle: ShiftIdle, status: List<StatusChip>, actions: TillActions) = Column(
     Modifier.fillMaxWidth().heightIn(min = 320.dp).padding(24.dp),
