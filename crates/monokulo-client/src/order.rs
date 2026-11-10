@@ -39,6 +39,12 @@ pub struct Order {
     /// Its `self` link, absolute: where to read it again.
     #[serde(skip)]
     pub url: String,
+    /// Where its `renew-order` form is sent, absolute: a new price and
+    /// expiry for the same order once it expired unpaid (New code).
+    /// `None` from a Monokulo that can't renew an order, or for a key that
+    /// may not.
+    #[serde(skip)]
+    pub renew: Option<String>,
 }
 
 fn pending() -> String {
@@ -46,6 +52,11 @@ fn pending() -> String {
 }
 
 impl Order {
+    /// The XMR to pay, as the code and the screens write it.
+    pub fn xmr(&self) -> String {
+        payment_uri::xmr(self.piconero)
+    }
+
     /// The plain payment URI, which the receipt is appended to.
     pub fn payment_uri(&self) -> String {
         payment_uri::build(&self.address, self.piconero)

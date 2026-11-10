@@ -430,8 +430,8 @@ impl Ledger {
         Ok(self.row(sale)?.map(|r| r.view(&settings)))
     }
 
-    /// The sale an order belongs to, and which attempt it is.
-    pub fn order(&self, order: &OrderId) -> Result<Option<(SaleKey, u8)>, LedgerError> {
+    /// The sale an order belongs to.
+    pub fn order(&self, order: &OrderId) -> Result<Option<SaleKey>, LedgerError> {
         order_sale(&self.conn, &self.scope, order)
     }
 
@@ -703,7 +703,7 @@ impl Ledger {
         }
         let mut alerts = 0u32;
         for order in alerts_posted {
-            if let Some((sale, _)) = order_sale(&tx, &self.scope, &OrderId::new(order.as_str()))? {
+            if let Some(sale) = order_sale(&tx, &self.scope, &OrderId::new(order.as_str()))? {
                 let fact = Fact::AlertPosted {
                     sale,
                     kind: AlertKind::NewSale,
@@ -928,24 +928,21 @@ fn save_row(conn: &Connection, scope: &Scope, row: &SaleRow) -> Result<(), Ledge
     Ok(())
 }
 
+/// The sale `order` belongs to. (The table's `attempt` column, from
+/// before core.md decision 167, is always 1 now.)
 fn order_sale(
     conn: &Connection,
     scope: &Scope,
     order: &OrderId,
-) -> Result<Option<(SaleKey, u8)>, LedgerError> {
-    let row: Option<(String, i64)> = conn
+) -> Result<Option<SaleKey>, LedgerError> {
+    let row: Option<String> = conn
         .query_row(
-            "SELECT sale_key, attempt FROM orders WHERE scope = ?1 AND order_id = ?2",
+            "SELECT sale_key FROM orders WHERE scope = ?1 AND order_id = ?2",
             [&scope.0, &order.0],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| r.get(0),
         )
         .optional()?;
-    Ok(row.and_then(|(key, attempt)| {
-        Some((
-            SaleKey::parse(&key)?,
-            u8::try_from(attempt).unwrap_or(u8::MAX),
-        ))
-    }))
+    Ok(row.and_then(|key| SaleKey::parse(&key)))
 }
 
 fn next_seq(conn: &Connection) -> Result<i64, LedgerError> {
@@ -1158,7 +1155,7 @@ fn apply(
         _ => (next_seq(conn)?, true),
     };
     let unchanged = Ok(Applied::default());
-    let (sale, attempt) = match fact.about() {
+    let sale = match fact.about() {
         About::Nothing => {
             if !apply_global(conn, fact)? {
                 return unchanged;
@@ -1172,7 +1169,7 @@ fn apply(
             });
         }
         About::Order(order) => match order_sale(conn, scope, &order)? {
-            Some((sale, attempt)) => (sale, attempt),
+            Some(sale) => sale,
             None => {
                 // Kept until its OrderCreated arrives (§3).
                 if journal && !insert_journal(conn, scope, seq, at, None, fact)? {
@@ -1188,7 +1185,7 @@ fn apply(
                 });
             }
         },
-        About::Sale(sale) => (sale, 0),
+        About::Sale(sale) => sale,
     };
 
     // Alerts are their own projection.
@@ -1252,7 +1249,7 @@ fn apply(
         Fact::PosOrderRead(r) => row.shared.read_order(r),
         Fact::PosRefundSeen(r) => row.shared.see_refund(r),
         Fact::OrderCreated(o) => row.shared.create_order(o),
-        Fact::OrderObserved(o) => row.shared.observe(attempt, o),
+        Fact::OrderObserved(o) => row.shared.observe(o),
         Fact::ActionAsked { action, at, .. } => row.marks.action(*action, None, *at),
         Fact::ActionDone {
             action,
@@ -1286,12 +1283,12 @@ fn apply(
 
     // An OrderCreated links its order to the sale, and applies the events
     // that waited for it.
-    let mut created: Vec<(OrderId, u8)> = Vec::new();
+    let mut created: Vec<OrderId> = Vec::new();
     match fact {
-        Fact::OrderCreated(o) => created.push((o.order_id.clone(), o.attempt.max(1))),
+        Fact::OrderCreated(o) => created.push(o.order_id.clone()),
         Fact::Snapshot(s) => {
-            for a in &s.shared.attempts {
-                created.push((a.order.order_id.clone(), a.attempt));
+            if let Some(o) = &s.shared.order {
+                created.push(o.order.order_id.clone());
             }
             for alert in &s.alerts {
                 set_alert(
@@ -1310,14 +1307,14 @@ fn apply(
     // Sales kept from Monokulo alone that this one takes in: what they
     // showed already isn't alerted again.
     let mut folded: Vec<SaleRow> = Vec::new();
-    for (order, attempt) in created {
-        if let Some(kept) = fold_kept(conn, scope, &sale, &order, attempt, &mut row, at)? {
+    for order in created {
+        if let Some(kept) = fold_kept(conn, scope, &sale, &order, &mut row, at)? {
             folded.push(kept);
         }
         conn.execute(
-            "INSERT INTO orders(order_id, scope, sale_key, attempt) VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT(scope, order_id) DO UPDATE SET sale_key = excluded.sale_key, attempt = excluded.attempt",
-            params![order.0, scope.0, key, attempt],
+            "INSERT INTO orders(order_id, scope, sale_key, attempt) VALUES (?1, ?2, ?3, 1)
+             ON CONFLICT(scope, order_id) DO UPDATE SET sale_key = excluded.sale_key, attempt = 1",
+            params![order.0, scope.0, key],
         )?;
         let waiting: Vec<i64> = {
             let mut stmt = conn.prepare(
@@ -1335,7 +1332,7 @@ fn apply(
                 )
                 .optional()?;
             if let Some(Fact::OrderObserved(o)) = body.and_then(|(k, b)| Fact::decode(&k, &b)) {
-                row.shared.observe(attempt, &o);
+                row.shared.observe(&o);
                 row.marks.saw(&row.shared, at);
             }
             conn.execute(
@@ -1412,7 +1409,7 @@ fn shown_already(shown: &[SaleView], kind: AlertKind) -> bool {
 }
 
 /// When `order`, which point-of-sale sale `sale` has just taken as its
-/// `attempt`, belongs to a sale kept from Monokulo alone (an older build's
+/// order, belongs to a sale kept from Monokulo alone (an older build's
 /// shift, imported before this till found the sale at its point of sale),
 /// folds that row into `row`: what Monokulo said about the order, the
 /// local marks and the alerts; its journal rows go with `sale` (so
@@ -1424,7 +1421,6 @@ fn fold_kept(
     scope: &Scope,
     sale: &SaleKey,
     order: &OrderId,
-    attempt: u8,
     row: &mut SaleRow,
     at: i64,
 ) -> Result<Option<SaleRow>, LedgerError> {
@@ -1432,12 +1428,12 @@ fn fold_kept(
         return Ok(None);
     }
     let kept_key = match order_sale(conn, scope, order)? {
-        Some((key @ SaleKey::Order(_), _)) if key != *sale => key,
+        Some(key @ SaleKey::Order(_)) if key != *sale => key,
         _ => return Ok(None),
     };
     let kept = load_row(conn, scope, &kept_key)?;
     if let Some(kept) = &kept {
-        row.shared.take_observations(&kept.shared, order, attempt);
+        row.shared.take_observations(&kept.shared, order);
         row.marks.join(&kept.marks);
         row.marks.saw(&row.shared, at);
     }

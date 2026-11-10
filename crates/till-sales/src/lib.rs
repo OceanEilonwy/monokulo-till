@@ -42,7 +42,7 @@ pub use kotlin_json::shift_json;
 pub use live_store::{LiveStore, OnDisconnected, OnOnionApi, StoreNow};
 pub use pos_switch::{PosSwitch, PosSwitchSide};
 pub use runner::{NoSource, RunnerSide, RunnerState, TillRunner};
-pub use sale::{AttemptLine, PaymentCode, SaleExtras, TillSale, TillState};
+pub use sale::{PaymentCode, SaleExtras, TillSale, TillState};
 pub use shift::{Interval, OnChecked, Shift, WakeCause};
 pub use standing::Standing;
 pub use till::{OrderStatus, Till, TillOptions, Timer};

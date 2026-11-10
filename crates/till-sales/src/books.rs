@@ -242,17 +242,13 @@ impl Books {
     }
 
     /// The sale a screen calls `order_id`: its deciding order's id, one of
-    /// its other orders' ids, an offered cash sale's `cash:` id, or its key.
+    /// an offered cash sale's `cash:` id, or its key.
     pub fn sale_key(&self, order_id: &str) -> Option<SaleKey> {
         let state = self.state.borrow();
         state
             .views
             .iter()
-            .find(|v| {
-                v.order_id == order_id
-                    || v.sale.text() == order_id
-                    || v.attempts.iter().any(|a| a.order_id == order_id)
-            })
+            .find(|v| v.order_id == order_id || v.sale.text() == order_id)
             .map(|v| v.sale.clone())
             .or_else(|| SaleKey::parse(order_id))
     }
