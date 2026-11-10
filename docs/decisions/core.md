@@ -1700,3 +1700,14 @@ once at the edge, with the stored and sent text unchanged.
      sign-in registers with a Bell under, spelt as the Bell spells it, so
      `BellClient::register` takes the typed sign-in and the token as a
      `Secret` instead of four adjacent strings.
+193. **The ledger's store key is the kept API address, spelt as kept.**
+     A connection's `api` is now an `ApiUrl`, written once from the URL the
+     connect resolved and read back verbatim; the scope hashes its text, or
+     nothing with no store, as before. It isn't normalised for the key: a
+     scope that changes has its rows deleted at the next open (decision
+     166), and a connection the Android app kept may be spelt differently
+     from how a parsed URL would print it (a default port, say), so a
+     normalised key could delete a till's sales. The one way a store's
+     address gets written is from a parsed URL at connect, so one store
+     can't come to have two spellings without a new connection, which is a
+     new scope anyway.

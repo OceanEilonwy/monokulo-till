@@ -6,6 +6,20 @@ use till_types::Secret;
 
 use crate::tor;
 
+till_types::text_id!(
+    /// A store's API entry, absolute (`https://pay.example/api/v1`), as the
+    /// connection keeps it: written once, as the URL it was resolved to at
+    /// connect, and read back as it was written, never spelt again. Its text
+    /// is the ledger's key for the store (decision 193).
+    ApiUrl
+);
+
+impl From<Url> for ApiUrl {
+    fn from(url: Url) -> ApiUrl {
+        ApiUrl(url.into())
+    }
+}
+
 /// This device's connection to one store: its key and where the store's API
 /// is. The app keeps it (encrypted) until it is disconnected, and nothing
 /// else: what the store is called and where its payments go are read from
@@ -20,7 +34,7 @@ pub struct Connection {
     /// the `api` path `POST /apps/connect` answered, resolved against the
     /// link the code was redeemed at, so a till that connected over an onion
     /// address stays on it.
-    pub api: String,
+    pub api: ApiUrl,
     /// The same entry on the store's onion address (`http://….onion/api/v1`),
     /// while it has one: the handshake's `onion_api`, or the entry's
     /// `mk:onion-api` for a till that connected before Monokulo gave it.
@@ -40,7 +54,7 @@ impl Connection {
     pub fn new(app_key: impl Into<String>, api: impl Into<String>) -> Connection {
         Connection {
             app_key: Secret::new(app_key.into()),
-            api: api.into(),
+            api: ApiUrl(api.into()),
             onion_api: None,
             tor: false,
         }
@@ -51,7 +65,7 @@ impl Connection {
     pub fn entry(&self) -> &str {
         match &self.onion_api {
             Some(onion) if self.tor => onion,
-            _ => &self.api,
+            _ => self.api.as_str(),
         }
     }
 
@@ -64,7 +78,7 @@ impl Connection {
     /// The store's host, as the app shows it (`pay.example`), with its port
     /// when that isn't the scheme's own.
     pub fn host(&self) -> String {
-        Url::parse(&self.api)
+        Url::parse(self.api.as_str())
             .ok()
             .and_then(|url| {
                 let host = url.host_str()?.to_owned();
@@ -73,13 +87,13 @@ impl Connection {
                     None => host,
                 })
             })
-            .unwrap_or_else(|| self.api.clone())
+            .unwrap_or_else(|| self.api.to_string())
     }
 
     /// Whether the connection is encrypted on the way: https, or Tor to an
     /// onion address.
     pub fn encrypted(&self) -> bool {
-        self.over_tor() || self.api.starts_with("https://")
+        self.over_tor() || self.api.as_str().starts_with("https://")
     }
 
     /// What the app writes to keep `connection`: JSON, leaving out an onion

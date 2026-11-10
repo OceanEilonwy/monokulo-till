@@ -27,7 +27,7 @@ pub use amounts::MoneyFormat;
 pub use api::{AppIdentity, MonokuloApi, StreamEvent};
 pub use clock::{Clock, FixedClock, SystemClock};
 pub use connect_code::ConnectCode;
-pub use connection::Connection;
+pub use connection::{ApiUrl, Connection};
 pub use error::MonokuloError;
 pub use order::{Order, OrderStatus};
 pub use point_of_sale::PointOfSale;

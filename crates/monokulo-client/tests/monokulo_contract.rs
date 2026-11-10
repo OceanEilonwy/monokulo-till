@@ -373,7 +373,7 @@ async fn connecting_sends_what_the_handshake_takes_and_keeps_the_key_and_the_ent
     };
     let connection = stand.api.connect(&stand.code()).await.unwrap();
     assert!(connection.app_key.expose_str().starts_with("ak_"));
-    assert_eq!(connection.api, stand.url("/api/v1"));
+    assert_eq!(connection.api.as_str(), stand.url("/api/v1"));
     assert_eq!(
         connection.onion_api, None,
         "a Monokulo without an onion address names none"
@@ -389,7 +389,7 @@ async fn connecting_to_a_monokulo_with_an_onion_address_keeps_its_onion_entry_to
     stand.set_onion();
     let connection = stand.api.connect(&stand.code()).await.unwrap();
     assert!(connection.app_key.expose_str().starts_with("ak_"));
-    assert_eq!(connection.api, stand.url("/api/v1"));
+    assert_eq!(connection.api.as_str(), stand.url("/api/v1"));
     let onion = connection
         .onion_api
         .expect("Monokulo recorded the handshake with an onion address");

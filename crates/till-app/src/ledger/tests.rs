@@ -354,3 +354,24 @@ fn the_kept_shift_is_imported_once_by_whichever_process_opens_first() {
     app.books().record(order("pay_monero", "ord_1"));
     assert!(claimed.lock().unwrap().is_empty(), "{:?}", claimed.lock());
 }
+
+/// Decision 193: the scope is the kept API address's text, as it was
+/// before the address had a type, so no kept ledger's rows are deleted as
+/// changed (decision 166).
+#[test]
+fn the_scope_of_a_kept_connection_is_as_it_was() {
+    let platform = platform();
+    let kept = Kept::load(Store::new(platform), Arc::new(|_| {})).unwrap();
+    let model = kept.model();
+    assert_eq!(
+        crate::ledger::scope_of(&model),
+        till_ledger::Scope::of(
+            "https://pay.example/api/v1",
+            Some((PointOfSale::Square, "L1"))
+        )
+    );
+    assert_eq!(
+        crate::ledger::scope_of(&model).as_str(),
+        "38d75479b20222a134f0839f65bd110a"
+    );
+}

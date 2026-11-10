@@ -263,7 +263,10 @@ async fn a_monokulo_under_a_path_is_connected_and_used_under_it() {
     )
     .unwrap();
     let connection = stand.api.connect(&code).await.unwrap();
-    assert_eq!(connection.api, format!("{}/monokulo/api/v1", stand.base()));
+    assert_eq!(
+        connection.api.as_str(),
+        format!("{}/monokulo/api/v1", stand.base())
+    );
     stand.api.store(&connection).await.unwrap();
     let order = stand
         .api

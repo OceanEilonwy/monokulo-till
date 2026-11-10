@@ -756,7 +756,7 @@ fn tor_section(
     onion_api: Option<&str>,
     running: Option<bool>,
 ) -> Option<TorSection> {
-    let at_onion = tor::is_onion(&connection.api);
+    let at_onion = tor::is_onion(connection.api.as_str());
     if !at_onion && connection.onion_api.is_none() && onion_api.is_none() {
         return None;
     }
