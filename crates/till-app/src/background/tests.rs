@@ -167,12 +167,16 @@ async fn without_a_connection_or_a_shift_on_nothing_is_asked() {
     let (monokulo, square) = (monokulo().await, square(Duration::ZERO).await);
     let none = look(config(&square), Arc::new(FakePlatform::default()), 10_000).await;
     assert_eq!(
-        none,
+        BackgroundCheck {
+            steps: Vec::new(),
+            ..none
+        },
         BackgroundCheck {
             alerts: Vec::new(),
             ongoing: None,
             problem: None,
-            finished: true
+            finished: true,
+            steps: Vec::new(),
         }
     );
     let platform = signed_in_till(&monokulo);
@@ -318,4 +322,131 @@ async fn a_look_alerts_this_counters_sale_another_till_announced_first() {
     assert_eq!(check.alerts[0].order_id, "ord_1");
     let again = look(config(&square), platform, 10_000).await;
     assert!(again.alerts.is_empty());
+}
+
+fn steps_named<'a>(check: &'a BackgroundCheck, name: &str) -> Vec<&'a LookStep> {
+    check.steps.iter().filter(|s| s.step == name).collect()
+}
+
+/// Where a slow alert's time went (core.md decision 203): each step of the
+/// look, every request to the point of sale and Monokulo's order, timed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_look_says_how_long_each_step_took() {
+    let (monokulo, square) = (monokulo().await, square(Duration::from_millis(200)).await);
+    let check = look(config(&square), signed_in_till(&monokulo), 10_000).await;
+    assert_eq!(check.alerts.len(), 1, "{check:?}");
+    for step in [
+        "state",
+        "ledger.open",
+        "pos.payments",
+        "pos.order",
+        "pos.refunds",
+        "monokulo.create",
+        "monokulo.reread",
+        "round",
+        "ledger.close",
+        "total",
+    ] {
+        assert_eq!(
+            steps_named(&check, step).len(),
+            1,
+            "{step} in {:?}",
+            check.steps
+        );
+    }
+    assert!(steps_named(&check, "pos.payments")[0].ms >= 200);
+    let total = steps_named(&check, "total")[0].ms;
+    assert!(total >= steps_named(&check, "round")[0].ms);
+    assert_eq!(check.steps.last().unwrap().step, "total");
+}
+
+/// The point of sale's refunds are listed while its payments are, not
+/// after (core.md decision 204): the look waits for the slower, not both.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_look_lists_refunds_while_it_lists_payments() {
+    let (monokulo, square) = (monokulo().await, square(Duration::from_millis(800)).await);
+    Mock::given(method("GET"))
+        .and(path("/v2/refunds"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_raw(r#"{"refunds":[]}"#, "application/json")
+                .set_delay(Duration::from_millis(800)),
+        )
+        .mount(&square)
+        .await;
+    let check = look(config(&square), signed_in_till(&monokulo), 10_000).await;
+    assert_eq!(check.alerts.len(), 1, "{check:?}");
+    assert!(steps_named(&check, "pos.refunds")[0].ms >= 800);
+    let round = steps_named(&check, "round")[0].ms;
+    assert!(
+        round < 1_500,
+        "payments and refunds one after the other would take 1.6 s: {:?}",
+        check.steps
+    );
+}
+
+/// The shift's open orders are read again during the look, but not the
+/// order the look itself made, which Monokulo's answer to making it told
+/// (core.md decision 204).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_look_reads_again_only_the_orders_open_before_it() {
+    let (monokulo, square) = (monokulo().await, square(Duration::ZERO).await);
+    let platform = signed_in_till(&monokulo);
+    let reads = |requests: Vec<wiremock::Request>| {
+        requests
+            .iter()
+            .filter(|r| r.method.as_str() == "GET" && r.url.path() == "/api/v1/orders/ord_1")
+            .count()
+    };
+    let first = look(config(&square), platform.clone(), 10_000).await;
+    assert_eq!(first.alerts.len(), 1);
+    assert_eq!(reads(monokulo.received_requests().await.unwrap()), 0);
+    let again = look(config(&square), platform, 10_000).await;
+    assert!(again.alerts.is_empty());
+    assert_eq!(
+        reads(monokulo.received_requests().await.unwrap()),
+        1,
+        "open from the first look"
+    );
+}
+
+/// iOS's extension asks once: is it a ding, and if so, the look, with the
+/// kept state read once for both (core.md decision 205).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_ding_and_its_look_in_one_call() {
+    use crate::store::Store;
+    use crate::web_push::PushKeys;
+    use crate::web_push::tests::encrypt;
+
+    let (monokulo, square) = (monokulo().await, square(Duration::ZERO).await);
+    let platform = signed_in_till(&monokulo);
+    let keys = PushKeys::load_or_make(&Store::new(platform.clone()))
+        .unwrap()
+        .unwrap();
+    let ding = encrypt(
+        &keys.p256dh().unwrap(),
+        &keys.auth(),
+        br#"{"wake":"square"}"#,
+    );
+    let other = encrypt(
+        &keys.p256dh().unwrap(),
+        &keys.auth(),
+        br#"{"wake":"clover"}"#,
+    );
+
+    let (c, p) = (config(&square), platform.clone());
+    let not = tokio::task::spawn_blocking(move || background_check_ding(c, p, other, 10_000))
+        .await
+        .unwrap();
+    assert_eq!(not, None, "a ding for another point of sale");
+    assert!(square.received_requests().await.unwrap().is_empty());
+
+    let (c, p) = (config(&square), platform.clone());
+    let check = tokio::task::spawn_blocking(move || background_check_ding(c, p, ding, 10_000))
+        .await
+        .unwrap()
+        .expect("a ding");
+    assert_eq!(check.alerts.len(), 1, "{check:?}");
+    assert_eq!(steps_named(&check, "state").len(), 1);
+    assert_eq!(steps_named(&check, "ding").len(), 1);
 }

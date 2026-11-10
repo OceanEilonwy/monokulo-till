@@ -45,5 +45,5 @@ pub use runner::{NoSource, RunnerSide, RunnerState, TillRunner};
 pub use sale::{AttemptLine, PaymentCode, SaleExtras, TillSale, TillState};
 pub use shift::{Interval, OnChecked, Shift, WakeCause};
 pub use standing::Standing;
-pub use till::{OrderStatus, Till, TillOptions};
+pub use till::{OrderStatus, Till, TillOptions, Timer};
 pub use till_ledger;

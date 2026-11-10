@@ -1341,3 +1341,43 @@ scope that changed while the app wasn't running.
      scope change while running deletes them (decision 158), so only the
      current scope's rows are kept. The extension never does: it leaves
      scope decisions to the app.
+
+## The extension's look, timed and shortened (2026-11-10)
+
+A Bell's alert sometimes took about 5 s to say the sale. The path is
+Square's webhook, the Bell's ding, the relay's APNs alert, then the
+extension's look; only the look is the till's, so it now says where its
+time goes and waits on less. (Decisions 200 to 202 are the floating
+window's, in another change.)
+
+203. **Each look times its steps.** `BackgroundCheck::steps` lists each
+     step and its milliseconds in the order they ended: the kept state
+     read, the ding opened, the ledger opened and read, every request to
+     the point of sale (`pos.payments`, which holds a sign-in's refresh
+     when one is due, `pos.order`, `pos.refunds`), every Monokulo order
+     made (`monokulo.create`, through `Till::with_timer`), the open orders
+     read again, the round, the ledger's close-out, and the total. The
+     extension writes them to the unified log (subsystem
+     `com.monokulo.till`, category `look`), with how long after the
+     push's arrival the alert went to iOS, so a slow alert on the device
+     shows its slow step.
+204. **The look waits on its one chain of requests.** What the alert
+     needs is a chain: the payments, the sale's order at the point of
+     sale, the Monokulo order. The rest now runs beside it instead of
+     after it: the point of sale's refunds listing (decision 163) is asked
+     while the payments are (`Till::check_at_once`; a refund of a sale this
+     very look first records may wait for the next listing, which lists
+     two minutes back), and the shift's open Monokulo orders (docs/
+     ledger.md §8) are read again during the round, four at a time, rather
+     than one by one after it. The order the look itself made isn't read
+     again: Monokulo's answer to making it said what it is. The app's own
+     looks keep `Till::check`, one step after another. The alert still
+     waits for the Monokulo order, so a tap on it opens a code that's
+     ready (docs/ipad-redesign.md, alert first).
+205. **The extension reads the kept state once.** It asked
+     `is_relayed_ding` (which read the whole kept state from the
+     Keychain, one item at a time) and then `background_check` (which read
+     it all again). `background_check_ding` does both on one read: `None`
+     when the push isn't a ding for this till, else the look.
+     `is_relayed_ding` and `background_check` stay, for the app and
+     Android.

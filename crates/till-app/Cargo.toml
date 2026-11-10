@@ -15,6 +15,7 @@ uniffi = ["dep:uniffi", "till-screens/uniffi"]
 [dependencies]
 # PosSwitchSide and till-bell's PosSide are traits with async methods.
 async-trait = "0.1.89"
+futures-util.workspace = true
 # Opening the relay's dings (RFC 8291): the crypto rustls already brings.
 aws-lc-rs = { version = "1.18.2", default-features = false, features = ["aws-lc-sys"] }
 base64.workspace = true

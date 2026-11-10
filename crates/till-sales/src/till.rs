@@ -124,7 +124,13 @@ pub struct Till {
     clock: Arc<dyn Clock>,
     books: Arc<Books>,
     checking: tokio::sync::Mutex<Checking>,
+    /// Hears how long each Monokulo order took to make ([`Till::with_timer`]).
+    timer: Option<Timer>,
 }
+
+/// Hears a step's name and how long it took: iOS's extension times its
+/// look with it (docs/decisions/core.md 203).
+pub type Timer = Arc<dyn Fn(&'static str, Duration) + Send + Sync>;
 
 impl Till {
     /// The most sales the shift shows, newest first.
@@ -165,6 +171,16 @@ impl Till {
             clock: Arc::new(SystemClock),
             books,
             checking: tokio::sync::Mutex::new(Checking::default()),
+            timer: None,
+        }
+    }
+
+    /// The same till, telling `timer` how long each order it makes takes
+    /// (`"monokulo.create"`).
+    pub fn with_timer(self, timer: Timer) -> Till {
+        Till {
+            timer: Some(timer),
+            ..self
         }
     }
 
@@ -273,20 +289,58 @@ impl Till {
     /// failed, found again, isn't counted twice. 0 when the POS couldn't be
     /// read.
     pub async fn check(&self) -> usize {
+        self.check_with(false).await
+    }
+
+    /// [`Till::check`], with the point of sale's refunds listed while its
+    /// payments are, rather than after: for a look someone waits on (iOS's
+    /// extension, whose alert waits for the look, docs/decisions/core.md
+    /// 204). A refund of a sale this very look first records may be missed
+    /// by this listing; the next one lists it again
+    /// ([`Till::REFUNDS_OVERLAP_SECONDS`]).
+    pub async fn check_at_once(&self) -> usize {
+        self.check_with(true).await
+    }
+
+    async fn check_with(&self, at_once: bool) -> usize {
         let mut checking = self.checking.lock().await;
+        let fresh = if at_once {
+            let (fresh, ()) = tokio::join!(
+                self.take_new_sales(&mut checking.last_found),
+                self.read_pos_refunds()
+            );
+            fresh
+        } else {
+            let fresh = self.take_new_sales(&mut checking.last_found).await;
+            if fresh.is_some() {
+                self.read_pos_refunds().await;
+            }
+            fresh
+        };
+        let Some(fresh) = fresh else {
+            return 0;
+        };
+        self.look_for_refunds(&mut checking).await;
+        self.books.looked();
+        fresh
+    }
+
+    /// The point of sale's new sales, each taken ([`Till::take`]): how many
+    /// the last look hadn't found, or `None` when it couldn't be read.
+    async fn take_new_sales(&self, last_found: &mut HashSet<String>) -> Option<usize> {
         let found = match self.source.new_sales().await {
             Ok(found) => found,
             Err(e) => {
                 self.books.change(|s| with_pos_problem(s, &e));
                 self.books.looked();
-                return 0;
+                return None;
             }
         };
         let fresh = found
             .iter()
-            .filter(|sale| !checking.last_found.contains(&sale.id))
+            .filter(|sale| !last_found.contains(&sale.id))
             .count();
-        checking.last_found = found.iter().map(|sale| sale.id.clone()).collect();
+        *last_found = found.iter().map(|sale| sale.id.clone()).collect();
         let mut problem = None;
         for sale in &found {
             match self.take(sale).await {
@@ -299,10 +353,7 @@ impl Till {
             sign_in_again: false,
             ..s.clone()
         });
-        self.read_pos_refunds().await;
-        self.look_for_refunds(&mut checking).await;
-        self.books.looked();
-        fresh
+        Some(fresh)
     }
 
     /// Reads the refunds the point of sale lists since this till's refunds
@@ -706,7 +757,9 @@ impl Till {
     /// receipt number, and the idempotency key, never whom it's for (names
     /// stay on the device). What went wrong, in the till's words.
     async fn create_order(&self, sale: &FoundSale, attempt: u8) -> Result<Order, String> {
-        self.monokulo
+        let started = std::time::Instant::now();
+        let made = self
+            .monokulo
             .create_order(
                 &self.connection,
                 &decimal_amount(sale.amount_minor, &sale.currency),
@@ -715,7 +768,11 @@ impl Till {
                 &OrderKey::new(PaymentId::new(sale.id.as_str()), attempt).key(),
             )
             .await
-            .map_err(|e| creation_problem(&e))
+            .map_err(|e| creation_problem(&e));
+        if let Some(timer) = &self.timer {
+            timer("monokulo.create", started.elapsed());
+        }
+        made
     }
 
     /// Makes the order for `key`'s `attempt` as the cashier asked
