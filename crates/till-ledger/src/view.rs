@@ -12,7 +12,7 @@ use till_pos::FoundSale;
 
 use crate::facts::{Outcome, RefundStatus, Tender};
 use crate::ids::{DeviceId, SaleKey};
-use crate::model::{LocalMarks, PaymentPhase, SharedSale, action_name};
+use crate::model::{LocalMarks, PaymentPhase, SharedSale};
 
 /// What an offered cash sale's `order_id` starts with, before the
 /// payment's id (`TillSale::OFFERED`).
@@ -251,7 +251,7 @@ pub fn view(
     // isn't one; [`SharedSale::ended`] waits for completion either way.
     let refund_asked = marks
         .actions
-        .get(&action_name(crate::facts::Action::Refund));
+        .get(&crate::facts::Action::Refund);
     let refund_done_at = refund_asked
         .filter(|a| a.outcome == Some(Outcome::Done))
         .and_then(|a| a.done_at);

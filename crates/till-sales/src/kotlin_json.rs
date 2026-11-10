@@ -144,7 +144,7 @@ pub(crate) mod receipt {
 
     use super::{JavaMap, double};
 
-    const ORF_VERSION: &str = "0.1.0";
+    use orf_codec::ORF_VERSION;
 
     #[derive(Serialize)]
     struct Out<'a> {

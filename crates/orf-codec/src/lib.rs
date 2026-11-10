@@ -40,6 +40,10 @@ mod model;
 pub mod query;
 
 pub use codec::{Codec, DEFAULT_DICTIONARY, FORMAT};
+
+/// The ORF version this library encodes: a receipt's `orf_version` must be
+/// this.
+pub const ORF_VERSION: &str = "0.1.0";
 pub use digits::{from_digits, to_digits};
 pub use model::*;
 

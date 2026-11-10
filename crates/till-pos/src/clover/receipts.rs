@@ -65,7 +65,7 @@ pub fn receipt(
         extensions
     });
     Some(Receipt {
-        orf_version: "0.1.0".into(),
+        orf_version: orf_codec::ORF_VERSION.into(),
         receipt: ReceiptInfo {
             receipt_id: sale
                 .reference

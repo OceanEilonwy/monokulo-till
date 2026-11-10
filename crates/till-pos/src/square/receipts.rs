@@ -82,7 +82,7 @@ pub fn receipt(
     }
     let created = crate::time::parse(&order.created_at)?;
     Some(Receipt {
-        orf_version: "0.1.0".into(),
+        orf_version: orf_codec::ORF_VERSION.into(),
         receipt: ReceiptInfo {
             receipt_id: sale
                 .reference

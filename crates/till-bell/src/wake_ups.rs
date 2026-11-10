@@ -13,9 +13,9 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    BellAddress, BellClient, BellError, BellProblem, BellRegistration, DeviceError, PosSignIn,
-    PushFailure, PushState, PushSubscription, PushSubscriptions, WakeUpChoice, WakeUpStatus,
-    WakeUpStore, pos_words,
+    BellAddress, BellClient, BellError, BellProblem, BellRegistration, BellSlug, DeviceError,
+    PosSignIn, PushFailure, PushState, PushSubscription, PushSubscriptions, WakeUpChoice,
+    WakeUpStatus, WakeUpStore, pos_words,
 };
 
 /// Which distributor would carry the dings (decision 91).
@@ -310,24 +310,22 @@ pub fn problem_status(
     point_of_sale: Option<PointOfSale>,
     now: i64,
 ) -> WakeUpStatus {
-    let Some(slug) = problem.slug.as_deref() else {
+    let Some(slug) = &problem.slug else {
         return status_only(problem);
     };
-    let refused = point_of_sale.map(|pos| format!("{}-refused", pos.wire()));
-    let unavailable = point_of_sale.map(|pos| format!("{}-unavailable", pos.wire()));
-    match (point_of_sale, slug) {
-        (Some(pos), _) if refused.as_deref() == Some(slug) => {
-            WakeUpStatus::refused(pos_words::refused(pos))
+    match slug {
+        BellSlug::Refused(pos) if point_of_sale == Some(*pos) => {
+            WakeUpStatus::refused(pos_words::refused(*pos))
         }
-        (_, "too-many-registrations") => WakeUpStatus::refused(format!(
+        BellSlug::TooManyRegistrations => WakeUpStatus::refused(format!(
             "this {} already has 32 tills registered",
             pos_words::place(point_of_sale)
         )),
-        (_, "endpoint-registered") => WakeUpStatus::refused(format!(
+        BellSlug::EndpointRegistered => WakeUpStatus::refused(format!(
             "this device is registered under another {}",
             pos_words::account(point_of_sale)
         )),
-        (_, "rate-limited") => {
+        BellSlug::RateLimited => {
             let wait = problem
                 .retry_after
                 .unwrap_or(FIRST_RETRY.as_secs() as i64)
@@ -340,10 +338,10 @@ pub fn problem_status(
                 retry_at: Some(now + wait),
             }
         }
-        (_, "internal") => {
+        BellSlug::Internal => {
             WakeUpStatus::unreachable(unreachable_reason(&BellError::Problem(problem.clone())))
         }
-        _ if unavailable.as_deref() == Some(slug) => {
+        BellSlug::Unavailable(pos) if point_of_sale == Some(*pos) => {
             WakeUpStatus::unreachable(unreachable_reason(&BellError::Problem(problem.clone())))
         }
         _ => status_only(problem),

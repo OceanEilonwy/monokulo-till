@@ -728,8 +728,10 @@ pub struct LocalMarks {
     pub ended_at: Option<i64>,
     /// When this device first saw the POS's refund completed.
     pub refunded_at: Option<i64>,
-    #[serde(default)]
-    pub actions: BTreeMap<String, ActionMark>,
+    /// Kept under each action's snake-case name (`make_order`), as when
+    /// the keys were strings ([`action_keys`]).
+    #[serde(default, with = "action_keys")]
+    pub actions: BTreeMap<Action, ActionMark>,
 }
 
 fn min_opt(a: Option<i64>, b: i64) -> Option<i64> {
@@ -768,7 +770,7 @@ impl LocalMarks {
     }
 
     pub fn action(&mut self, action: Action, outcome: Option<&Outcome>, at: i64) {
-        let entry = self.actions.entry(action_name(action)).or_default();
+        let entry = self.actions.entry(action).or_default();
         match outcome {
             None => {
                 entry.asked_at = Some(at);
@@ -816,9 +818,7 @@ impl LocalMarks {
             earliest(&mut mine.confirmed_at, theirs.confirmed_at);
         }
         for (name, action) in &other.actions {
-            self.actions
-                .entry(name.clone())
-                .or_insert_with(|| action.clone());
+            self.actions.entry(*name).or_insert_with(|| action.clone());
         }
     }
 
@@ -866,20 +866,77 @@ impl LocalMarks {
     }
 }
 
-/// The key an action is kept under in [`LocalMarks::actions`].
-pub fn action_name(action: Action) -> String {
+/// The name an action is kept under in [`LocalMarks::actions`]' JSON.
+fn action_name(action: Action) -> &'static str {
     match action {
         Action::MakeOrder => "make_order",
         Action::TakeInMonero => "take_in_monero",
         Action::NewCode => "new_code",
         Action::Refund => "refund",
     }
-    .to_owned()
+}
+
+/// [`LocalMarks::actions`] as a JSON object keyed by [`action_name`]. A key
+/// that names no action (from a newer build) is skipped rather than
+/// failing the whole sale's marks.
+mod action_keys {
+    use std::collections::BTreeMap;
+
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    use super::{ActionMark, action_name};
+    use crate::facts::Action;
+
+    const ALL: [Action; 4] = [
+        Action::MakeOrder,
+        Action::TakeInMonero,
+        Action::NewCode,
+        Action::Refund,
+    ];
+
+    pub fn serialize<S: Serializer>(
+        actions: &BTreeMap<Action, ActionMark>,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        s.collect_map(actions.iter().map(|(a, mark)| (action_name(*a), mark)))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        d: D,
+    ) -> Result<BTreeMap<Action, ActionMark>, D::Error> {
+        let named = BTreeMap::<String, ActionMark>::deserialize(d)?;
+        Ok(named
+            .into_iter()
+            .filter_map(|(name, mark)| {
+                let action = ALL.into_iter().find(|a| action_name(*a) == name)?;
+                Some((action, mark))
+            })
+            .collect())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The actions keep the JSON keys they had as strings, and marks kept
+    /// before still read, a key naming no action skipped.
+    #[test]
+    fn local_marks_keep_their_action_keys() {
+        let old = r#"{"closed":null,"reopened":null,"kept_as_cash":null,"paid_in_cash":null,"refund":null,"clock_lapsed":null,"first_at":null,"seen_at":null,"paid_at":null,"ended_at":null,"refunded_at":null,"actions":{"make_order":{"asked_at":5,"done_at":6,"outcome":"Done"},"refund":{"asked_at":7,"done_at":null,"outcome":null},"teleport":{"asked_at":1,"done_at":null,"outcome":null}}}"#;
+        let marks: LocalMarks = serde_json::from_str(old).unwrap();
+        assert_eq!(marks.actions.len(), 2);
+        assert_eq!(marks.actions[&Action::MakeOrder].done_at, Some(6));
+        assert_eq!(marks.actions[&Action::Refund].asked_at, Some(7));
+        let json = serde_json::to_string(&marks).unwrap();
+        assert!(
+            json.contains(
+                r#""actions":{"make_order":{"asked_at":5,"done_at":6,"outcome":"Done"},"refund":"#
+            ),
+            "{json}"
+        );
+        assert_eq!(serde_json::from_str::<LocalMarks>(&json).unwrap(), marks);
+    }
 
     fn obs(phase: SalePhase, is_final: bool) -> OrderObserved {
         OrderObserved {

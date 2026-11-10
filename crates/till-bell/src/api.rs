@@ -54,7 +54,7 @@ pub struct BellProblem {
     /// The problem's type: the slug of the section of monokulo's
     /// `docs/bell.md` it links to (`rate-limited`). `None` for an answer
     /// that wasn't a problem.
-    pub slug: Option<String>,
+    pub slug: Option<BellSlug>,
     /// The problem's detail, when it had one that isn't blank.
     pub detail: Option<String>,
     /// How many seconds to wait before asking again: `Retry-After`, else the
@@ -71,6 +71,60 @@ impl BellProblem {
             slug: None,
             detail: None,
             retry_after: None,
+        }
+    }
+}
+
+/// A Bell problem's slug (the section of monokulo's `docs/bell.md` its
+/// type links to), named by point of sale where the Bell names it so
+/// (`square-refused`, `clover-unavailable`, B46); [`BellSlug::Other`] for
+/// any other, kept as it came.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum BellSlug {
+    /// `<pos>-refused`: the point of sale refused the Bell's check.
+    Refused(PointOfSale),
+    /// `<pos>-unavailable`: the Bell couldn't reach the point of sale.
+    Unavailable(PointOfSale),
+    TooManyRegistrations,
+    EndpointRegistered,
+    RateLimited,
+    Internal,
+    Other(String),
+}
+
+impl BellSlug {
+    /// The slug `slug`.
+    pub fn from_slug(slug: &str) -> BellSlug {
+        let by_pos = |suffix: &str| {
+            let pos = slug.strip_suffix(suffix)?;
+            PointOfSale::ALL.into_iter().find(|p| p.wire() == pos)
+        };
+        if let Some(pos) = by_pos("-refused") {
+            return BellSlug::Refused(pos);
+        }
+        if let Some(pos) = by_pos("-unavailable") {
+            return BellSlug::Unavailable(pos);
+        }
+        match slug {
+            "too-many-registrations" => BellSlug::TooManyRegistrations,
+            "endpoint-registered" => BellSlug::EndpointRegistered,
+            "rate-limited" => BellSlug::RateLimited,
+            "internal" => BellSlug::Internal,
+            other => BellSlug::Other(other.to_owned()),
+        }
+    }
+}
+
+impl fmt::Display for BellSlug {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BellSlug::Refused(pos) => write!(f, "{}-refused", pos.wire()),
+            BellSlug::Unavailable(pos) => write!(f, "{}-unavailable", pos.wire()),
+            BellSlug::TooManyRegistrations => f.write_str("too-many-registrations"),
+            BellSlug::EndpointRegistered => f.write_str("endpoint-registered"),
+            BellSlug::RateLimited => f.write_str("rate-limited"),
+            BellSlug::Internal => f.write_str("internal"),
+            BellSlug::Other(slug) => f.write_str(slug),
         }
     }
 }
@@ -269,8 +323,10 @@ impl Answer {
             // The type is the section's address on the Bell's page: `…/docs/bell.md#rate-limited`.
             slug: problem
                 .r#type
-                .map(|t| t.rsplit('#').next().unwrap_or_default().to_owned())
-                .filter(|slug| !slug.is_empty()),
+                .as_deref()
+                .map(|t| t.rsplit('#').next().unwrap_or_default())
+                .filter(|slug| !slug.is_empty())
+                .map(BellSlug::from_slug),
             detail: problem.detail.filter(|d| !d.trim().is_empty()),
             retry_after,
         })

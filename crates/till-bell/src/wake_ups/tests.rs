@@ -560,7 +560,7 @@ fn subscription(endpoint: &str, p256dh: &str, auth: &str) -> PushSubscription {
 fn problem(status: u16, slug: Option<&str>) -> BellError {
     BellError::Problem(BellProblem {
         status,
-        slug: slug.map(str::to_owned),
+        slug: slug.map(BellSlug::from_slug),
         detail: None,
         retry_after: None,
     })
@@ -1238,7 +1238,7 @@ async fn each_problem_type_is_its_refusal_and_only_rate_limited_retries_by_itsel
     ) -> WakeUpStatus {
         let problem = BellProblem {
             status,
-            slug: slug.map(str::to_owned),
+            slug: slug.map(BellSlug::from_slug),
             detail: detail.map(str::to_owned),
             retry_after,
         };
@@ -1367,7 +1367,7 @@ async fn a_refusal_waits_for_a_re_pick_a_sign_in_or_a_start_but_rate_limited_com
     s.bell.set_register(|| {
         Err(BellError::Problem(BellProblem {
             status: 429,
-            slug: Some("rate-limited".into()),
+            slug: Some(BellSlug::RateLimited),
             detail: None,
             retry_after: Some(30),
         }))

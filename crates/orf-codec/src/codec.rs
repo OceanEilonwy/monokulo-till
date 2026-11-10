@@ -249,7 +249,7 @@ impl Enc {
     }
 
     fn receipt(&mut self, r: &Receipt) -> Result<(), EncodeError> {
-        if r.orf_version != "0.1.0" {
+        if r.orf_version != crate::ORF_VERSION {
             return Err(unsupported("orf_version", "only ORF 0.1.0"));
         }
         let exp = exponent(&r.currency);
@@ -728,7 +728,7 @@ impl Dec<'_> {
         };
 
         Ok(Receipt {
-            orf_version: "0.1.0".into(),
+            orf_version: crate::ORF_VERSION.into(),
             receipt: ReceiptInfo {
                 receipt_id,
                 issue_timestamp,

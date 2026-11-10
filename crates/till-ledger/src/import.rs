@@ -80,7 +80,7 @@ struct Kept {
 fn receipt_of(mut value: serde_json::Value) -> Option<orf_codec::Receipt> {
     let map = value.as_object_mut()?;
     map.entry("orf_version")
-        .or_insert_with(|| serde_json::Value::from("0.1.0"));
+        .or_insert_with(|| serde_json::Value::from(orf_codec::ORF_VERSION));
     if let Some(info) = map.get_mut("receipt").and_then(|r| r.as_object_mut()) {
         info.entry("receipt_type")
             .or_insert_with(|| serde_json::Value::from("sale"));

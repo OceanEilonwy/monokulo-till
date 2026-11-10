@@ -709,7 +709,8 @@ fn problem(status: u16, headers: &HeaderMap, body: &[u8]) -> MonokuloError {
     let detail = text("detail")
         .or_else(|| text("title"))
         .unwrap_or_else(|| format!("HTTP {status}"));
-    let problem = text("type").map(|t| t.rsplit('/').next().unwrap_or(&t).to_owned());
+    let problem = text("type")
+        .map(|t| crate::problems::MonokuloProblem::from_slug(t.rsplit('/').next().unwrap_or(&t)));
     let retry_after = body
         .as_ref()
         .and_then(|b| b.get("retry_after"))

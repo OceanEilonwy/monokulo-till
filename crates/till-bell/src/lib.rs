@@ -24,7 +24,8 @@ mod wake_ups;
 
 pub use address::{BellAddress, NotABellAddress};
 pub use api::{
-    BELL_TIMEOUT, BellApi, BellClient, BellError, BellProblem, BellRegistered, DeviceError,
+    BELL_TIMEOUT, BellApi, BellClient, BellError, BellProblem, BellRegistered, BellSlug,
+    DeviceError,
 };
 pub use model::{BellInfo, BellRegistration, PosSignIn, WakeUpChoice, WakeUpStatus, WakeUpStore};
 pub use push::{
