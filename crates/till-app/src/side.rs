@@ -119,7 +119,7 @@ impl Side {
             slug: "till".into(),
             name: "Monokulo Till".into(),
             version: self.config.app_version.clone(),
-            platform: self.config.platform.clone(),
+            platform: self.config.platform().to_owned(),
             device_name: self.config.device_name.chars().take(40).collect(),
         }
     }

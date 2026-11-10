@@ -18,7 +18,6 @@ fun engineConfig(context: Context): EngineConfig = EngineConfig(
     device = Device.ANDROID,
     deviceName = listOf(Build.MANUFACTURER, Build.MODEL).distinct().joinToString(" ").take(40),
     appVersion = BuildConfig.VERSION_NAME,
-    platform = "android",
     debug = BuildConfig.DEBUG,
     utcOffset = utcOffsetSeconds(),
     hours24 = DateFormat.is24HourFormat(context),

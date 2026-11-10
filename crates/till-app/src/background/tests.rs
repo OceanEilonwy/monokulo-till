@@ -31,7 +31,6 @@ fn config(square: &MockServer) -> EngineConfig {
         device: Device::Iphone,
         device_name: "iPhone 17".into(),
         app_version: "0.1.0".into(),
-        platform: "ios".into(),
         debug: false,
         utc_offset: 0,
         hours_24: false,

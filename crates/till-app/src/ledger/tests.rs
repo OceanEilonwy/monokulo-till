@@ -21,7 +21,6 @@ fn config(data_dir: &str) -> EngineConfig {
         device: Device::Ipad,
         device_name: "iPad".into(),
         app_version: "0.1.0".into(),
-        platform: "ios".into(),
         debug: false,
         utc_offset: 0,
         hours_24: false,

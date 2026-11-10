@@ -41,7 +41,6 @@ fn config(square: Option<&MockServer>) -> EngineConfig {
         device: Device::Iphone,
         device_name: "iPhone 17".into(),
         app_version: "0.1.0".into(),
-        platform: "ios".into(),
         debug: true,
         utc_offset: 0,
         hours_24: false,
@@ -62,6 +61,22 @@ fn config(square: Option<&MockServer>) -> EngineConfig {
         bell_url: "https://bell.monokulo.com".into(),
         relay_url: None,
     }
+}
+
+/// The platform Monokulo's apps list shows is the device's.
+#[test]
+fn the_platform_is_the_devices() {
+    assert_eq!(config(None).platform(), "ios");
+    let ipad = EngineConfig {
+        device: Device::Ipad,
+        ..config(None)
+    };
+    assert_eq!(ipad.platform(), "ios");
+    let android = EngineConfig {
+        device: Device::Android,
+        ..config(None)
+    };
+    assert_eq!(android.platform(), "android");
 }
 
 /// A client that keeps no idle connections (decision 32).

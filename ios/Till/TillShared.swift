@@ -103,7 +103,6 @@ enum TillShared {
             device: device,
             deviceName: deviceName,
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0",
-            platform: "ios",
             debug: debug,
             utcOffset: Int32(TimeZone.current.secondsFromGMT()),
             hours24: !format.contains("a"),

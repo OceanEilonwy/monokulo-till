@@ -270,8 +270,6 @@ pub struct EngineConfig {
     /// This device, for when the merchant didn't name it ("Pixel 8").
     pub device_name: String,
     pub app_version: String,
-    /// `android` or `ios`, as Monokulo's apps list shows it.
-    pub platform: String,
     /// A debug build: cleartext connect links, stand-ins, http Bells.
     pub debug: bool,
     /// The device's clock: its offset from UTC now, in seconds, and whether
@@ -290,6 +288,17 @@ pub struct EngineConfig {
     /// whose [`PushPlatform`] is UnifiedPush.
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub relay_url: Option<String>,
+}
+
+impl EngineConfig {
+    /// `android` or `ios`, as Monokulo's apps list shows it: the device's.
+    pub fn platform(&self) -> &'static str {
+        if self.device.is_ios() {
+            "ios"
+        } else {
+            "android"
+        }
+    }
 }
 
 /// A point of sale, as the platform names one to the engine.
