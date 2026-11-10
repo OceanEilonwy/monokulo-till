@@ -137,11 +137,13 @@ async fn signing_in_asks_for_the_tills_scopes_and_keeps_the_tokens() {
         .finish(&pkce, Some(&pkce.state), Some("code1"), None)
         .await
         .unwrap();
-    assert_eq!(f.tokens.get().unwrap().access_token, "EAAA1");
+    assert_eq!(f.tokens.get().unwrap().access_token.expose_str(), "EAAA1");
     let sent = body_text(&f.stand.take_request().await);
     assert!(
-        sent.contains(&format!(r#""code_verifier":"{}""#, pkce.verifier))
-            && !sent.contains("secret"),
+        sent.contains(&format!(
+            r#""code_verifier":"{}""#,
+            pkce.verifier.expose_str()
+        )) && !sent.contains("secret"),
         "{sent}"
     );
 }
@@ -171,11 +173,19 @@ async fn a_token_about_to_expire_is_refreshed_and_the_new_refresh_token_kept() {
     f.stand.enqueue(json(
         r#"{"access_token":"new","expires_at":"2026-11-21T16:10:00Z","refresh_token":"r2","merchant_id":"M1"}"#,
     ));
-    assert_eq!(f.auth.access_token().await.unwrap(), "new");
-    assert_eq!(f.tokens.get().unwrap().refresh_token.as_deref(), Some("r2"));
+    assert_eq!(f.auth.access_token().await.unwrap().expose_str(), "new");
+    assert_eq!(
+        f.tokens
+            .get()
+            .unwrap()
+            .refresh_token
+            .as_ref()
+            .map(|t| t.expose_str()),
+        Some("r2")
+    );
     assert!(body_text(&f.stand.take_request().await).contains(r#""refresh_token":"r1""#));
     // Good for a while now: no request.
-    assert_eq!(f.auth.access_token().await.unwrap(), "new");
+    assert_eq!(f.auth.access_token().await.unwrap().expose_str(), "new");
     assert_eq!(f.stand.request_count().await, 1);
 }
 
@@ -569,7 +579,15 @@ async fn two_refreshes_at_once_sharing_a_lock_make_one_refresh_request() {
     let (a, b) = tokio::join!(app.access_token(), extension.access_token());
     assert_eq!((a.unwrap(), b.unwrap()), ("new".into(), "new".into()));
     assert_eq!(f.stand.request_count().await, 1, "r1 spent once");
-    assert_eq!(f.tokens.get().unwrap().refresh_token.as_deref(), Some("r2"));
+    assert_eq!(
+        f.tokens
+            .get()
+            .unwrap()
+            .refresh_token
+            .as_ref()
+            .map(|t| t.expose_str()),
+        Some("r2")
+    );
 }
 
 /// Decision 17: a sign-in the store couldn't read is an error, never

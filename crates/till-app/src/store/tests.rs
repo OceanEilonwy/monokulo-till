@@ -113,7 +113,7 @@ fn every_key_stores_kt_writes_reads_into_the_model() {
     assert_eq!(model.bubble_y, Some(412));
     let pending = model.pending_sign_in.as_ref().unwrap();
     assert_eq!(pending.point_of_sale, PointOfSale::Clover);
-    assert_eq!(pending.pkce.verifier, "v-86");
+    assert_eq!(pending.pkce.verifier.expose_str(), "v-86");
     assert_eq!(pending.pkce.state, "s-43");
     assert_eq!(pending.application_id.as_deref(), Some("clv-bell"));
     assert_eq!(model.square_application_id.as_deref(), Some("sq0idp-bell"));
@@ -148,7 +148,13 @@ fn every_key_stores_kt_writes_reads_into_the_model() {
     let s = store(&platform);
     let square = PosTokenStore::new(s.clone(), PointOfSale::Square, log.clone());
     assert_eq!(
-        square.load().unwrap().unwrap().refresh_token.as_deref(),
+        square
+            .load()
+            .unwrap()
+            .unwrap()
+            .refresh_token
+            .as_ref()
+            .map(|t| t.expose_str()),
         Some("r1")
     );
     let clover = PosTokenStore::new(s.clone(), PointOfSale::Clover, log.clone());

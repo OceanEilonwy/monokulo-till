@@ -131,7 +131,7 @@ impl Contract {
     fn code(&self) -> ConnectCode {
         ConnectCode {
             connect_url: self.url("/apps/connect"),
-            token: format!("ct_{}1", "0".repeat(63)),
+            token: format!("ct_{}1", "0".repeat(63)).into(),
         }
     }
 
@@ -372,7 +372,7 @@ async fn connecting_sends_what_the_handshake_takes_and_keeps_the_key_and_the_ent
         return;
     };
     let connection = stand.api.connect(&stand.code()).await.unwrap();
-    assert!(connection.app_key.starts_with("ak_"));
+    assert!(connection.app_key.expose_str().starts_with("ak_"));
     assert_eq!(connection.api, stand.url("/api/v1"));
     assert_eq!(
         connection.onion_api, None,
@@ -388,7 +388,7 @@ async fn connecting_to_a_monokulo_with_an_onion_address_keeps_its_onion_entry_to
     };
     stand.set_onion();
     let connection = stand.api.connect(&stand.code()).await.unwrap();
-    assert!(connection.app_key.starts_with("ak_"));
+    assert!(connection.app_key.expose_str().starts_with("ak_"));
     assert_eq!(connection.api, stand.url("/api/v1"));
     let onion = connection
         .onion_api
@@ -526,7 +526,7 @@ async fn an_order_is_renewed_with_its_renew_order_form_as_monokulo_records_it() 
     };
     let made = stand
         .api
-        .create_order(&stand.connection(), "24.50", "USD", Some("#1042"), "sq:abc")
+        .create_order(&stand.connection(), &Money::new(2450, CurrencyCode::USD), Some("#1042"), "sq:abc")
         .await
         .unwrap();
     let renew = made

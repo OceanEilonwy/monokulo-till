@@ -253,6 +253,55 @@ fn a_store_that_cant_answer_says_so_and_is_read_again_when_opened() {
     );
 }
 
+/// Decision 190: an action that waits is logged by its name alone, never
+/// with the redirect, auth secret, token or link it carries.
+#[test]
+fn a_waiting_action_is_logged_without_what_it_carries() {
+    let platform = Arc::new(FakePlatform::default());
+    platform.fail(true);
+    let (engine, rx, recorder) = start(config(None), platform.clone());
+    assert!(problem(&rx).starts_with("Couldn't read what this till keeps"));
+    engine.send(Action::SignInReturned {
+        url: "https://till.example/square?code=sq0cgp-SECRETCODE&state=STATE1".into(),
+    });
+    engine.send(Action::PushEndpoint {
+        url: "https://push.example/1".into(),
+        p256dh: Some("BKey".into()),
+        auth: Some("AUTHSECRET".into()),
+    });
+    engine.send(Action::PushToken {
+        token: Some("APNSTOKEN".into()),
+    });
+    engine.send(Action::SharedText {
+        text: "https://pay.example/apps/connect#token=ct_SHARED".into(),
+    });
+    platform.fail(false);
+    engine.send(Action::Opened);
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Work { problem: None, .. }) => Some(()),
+        _ => None,
+    });
+    let logs = recorder.1.lock().unwrap().clone();
+    for name in ["SignInReturned", "PushEndpoint", "SharedText"] {
+        assert!(
+            logs.iter().any(|l| l.contains(&format!("so {name} waits"))),
+            "{name}: {logs:?}"
+        );
+    }
+    for secret in [
+        "SECRETCODE",
+        "STATE1",
+        "AUTHSECRET",
+        "APNSTOKEN",
+        "ct_SHARED",
+    ] {
+        assert!(
+            !logs.iter().any(|l| l.contains(secret)),
+            "{secret}: {logs:?}"
+        );
+    }
+}
+
 /// Decision 109: a problem no screen's view carries (a refused write from
 /// Settings) is for the platform to show itself.
 #[test]

@@ -513,10 +513,10 @@ impl CloverApi {
         build: impl Fn(&str) -> reqwest::RequestBuilder,
     ) -> Result<String, PosError> {
         let token = self.auth.access_token().await?;
-        match self.send_once(build(&token)).await {
+        match self.send_once(build(token.expose_str())).await {
             Err(e) if e.status() == Some(401) => {
                 let fresh = self.auth.refresh_after_refusal(&token).await?;
-                match self.send_once(build(&fresh)).await {
+                match self.send_once(build(fresh.expose_str())).await {
                     Err(again) if again.status() == Some(401) => {
                         self.auth.sign_out();
                         Err(again)

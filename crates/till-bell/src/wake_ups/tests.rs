@@ -128,13 +128,14 @@ impl BellClient for FakeBell {
         bell: &BellAddress,
         point_of_sale: PointOfSale,
         environment: &str,
-        access_token: &str,
+        access_token: &Secret,
         location_id: &str,
         subscription: &PushSubscription,
     ) -> Result<BellRegistered, BellError> {
         self.calls.lock().unwrap().push(format!(
-            "POST {} {access_token} {location_id} {}",
+            "POST {} {} {location_id} {}",
             bell.display(),
+            access_token.expose_str(),
             subscription.endpoint
         ));
         self.registered_for.lock().unwrap().push(point_of_sale);
@@ -346,8 +347,8 @@ impl PosSide for FakePos {
             }))
     }
 
-    async fn access_token(&self) -> Result<Option<String>, DeviceError> {
-        Ok(self.token.lock().unwrap().clone())
+    async fn access_token(&self) -> Result<Option<Secret>, DeviceError> {
+        Ok(self.token.lock().unwrap().clone().map(Secret::new))
     }
 }
 

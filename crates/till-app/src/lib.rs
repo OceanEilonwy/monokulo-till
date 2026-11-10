@@ -613,6 +613,89 @@ pub enum Action {
     },
 }
 
+impl Action {
+    /// The action's name, and nothing it carries: what a log line may say of
+    /// it. Its fields can hold a sign-in's redirect (with its code), a push
+    /// subscription's auth secret, an APNs token or a connect link, none of
+    /// which may reach the system log, so the log never prints an action's
+    /// `Debug` (decision 190).
+    pub fn name(&self) -> &'static str {
+        match self {
+            Action::Opened => "Opened",
+            Action::Backgrounded => "Backgrounded",
+            Action::ClockChanged { .. } => "ClockChanged",
+            Action::Permissions { .. } => "Permissions",
+            Action::Back => "Back",
+            Action::Next => "Next",
+            Action::Skip => "Skip",
+            Action::ConnectLink { .. } => "ConnectLink",
+            Action::PasteConnectLink { .. } => "PasteConnectLink",
+            Action::SharedText { .. } => "SharedText",
+            Action::ScanConnectCode { .. } => "ScanConnectCode",
+            Action::Connect => "Connect",
+            Action::ChoosePointOfSale { .. } => "ChoosePointOfSale",
+            Action::SignIn { .. } => "SignIn",
+            Action::SignInReturned { .. } => "SignInReturned",
+            Action::ChooseLocation { .. } => "ChooseLocation",
+            Action::ChangeLocation => "ChangeLocation",
+            Action::LookAgain => "LookAgain",
+            Action::WithoutPos => "WithoutPos",
+            Action::SignOutOfPos => "SignOutOfPos",
+            Action::StartShift => "StartShift",
+            Action::StopShift => "StopShift",
+            Action::ChooseFilter { .. } => "ChooseFilter",
+            Action::FoldTray { .. } => "FoldTray",
+            Action::OpenShift => "OpenShift",
+            Action::PanelShown { .. } => "PanelShown",
+            Action::MoveBubble { .. } => "MoveBubble",
+            Action::Landed { .. } => "Landed",
+            Action::AskClose { .. } => "AskClose",
+            Action::DismissClose => "DismissClose",
+            Action::OpenSale { .. } => "OpenSale",
+            Action::Enlarge { .. } => "Enlarge",
+            Action::ShowOrder { .. } => "ShowOrder",
+            Action::Close { .. } => "Close",
+            Action::Refund { .. } => "Refund",
+            Action::ConfirmRefund { .. } => "ConfirmRefund",
+            Action::DismissRefund => "DismissRefund",
+            Action::Reopen { .. } => "Reopen",
+            Action::CopyAddress { .. } => "CopyAddress",
+            Action::CopyAmount { .. } => "CopyAmount",
+            Action::CopyWalletAddress => "CopyWalletAddress",
+            Action::OpenSettings => "OpenSettings",
+            Action::OpenPointOfSale => "OpenPointOfSale",
+            Action::ReadStore => "ReadStore",
+            Action::SetBaseUrl { .. } => "SetBaseUrl",
+            Action::SetBubble { .. } => "SetBubble",
+            Action::SetTor { .. } => "SetTor",
+            Action::SetLiveActivity { .. } => "SetLiveActivity",
+            Action::SetCodeInIsland { .. } => "SetCodeInIsland",
+            Action::TorProbed { .. } => "TorProbed",
+            Action::Disconnect => "Disconnect",
+            Action::Forget => "Forget",
+            Action::ChooseWakeUps { .. } => "ChooseWakeUps",
+            Action::EditOwnBell { .. } => "EditOwnBell",
+            Action::ChooseDistributor { .. } => "ChooseDistributor",
+            Action::PushEndpoint { .. } => "PushEndpoint",
+            Action::PushFailed { .. } => "PushFailed",
+            Action::PushUnregistered => "PushUnregistered",
+            Action::PushReceived { .. } => "PushReceived",
+            Action::DistributorsChanged => "DistributorsChanged",
+            Action::SetAlertFor { .. } => "SetAlertFor",
+            Action::FindDevice => "FindDevice",
+            Action::SetShowOtherCounters { .. } => "SetShowOtherCounters",
+            Action::ChooseCounter { .. } => "ChooseCounter",
+            Action::SetCashAsMonero { .. } => "SetCashAsMonero",
+            Action::ChooseShowSales { .. } => "ChooseShowSales",
+            Action::TakeInMonero { .. } => "TakeInMonero",
+            Action::KeepAsCash { .. } => "KeepAsCash",
+            Action::PaidInCash { .. } => "PaidInCash",
+            Action::NewCode { .. } => "NewCode",
+            Action::PushToken { .. } => "PushToken",
+        }
+    }
+}
+
 /// A slice of what the screens show, sent only when it changed. Each
 /// screen's record is till-screens', crossing UniFFI as it is.
 // Sent by value across UniFFI, which can't box a variant.

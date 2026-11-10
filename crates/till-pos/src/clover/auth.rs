@@ -5,6 +5,7 @@ use std::sync::Arc;
 use monokulo_client::{Clock, PointOfSale};
 use serde::Deserialize;
 use serde_json::json;
+use till_types::Secret;
 
 use super::{CloverConfig, CloverMerchantId, clover_error, retry_after};
 use crate::http;
@@ -15,11 +16,11 @@ use crate::{Pkce, PosError, PosTokens, StoreError, TokenLock, TokenStore};
 /// of Clover is milliseconds.
 #[derive(Deserialize)]
 struct TokenAnswer {
-    access_token: String,
+    access_token: Secret,
     #[serde(default)]
     access_token_expiration: Option<i64>,
     #[serde(default)]
-    refresh_token: Option<String>,
+    refresh_token: Option<Secret>,
 }
 
 /// Clover's v2 OAuth for a low-trust app: the authorization code with
@@ -153,7 +154,7 @@ impl CloverAuth {
     /// refreshed first when it hasn't. A refresh Clover refuses (a `4xx`
     /// other than `429`) signs out and says to sign in again; a busy or
     /// unreachable Clover leaves the sign-in as it was, for the next try.
-    pub async fn access_token(&self) -> Result<String, PosError> {
+    pub async fn access_token(&self) -> Result<Secret, PosError> {
         let _turn = self.turn.lock().await;
         let tokens = self.signed_in_tokens()?;
         if self.lasts(&tokens) {
@@ -173,15 +174,15 @@ impl CloverAuth {
     /// merchant's tokens were reset): a new one, refreshed now, unless
     /// another request (or process) already did. The same rules as
     /// [`access_token`](Self::access_token) (decision 139).
-    pub async fn refresh_after_refusal(&self, refused: &str) -> Result<String, PosError> {
+    pub async fn refresh_after_refusal(&self, refused: &Secret) -> Result<Secret, PosError> {
         let _turn = self.turn.lock().await;
         let tokens = self.signed_in_tokens()?;
-        if tokens.access_token != refused {
+        if tokens.access_token != *refused {
             return Ok(tokens.access_token);
         }
         let _held = hold(&self.lock).await?;
         let tokens = self.signed_in_tokens()?;
-        if tokens.access_token != refused {
+        if tokens.access_token != *refused {
             return Ok(tokens.access_token);
         }
         self.refresh(tokens).await
@@ -210,7 +211,7 @@ impl CloverAuth {
 
     /// Spends `tokens`' refresh token on a new pair, kept before it's
     /// answered. Called with the lock held.
-    async fn refresh(&self, tokens: PosTokens) -> Result<String, PosError> {
+    async fn refresh(&self, tokens: PosTokens) -> Result<Secret, PosError> {
         let Some(refresh) = tokens.refresh_token else {
             return Err(self.signed_out(401));
         };

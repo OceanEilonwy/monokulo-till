@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use monokulo_client::{Clock, PointOfSale};
 use serde_json::json;
+use till_types::Secret;
 
 use super::{SquareConfig, answered};
 use crate::http;
@@ -126,7 +127,7 @@ impl SquareAuth {
     /// An access token good for at least a day, refreshed first when it
     /// isn't. A refresh Square refuses (any `4xx`) forgets the sign-in and
     /// says to sign in again.
-    pub async fn access_token(&self) -> Result<String, PosError> {
+    pub async fn access_token(&self) -> Result<Secret, PosError> {
         let _turn = self.turn.lock().await;
         let tokens = self.signed_in_tokens()?;
         if self.lasts(&tokens) {

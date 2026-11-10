@@ -16,7 +16,11 @@ fn a_code_from_the_dashboard_gives_the_store_and_the_token() {
     .unwrap();
     assert_eq!(code.connect_url, "https://pay.yourshop.com/apps/connect");
     assert_eq!(code.host(), "pay.yourshop.com");
-    assert_eq!(code.token, token);
+    assert_eq!(code.token.expose_str(), token);
+    assert!(
+        !format!("{code:?}").contains(&token),
+        "the token never prints"
+    );
     // Pasted with spaces, a port, and the host's case.
     let pasted = ConnectCode::parse(
         &format!("  https://Pay.Example:8443/apps/connect#token={token} \n"),
@@ -69,7 +73,7 @@ fn plain_http_is_for_onion_addresses_or_a_debug_builds_own_machine() {
         "http://abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrstuvw.onion/apps/connect#token={token}"
     );
     assert_eq!(
-        ConnectCode::parse(&onion, false).map(|c| c.token),
+        ConnectCode::parse(&onion, false).map(|c| c.token.into_inner()),
         Some(token.clone())
     );
     assert!(

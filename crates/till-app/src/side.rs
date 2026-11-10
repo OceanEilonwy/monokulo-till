@@ -18,6 +18,7 @@ use till_pos::clover::{
 use till_pos::square::{SquareApi, SquareAuth, SquareConfig, SquareSource};
 use till_pos::{SaleSource, TokenLock, TokenStore};
 use till_sales::{Books, LiveStore, PosSwitchSide, RunnerSide};
+use till_types::Secret;
 
 use crate::ledger::AppLedger;
 use crate::store::{Kept, Model, PosCursor, PosTokenStore, Store, Tenders};
@@ -426,7 +427,7 @@ impl PosSide for Side {
         })
     }
 
-    async fn access_token(&self) -> Result<Option<String>, DeviceError> {
+    async fn access_token(&self) -> Result<Option<Secret>, DeviceError> {
         let token = match self.model().point_of_sale {
             Some(PointOfSale::Square) => self.square_auth(None).access_token().await,
             Some(PointOfSale::Clover) => self.clover_auth(None).access_token().await,

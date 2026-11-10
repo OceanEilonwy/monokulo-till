@@ -173,7 +173,7 @@ impl Stand {
     fn code(&self) -> ConnectCode {
         ConnectCode {
             connect_url: format!("{}/apps/connect", self.base()),
-            token: Stand::token(),
+            token: Stand::token().into(),
         }
     }
 }
@@ -354,7 +354,13 @@ async fn a_challenge_is_solved_and_the_request_sent_again_with_its_proof() {
         }
     });
     assert_eq!(
-        stand.api.connect(&stand.code()).await.unwrap().app_key,
+        stand
+            .api
+            .connect(&stand.code())
+            .await
+            .unwrap()
+            .app_key
+            .expose_str(),
         "ak_x"
     );
     let seen = stand.seen();

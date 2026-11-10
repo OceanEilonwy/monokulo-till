@@ -416,7 +416,7 @@ impl SquareApi {
     async fn send(&self, request: reqwest::RequestBuilder) -> Result<String, PosError> {
         let token = self.auth.access_token().await?;
         let request = request
-            .bearer_auth(token)
+            .bearer_auth(token.expose_str())
             .header("Square-Version", SquareConfig::API_VERSION);
         let answer = http::send(request).await?;
         if answer.ok() {

@@ -29,7 +29,8 @@ pub use api::{
 };
 pub use model::{BellInfo, BellRegistration, PosSignIn, WakeUpChoice, WakeUpStatus, WakeUpStore};
 pub use push::{
-    PushFailure, PushFeed, PushState, PushSubscription, PushSubscriptions, endpoint, is_ding,
+    P256dh, PushFailure, PushFeed, PushState, PushSubscription, PushSubscriptions,
+    SubscriptionKeys, endpoint, is_ding,
 };
 pub use wake_ups::{
     BellWakeUps, Distributor, Distributors, FIRST_RETRY, LAST_RETRY, MISSED_AFTER, PUSH_NO_KEYS,

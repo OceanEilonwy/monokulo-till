@@ -11,7 +11,7 @@ use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Method, Response, StatusCode, Url};
 use serde::Serialize;
 use serde_json::Value;
-use till_types::Money;
+use till_types::{Money, Secret};
 
 use crate::clock::Clock;
 use crate::connect_code::ConnectCode;
@@ -126,13 +126,16 @@ struct Call {
     body: Option<Vec<u8>>,
 }
 
+/// A connection's key and the entry it reads.
+type EntryKey = (Secret, String);
+
 struct Inner {
     http: reqwest::Client,
     identity: AppIdentity,
     clock: Arc<dyn Clock>,
     /// Each key's entry, kept as its `Cache-Control` says, by key and where
     /// it was read.
-    entries: Mutex<HashMap<String, Kept>>,
+    entries: Mutex<HashMap<EntryKey, Kept>>,
 }
 
 /// A store's Monokulo, as a connected app uses it: `POST /apps/connect`,
@@ -184,14 +187,14 @@ impl MonokuloApi {
         }
         #[derive(serde::Deserialize)]
         struct Redeemed {
-            app_key: String,
+            app_key: Secret,
             api: String,
             #[serde(default)]
             onion_api: Option<String>,
         }
         let identity = &self.inner.identity;
         let body = serde_json::to_vec(&Redeem {
-            token: &code.token,
+            token: code.token.expose_str(),
             slug: &identity.slug,
             name: &identity.name,
             device_name: &identity.device_name,
@@ -366,15 +369,17 @@ impl MonokuloApi {
         Box::pin(futures_util::stream::unfold(state, Streaming::next))
     }
 
-    fn key_of(connection: &Connection) -> String {
-        format!("{} {}", connection.app_key, connection.entry())
+    /// Where `connection`'s entry is kept: its key and entry, as a pair, so
+    /// the key is never formatted into text.
+    fn key_of(connection: &Connection) -> EntryKey {
+        (connection.app_key.clone(), connection.entry().to_owned())
     }
 
     fn forget(&self, connection: &Connection) {
         self.entries().remove(&MonokuloApi::key_of(connection));
     }
 
-    fn entries(&self) -> std::sync::MutexGuard<'_, HashMap<String, Kept>> {
+    fn entries(&self) -> std::sync::MutexGuard<'_, HashMap<EntryKey, Kept>> {
         self.inner.entries.lock().unwrap_or_else(|e| e.into_inner())
     }
 
@@ -439,7 +444,7 @@ impl MonokuloApi {
         let mut headers = HeaderMap::new();
         headers.insert(
             "Authorization",
-            header(&format!("Bearer {}", connection.app_key)),
+            header(&format!("Bearer {}", connection.app_key.expose_str())),
         );
         headers.insert("Monokulo-Client", header(&self.inner.identity.client()));
         Call {

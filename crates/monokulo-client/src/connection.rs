@@ -2,6 +2,7 @@
 
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
+use till_types::Secret;
 
 use crate::tor;
 
@@ -13,7 +14,7 @@ use crate::tor;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Connection {
     /// The app's own key: `Authorization: Bearer ak_…`.
-    pub app_key: String,
+    pub app_key: Secret,
     /// The API's entry, absolute (`https://pay.example/api/v1`, or
     /// `https://example.com/monokulo/api/v1` for a Monokulo under a path):
     /// the `api` path `POST /apps/connect` answered, resolved against the
@@ -38,7 +39,7 @@ impl Connection {
     /// A connection off Tor, with no onion address.
     pub fn new(app_key: impl Into<String>, api: impl Into<String>) -> Connection {
         Connection {
-            app_key: app_key.into(),
+            app_key: Secret::new(app_key.into()),
             api: api.into(),
             onion_api: None,
             tor: false,

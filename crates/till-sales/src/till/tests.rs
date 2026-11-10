@@ -500,7 +500,7 @@ impl RefundByTill for FakeSource {
             .map(|status| ListedRefund {
                 id: "rf_1".into(),
                 payment_id: sale.id.clone(),
-                amount_minor: sale.amount_minor,
+                amount_minor: sale.amount.minor,
                 status: status.as_str().into(),
                 created_at: None,
             }))

@@ -415,8 +415,11 @@ async fn a_token_clover_ended_early_is_refreshed_and_the_request_asked_again() {
     f.stand.enqueue(json(r#"{"elements":[]}"#));
     assert_eq!(f.source().new_sales().await.unwrap(), []);
     let kept = f.tokens.get().unwrap();
-    assert_eq!(kept.access_token, "acc2");
-    assert_eq!(kept.refresh_token.as_deref(), Some("ref2"));
+    assert_eq!(kept.access_token.expose_str(), "acc2");
+    assert_eq!(
+        kept.refresh_token.as_ref().map(|t| t.expose_str()),
+        Some("ref2")
+    );
     assert_eq!(
         header(&f.stand.take_request().await, "Authorization").as_deref(),
         Some("Bearer acc1")

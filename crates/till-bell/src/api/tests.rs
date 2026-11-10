@@ -70,7 +70,7 @@ impl StandIn {
                 &self.bell,
                 PointOfSale::Square,
                 "sandbox",
-                "EAAAtoken",
+                &"EAAAtoken".into(),
                 "L1",
                 &subscription(),
             )
@@ -244,7 +244,7 @@ async fn a_clover_till_registers_its_merchant_as_the_location_and_its_region_as_
             &bell.bell,
             PointOfSale::Clover,
             "europe",
-            "clv-token",
+            &"clv-token".into(),
             "MCLOVERDEV001",
             &subscription(),
         )

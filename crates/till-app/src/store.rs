@@ -30,6 +30,7 @@ use till_pos::{
     CursorStore, HandledMarker, Pkce, PosTokens, Rfc3339Instant, StoreError, TokenStore,
 };
 use till_sales::{TillSale, shift_json};
+use till_types::Secret;
 
 use crate::{Platform, SecretError};
 
@@ -184,7 +185,7 @@ fn show_sales_wire(mode: crate::ShowSales) -> Option<&'static str> {
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PkceState {
-    verifier: String,
+    verifier: Secret,
     state: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     application_id: Option<String>,

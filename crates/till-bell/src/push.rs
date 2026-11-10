@@ -8,7 +8,39 @@
 
 use monokulo_client::PointOfSale;
 use serde::{Deserialize, Serialize};
+use till_types::Secret;
 use tokio::sync::{broadcast, watch};
+
+till_types::text_id!(
+    /// A subscription's public key, `p256dh`: the device's P-256 public key,
+    /// uncompressed, base64url. Public, unlike the auth secret beside it,
+    /// and never one for the other.
+    P256dh
+);
+
+/// A subscription's keys as the platform gives them: what the Bell encrypts
+/// a ding to. Both are there and not blank, or there is no subscription.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct SubscriptionKeys {
+    pub p256dh: P256dh,
+    /// The 16-byte auth secret, base64url.
+    pub auth: Secret,
+}
+
+impl SubscriptionKeys {
+    /// The keys, or `None` when either is missing or blank.
+    pub fn new(p256dh: Option<String>, auth: Option<String>) -> Option<SubscriptionKeys> {
+        match (p256dh, auth) {
+            (Some(p256dh), Some(auth)) if !p256dh.is_empty() && !auth.is_empty() => {
+                Some(SubscriptionKeys {
+                    p256dh: P256dh(p256dh),
+                    auth: Secret::new(auth),
+                })
+            }
+            _ => None,
+        }
+    }
+}
 
 /// A Web Push subscription as the Bell takes it (monokulo's `docs/bell.md`,
 /// `POST /v1/register`): the endpoint the Bell pushes to and the public half
@@ -17,10 +49,9 @@ use tokio::sync::{broadcast, watch};
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PushSubscription {
     pub endpoint: String,
-    /// The device's P-256 public key, uncompressed, base64url.
-    pub p256dh: String,
+    pub p256dh: P256dh,
     /// The 16-byte auth secret, base64url.
-    pub auth: String,
+    pub auth: Secret,
 }
 
 /// Why a push subscription couldn't be made, or ended.
@@ -88,16 +119,14 @@ pub trait PushSubscriptions: Send + Sync {
 /// An endpoint the platform gave, with the subscription's public keys when
 /// it gave them: a subscription, or, without both keys, one the Bell can't
 /// encrypt for.
-pub fn endpoint(url: &str, p256dh: Option<&str>, auth: Option<&str>) -> PushState {
-    match (p256dh, auth) {
-        (Some(p256dh), Some(auth)) if !p256dh.is_empty() && !auth.is_empty() => {
-            PushState::Subscribed(PushSubscription {
-                endpoint: url.to_owned(),
-                p256dh: p256dh.to_owned(),
-                auth: auth.to_owned(),
-            })
-        }
-        _ => PushState::Failed(PushFailure::NoKeys),
+pub fn endpoint(url: &str, keys: Option<SubscriptionKeys>) -> PushState {
+    match keys {
+        Some(SubscriptionKeys { p256dh, auth }) => PushState::Subscribed(PushSubscription {
+            endpoint: url.to_owned(),
+            p256dh,
+            auth,
+        }),
+        None => PushState::Failed(PushFailure::NoKeys),
     }
 }
 
@@ -169,8 +198,8 @@ impl PushFeed {
     }
 
     /// The platform gave an endpoint ([`endpoint`]).
-    pub fn endpoint(&self, url: &str, p256dh: Option<&str>, auth: Option<&str>) {
-        self.set(endpoint(url, p256dh, auth));
+    pub fn endpoint(&self, url: &str, keys: Option<SubscriptionKeys>) {
+        self.set(endpoint(url, keys));
     }
 
     /// The platform had a push, decrypted or not, while the till is signed
@@ -271,10 +300,14 @@ mod tests {
         );
     }
 
+    fn keys(p256dh: Option<&str>, auth: Option<&str>) -> Option<SubscriptionKeys> {
+        SubscriptionKeys::new(p256dh.map(String::from), auth.map(String::from))
+    }
+
     #[test]
     fn an_endpoint_needs_both_keys_to_be_a_subscription() {
         assert_eq!(
-            endpoint("https://ntfy.sh/up1", Some("BKey"), Some("auth")),
+            endpoint("https://ntfy.sh/up1", keys(Some("BKey"), Some("auth"))),
             PushState::Subscribed(PushSubscription {
                 endpoint: "https://ntfy.sh/up1".into(),
                 p256dh: "BKey".into(),
@@ -282,12 +315,32 @@ mod tests {
             }),
         );
         assert_eq!(
-            endpoint("https://ntfy.sh/up1", None, None),
+            endpoint("https://ntfy.sh/up1", keys(None, None)),
             PushState::Failed(PushFailure::NoKeys)
         );
         assert_eq!(
-            endpoint("https://ntfy.sh/up1", Some("BKey"), Some("")),
+            endpoint("https://ntfy.sh/up1", keys(Some("BKey"), Some(""))),
             PushState::Failed(PushFailure::NoKeys)
+        );
+    }
+
+    #[test]
+    fn a_subscription_never_prints_its_auth_secret() {
+        let subscription = PushSubscription {
+            endpoint: "https://ntfy.sh/up1".into(),
+            p256dh: "BKey".into(),
+            auth: "s3cr3t-auth".into(),
+        };
+        let printed = format!("{:?}", PushState::Subscribed(subscription.clone()));
+        assert!(!printed.contains("s3cr3t-auth"), "{printed}");
+        assert!(
+            printed.contains("BKey"),
+            "the public key may show: {printed}"
+        );
+        // Kept as it was: the bare strings.
+        assert_eq!(
+            serde_json::to_value(&subscription).unwrap(),
+            serde_json::json!({"endpoint": "https://ntfy.sh/up1", "p256dh": "BKey", "auth": "s3cr3t-auth"})
         );
     }
 }

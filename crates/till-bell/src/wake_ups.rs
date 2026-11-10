@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use monokulo_client::{Clock, PointOfSale};
+use till_types::Secret;
 use tokio::runtime::Handle;
 use tokio::sync::{Mutex, broadcast, watch};
 use tokio::task::JoinHandle;
@@ -57,7 +58,7 @@ pub trait PosSide: Send + Sync {
     /// An access token for [`BellClient::register`], refreshed if it needs
     /// to be; `None` when the point of sale wants the cashier to sign in
     /// again. It is shown to the Bell once, to prove the location.
-    async fn access_token(&self) -> Result<Option<String>, DeviceError>;
+    async fn access_token(&self) -> Result<Option<Secret>, DeviceError>;
 }
 
 /// A timer-found sale with no ding this long before it is a missed wake-up

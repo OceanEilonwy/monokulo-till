@@ -15,7 +15,9 @@ use monokulo_client::connect_code;
 use monokulo_client::{
     Clock, ConnectCode, Connection, MonokuloApi, PointOfSale, SystemClock, problems, tor,
 };
-use till_bell::{BellAddress, BellApi, BellWakeUps, WakeUpChoice, WakeUpStatus, is_ding};
+use till_bell::{
+    BellAddress, BellApi, BellWakeUps, SubscriptionKeys, WakeUpChoice, WakeUpStatus, is_ding,
+};
 use till_ledger::{AlertKind, Claim, ClaimPolicy, Fact, Process, Scope, ShiftMark};
 use till_pos::clover::TenderState;
 use till_pos::square::SquareLocation;
@@ -386,7 +388,7 @@ impl State {
     fn message(&mut self, msg: Msg) {
         match msg {
             Msg::Action(action) => {
-                let label = format!("{action:?}");
+                let label = action.name();
                 if catch_unwind(AssertUnwindSafe(|| self.handle(action))).is_err() {
                     self.log(format!("till-core: panicked handling {label}"));
                 }
@@ -739,7 +741,8 @@ impl State {
             Action::PanelShown { up } => self.panel_shown(up),
             action if self.parts.is_none() => {
                 self.log(format!(
-                    "till-core: nothing kept could be read, so {action:?} waits"
+                    "till-core: nothing kept could be read, so {} waits",
+                    action.name()
                 ));
             }
             Action::Back => self.back(),
@@ -926,7 +929,7 @@ impl State {
                 if let Some(p) = &self.parts {
                     p.push
                         .feed
-                        .endpoint(&url, p256dh.as_deref(), auth.as_deref());
+                        .endpoint(&url, SubscriptionKeys::new(p256dh, auth));
                 }
             }
             Action::PushFailed { failure } => {
@@ -942,7 +945,7 @@ impl State {
             Action::PushReceived { content, decrypted } => self.push_received(&content, decrypted),
             Action::PushToken { token } => {
                 self.push_token = match token {
-                    Some(token) => DeviceToken::Have(token),
+                    Some(token) => DeviceToken::Have(token.into()),
                     None => DeviceToken::Failed,
                 };
                 if let Some(relay) = self.parts.as_ref().and_then(|p| p.relay.as_ref()) {

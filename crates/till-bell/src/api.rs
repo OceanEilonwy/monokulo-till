@@ -11,6 +11,7 @@ use monokulo_client::PointOfSale;
 use reqwest::StatusCode;
 use reqwest::header::{self, HeaderMap};
 use serde::{Deserialize, Serialize};
+use till_types::Secret;
 
 use crate::{BellAddress, BellInfo, PushSubscription};
 
@@ -36,7 +37,7 @@ pub trait BellClient: Send + Sync {
         bell: &BellAddress,
         point_of_sale: PointOfSale,
         environment: &str,
-        access_token: &str,
+        access_token: &Secret,
         location_id: &str,
         subscription: &PushSubscription,
     ) -> Result<BellRegistered, BellError>;
@@ -244,20 +245,20 @@ impl BellClient for BellApi {
         bell: &BellAddress,
         point_of_sale: PointOfSale,
         environment: &str,
-        access_token: &str,
+        access_token: &Secret,
         location_id: &str,
         subscription: &PushSubscription,
     ) -> Result<BellRegistered, BellError> {
         let body = RegisterBody {
             point_of_sale: point_of_sale.wire(),
             environment,
-            access_token,
+            access_token: access_token.expose_str(),
             location_id,
             subscription: RegisterSubscription {
                 endpoint: &subscription.endpoint,
                 keys: RegisterKeys {
-                    p256dh: &subscription.p256dh,
-                    auth: &subscription.auth,
+                    p256dh: subscription.p256dh.as_str(),
+                    auth: subscription.auth.expose_str(),
                 },
             },
         };

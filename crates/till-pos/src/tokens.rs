@@ -5,6 +5,7 @@
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
+use till_types::Secret;
 
 /// Something the app keeps for the till couldn't be read: the Keychain or
 /// the Keystore didn't answer. Never the same as "nothing kept", which a
@@ -19,11 +20,11 @@ pub struct StoreError(pub String);
 /// with.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PosTokens {
-    pub access_token: String,
+    pub access_token: Secret,
     /// Clover's Unix-seconds expiry is converted to it at sign-in.
     pub expires_at: crate::time::Rfc3339Instant,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub refresh_token: Option<String>,
+    pub refresh_token: Option<Secret>,
     /// The merchant the sign-in is for: Square's token answer says it,
     /// Clover's redirect does.
     pub merchant_id: String,
@@ -107,4 +108,21 @@ pub(crate) async fn hold(lock: &Arc<dyn TokenLock>) -> Result<Held, crate::PosEr
 #[cfg(any(feature = "square", feature = "clover"))]
 pub(crate) fn no_lock() -> Arc<dyn TokenLock> {
     Arc::new(NoTokenLock)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_sign_in_never_prints_its_tokens_and_is_kept_as_before() {
+        let kept = r#"{"access_token":"EAAAsecret","expires_at":"2026-12-01T00:00:00Z","refresh_token":"EQAAsecret","merchant_id":"M1"}"#;
+        let tokens: PosTokens = serde_json::from_str(kept).unwrap();
+        let printed = format!("{tokens:?}");
+        assert!(
+            !printed.contains("EAAAsecret") && !printed.contains("EQAAsecret"),
+            "{printed}"
+        );
+        assert_eq!(serde_json::to_string(&tokens).unwrap(), kept);
+    }
 }

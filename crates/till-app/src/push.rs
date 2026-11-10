@@ -97,8 +97,10 @@ mod tests {
         let state = push.state();
         push.subscribe("BKey");
         assert_eq!(*state.borrow(), PushState::Subscribing);
-        push.feed
-            .endpoint("https://push.example/1", Some("p"), Some("a"));
+        push.feed.endpoint(
+            "https://push.example/1",
+            till_bell::SubscriptionKeys::new(Some("p".into()), Some("a".into())),
+        );
         assert!(matches!(*state.borrow(), PushState::Subscribed(_)));
         push.failed(PushFailure::Network);
         assert_eq!(*state.borrow(), PushState::Failed(BellFailure::Network));

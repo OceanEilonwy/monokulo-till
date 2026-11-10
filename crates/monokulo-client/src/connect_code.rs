@@ -1,6 +1,7 @@
 //! Connect codes (Android: `core/ConnectCode.kt`).
 
 use reqwest::Url;
+use till_types::Secret;
 
 use crate::tor;
 
@@ -17,7 +18,7 @@ pub struct ConnectCode {
     /// `https://host[:port][/prefix]/apps/connect`. A Monokulo served under
     /// a path (`https://example.com/monokulo`) keeps it here.
     pub connect_url: String,
-    pub token: String,
+    pub token: Secret,
 }
 
 const ROUTE: &str = "/apps/connect";
@@ -70,7 +71,7 @@ impl ConnectCode {
         let port = url.port().map(|p| format!(":{p}")).unwrap_or_default();
         Some(ConnectCode {
             connect_url: format!("{}://{host}{port}{path}", url.scheme()),
-            token: token.to_owned(),
+            token: Secret::from(token),
         })
     }
 

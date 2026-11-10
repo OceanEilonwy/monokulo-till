@@ -17,6 +17,14 @@ fn a_connection_is_kept_as_its_key_and_the_apis_entry_nothing_about_the_store() 
 }
 
 #[test]
+fn a_connection_never_prints_its_key() {
+    let connection = Connection::new("ak_secret", "https://pay.example/api/v1");
+    let printed = format!("{connection:?}");
+    assert!(!printed.contains("ak_secret"), "{printed}");
+    assert!(printed.contains("https://pay.example/api/v1"), "{printed}");
+}
+
+#[test]
 fn a_connection_kept_before_monokulo_gave_onion_addresses_carries_on_off_tor() {
     let kept =
         Connection::restore(r#"{"app_key":"ak_x","api":"https://pay.example/api/v1"}"#).unwrap();

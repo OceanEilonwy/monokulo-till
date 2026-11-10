@@ -1654,3 +1654,23 @@ once at the edge, with the stored and sent text unchanged.
      its shortest digits (as the Android app's `BigDecimal.valueOf` did),
      which is exact for every amount orf-codec can encode (at most 9 ×
      10^15 minor units). orf-codec's JSON and encoding are unchanged.
+
+## String typing: app, time and secrets (2026-11-10)
+
+190. **A log line names an action, never prints it.** The engine's two
+     log lines about an action (the one a handler's panic leaves, and the
+     one for an action that waits while nothing kept can be read) say only
+     its name, from a hand-written `Action::name`, where they printed its
+     `Debug`. An action can carry a sign-in's redirect with its code and
+     state, a push subscription's auth secret, the APNs token, a connect
+     link or pasted text, and before the first unlock on iOS every action
+     waits, so each of them reached the system log. Inside the core the
+     credentials themselves are `till_types::Secret`, whose `Debug` is
+     `Secret(..)`: a point of sale's access and refresh tokens, the PKCE
+     verifier, the store's app key, a connect code's token, a push
+     subscription's auth secret (beside its public key, a `P256dh`, so the
+     two can't be swapped) and the APNs token. They serialize as the bare
+     string, so nothing kept changes. The action's fields stay `String`s:
+     they cross to Swift and Kotlin as named fields, and the log no longer
+     prints them. The Monokulo client keys its kept entries by the app key
+     and entry as a pair, no longer formatted into one string.

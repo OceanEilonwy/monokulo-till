@@ -30,6 +30,7 @@ till-pos.workspace = true
 till-ledger.workspace = true
 till-sales.workspace = true
 till-screens.workspace = true
+till-types.workspace = true
 tokio.workspace = true
 uniffi = { workspace = true, optional = true }
 

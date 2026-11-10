@@ -158,7 +158,7 @@ async fn finishing_posts_exactly_the_code_and_verifier_and_keeps_the_tokens_with
         BTreeSet::from(["client_id", "code", "code_verifier"]),
         "no secret, no grant type Clover doesn't ask for"
     );
-    assert_eq!(body["code_verifier"], pkce.verifier.as_str());
+    assert_eq!(body["code_verifier"], pkce.verifier.expose_str());
     assert_eq!(body["code"], "code1");
 }
 
@@ -233,7 +233,7 @@ async fn a_token_with_under_five_minutes_left_is_refreshed_first_and_the_new_pai
         "MCLOVER00001",
     )));
     f.stand.enqueue(token_answer("new", "ref2", 1793179800));
-    assert_eq!(f.auth.access_token().await.unwrap(), "new");
+    assert_eq!(f.auth.access_token().await.unwrap().expose_str(), "new");
     assert_eq!(
         f.tokens.get(),
         Some(tokens(
@@ -253,7 +253,7 @@ async fn a_token_with_under_five_minutes_left_is_refreshed_first_and_the_new_pai
     assert_eq!(body["refresh_token"], "ref1");
     // 25 minutes left now: no request.
     f.clock.advance(60);
-    assert_eq!(f.auth.access_token().await.unwrap(), "new");
+    assert_eq!(f.auth.access_token().await.unwrap().expose_str(), "new");
     assert_eq!(f.stand.request_count().await, 1);
 }
 
@@ -339,12 +339,16 @@ async fn two_refreshes_after_one_refusal_sharing_a_lock_make_one_refresh_request
     };
     let (app, extension) = (sign_in(), sign_in());
     // Both had acc1 refused at once.
+    let refused = "acc1".into();
     let (a, b) = tokio::join!(
-        app.refresh_after_refusal("acc1"),
-        extension.refresh_after_refusal("acc1")
+        app.refresh_after_refusal(&refused),
+        extension.refresh_after_refusal(&refused)
     );
     assert_eq!((a.unwrap(), b.unwrap()), ("acc2".into(), "acc2".into()));
     assert_eq!(f.stand.request_count().await, 1, "ref1 spent once");
     let kept: PosTokens = f.tokens.get().unwrap();
-    assert_eq!(kept.refresh_token.as_deref(), Some("ref2"));
+    assert_eq!(
+        kept.refresh_token.as_ref().map(|t| t.expose_str()),
+        Some("ref2")
+    );
 }
