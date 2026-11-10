@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use monokulo_client::SalePhase;
+use monokulo_client::{SalePhase, UnixSeconds};
 use orf_codec::Receipt;
 use serde::{Deserialize, Serialize};
 use till_ledger::SaleView;
@@ -330,9 +330,9 @@ pub struct TillState {
     pub sales: Vec<TillSale>,
     /// The ledger's views of the same sales, in the same order.
     pub views: Vec<SaleView>,
-    /// When the shift's window starts, Unix seconds: the later of the
-    /// shift's start and the trading day's (04:00 local, docs/ledger.md §9).
-    pub shift_from: Option<i64>,
+    /// When the shift's window starts: the later of the shift's start and
+    /// the trading day's (04:00 local, docs/ledger.md §9).
+    pub shift_from: Option<UnixSeconds>,
     pub problem: Option<String>,
     /// The POS sign-in has ended: the cashier must sign in again.
     pub sign_in_again: bool,

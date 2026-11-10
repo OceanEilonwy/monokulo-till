@@ -177,7 +177,7 @@ impl SquareAuth {
     /// Whether `tokens`' access token has more than a day left.
     fn lasts(&self, tokens: &PosTokens) -> bool {
         let due =
-            crate::time::from_seconds(self.clock.now().saturating_add(REFRESH_BEFORE_SECONDS));
+            crate::time::from_seconds(self.clock.now().0.saturating_add(REFRESH_BEFORE_SECONDS));
         tokens.expires_at.timestamp() > due
     }
 

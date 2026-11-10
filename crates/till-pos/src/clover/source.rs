@@ -223,7 +223,7 @@ impl SaleSource for CloverSource {
     /// further back than Clover allows), less those handled, oldest first.
     /// Nothing is asked while Clover's last `429` holds the till back.
     async fn new_sales(&self) -> Result<Vec<FoundSale>, PosError> {
-        let at = self.clock.now();
+        let at = self.clock.now().0;
         if self
             .hold_until
             .lock()

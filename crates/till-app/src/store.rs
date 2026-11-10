@@ -30,7 +30,7 @@ use till_pos::{
     CursorStore, HandledMarker, OAuthState, Pkce, PosTokens, Rfc3339Instant, StoreError, TokenStore,
 };
 use till_sales::{TillSale, shift_json};
-use till_types::Secret;
+use till_types::{Secret, UnixSeconds};
 
 use crate::{Platform, SecretError};
 
@@ -167,9 +167,8 @@ pub struct CounterKept {
     pub id: till_pos::PosDeviceId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// Unix seconds.
     #[serde(default)]
-    pub learned_at: i64,
+    pub learned_at: UnixSeconds,
 }
 
 /// `Stores.kt`'s `PkceState`, as kotlinx wrote it.
@@ -281,12 +280,19 @@ impl Store {
         self.put(keys::SQUARE_SKIPPED, None)
     }
 
-    pub fn shift_started_at(&self) -> Result<Option<i64>, SecretError> {
-        Ok(self.get(keys::SHIFT_STARTED)?.and_then(|s| s.parse().ok()))
+    /// Kept as its Unix seconds' digits.
+    pub fn shift_started_at(&self) -> Result<Option<UnixSeconds>, SecretError> {
+        Ok(self
+            .get(keys::SHIFT_STARTED)?
+            .and_then(|s| s.parse().ok())
+            .map(UnixSeconds))
     }
 
-    pub fn set_shift_started_at(&self, at: Option<i64>) -> Result<(), SecretError> {
-        self.put(keys::SHIFT_STARTED, at.map(|at| at.to_string()).as_deref())
+    pub fn set_shift_started_at(&self, at: Option<UnixSeconds>) -> Result<(), SecretError> {
+        self.put(
+            keys::SHIFT_STARTED,
+            at.map(|at| at.0.to_string()).as_deref(),
+        )
     }
 
     pub fn bubble_y(&self) -> Result<Option<i32>, SecretError> {
@@ -586,7 +592,7 @@ pub struct Model {
     /// The till watches for sales: on until the cashier stops it.
     pub shift_on: bool,
     /// When this shift began, Unix seconds.
-    pub shift_started_at: Option<i64>,
+    pub shift_started_at: Option<UnixSeconds>,
     /// The cashier went through setup to the end.
     pub setup_done: bool,
     /// Android's bubble: wanted, which side, how far down.

@@ -107,7 +107,10 @@ fn every_key_stores_kt_writes_reads_into_the_model() {
     assert_eq!(model.point_of_sale, Some(PointOfSale::Clover));
     assert!(model.without_pos);
     assert!(!model.shift_on);
-    assert_eq!(model.shift_started_at, Some(1_761_300_000));
+    assert_eq!(
+        model.shift_started_at,
+        Some(till_types::UnixSeconds(1_761_300_000))
+    );
     assert!(model.setup_done);
     assert!(!model.bubble_on && model.bubble_left);
     assert_eq!(model.bubble_y, Some(412));
@@ -323,7 +326,7 @@ fn counters_cash_and_how_sales_show_up_are_kept_and_the_device_goes_with_the_sto
         counter_device: Some(CounterKept {
             id: "dev_front".into(),
             name: Some("Front iPad".into()),
-            learned_at: 1_762_700_000,
+            learned_at: till_types::UnixSeconds(1_762_700_000),
         }),
         alert_every: true,
         show_others: false,

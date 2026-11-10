@@ -83,7 +83,7 @@ impl SaleSource for SquareSource {
         let since = match self.cursor.since()? {
             Some(since) => since,
             None => {
-                let now = Rfc3339Instant::from_second(self.clock.now());
+                let now = Rfc3339Instant::from_second(self.clock.now().0);
                 self.cursor.save(&now, &[]);
                 now
             }

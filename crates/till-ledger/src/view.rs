@@ -10,6 +10,7 @@ use orf_codec::Receipt;
 use serde::{Deserialize, Serialize};
 use till_pos::FoundSale;
 
+use crate::UnixMillis;
 use crate::facts::{Outcome, RefundStatus, Tender};
 use crate::ids::{DeviceId, SaleKey};
 use crate::model::{LocalMarks, PaymentPhase, SharedSale};
@@ -161,8 +162,9 @@ pub struct SaleView {
     pub refund_problem: Option<String>,
 }
 
+/// A ledger time (Unix ms) as a view shows it, Unix seconds.
 fn secs(ms: Option<i64>) -> Option<i64> {
-    ms.map(|ms| ms.div_euclid(1000))
+    ms.map(|ms| UnixMillis(ms).to_seconds().0)
 }
 
 /// The view of one sale, from its shared state, this device's marks and
@@ -314,7 +316,7 @@ pub fn view(
         device_id,
         url: order.and_then(|o| o.url.clone()),
         settled: deciding.is_some_and(|a| a.observed.settled),
-        created_at: rung_at.div_euclid(1000),
+        created_at: UnixMillis(rung_at).to_seconds().0,
         seen_at: secs(marks.seen_at),
         paid_at: secs(marks.paid_at),
         ended_at: secs(marks.ended_at),

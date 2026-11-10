@@ -206,6 +206,7 @@ impl CloverAuth {
         let due = crate::time::from_seconds(
             self.clock
                 .now()
+                .0
                 .saturating_add(Self::REFRESH_BEFORE_SECONDS),
         );
         tokens.expires_at.timestamp() > due
@@ -250,7 +251,7 @@ impl CloverAuth {
     fn tokens(&self, answer: TokenAnswer, merchant_id: &str) -> PosTokens {
         let expires = answer
             .access_token_expiration
-            .unwrap_or_else(|| self.clock.now().saturating_add(Self::LIFETIME_SECONDS));
+            .unwrap_or_else(|| self.clock.now().0.saturating_add(Self::LIFETIME_SECONDS));
         PosTokens {
             access_token: answer.access_token,
             expires_at: crate::time::Rfc3339Instant::from_second(expires),

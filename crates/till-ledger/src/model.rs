@@ -17,6 +17,7 @@ use std::collections::BTreeMap;
 use monokulo_client::{SalePhase, payment_uri};
 use serde::{Deserialize, Serialize};
 
+use crate::UnixSeconds;
 use crate::facts::{
     Action, MarkKind, OrderCreated, OrderObserved, OrderRead, Outcome, PaymentSeen, Quote,
     RefundSeen, RefundStatus,
@@ -651,7 +652,7 @@ impl SharedSale {
     /// When it was rung up, Unix ms, from the POS's payment.
     pub fn rung_at(&self) -> Option<i64> {
         let p = self.pos.payment.as_ref()?;
-        Some(p.created_at.as_second() * 1000)
+        Some(UnixSeconds(p.created_at.as_second()).to_millis().0)
     }
 
     /// Ended: paid, refunded, or ended unpaid with `is_final` (what may be

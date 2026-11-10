@@ -1194,7 +1194,8 @@ async fn a_refund_made_in_squares_own_app_is_seen_on_the_next_look() {
         .with(|l| l.shift_window())
         .unwrap()
         .from
-        .div_euclid(1000);
+        .to_seconds()
+        .0;
     assert_eq!(
         source.refunds_from.lock().unwrap().as_slice(),
         [till_pos::time::instant(window_from)],
@@ -2252,8 +2253,8 @@ struct VirtualWall {
 }
 
 impl VirtualWall {
-    fn ms(&self) -> i64 {
-        self.start + self.base.elapsed().as_millis() as i64
+    fn ms(&self) -> UnixMillis {
+        UnixMillis(self.start + self.base.elapsed().as_millis() as i64)
     }
 }
 
@@ -2262,8 +2263,8 @@ impl VirtualWall {
 struct SecondBehind(VirtualWall);
 
 impl Clock for SecondBehind {
-    fn now(&self) -> i64 {
-        (self.0.ms() - 1_000) / 1000
+    fn now_ms(&self) -> UnixMillis {
+        self.0.ms().plus(-1_000)
     }
 }
 
@@ -2333,7 +2334,7 @@ async fn stopping_watching_closes_every_live_sale_which_a_late_payment_still_pay
     assert!(ours.needs_action(), "to refund");
     assert_eq!(
         till.books().with(|l| l.shift_window()).unwrap().until,
-        Some(at * 1000),
+        Some(UnixSeconds(at).to_millis()),
         "and the shift's window ends"
     );
     till.on_status("ord_1", OrderStatus::of(SalePhase::Paid).settled(true));

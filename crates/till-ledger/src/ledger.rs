@@ -18,7 +18,7 @@ use crate::ids::{OrderId, SaleKey, Scope};
 use crate::model::{LocalMarks, SharedSale};
 use crate::shift::{self, ShiftSummary, ShiftWindow};
 use crate::view::{SaleView, ViewSettings, setting, view};
-use crate::{Clock, LedgerError};
+use crate::{Clock, LedgerError, UnixMillis};
 
 /// A claim stuck in `pending` this long (its process died) is delivered
 /// again by whichever process looks next.
@@ -240,7 +240,7 @@ impl Ledger {
             .map_err(LedgerError::KeyUnavailable)?;
         let recovered = path.exists();
         if recovered {
-            db::move_aside(&path, clock.now_ms())?;
+            db::move_aside(&path, clock.now_ms().0)?;
         }
         let mut ledger = Ledger::open(&path, &fresh, scope, process, clock)?;
         ledger.set_learning(true)?;
@@ -289,7 +289,7 @@ impl Ledger {
     /// Records one fact (§6): merged, journalled if it changed something,
     /// with its effects claimed, in one `BEGIN IMMEDIATE`.
     pub fn record(&mut self, fact: Fact) -> Result<Recorded, LedgerError> {
-        let now = self.clock.now_ms();
+        let now = self.clock.now_ms().0;
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -320,7 +320,7 @@ impl Ledger {
     /// process that died more than 30 s after claiming), as `policy` says.
     /// While learning, they're marked posted and nothing is returned.
     pub fn claim_due(&mut self, policy: ClaimPolicy) -> Result<Vec<Claim>, LedgerError> {
-        let now = self.clock.now_ms();
+        let now = self.clock.now_ms().0;
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -424,7 +424,7 @@ impl Ledger {
 
     /// The app's heartbeat hasn't run out.
     pub fn foreground(&self) -> Result<bool, LedgerError> {
-        Ok(read_foreground(&self.conn)? > self.clock.now_ms())
+        Ok(read_foreground(&self.conn)? > self.clock.now_ms().0)
     }
 
     /// One sale's row.
@@ -473,8 +473,12 @@ impl Ledger {
             .and_then(|m| m.parse().ok())
             .unwrap_or(shift::DEFAULT_DAY_START_MINUTES);
         let day = shift::trading_day_start(now, &self.time_zone, minutes);
-        let started = meta_get(&self.conn, "shift.started")?.and_then(|v| v.parse().ok());
-        let stopped = meta_get(&self.conn, "shift.stopped")?.and_then(|v| v.parse().ok());
+        let mark = |name| -> Result<Option<UnixMillis>, LedgerError> {
+            Ok(meta_get(&self.conn, name)?
+                .and_then(|v| v.parse().ok())
+                .map(UnixMillis))
+        };
+        let (started, stopped) = (mark("shift.started")?, mark("shift.stopped")?);
         Ok(ShiftWindow::of(started, stopped, day))
     }
 
@@ -560,7 +564,7 @@ impl Ledger {
     /// hourly unless `force`. Old `Foreground` heartbeats are dropped too,
     /// keeping the newest. Returns how many sales were compacted.
     pub fn compact(&mut self, force: bool) -> Result<usize, LedgerError> {
-        let now = self.clock.now_ms();
+        let now = self.clock.now_ms().0;
         let last: Option<i64> =
             meta_get(&self.conn, "last_compacted")?.and_then(|v| v.parse().ok());
         if !force && last.is_some_and(|l| now - l < COMPACT_EVERY_MS && now >= l) {
@@ -635,7 +639,7 @@ impl Ledger {
     /// projections, in every scope, as are events for orders that never
     /// arrived. Returns how many sales went.
     pub fn retain(&mut self) -> Result<usize, LedgerError> {
-        let now = self.clock.now_ms();
+        let now = self.clock.now_ms().0;
         let days = read_settings(&self.conn)?
             .get(setting::RETENTION_DAYS)
             .and_then(|d| d.parse::<i64>().ok())
@@ -694,7 +698,7 @@ impl Ledger {
         json: &str,
         alerts_posted: &[String],
     ) -> Result<Imported, LedgerError> {
-        let now = self.clock.now_ms();
+        let now = self.clock.now_ms().0;
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;

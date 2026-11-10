@@ -25,7 +25,7 @@ pub mod tor;
 
 pub use amounts::MoneyFormat;
 pub use api::{AppIdentity, MonokuloApi, StreamEvent};
-pub use clock::{Clock, FixedClock, SystemClock};
+pub use clock::{Clock, FixedClock, SystemClock, UnixMillis, UnixSeconds};
 pub use connect_code::ConnectCode;
 pub use connection::{ApiUrl, Connection};
 pub use error::MonokuloError;

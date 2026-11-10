@@ -233,7 +233,7 @@ impl BellWakeUps {
             mem.last_ding_at.max(mem.connected_at)
         };
         let Some(heard) = heard else { return };
-        if inner.clock.now() - heard <= MISSED_AFTER.as_secs() as i64 {
+        if inner.clock.now().0 - heard <= MISSED_AFTER.as_secs() as i64 {
             return;
         }
         inner.set_status(WakeUpStatus::MissingWakeups { last_ding_at });
@@ -634,7 +634,7 @@ impl Inner {
             Err(Stop::Failed(BellError::Problem(problem))) => problem_status(
                 &problem,
                 signed_in.as_ref().map(PosSignIn::point_of_sale),
-                self.clock.now(),
+                self.clock.now().0,
             ),
             Err(Stop::Failed(e)) => WakeUpStatus::unreachable(unreachable_reason(&e)),
         };
@@ -828,7 +828,7 @@ impl Inner {
     /// The pass is over: `outcome` shown, and a retry set for the statuses
     /// that retry by themselves (D5).
     fn settle(self: &Arc<Self>, outcome: WakeUpStatus) {
-        let now = self.clock.now();
+        let now = self.clock.now().0;
         if matches!(outcome, WakeUpStatus::Connected { .. })
             && !matches!(self.status_now(), WakeUpStatus::Connected { .. })
         {
@@ -864,7 +864,7 @@ impl Inner {
     }
 
     fn ding(&self) {
-        let at = self.clock.now();
+        let at = self.clock.now().0;
         self.mem().last_ding_at = Some(at);
         self.update_status(|status| match status {
             WakeUpStatus::Connected { .. } | WakeUpStatus::MissingWakeups { .. } => {

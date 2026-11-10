@@ -360,8 +360,8 @@ impl PosSide for FakePos {
 struct PausedClock(Instant);
 
 impl Clock for PausedClock {
-    fn now(&self) -> i64 {
-        self.0.elapsed().as_secs() as i64
+    fn now_ms(&self) -> monokulo_client::UnixMillis {
+        monokulo_client::UnixMillis(self.0.elapsed().as_millis() as i64)
     }
 }
 
@@ -446,7 +446,7 @@ impl Scenario {
     }
 
     fn now(&self) -> i64 {
-        self.clock.now()
+        self.clock.now().0
     }
 
     fn wake_ups(&self) -> BellWakeUps {

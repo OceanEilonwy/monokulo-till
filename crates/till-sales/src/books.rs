@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 
 use till_ledger::{
     Claim, ClaimPolicy, Fact, Ledger, LedgerError, Opened, Recorded, SaleKey, SaleRow, SaleView,
-    Scope, ViewSettings, view::setting,
+    Scope, UnixMillis, UnixSeconds, ViewSettings, view::setting,
 };
 use tokio::sync::watch;
 
@@ -168,7 +168,7 @@ impl Books {
                 continue;
             }
             let sale = TillSale::of_view(&view);
-            let in_window = window.contains(view.created_at.saturating_mul(1000));
+            let in_window = window.contains(UnixSeconds(view.created_at).to_millis());
             // Another counter's cash sale waits for its own till's order,
             // which this till never hears of: it's listed with the shift it
             // was rung up in, not for ever.
@@ -187,7 +187,7 @@ impl Books {
             .iter()
             .filter_map(|v| Some((v.order_id.clone(), v.refund_problem.clone()?)))
             .collect();
-        let from = Some(window.from.div_euclid(1000));
+        let from = Some(window.from.to_seconds());
         self.state.send_if_modified(|s| {
             let changed = s.sales != sales
                 || s.views != shown
@@ -390,18 +390,14 @@ impl Books {
     }
 }
 
-/// The ledger's clock: the till's own (Unix seconds), which
-/// [`Books::set_clock`] changes for both.
+/// The ledger's clock: the till's own, which [`Books::set_clock`] changes
+/// for both.
 #[derive(Clone)]
 struct TillClock(Arc<RwLock<Arc<dyn monokulo_client::Clock>>>);
 
-impl till_ledger::Clock for TillClock {
-    fn now_ms(&self) -> i64 {
-        self.0
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .now()
-            .saturating_mul(1000)
+impl monokulo_client::Clock for TillClock {
+    fn now_ms(&self) -> UnixMillis {
+        self.0.read().unwrap_or_else(|e| e.into_inner()).now_ms()
     }
 }
 

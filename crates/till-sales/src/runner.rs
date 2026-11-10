@@ -5,7 +5,9 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use futures_util::StreamExt;
-use monokulo_client::{Clock, Connection, MonokuloApi, PointOfSale, StreamEvent, problems};
+use monokulo_client::{
+    Clock, Connection, MonokuloApi, PointOfSale, StreamEvent, SystemClock, problems,
+};
 use till_pos::{FoundSale, PosError, RefundByTill, Refunds, SaleOrder, SaleSource};
 use tokio::runtime::Handle;
 use tokio::sync::watch;
@@ -248,7 +250,7 @@ impl TillRunner {
                 tokio::join!(
                     shift.run(),
                     inner.follow(&till),
-                    till.lapse_on_time(wall_ms),
+                    till.lapse_on_time(|| SystemClock.now_ms()),
                     till.follow_confirmations(),
                 );
             })
@@ -506,15 +508,6 @@ impl Inner {
             }
         }
     }
-}
-
-/// The device's wall clock in Unix milliseconds: what a code's end is
-/// waited for by.
-fn wall_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
 }
 
 #[cfg(test)]

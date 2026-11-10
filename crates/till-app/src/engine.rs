@@ -1235,8 +1235,9 @@ impl State {
         });
     }
 
+    /// Now, as the ledger's facts keep a time (Unix ms).
     fn now_ms(&self) -> i64 {
-        self.clock.now().saturating_mul(1000)
+        self.clock.now_ms().0
     }
 
     /// Records `fact` in the engine's books.
@@ -1779,7 +1780,7 @@ impl State {
             self.keep(|m| m.shift_started_at = Some(now));
             self.record(Fact::ShiftMarked {
                 mark: ShiftMark::Started,
-                at: now.saturating_mul(1000),
+                at: now.to_millis().0,
             });
             if let Some(p) = &self.parts
                 && let Err(e) = p.side.books().with(|l| l.maintain())
@@ -2098,7 +2099,7 @@ impl State {
 
     fn device_clock(&self) -> DeviceClock {
         DeviceClock {
-            now: self.clock.now(),
+            now: self.clock.now().0,
             utc_offset: self.utc_offset,
             hours_24: self.hours_24,
         }
@@ -2202,7 +2203,7 @@ impl State {
         }
         SaleChoices {
             devices,
-            learned_at: model.counter_device.as_ref().map(|d| d.learned_at),
+            learned_at: model.counter_device.as_ref().map(|d| d.learned_at.0),
             finding_device: self.finding.is_some(),
             cash_as_monero: model.cash_as_monero,
             show_sales: model.show_sales,

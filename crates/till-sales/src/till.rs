@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use monokulo_client::{
     Clock, Connection, MonokuloApi, MonokuloError, Order, SaleEvent, SalePhase, SystemClock,
-    payment_uri, problems,
+    UnixMillis, UnixSeconds, payment_uri, problems,
 };
 use till_ledger::{
     Action, Fact, MarkKind, OrderCreated, OrderId, OrderKey, OrderObserved, OrderRead, Outcome,
@@ -255,8 +255,9 @@ impl Till {
             .min()
     }
 
+    /// Now, as the ledger's facts keep a time (Unix ms).
     fn now_ms(&self) -> i64 {
-        self.clock.now().saturating_mul(1000)
+        self.clock.now_ms().0
     }
 
     fn record(&self, fact: Fact) -> bool {
@@ -380,7 +381,7 @@ impl Till {
             .map(|c| c.as_second());
         let from = match kept {
             Some(at) => at.saturating_sub(Till::REFUNDS_OVERLAP_SECONDS),
-            None => window.from.div_euclid(1000),
+            None => window.from.to_seconds().0,
         };
         let begin = Rfc3339Instant::from_second(from);
         let Ok(Some(refunds)) = self.source.refunds_since(&begin).await else {
@@ -529,7 +530,7 @@ impl Till {
         if pending.is_empty() {
             return;
         }
-        let at = self.clock.now();
+        let at = self.clock.now().0;
         if checking
             .last_refund_look_at
             .is_some_and(|last| at - last < Till::REFUND_LOOK_SECONDS)
@@ -721,7 +722,7 @@ impl Till {
     /// local mark only: Monokulo's phase is untouched, and a payment still
     /// pays it (decision 174 in docs/decisions/android.md).
     pub fn lapse(&self) {
-        let at = self.clock.now();
+        let at = self.clock.now().0;
         let state = self.books.state();
         for (view, sale) in state.views.iter().zip(&state.sales) {
             if sale.live() && (1..=at).contains(&sale.expires_at) {
@@ -738,7 +739,7 @@ impl Till {
     /// tries again [`Till::LAPSE_RETRY`] later until the code is ended, so a
     /// dead code never stays up waiting for some other change. Runs until
     /// dropped.
-    pub async fn lapse_on_time(&self, now_ms: impl Fn() -> i64) {
+    pub async fn lapse_on_time(&self, now_ms: impl Fn() -> UnixMillis) {
         let mut rx = self.books.subscribe();
         let mut next = Till::next_lapse(&rx.borrow_and_update());
         loop {
@@ -750,11 +751,11 @@ impl Till {
     }
 
     /// Waits for `next` by `now_ms` and lapses until it's ended; never ends.
-    async fn lapse_when(&self, next: Option<i64>, now_ms: &impl Fn() -> i64) {
+    async fn lapse_when(&self, next: Option<i64>, now_ms: &impl Fn() -> UnixMillis) {
         let Some(next) = next else {
             return pending().await;
         };
-        let wait = (next.saturating_mul(1000) - now_ms()).max(0);
+        let wait = (UnixSeconds(next).to_millis().0 - now_ms().0).max(0);
         tokio::time::sleep(Duration::from_millis(wait as u64)).await;
         loop {
             self.lapse();

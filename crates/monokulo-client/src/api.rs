@@ -13,7 +13,7 @@ use serde::Serialize;
 use serde_json::Value;
 use till_types::{Money, Secret};
 
-use crate::clock::Clock;
+use crate::clock::{Clock, UnixSeconds};
 use crate::connect_code::ConnectCode;
 use crate::connection::Connection;
 use crate::error::MonokuloError;
@@ -115,7 +115,7 @@ struct Entry {
 struct Kept {
     entry: Entry,
     etag: Option<String>,
-    fresh_until: i64,
+    fresh_until: UnixSeconds,
 }
 
 /// A request, kept so it can be sent again with a proof of work.
@@ -383,7 +383,7 @@ impl MonokuloApi {
         self.inner.entries.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    fn now(&self) -> i64 {
+    fn now(&self) -> UnixSeconds {
         self.inner.clock.now()
     }
 
@@ -407,7 +407,7 @@ impl MonokuloApi {
         if response.status() == StatusCode::NOT_MODIFIED
             && let Some(kept) = kept
         {
-            let fresh_until = self.now() + max_age(response.headers());
+            let fresh_until = self.now().plus(max_age(response.headers()));
             self.entries().insert(
                 key,
                 Kept {
@@ -428,7 +428,7 @@ impl MonokuloApi {
             .map(String::from);
         let age = max_age(response.headers());
         let entry = read_entry(&response.text().await?, &used)?;
-        let fresh_until = self.now() + age;
+        let fresh_until = self.now().plus(age);
         self.entries().insert(
             key,
             Kept {

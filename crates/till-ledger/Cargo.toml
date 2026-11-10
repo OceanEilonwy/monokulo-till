@@ -12,9 +12,9 @@ getrandom = "0.3.4"
 # The trading day starts at 04:00 local (§9), in the device's time zone.
 jiff = "0.2.16"
 monokulo-client.workspace = true
+till-types = { workspace = true, features = ["rusqlite"] }
 orf-codec.workspace = true
 serde.workspace = true
-till-types.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true

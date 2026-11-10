@@ -1711,3 +1711,19 @@ once at the edge, with the stored and sent text unchanged.
      address gets written is from a parsed URL at connect, so one store
      can't come to have two spellings without a new connection, which is a
      new scope anyway.
+194. **One clock, and a time's unit in its type.** The core had two clock
+     traits, monokulo-client's in seconds and the ledger's in
+     milliseconds, bridged by hand-written `* 1000` and `div_euclid(1000)`
+     at a dozen places. There is now one `Clock`, monokulo-client's, which
+     the ledger re-exports: `now_ms` gives a `UnixMillis`, `now` (from it)
+     a `UnixSeconds`, both till-types' and both serialized as the bare
+     number, so nothing kept changes. The rule: the ledger keeps
+     milliseconds (its facts, its columns, its shift window, which is now
+     typed, `UnixMillis` an SQLite INTEGER); Monokulo, the points of sale,
+     the sales and the screens keep seconds; a time crosses from one to the
+     other only through `UnixSeconds::to_millis` or
+     `UnixMillis::to_seconds` (rounded down), and reaches Swift and Kotlin
+     as seconds in an `i64`. The kept shift start, the counter's learned
+     time and the till's shift start are typed; the sales' own times
+     (`TillSale`, `SaleView`) and the ledger's facts are still `i64`s of
+     their documented unit, to be typed when next touched.

@@ -8,9 +8,9 @@ use monokulo_client::payment_uri::PaymentUri;
 use serde::Deserialize;
 use till_pos::FoundSale;
 
-use crate::LedgerError;
 use crate::facts::{Fact, MarkKind, OrderCreated, OrderObserved, OrderRead, PaymentSeen, Tender};
 use crate::ids::{OrderId, SaleKey};
+use crate::{LedgerError, UnixSeconds};
 
 /// One kept sale's facts, each with the time it's journalled at (Unix ms;
 /// `None` for now).
@@ -88,8 +88,9 @@ fn receipt_of(mut value: serde_json::Value) -> Option<orf_codec::Receipt> {
     serde_json::from_value(value).ok()
 }
 
+/// A kept time (Unix seconds) as the ledger keeps it, Unix ms.
 fn ms(seconds: Option<i64>) -> Option<i64> {
-    seconds.map(|s| s * 1000)
+    seconds.map(|s| UnixSeconds(s).to_millis().0)
 }
 
 /// The facts of every sale in `json`. Sales with the same order id are one
@@ -125,7 +126,7 @@ pub(crate) fn facts_of_shift(json: &str) -> Result<Vec<ImportedSale>, LedgerErro
             .as_ref()
             .map(|f| f.created_at.as_second())
             .or(Some(sale.created_at).filter(|s| *s > 0))
-            .map(|s| s * 1000);
+            .map(|s| UnixSeconds(s).to_millis().0);
         let mut facts: Vec<(Fact, Option<i64>)> = Vec::new();
         if let Some(found) = &sale.found {
             facts.push((
