@@ -172,15 +172,6 @@ pub struct CounterKept {
     pub learned_at: i64,
 }
 
-/// `pos`'s word under [`keys::SHOW_SALES`].
-fn show_sales_wire(mode: crate::ShowSales) -> Option<&'static str> {
-    match mode {
-        crate::ShowSales::Alert => None,
-        crate::ShowSales::FloatingWindow => Some("pip"),
-        crate::ShowSales::SideBySide => Some("side"),
-    }
-}
-
 /// `Stores.kt`'s `PkceState`, as kotlinx wrote it.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -444,11 +435,7 @@ impl Store {
             show_others: self.switch(keys::COUNTER_OTHERS)?,
             clover_devices: self.read(keys::CLOVER_DEVICES)?.unwrap_or_default(),
             cash_as_monero: self.switch(keys::CASH_AS_MONERO)?,
-            show_sales: match self.get(keys::SHOW_SALES)?.as_deref() {
-                Some("pip") => crate::ShowSales::FloatingWindow,
-                Some("side") => crate::ShowSales::SideBySide,
-                _ => crate::ShowSales::Alert,
-            },
+            show_sales: crate::ShowSales::from_wire(self.get(keys::SHOW_SALES)?.as_deref()),
         })
     }
 
@@ -541,7 +528,7 @@ impl Store {
             self.put_switch(keys::CASH_AS_MONERO, new.cash_as_monero)?;
         }
         if old.show_sales != new.show_sales {
-            self.put(keys::SHOW_SALES, show_sales_wire(new.show_sales))?;
+            self.put(keys::SHOW_SALES, new.show_sales.wire())?;
         }
         Ok(())
     }
@@ -685,6 +672,20 @@ impl Model {
             every_device: self.alert_every,
             cash_as_monero: self.cash_as_monero,
         }
+    }
+
+    /// The settings the ledger keeps beside [`Model::till_options`]: whether
+    /// other counters' sales are listed, and how a new sale shows up, in
+    /// the words the platform's store keeps them in (decision 191).
+    pub fn ledger_settings(&self) -> [(&'static str, Option<String>); 2] {
+        use till_ledger::view::setting;
+        [
+            (setting::COUNTER_OTHERS, Some(self.show_others.to_string())),
+            (
+                setting::SHOW_SALES,
+                self.show_sales.wire().map(String::from),
+            ),
+        ]
     }
 
     /// How the till channels sales by device (core.md decision 113).

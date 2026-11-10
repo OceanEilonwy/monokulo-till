@@ -1674,3 +1674,17 @@ once at the edge, with the stored and sent text unchanged.
      they cross to Swift and Kotlin as named fields, and the log no longer
      prints them. The Monokulo client keys its kept entries by the app key
      and entry as a pair, no longer formatted into one string.
+191. **How a new sale shows up is kept as `pip` or `side`, in both
+     stores.** The engine gave the ledger's `sales.show` setting the
+     variant's `Debug` (`FloatingWindow`) while the platform's store kept
+     the same choice as `pip`, so a rename would have changed what the
+     ledger holds and anything reading it had to know both spellings.
+     `ShowSales::wire` and `ShowSales::from_wire`, beside the enum, are now
+     the one spelling: `pip`, `side`, or nothing for the default alert, as
+     the platform's store already kept it. `from_wire` also reads
+     `FloatingWindow`, `SideBySide` and `Alert` as their choices, and the
+     engine keeps its settings whenever they differ from the ledger's, so a
+     ledger holding the old word has it replaced at the next keep. The two
+     settings' names are constants in the ledger's `setting` module. A
+     typed `Setting` enum for every ledger setting was left: the ledger
+     can't name `ShowSales`, which is till-screens'.

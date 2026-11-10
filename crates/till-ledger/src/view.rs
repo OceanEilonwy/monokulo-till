@@ -34,6 +34,11 @@ pub mod setting {
     pub const RETENTION_DAYS: &str = "ledger.retention_days";
     /// Minutes after midnight, local, when the trading day starts; 240.
     pub const TRADING_DAY_START: &str = "shift.day_start";
+    /// "false" to list only this counter's sales.
+    pub const COUNTER_OTHERS: &str = "counter.others";
+    /// How a new sale shows up: `ShowSales::wire`'s `pip` or `side`;
+    /// absent for an alert.
+    pub const SHOW_SALES: &str = "sales.show";
 }
 
 /// The settings that feed views and effects, never the merge.

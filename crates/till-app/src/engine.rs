@@ -1254,13 +1254,7 @@ impl State {
         let model = p.side.model();
         let at = self.now_ms();
         p.side.books().keep_options(&model.till_options(), at);
-        p.side.books().keep_settings(
-            &[
-                ("counter.others", Some(model.show_others.to_string())),
-                ("sales.show", Some(format!("{:?}", model.show_sales))),
-            ],
-            at,
-        );
+        p.side.books().keep_settings(&model.ledger_settings(), at);
     }
 
     /// The store or the point of sale's account changed: the old scope's

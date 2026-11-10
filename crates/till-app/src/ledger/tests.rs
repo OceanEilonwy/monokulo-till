@@ -242,6 +242,44 @@ fn another_point_of_sale_account_deletes_the_old_scopes_sales() {
     );
 }
 
+/// Decision 191: how a new sale shows up is kept in the ledger as the
+/// platform's store keeps it, and a ledger that was given the variant's
+/// name before has it replaced.
+#[test]
+fn show_sales_is_kept_in_the_ledger_as_its_wire_word() {
+    let platform = platform();
+    let dir = tempfile::tempdir().unwrap();
+    let (app, _) = side(&platform, &dir, Process::App);
+    let settings = || app.books().with(|ledger| ledger.settings()).unwrap();
+    // As the engine kept it before.
+    app.books()
+        .keep_settings(&[("sales.show", Some("FloatingWindow".to_owned()))], 1_000);
+    app.kept
+        .update(|m| m.show_sales = crate::ShowSales::FloatingWindow)
+        .unwrap();
+    app.books()
+        .keep_settings(&app.kept.model().ledger_settings(), 2_000);
+    assert_eq!(
+        settings().get("sales.show").map(String::as_str),
+        Some("pip")
+    );
+    assert_eq!(
+        crate::ShowSales::from_wire(Some("FloatingWindow")),
+        crate::ShowSales::FloatingWindow,
+        "the old word reads as the same choice"
+    );
+    app.kept
+        .update(|m| m.show_sales = crate::ShowSales::Alert)
+        .unwrap();
+    app.books()
+        .keep_settings(&app.kept.model().ledger_settings(), 3_000);
+    assert_eq!(settings().get("sales.show"), None);
+    assert_eq!(
+        settings().get("counter.others").map(String::as_str),
+        Some("true")
+    );
+}
+
 /// A scope that changed while the app wasn't running (another location
 /// chosen, say) has its old rows deleted as the app next opens the ledger,
 /// keeping only the current scope's; the extension leaves that to the app.

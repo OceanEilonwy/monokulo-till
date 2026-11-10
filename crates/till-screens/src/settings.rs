@@ -136,6 +136,28 @@ impl ShowSales {
         ShowSales::SideBySide,
     ];
 
+    /// The choice as it is kept, by the platform's store and in the
+    /// ledger's settings alike: `pip`, `side`, or nothing for the default
+    /// alert (decision 191).
+    pub fn wire(self) -> Option<&'static str> {
+        match self {
+            ShowSales::Alert => None,
+            ShowSales::FloatingWindow => Some("pip"),
+            ShowSales::SideBySide => Some("side"),
+        }
+    }
+
+    /// The choice `kept` says. The ledger's settings once held the variant's
+    /// own name (`FloatingWindow`, `SideBySide`, `Alert`), which reads as
+    /// the same choice; anything else is the alert.
+    pub fn from_wire(kept: Option<&str>) -> ShowSales {
+        match kept {
+            Some("pip" | "FloatingWindow") => ShowSales::FloatingWindow,
+            Some("side" | "SideBySide") => ShowSales::SideBySide,
+            _ => ShowSales::Alert,
+        }
+    }
+
     /// The choice's words (board OnbShow).
     pub fn label(self) -> &'static str {
         match self {
@@ -888,6 +910,27 @@ fn wake_ups_row(w: &WakeUpsInput, device: Device) -> Fact {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn show_sales_is_kept_as_its_wire_word_and_reads_the_old_names_back() {
+        for mode in ShowSales::ALL {
+            assert_eq!(ShowSales::from_wire(mode.wire()), mode);
+        }
+        assert_eq!(ShowSales::FloatingWindow.wire(), Some("pip"));
+        assert_eq!(ShowSales::SideBySide.wire(), Some("side"));
+        assert_eq!(ShowSales::Alert.wire(), None);
+        // What the ledger's settings were given before (its Debug).
+        assert_eq!(
+            ShowSales::from_wire(Some("FloatingWindow")),
+            ShowSales::FloatingWindow
+        );
+        assert_eq!(
+            ShowSales::from_wire(Some("SideBySide")),
+            ShowSales::SideBySide
+        );
+        assert_eq!(ShowSales::from_wire(Some("Alert")), ShowSales::Alert);
+        assert_eq!(ShowSales::from_wire(Some("nonsense")), ShowSales::Alert);
+    }
     use crate::view::Choice;
     use monokulo_client::Wallet;
     use till_bell::{BellAddress, WakeUpStatus};
