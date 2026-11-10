@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 import TillCore
 import UIKit
 import UserNotifications
@@ -46,6 +47,8 @@ final class Core {
     private let signIn: SignInSession
     /// Taps on a new sale's alert, which open the sale.
     private var taps: NotificationTaps?
+    /// iOS's memory warnings (`memoryWarning`).
+    @ObservationIgnored private var memoryWarnings: (any NSObjectProtocol)?
     /// The iPhone's Live Activity (`Update.liveActivity`). Its push token
     /// goes to `registerLiveActivityPushToken` (phase I5).
     let liveActivity = LiveActivityController()
@@ -82,6 +85,21 @@ final class Core {
         pip?.onTakeInMonero = { [weak self] orderId in
             self?.send(.takeInMonero(orderId: orderId))
         }
+        memoryWarnings = NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.memoryWarning() }
+        }
+    }
+
+    /// iOS is short of memory: what can be made again goes, and the log
+    /// says how close the app is to being ended.
+    private func memoryWarning() {
+        let left = MemoryHeadroom.described
+        let window = pip?.isActive == true ? "up" : "down"
+        TillLog.memory.error("memory warning: \(left, privacy: .public) left, floating window \(window, privacy: .public)")
+        QRImages.empty()
+        pip?.memoryWarning()
     }
 
     /// How a new sale shows up on this iPad, as Settings has it.
@@ -125,6 +143,9 @@ final class Core {
     /// The app went to the background: the engine hears it, then closes
     /// its ledger before iOS may suspend the app (`Engine.suspend`).
     func backgrounded() {
+        let window = pip == nil ? "none" : (pip?.isActive == true ? "up" : "ready")
+        let left = MemoryHeadroom.described
+        TillLog.lifecycle.notice("to the back: floating window \(window, privacy: .public), memory left \(left, privacy: .public)")
         send(.backgrounded)
         if let engine { lifecycle.suspend(engine) }
     }
@@ -190,7 +211,11 @@ final class Core {
             }
         default: break
         }
-        updates.append(String(describing: update))
+        // The update's name only: `String(describing:)` of the whole update
+        // reflected over every sale of a shift each second the countdown
+        // ran, on the main thread, and kept 50 such dumps, so the app's
+        // memory and work grew with the shift (the floating-window crash).
+        updates.append(Self.name(of: update))
         if updates.count > Self.keptUpdates {
             updates.removeFirst(updates.count - Self.keptUpdates)
         }
@@ -235,6 +260,11 @@ final class Core {
     }
 
     private static let keptUpdates = 50
+
+    /// An update's case, without what it carries.
+    private static func name(of update: Update) -> String {
+        Mirror(reflecting: update).children.first?.label ?? String(describing: update)
+    }
 
     /// What the engine needs to know about this device and build
     /// (`EngineConfig`): the extension's own, but for this device's name

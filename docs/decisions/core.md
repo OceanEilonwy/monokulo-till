@@ -1341,3 +1341,43 @@ scope that changed while the app wasn't running.
      scope change while running deletes them (decision 158), so only the
      current scope's rows are kept. The extension never does: it leaves
      scope decisions to the app.
+
+## The floating window's memory (2026-11-10)
+
+The owner's iPad (an older one with a home button) ended Till as the
+cashier left it for Square with the floating window on, but only once the
+app had run a while. No crash log yet; what grew with the run is cut, and
+the run up to the next one is logged.
+
+200. **The app keeps no dump of the engine's updates.** `Core.updates`
+     (phase I0's core page, no longer shown) kept `String(describing:)`
+     of the last 50 updates. Each reflected over the whole update on the
+     main thread, which for a shift is every sale listed (up to 500), and
+     a live sale's countdown publishes one each second, in front and
+     behind: work and memory that grew with the shift. It keeps each
+     update's case name only.
+201. **Payment codes are drawn once each, through one Core Image context
+     on the CPU.** `QRCodeView` made its image in its initialiser, with a
+     new GPU `CIContext` each time, and SwiftUI makes the view again with
+     each body that holds it: once a second on a sale's page and in the
+     floating window while the countdown runs. Images are kept by their
+     text (`QRImages`, an `NSCache` of 16 the system empties under
+     pressure and a memory warning empties too), and the one context is
+     a software one, so drawing a code behind (where the window draws)
+     never asks for the GPU.
+202. **The floating window draws only what's seen, into pooled buffers,
+     and says what it does.** Frames come from a `CVPixelBufferPool` kept
+     for the frame's size instead of a new IOSurface each frame; none is
+     drawn while Till is in the back without the window up (the layer's
+     renderer is failed or unseen then), nor while the renderer isn't
+     ready for more; a failed renderer is flushed with its error logged;
+     the window's start draws again. A controller let go while its window
+     still closes is kept until iOS says it stopped. The unified log
+     (subsystem `com.monokulo.till`, categories `pip`, `lifecycle`,
+     `memory`, `background-work`, at levels the system keeps) records the
+     window coming and going, the memory left before iOS's limit
+     (`os_proc_available_memory`) as Till goes to the back and as the
+     window comes up, memory warnings (which also empty the code cache and
+     the pool), a background hold that ran out before the core's write
+     ended (the line to find beside a 0xdead10cc), many holds open at
+     once, and a ledger close that took over a second.
