@@ -101,7 +101,7 @@ struct ShiftScreen: View {
                         .listRowSeparator(.hidden)
                 }
                 .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
+                .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
             }
             ForEach(Array(ShiftSections.of(view.entries).enumerated()), id: \.offset) { _, section in
                 Section {
@@ -320,6 +320,11 @@ struct FilterPicker: View {
             }
         }
         .pickerStyle(.segmented)
+        // The system's own control at its large size, in equal thirds across
+        // the list's width (the design's 36 pt, 15 pt labels), not squeezed
+        // to the edges.
+        .controlSize(.large)
+        .accessibilityLabel("Show")
     }
 
     /// "Needs action 2", with its count when there's one.

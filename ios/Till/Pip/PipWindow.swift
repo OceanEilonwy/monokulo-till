@@ -65,7 +65,12 @@ final class PipWindow: NSObject {
     private let timebase: CMTimebase?
 
     /// Pixels to a point: every iPad iPadOS 26 runs on draws at 2x.
-    static let scale: CGFloat = 2
+    /// Pixels per point of the window iOS reports (an iPad's screen).
+    static let displayScale: CGFloat = 2
+    /// Frames are drawn at twice the window's pixel density, so a window
+    /// larger than iOS last said (or a pinch between redraws) is shrunk to
+    /// fit, never stretched: that was the blur on an iPad.
+    static let scale: CGFloat = 4
 
     /// Whether this device can show it: iPad, with Picture in Picture.
     static var supported: Bool {
@@ -385,7 +390,7 @@ extension PipWindow: @preconcurrency AVPictureInPictureSampleBufferPlaybackDeleg
         didTransitionToRenderSize newRenderSize: CMVideoDimensions
     ) {
         // iOS reports pixels; the frames are laid out in points.
-        let new = PipShape.width(renderWidth: newRenderSize.width, scale: PipWindow.scale)
+        let new = PipShape.width(renderWidth: newRenderSize.width, scale: PipWindow.displayScale)
         // A point or so either way is the frame's own rounding coming back:
         // drawing again for it would chase the size without end.
         if let width, abs(new - width) < 2 { return }

@@ -19,19 +19,28 @@ struct PipFrameView: View {
                 PipStrip(size: size, ground: PipColours.strip) {
                     TillWidget(state: .idle, size: size.height * 0.62, decorative: true)
                 } words: {
-                    PipStripWords(title: "Watching", line: place.isEmpty ? nil : place, size: size)
+                    // One word: no place, to keep the strip narrow.
+                    PipStripWords(title: "Watching", line: nil, size: size)
                 }
             case .paid(let amount, let name):
                 PipStrip(size: size, ground: PipColours.strip) {
                     TillWidget(state: .paid, size: size.height * 0.62, decorative: true)
                 } words: {
-                    PipStripWords(title: amount.isEmpty ? "Paid" : "Paid · \(amount)", line: name.isEmpty ? nil : name, size: size)
+                    // "Paid" over the amount; no name, to keep it narrow.
+                    PipStripWords(title: "Paid", line: amount.isEmpty ? nil : amount, size: size)
                 }
             case .cash(let offer):
                 PipStrip(size: size, ground: PipColours.strip) {
                     StatusGlyph(kind: .cash, size: size.height * 0.44)
                 } words: {
                     PipStripWords(title: offer.title, line: offer.line, size: size)
+                }
+            case .sale(let sale) where sale.code == nil:
+                // Seen or confirming: the strip, "Confirming" over the amount.
+                PipStrip(size: size, ground: PipColours.strip) {
+                    TillWidget(state: .confirming, size: size.height * 0.62, decorative: true)
+                } words: {
+                    PipStripWords(title: sale.progressWord, line: sale.amount.isEmpty ? nil : sale.amount, size: size)
                 }
             case .sale(let sale):
                 PipSquare(sale: sale, side: min(size.width, size.height), now: now)
