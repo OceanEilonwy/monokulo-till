@@ -3,7 +3,7 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use monokulo_client::{Clock, PointOfSale};
+use monokulo_client::{Clock, PointOfSale, UnixMillis, UnixSeconds};
 
 use super::{
     CloverApi, CloverConfig, CloverMerchant, CloverMerchantId, CloverOrderId, CloverPayment,
@@ -61,7 +61,7 @@ pub struct CloverSource {
     clock: Arc<dyn Clock>,
     /// Clover asked the till to slow down: no looks before this (Unix
     /// seconds).
-    hold_until: Mutex<Option<i64>>,
+    hold_until: Mutex<Option<UnixSeconds>>,
 }
 
 impl CloverSource {
@@ -135,7 +135,7 @@ impl CloverSource {
             .copied()
     }
 
-    async fn look(&self, at: i64) -> Result<Vec<FoundSale>, PosError> {
+    async fn look(&self, at: UnixSeconds) -> Result<Vec<FoundSale>, PosError> {
         let merchant = &self.merchant.id;
         // Not made yet (the card asks the cashier to): found by its label,
         // never made from here.
@@ -152,19 +152,18 @@ impl CloverSource {
         let since = match self.cursor.since()? {
             Some(since) => since,
             None => {
-                let now = Rfc3339Instant::from_second(at);
+                let now = Rfc3339Instant::from_second(at.0);
                 self.cursor.save(&now, &[]);
                 now
             }
         };
-        let from_ms = (since.as_millisecond() - OVERLAP_SECONDS * 1000).max(
-            at.saturating_sub(FURTHEST_BACK_SECONDS)
-                .saturating_mul(1000),
-        );
+        let from = UnixMillis(since.as_millisecond())
+            .plus(-OVERLAP_SECONDS * 1000)
+            .max(at.plus(-FURTHEST_BACK_SECONDS).to_millis());
         let handled = self.cursor.handled()?;
         let mut payments: Vec<CloverPayment> = self
             .api
-            .payments(merchant, &tender_id, from_ms)
+            .payments(merchant, &tender_id, from)
             .await?
             .into_iter()
             .filter(|p| {
@@ -223,7 +222,7 @@ impl SaleSource for CloverSource {
     /// further back than Clover allows), less those handled, oldest first.
     /// Nothing is asked while Clover's last `429` holds the till back.
     async fn new_sales(&self) -> Result<Vec<FoundSale>, PosError> {
-        let at = self.clock.now().0;
+        let at = self.clock.now();
         if self
             .hold_until
             .lock()
@@ -238,7 +237,7 @@ impl SaleSource for CloverSource {
         {
             let wait = e.retry_after_seconds().unwrap_or(1);
             *self.hold_until.lock().unwrap() =
-                Some(at.saturating_add(i64::try_from(wait).unwrap_or(i64::MAX)));
+                Some(at.plus(i64::try_from(wait).unwrap_or(i64::MAX)));
         }
         looked
     }

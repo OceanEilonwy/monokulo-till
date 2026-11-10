@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use monokulo_client::PointOfSale;
+use monokulo_client::{PointOfSale, UnixMillis};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -391,7 +391,7 @@ impl CloverApi {
         http::read(PointOfSale::Clover, &text)
     }
 
-    /// The merchant's payments with `tender_id` made at or after `since_ms`
+    /// The merchant's payments with `tender_id` made at or after `since`
     /// (Unix ms), oldest first, with their tender, order and refunds: page
     /// after page until a short one, at most
     /// [`MAX_PAGES`](Self::MAX_PAGES).
@@ -399,11 +399,11 @@ impl CloverApi {
         &self,
         merchant_id: &CloverMerchantId,
         tender_id: &CloverTenderId,
-        since_ms: i64,
+        since: UnixMillis,
     ) -> Result<Vec<CloverPayment>, PosError> {
         let mut all = Vec::new();
         let tender = format!("tender.id={tender_id}");
-        let since = format!("createdTime>={since_ms}");
+        let since = format!("createdTime>={}", since.0);
         let limit = Self::PAGE.to_string();
         for page in 0..Self::MAX_PAGES {
             let offset = (page * Self::PAGE).to_string();
