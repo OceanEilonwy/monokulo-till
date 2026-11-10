@@ -1,5 +1,8 @@
 # Releasing Till for iPhone and iPad
 
+Android's release, signed APKs on the Releases page for Obtainium, is
+[at the end](#releasing-till-for-android).
+
 [`release-ios.yml`](../.github/workflows/release-ios.yml) builds the core,
 archives the app with its extensions, and uploads the build to TestFlight
 with `xcodebuild`. Signing is automatic and managed in Apple's cloud,
@@ -174,3 +177,96 @@ To set it up:
 A TestFlight build is a production build, so its pushes use APNs
 production. The relay's APNs key must therefore send to production, not
 the sandbox.
+
+# Releasing Till for Android
+
+[`release-android.yml`](../.github/workflows/release-android.yml) builds the
+release APKs on every `v*` tag and puts them on the
+[Releases](https://github.com/OceanEilonwy/monokulo-till/releases) page,
+where [Obtainium](https://obtainium.imranr.dev/) installs and updates them
+(README, "Installing and updating with Obtainium"). It is the same setup as
+Monokulo Fob's: one APK for each ABI (`arm64-v8a`, `armeabi-v7a`,
+`x86_64`), a universal one, and `SHA256SUMS`, all signed with one key and
+sharing one version code. The version is `versionName` in
+[`android/app/build.gradle.kts`](../android/app/build.gradle.kts), and the
+version code is computed from it (`major × 10000 + minor × 100 + patch`),
+so a new version always installs over the last. A manual run (Actions ›
+**Android release** › Run workflow) builds the same APKs on any branch,
+signed only if the secrets exist, and keeps them as the run's
+`till-android-release` artifact without making a release.
+
+## 1. The signing key
+
+Make it once and keep it, with its passwords, somewhere safe outside the
+repository. Android only installs an update signed with the same key, so
+losing it means every Obtainium user has to uninstall and reinstall.
+
+```sh
+keytool -genkeypair -v -keystore till-release.jks -alias till \
+  -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=Monokulo Till"
+```
+
+## 2. GitHub (OceanEilonwy/monokulo-till › Settings › Secrets and variables › Actions)
+
+1. **Secrets** (repository secrets, not an environment's):
+   | Secret | Value |
+   | --- | --- |
+   | `TILL_KEYSTORE_BASE64` | the keystore file, base64 |
+   | `TILL_KEYSTORE_PASSWORD` | the keystore's password |
+   | `TILL_KEY_ALIAS` | `till` |
+   | `TILL_KEY_PASSWORD` | the key's password |
+
+   ```sh
+   gh secret set TILL_KEYSTORE_BASE64 < <(base64 -w0 till-release.jks)
+   gh secret set TILL_KEYSTORE_PASSWORD
+   gh secret set TILL_KEY_ALIAS --body till
+   gh secret set TILL_KEY_PASSWORD
+   ```
+2. **Variables**: the same `TILL_LINK_HOST`, `TILL_SQUARE_APPLICATION_ID`,
+   `TILL_SQUARE_SANDBOX`, `TILL_CLOVER_APPLICATION_ID`,
+   `TILL_CLOVER_ENVIRONMENT` and `TILL_BELL_URL` as the iOS release's
+   (above), but as **repository** variables: the Android workflow has no
+   environment, so it can't read the `testflight` environment's. Repository
+   variables are read by both; an environment's own value wins for iOS.
+   (`TILL_RELAY_URL` is iOS's only: Android wakes over UnifiedPush.)
+   ```sh
+   gh variable set TILL_LINK_HOST --body till.monokulo.com
+   gh variable set TILL_SQUARE_APPLICATION_ID --body sq0idp-…
+   gh variable set TILL_SQUARE_SANDBOX --body false
+   gh variable set TILL_CLOVER_APPLICATION_ID --body …
+   gh variable set TILL_CLOVER_ENVIRONMENT --body north_america
+   gh variable set TILL_BELL_URL --body https://bell.monokulo.com
+   ```
+   A tag's run stops if the signing secrets or the link host, either
+   application id or the Bell are missing; a manual run builds with the
+   placeholders and warns.
+
+## 3. App Links
+
+A release build's Square and Clover sign-ins come back on the App Link
+`https://<TILL_LINK_HOST>/square` (and `/clover`), which Android only opens
+in Till once `site/.well-known/assetlinks.json` names the release key.
+
+1. Run Actions › **Android release** › Run workflow once after §2. Its
+   summary prints `Release key: AB:CD:…`, the key's SHA-256 fingerprint
+   (or: `keytool -list -v -keystore till-release.jks -alias till`, the
+   `SHA256:` line).
+2. Set it as the repository variable `ANDROID_CERT_SHA256`, then run
+   Actions › **Pages** › Run workflow, which writes it into
+   `assetlinks.json` as it deploys.
+   ```sh
+   gh variable set ANDROID_CERT_SHA256 --body AB:CD:…
+   ```
+3. Check `https://till.monokulo.com/.well-known/assetlinks.json`. A phone
+   verifies the links when Till is installed or updated; `adb shell pm
+   get-app-links com.monokulo.till` shows `verified` for the host.
+
+## 4. A release
+
+1. Change `versionName` in `android/app/build.gradle.kts` (and
+   `MARKETING_VERSION` in `ios/project.yml`, since the same tag starts the
+   iOS release), merge, then tag `v<version>` on `main` and push the tag.
+2. The run fails if the tag and `versionName` differ. Otherwise it signs,
+   checks each APK with `apksigner`, and makes the release `Till <version>`
+   with notes generated from the merged pull requests. Obtainium sees it on
+   its next check.

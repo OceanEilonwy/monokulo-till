@@ -4681,3 +4681,26 @@ names the environment. Refines 95, 96 and 132.
      notification (`ONGOING_ID`) and each sale's own notice (by the order
      id) replace rather than add, so a sale's heads-up comes once (core.md
      123 says when).
+
+## App: releases for Obtainium (2026-11-10)
+
+316. **A `v*` tag publishes signed APKs on GitHub Releases, as Monokulo
+     Fob does, so Obtainium can install and update Till** (README,
+     docs/release.md). `release-android.yml` builds one APK for each ABI
+     the core is built for (`arm64-v8a`, `armeabi-v7a`, `x86_64`) and a
+     universal one, `till-<version>-<abi>.apk`, with `SHA256SUMS`. They
+     share one version code, `major × 10000 + minor × 100 + patch` of
+     `versionName`, which the tag must name, so Obtainium's version (the
+     tag) and the app's agree and any APK installs over any other. The
+     key is a keystore in repository secrets, used only when present: any
+     other release build stays unsigned, and the splits only happen with
+     `-Ptill.splits`, so CI's ordinary build is unchanged. The other ABIs'
+     libraries the dependencies carry (JNA's `x86`, `armeabi`, `mips`)
+     are left out, so a device Till can't run on is refused at install
+     rather than crashing at the first call into Rust. Because a release
+     build's sign-ins come back on its App Link (decision 58), the site
+     gains `assetlinks.json`, its fingerprint filled in by Pages from the
+     `ANDROID_CERT_SHA256` repository variable as the AASA's team is from
+     `APPLE_TEAM_ID`. The deployment's ids and hosts are repository
+     variables, since the Android workflow has no environment to read the
+     `testflight` one's from.
