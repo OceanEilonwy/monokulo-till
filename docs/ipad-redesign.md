@@ -138,7 +138,10 @@ The board names below (A1, P2, O3 …) are the canvas's.
     turns green, a success haptic; a crossfade under Reduce Motion.
 19. **Settings** (D4, C5, K4): an inset grouped list. Alerts are a status row
     ("Off", warn colour) plus "Open Notification Settings", never a switch
-    that snaps back. The wallet row shares the address.
+    that snaps back. The wallet row shares the address. The sections'
+    order and grouping, Notifications as its own section, How sales show
+    up with O4's pictures, and Cash in Square as one switch: core.md
+    decision 182.
 
 ### Look
 

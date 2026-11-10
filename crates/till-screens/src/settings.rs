@@ -244,15 +244,18 @@ pub struct CountersSection {
     pub show_others_label: String,
 }
 
-/// Settings › Cash in Square (board CashSettings, K4).
+/// Settings › Cash in Square (board CashSettings, K4): one switch, on by
+/// default, and a footer saying what it does either way (core.md decision
+/// 182).
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct CashSection {
-    /// "Treat cash sales as Monero (default)".
-    pub as_monero: crate::view::Choice,
-    /// "Only offer Monero".
-    pub offer: crate::view::Choice,
-    pub footnotes: Vec<String>,
+    /// Cash sales treated as Monero: each alerts and gets a code.
+    pub on: bool,
+    /// "Treat cash sales as Monero".
+    pub label: String,
+    /// What the switch does as it stands, and how Square records them.
+    pub footnote: String,
     /// "Cash in Square".
     #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
     pub title: String,
@@ -321,7 +324,7 @@ pub struct SettingsView {
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub show_sales: Option<ShowSalesSection>,
     /// The page's and its sections' titles, and Disconnect's words (core.md
-    /// decision 130): "Settings", "Store", "Point of sale", "Alerts",
+    /// decision 130): "Settings", "Store", "Point of sale", "Notifications",
     /// "Wake-ups", "Developer (debug builds)".
     #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
     pub title: String,
@@ -431,25 +434,15 @@ fn counters_section(
 }
 
 fn cash_section(c: &SaleChoices) -> CashSection {
-    let mut footnotes = Vec::new();
-    if c.cash_as_monero {
-        footnotes.push("Every cash sale alerts and shows a code. When a customer pays real cash, tap Paid in cash on the sale to close it.".to_owned());
-    }
-    footnotes.push("Square still records these sales as Cash. Till's shift lists which ones were paid in Monero, for the end-of-day count.".to_owned());
     CashSection {
-        as_monero: crate::view::Choice {
-            label: "Treat cash sales as Monero (default)".into(),
-            detail: Some("Cash sales alert and get a code straight away. If the customer pays real cash, tap Paid in cash.".into()),
-            selected: c.cash_as_monero,
-            enabled: true,
-        },
-        offer: crate::view::Choice {
-            label: "Only offer Monero".into(),
-            detail: Some("Cash sales show quietly with Take it in Monero. Nothing happens unless the cashier taps it.".into()),
-            selected: !c.cash_as_monero,
-            enabled: true,
-        },
-        footnotes,
+        on: c.cash_as_monero,
+        label: "Treat cash sales as Monero".into(),
+        footnote: if c.cash_as_monero {
+            "Cash sales alert and show a code straight away. If the customer pays real cash, tap Paid in cash on the sale. Square still records them as Cash."
+        } else {
+            "Cash sales show quietly with Take it in Monero, and nothing happens unless you tap it. Square still records them as Cash."
+        }
+        .into(),
         title: "Cash in Square".into(),
     }
 }
@@ -691,7 +684,7 @@ pub fn settings(input: &SettingsInput, device: Device, clock: DeviceClock) -> Se
         title: "Settings".into(),
         store_title: "Store".into(),
         pos_title: pos_text::POINT_OF_SALE.into(),
-        alerts_title: "Alerts".into(),
+        alerts_title: "Notifications".into(),
         wake_ups_title: "Wake-ups".into(),
         developer_title: "Developer (debug builds)".into(),
         disconnect: "Disconnect this device".into(),
@@ -1523,10 +1516,36 @@ mod tests {
                 "Show their sales in the list"
             )
         );
+        // Decision 182: one switch, on by default, with a footer.
         let cash = view.cash.expect("Square has a cash tender");
-        assert!(cash.as_monero.selected && !cash.offer.selected);
-        assert_eq!(cash.offer.label, "Only offer Monero");
+        assert!(cash.on);
+        assert_eq!(cash.label, "Treat cash sales as Monero");
         assert_eq!(cash.title, "Cash in Square");
+        assert!(
+            cash.footnote.contains("tap Paid in cash"),
+            "{}",
+            cash.footnote
+        );
+        let offered = settings(
+            &SettingsInput {
+                choices: SaleChoices {
+                    cash_as_monero: false,
+                    ..square.choices.clone()
+                },
+                ..square.clone()
+            },
+            Device::Ipad,
+            CLOCK,
+        )
+        .cash
+        .unwrap();
+        assert!(!offered.on);
+        assert!(
+            offered.footnote.contains("Take it in Monero"),
+            "{}",
+            offered.footnote
+        );
+        assert_eq!(view.alerts_title, "Notifications");
         assert_eq!(view.show_sales.as_ref().unwrap().title, "How sales show up");
         let alerts = view.alerts_status.expect("iOS's status row");
         assert_eq!(alerts.row, Fact::new("New sales and payments", "On"));
