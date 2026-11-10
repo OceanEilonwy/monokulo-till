@@ -1343,6 +1343,47 @@ scope that changed while the app wasn't running.
      current scope's rows are kept. The extension never does: it leaves
      scope decisions to the app.
 
+## iPad round 2: the drawer, the refund, Settings (2026-11-10)
+
+Restored here after the merge of main into #64 dropped them; the code they
+describe landed with #64.
+
+180. **The Earlier header always heads what is no longer live.** The
+     shift's list (`shift::sections`) used to drop every header when
+     nothing was waiting or offered, so a drawer of only earlier sales was
+     a bare list with no title, unlike the same sales under a tray. Now
+     the Earlier header heads the sales that are no longer live whenever
+     there are any, under every filter (Paid included); only an empty list
+     has no header.
+181. **The till's own Square refund counts as soon as Square accepts it.**
+     Square answers a refund `PENDING` and completes it a little later.
+     Since the ledger (decision 163) a refund counted only once
+     `COMPLETED`, so after "No: refund it in Square" the sale's page stayed
+     Closed with Refund still offered, as though nothing had happened. A
+     refund this till asked for and Square accepted (`Action::Refund` done,
+     the refund `PENDING` or `COMPLETED`) now refunds the sale at once, as
+     it did before the ledger, at the time the till's refund went through.
+     A refund made in Square's own app still counts only once completed,
+     a failed or rejected one never counts (a later status outranks
+     `PENDING`, so the sale goes back to Closed with its problem shown),
+     and compaction (`SharedSale::ended`) still waits for completion.
+182. **Settings reads as an iOS settings list, most-changed first.** The
+     sheet is an inset grouped list with a plain header over each group,
+     a footer under it, plain labels on its rows, and destructive actions
+     last. In order: Watch for sales (a switch with no header);
+     Notifications, its own section (the engine's `alerts_title` is now
+     "Notifications"), with iOS's status row and Open Notification
+     Settings; How sales show up on iPad, drawn with the same rows as O4,
+     each led by OnbShow's skeleton picture (`ShowSalesRow`, shared by the
+     wizard and Settings), or the Dynamic Island on iPhone; Point of sale,
+     then Alert for and Other counters; Cash in Square; Wake-ups, one row
+     that opens its page, with no header repeating its label; Store and
+     its wallet; the debug builds' stand-ins; Disconnect. Cash in Square
+     is one switch, "Treat cash sales as Monero", on by default, with a
+     footer that says what it does as it stands, in place of two radio
+     rows that were a yes or no (`CashSection { on, label, footnote }`;
+     Android draws it as a switch too).
+
 ## New code renews the order (2026-11-10)
 
 Decision 145's New code made a second Monokulo order for one Square
