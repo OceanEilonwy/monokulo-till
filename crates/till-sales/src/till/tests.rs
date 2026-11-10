@@ -918,8 +918,10 @@ async fn paid_in_cash_closes_a_cash_sale_with_nothing_to_refund() {
     assert!(source.refunded().is_empty());
 }
 
+/// Core.md decision 221: with cash as Monero off, a cash sale is ignored: no
+/// order is made, and it is no row in the till's sales.
 #[tokio::test]
-async fn with_cash_offered_a_cash_sale_waits_quietly_until_its_taken_in_monero() {
+async fn with_cash_as_monero_off_a_cash_sale_is_ignored() {
     let f = fixture().await;
     let source = FakeSource::with(vec![cash_sale()], Some(receipt()), Some("Sam"));
     let till = f.till(source.clone()).with_options(&TillOptions {
@@ -928,56 +930,8 @@ async fn with_cash_offered_a_cash_sale_waits_quietly_until_its_taken_in_monero()
         cash_as_monero: false,
     });
     till.check().await;
-    assert_eq!(f.request_count(), 0, "no order until it's taken");
-    assert_eq!(source.handled_ids(), ["pay_cash"]);
-    let offered = only(&till);
-    assert_eq!(offered.order_id, "cash:pay_cash");
-    assert!(offered.offered);
-    assert_eq!(offered.standing(), Standing::CashOffer { kept: false });
-    assert!(!offered.live() && !offered.needs_action() && !offered.open());
-    assert_eq!(offered.customer_name.as_deref(), Some("Sam"));
-    assert_eq!(offered.price.amount(), "13.88");
-    till.keep_as_cash(&"cash:pay_cash".into());
-    assert_eq!(only(&till).standing(), Standing::CashOffer { kept: true });
-
-    f.enqueue(order());
-    assert_eq!(
-        till.take_in_monero(&"cash:pay_cash".into())
-            .await
-            .as_deref(),
-        Ok("ord_1")
-    );
-    let taken = only(&till);
-    assert_eq!(taken.order_id, "ord_1", "the order takes the offer's place");
-    assert!(taken.cash() && taken.live() && !taken.offered);
-    assert!(taken.code.has_receipt);
-    assert_eq!(taken.customer_name.as_deref(), Some("Sam"));
-    let body: Value = serde_json::from_slice(&f.queue.seen.lock().unwrap()[1].body).unwrap();
-    assert!(
-        !body.to_string().contains("Sam"),
-        "names never go to Monokulo"
-    );
-    assert_eq!(
-        till.take_in_monero(&"ord_1".into()).await.as_deref(),
-        Ok("ord_1"),
-        "taken already"
-    );
-}
-
-#[tokio::test]
-async fn a_cash_sale_whose_order_fails_stays_offered_and_says_why() {
-    let f = fixture().await;
-    let source = FakeSource::new(vec![cash_sale()]);
-    let till = f.till(source.clone()).with_options(&TillOptions {
-        device_id: None,
-        every_device: false,
-        cash_as_monero: false,
-    });
-    till.check().await;
-    f.enqueue(ResponseTemplate::new(503));
-    assert!(till.take_in_monero(&"cash:pay_cash".into()).await.is_err());
-    assert!(only(&till).offered);
-    assert!(till.state().problem.is_some());
+    assert_eq!(f.request_count(), 0, "no order is made for it");
+    assert!(till.state().sales.is_empty(), "{:?}", till.state().sales);
 }
 
 #[tokio::test]

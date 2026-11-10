@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>A sale: the code in the floating window</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#b34700}a:hover{color:#1a1917}
+</style>
+</helmet>
+<div style="width: 1180px; height: 820px; position: relative; overflow: hidden; background: #ececec; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; color: #1a1917;">
+
+  <div style="position: absolute; top: 0; left: 0; width: 760px; height: 820px; display: flex; flex-direction: column; padding: 28px 24px 24px; gap: 14px; box-sizing: border-box;">
+    <span style="font-size: 15px; font-weight: 700; color: #555555;">[Square POS · choose payment · $24.50]</span>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px;">
+      <div style="height: 96px; border-radius: 14px; background: #dcdcdc; display: flex; align-items: center; justify-content: center; font-size: 17px; color: #3a3a3a;">Card</div>
+      <div style="height: 96px; border-radius: 14px; background: #dcdcdc; display: flex; align-items: center; justify-content: center; font-size: 17px; color: #3a3a3a;">Cash</div>
+      <div style="height: 96px; border-radius: 14px; background: #b9b9b9; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 17px; font-weight: 700; color: #1a1917;">Other: Monero<span style="font-size: 13px; font-weight: 500;">tapped</span></div>
+    </div>
+  </div>
+
+  <div style="position: absolute; right: 24px; bottom: 32px; width: 200px; height: 200px; border-radius: 14px; overflow: hidden; background: #ffffff; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28); display: flex; flex-direction: column; align-items: center; justify-content: center; box-sizing: border-box; padding: 8px 8px 10px; gap: 4px;">
+    <dc-import name="QR" size="140" hint-size="140px,140px"></dc-import>
+    <span style="font-family: Manrope, sans-serif; font-size: 16px; font-weight: 800; white-space: nowrap;">Sam · $24.50 <span style="font-family: -apple-system, system-ui, sans-serif; font-size: 11px; font-weight: 400; color: #5a564c;">· 14:32</span></span>
+
+    <div aria-hidden="true" style="position: absolute; top: 0; left: 0; right: 0; height: 40px; background: linear-gradient(rgba(0,0,0,0.45), rgba(0,0,0,0)); display: flex; justify-content: space-between; align-items: flex-start; padding: 6px 8px; box-sizing: border-box; opacity: {{controls}};">
+      <span style="width: 30px; height: 30px; border-radius: 15px; background: rgba(40,40,40,0.7); display: flex; align-items: center; justify-content: center;"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke="#ffffff" stroke-width="2" stroke-linecap="round"></path></svg></span>
+      <span style="width: 30px; height: 30px; border-radius: 15px; background: rgba(40,40,40,0.7); display: flex; align-items: center; justify-content: center;"><svg width="14" height="14" viewBox="0 0 14 14"><path d="M8 1h5v5M13 1L8 6M6 13H1V8M1 13l5-5" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg></span>
+    </div>
+  </div>
+
+  <div style="position: absolute; right: 24px; bottom: 250px; width: 320px; display: flex; flex-direction: column; gap: 8px; align-items: flex-end;">
+    <span style="padding: 8px 14px; border-radius: 16px; background: #1a1917; color: #ffffff; font-size: 13px; font-weight: 600;">Sale in: the strip becomes a 200 pt square, code edge to edge</span>
+    <span style="padding: 8px 14px; border-radius: 16px; background: #ffffff; border: 1px solid #dcd5c7; font-size: 13px; color: #3a3a3a;">Tap: iOS shows ✕ and ⤢. ⤢ opens Till full screen (A2)</span>
+  </div>
+
+  <a href="R3PipPaid.dc.html" style="position: absolute; left: 24px; bottom: 28px; font-size: 15px;">Preview: the customer pays →</a>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"showControls":{"editor":"boolean","default":true},"$preview":{"width":1180,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() { return { controls: (this.props.showControls ?? true) ? 1 : 0 }; }
+}
+</script>
+</body>
+</html>

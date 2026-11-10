@@ -605,6 +605,47 @@ fn a_double_spend_stays_unless_monokulo_settles_it_paid() {
     );
 }
 
+/// Core.md decision 222: paying more than asked is an overpayment: it alerts
+/// once, and the cashier saying the extra went back settles it.
+#[test]
+fn an_overpaid_sale_alerts_once_until_the_extra_is_marked_refunded() {
+    let fx = Fixture::new();
+    let mut l = fx.open(Process::App);
+    l.record(payment("p1", "front", Tender::Monero, 1)).unwrap();
+    l.record(created("p1", "o1")).unwrap();
+    let r = l.record(observed("o1", SalePhase::Paid, false)).unwrap();
+    assert!(
+        r.effects_claimed
+            .iter()
+            .all(|c| c.kind != AlertKind::Overpaid),
+        "an exact payment is not an overpayment"
+    );
+    assert!(!l.sale(&sale("p1")).unwrap().unwrap().overpaid);
+
+    let mut over = observed("o1", SalePhase::Paid, true);
+    if let Fact::OrderObserved(o) = &mut over {
+        o.overpaid = true;
+    }
+    let r = l.record(over).unwrap();
+    let overpaid: Vec<_> = r
+        .effects_claimed
+        .iter()
+        .filter(|c| c.kind == AlertKind::Overpaid)
+        .collect();
+    assert_eq!(overpaid.len(), 1, "the overpayment alerts");
+    let v = l.sale(&sale("p1")).unwrap().unwrap();
+    assert!(v.overpaid && v.extra_refunded_at.is_none());
+
+    l.record(Fact::Mark {
+        sale: sale("p1"),
+        mark: MarkKind::ExtraRefunded,
+        at: monokulo_client::UnixMillis(NOW),
+    })
+    .unwrap();
+    let v = l.sale(&sale("p1")).unwrap().unwrap();
+    assert!(v.overpaid && v.extra_refunded_at.is_some());
+}
+
 /// §15.8: New code renews the sale's one order (core.md decisions 167 to
 /// 172): the same order with a new quote, waiting again with its new code;
 /// the old quote's ending doesn't end it, whichever arrives first; the
@@ -760,6 +801,27 @@ fn settings_never_enter_the_merge() {
         UnixMillis(0),
     );
     assert!(may_make_order(&v, &back, false));
+}
+
+/// Core.md decision 221: with cash as Monero off, a cash sale is ignored
+/// altogether: it is no row in the list, while a Monero sale is.
+#[test]
+fn with_cash_as_monero_off_cash_sales_are_ignored() {
+    let fx = Fixture::new();
+    let mut l = fx.open(Process::App);
+    l.record(payment("cash1", "front", Tender::Cash, 1))
+        .unwrap();
+    l.record(payment("monero1", "front", Tender::Monero, 2))
+        .unwrap();
+    assert_eq!(l.sales().unwrap().len(), 2, "cash as Monero is on");
+
+    l.record(set(setting::CASH_AS_MONERO, "false", 3)).unwrap();
+    let keys: Vec<_> = l.sales().unwrap().into_iter().map(|v| v.sale).collect();
+    assert_eq!(keys, vec![sale("monero1")], "the cash sale is gone");
+    assert!(
+        l.sale(&sale("cash1")).unwrap().is_some(),
+        "still known by its key"
+    );
 }
 
 const SHIFT: &str = r#"[

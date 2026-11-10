@@ -164,6 +164,86 @@ struct OrderCardSection: View {
     }
 }
 
+/// A long order as one row, "Order · 15 items" with its total, that opens
+/// the whole order (the design's Q6).
+struct FoldedOrderRow: View {
+    let folded: FoldedOrder
+    let open: @MainActor () -> Void
+
+    var body: some View {
+        Card {
+            Button {
+                open()
+            } label: {
+                HStack(spacing: 8) {
+                    Text(folded.label)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    Text(folded.total)
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(Palette.secondary)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Palette.secondary)
+                        .accessibilityHidden(true)
+                }
+                .padding(.horizontal, 16)
+                .frame(minHeight: 48)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Shows every line of the order")
+        }
+    }
+}
+
+/// The Square mark, from Square's own logo (`Square_Logo_2025_Black.svg` of
+/// their brand kit, the mark on its own, in the asset catalog as a template
+/// image): the owner supplied the files. Follow Square's usage rules.
+struct SquareMark: View {
+    var body: some View {
+        Image("SquareMark")
+            .renderingMode(.template)
+            .resizable()
+            .scaledToFit()
+            .accessibilityHidden(true)
+    }
+}
+
+/// "Return to Square": the Square mark on a flat silver pill, in the sale's
+/// toolbar to the left of Close the sale or Done. `compact` keeps the mark
+/// alone on a narrow screen, with the words for VoiceOver.
+struct ReturnToSquareButton: View {
+    let label: String
+    var compact = false
+    let action: @MainActor () -> Void
+
+    var body: some View {
+        Button {
+            action()
+        } label: {
+            HStack(spacing: 8) {
+                SquareMark()
+                    .frame(width: 18, height: 18)
+                if !compact {
+                    Text(label)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                }
+            }
+            .foregroundStyle(Color.black)
+            .padding(.horizontal, compact ? 10 : 14)
+            .frame(minHeight: 36)
+            .background(Capsule().fill(Color(uiColor: .systemGray4)))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityHint("Opens Square Point of Sale")
+    }
+}
+
 /// A note on its ground: a page's few sentences.
 struct NoteCard: View {
     let text: String

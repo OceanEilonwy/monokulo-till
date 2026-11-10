@@ -138,19 +138,19 @@ struct TillScreenTests {
         #expect(EngineProgress.count(label: "", count: "0 of 3", line: "Waiting · 0 of 3") == "0 of 3")
     }
 
-    @Test func theCodeShrinksToTheWindowNotPastIt() {
-        // The board's 300 pt where the column has room, 240 on a phone.
-        #expect(SaleLayout.codeSide(width: 700, regular: true) == 300)
-        #expect(SaleLayout.codeSide(width: 390, regular: false) == 240)
+    @Test func theCodeIsCappedSoThePageNeverScrolls() {
+        // Where the column has room: 480 pt at most, on iPad and phone.
+        #expect(SaleLayout.codeSide(width: 840, height: 800, regular: true) == 480)
+        // iPad mini landscape, beside the sidebar: the height binds.
+        #expect(SaleLayout.codeSide(width: 793, height: 680, regular: true) == 420)
+        // iPhone portrait: the width binds (390 less 32 and the card's 28).
+        #expect(SaleLayout.codeSide(width: 390, height: 700, regular: false) == 330)
         // A narrow regular column beside the sidebar: the card and the
         // margins fit inside it.
-        let narrow: CGFloat = SaleLayout.codeSide(width: 340, regular: true)
-        #expect(narrow == 256, "340 less two 28 pt margins and the card's 28 pt")
-        // A short window: the whole column fits its height.
-        let short: CGFloat = SaleLayout.codeSide(width: 700, height: 440, regular: true)
-        #expect(short == 200)
-        // Never smaller than can be scanned.
-        #expect(SaleLayout.codeSide(width: 100, regular: true) == 160)
+        #expect(SaleLayout.codeSide(width: 340, regular: true) == 256, "340 less two 28 pt margins and the card's 28 pt")
+        // Never under 200 pt: tapping it for the full-screen code is the way in.
+        #expect(SaleLayout.codeSide(width: 100, regular: true) == 200)
+        #expect(SaleLayout.codeSide(width: 700, height: 300, regular: true) == 200)
     }
 
     @Test func alertsOffIsTheEnginesWarning() {
@@ -273,6 +273,8 @@ struct TillScreenTests {
         #expect(SalePageScreen.action(.refund, orderId: "o1") == .refund(orderId: "o1"))
         #expect(SalePageScreen.action(.showCodeAgain, orderId: "o1") == .reopen(orderId: "o1"))
         #expect(SalePageScreen.action(.newCode, orderId: "o1") == .newCode(orderId: "o1"))
+        #expect(SalePageScreen.action(.markRefunded, orderId: "o1") == .extraRefunded(orderId: "o1"))
+        #expect(SalePageScreen.primary(.markRefunded))
         #expect(CloseSheetScreen.ink(.refundIt) == Palette.danger)
         #expect(CloseSheetScreen.ink(.keepUp) == Palette.ink)
     }
@@ -295,5 +297,10 @@ struct TillScreenTests {
     @Test func anAlertWithoutASaleOpensNothing() {
         #expect(SaleAlerts.orderId([:]) == nil)
         #expect(SaleAlerts.orderId(["orderId": 7]) == nil)
+    }
+
+    @Test func squareIsReturnedToFromTheToolbarOnlyWhereOffered() {
+        #expect(BackToSquare.shown(offered: .square, showSales: .alert, squareInstalled: true))
+        #expect(!BackToSquare.shown(offered: .square, showSales: .alert, squareInstalled: false))
     }
 }

@@ -383,6 +383,13 @@ impl TillRunner {
         }
     }
 
+    /// "Mark as refunded" on an overpaid sale.
+    pub fn extra_refunded(&self, order_id: &OrderId) {
+        if let Some(till) = self.till() {
+            till.extra_refunded(order_id);
+        }
+    }
+
     /// The till on screen, once there is one.
     pub fn till(&self) -> Option<Arc<Till>> {
         self.inner.parts().till.clone()

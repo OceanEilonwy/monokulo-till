@@ -20,6 +20,8 @@ struct ShiftScreen: View {
     let selected: String?
     let send: Send
 
+    @State private var askNewShift = false
+
     var body: some View {
         content
             .navigationTitle(view.counters?.title ?? ShiftTitle.title(view.top))
@@ -65,10 +67,15 @@ struct ShiftScreen: View {
                 .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
             }
             Section {
-                LabeledContent(view.summaryLabel) {
-                    Text(view.summary)
-                        .monospacedDigit()
-                        .lineLimit(1)
+                if let header = view.header {
+                    ShiftHeaderCard(label: view.summaryLabel, header: header) { askNewShift = true }
+                        .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 14, trailing: 16))
+                } else {
+                    LabeledContent(view.summaryLabel) {
+                        Text(view.summary)
+                            .monospacedDigit()
+                            .lineLimit(1)
+                    }
                 }
                 // Square's books say Cash for these (decision 9).
                 if let cash = view.cashInMonero {
@@ -94,7 +101,7 @@ struct ShiftScreen: View {
                         .listRowSeparator(.hidden)
                 }
                 .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
+                .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
             }
             ForEach(Array(ShiftSections.of(view.entries).enumerated()), id: \.offset) { _, section in
                 Section {
@@ -124,6 +131,20 @@ struct ShiftScreen: View {
         .scrollContentBackground(.hidden)
         .readableWidth(sidebar ? .greatestFiniteMagnitude : readableColumn)
         .foregroundStyle(Palette.ink)
+        .confirmationDialog(
+            view.header?.confirm.title ?? "",
+            isPresented: $askNewShift,
+            titleVisibility: .visible
+        ) {
+            if let confirm = view.header?.confirm {
+                Button(confirm.start) { send(.newShift) }
+                Button(confirm.cancel, role: .cancel) {}
+            }
+        } message: {
+            if let message = view.header?.confirm.message {
+                Text(message)
+            }
+        }
     }
 
     @ViewBuilder
@@ -157,6 +178,54 @@ struct ShiftScreen: View {
             .accessibilityLabel(said)
         default:
             EmptyView()
+        }
+    }
+}
+
+/// The shift's header (the design's S1): "This shift" with since when, a
+/// New shift button, and the takings with the paid count under them.
+struct ShiftHeaderCard: View {
+    let label: String
+    let header: ShiftHeader
+    let newShift: @MainActor () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(label)
+                        .font(.title3.weight(.bold))
+                        .lineLimit(1)
+                    if let since = header.since {
+                        Text(since)
+                            .font(.footnote)
+                            .foregroundStyle(Palette.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 8)
+                Button {
+                    newShift()
+                } label: {
+                    Label(header.newShift.label, systemImage: "plus")
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                }
+                .buttonStyle(.bordered)
+                .tint(Palette.link)
+                .disabled(!header.newShift.enabled)
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(header.total)
+                    .display(34, tracking: -0.8)
+                    .minimumScaleFactor(0.6)
+                    .lineLimit(1)
+                Text("· \(header.paid)")
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.secondary)
+                    .lineLimit(1)
+            }
+            .accessibilityElement(children: .combine)
         }
     }
 }
@@ -251,6 +320,11 @@ struct FilterPicker: View {
             }
         }
         .pickerStyle(.segmented)
+        // The system's own control at its large size, in equal thirds across
+        // the list's width (the design's 36 pt, 15 pt labels), not squeezed
+        // to the edges.
+        .controlSize(.large)
+        .accessibilityLabel("Show")
     }
 
     /// "Needs action 2", with its count when there's one.

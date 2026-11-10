@@ -45,7 +45,7 @@ class Component extends DCLogic {
   renderVals() {
     const options = [
       { id: 'all', title: 'Treat cash sales as Monero (default)', text: 'Cash sales alert and get a code straight away. If the customer pays real cash, tap Paid in cash.' },
-      { id: 'offer', title: 'Only offer Monero', text: 'Cash sales show quietly with Take it in Monero. Nothing happens unless the cashier taps it.' },
+      { id: 'offer', title: 'Ignore cash sales', text: 'Only sales rung up as Other: Monero alert. Cash sales are skipped completely: no alert, no code, not in the list.' },
     ].map((o) => ({ ...o, on: this.state.pick === o.id, checked: this.state.pick === o.id ? 'true' : 'false', pick: () => this.setState({ pick: o.id }) }));
     return { options, allCash: this.state.pick === 'all' };
   }

@@ -468,6 +468,10 @@ pub enum Action {
     StartShift,
     /// Watching turned off: every live code comes down.
     StopShift,
+    /// "New shift" in the shift's header: a new window now (docs/ledger.md
+    /// §9), so the total starts again and only the sales that still need
+    /// the cashier, and the live ones, stay listed (core.md decision 223).
+    NewShift,
     /// The shift's filter chip tapped.
     ChooseFilter {
         filter: ShiftFilter,
@@ -650,6 +654,11 @@ pub enum Action {
     PaidInCash {
         order_id: OrderId,
     },
+    /// "Mark as refunded" on an overpaid sale: the extra went back to the
+    /// customer (core.md decision 222).
+    ExtraRefunded {
+        order_id: OrderId,
+    },
     /// "New code" on a sale whose code ran out unpaid (docs/ledger.md §7):
     /// its next order is made, and the sale opens on its code.
     NewCode {
@@ -697,6 +706,7 @@ impl Action {
             Action::SignOutOfPos => "SignOutOfPos",
             Action::StartShift => "StartShift",
             Action::StopShift => "StopShift",
+            Action::NewShift => "NewShift",
             Action::ChooseFilter { .. } => "ChooseFilter",
             Action::FoldTray { .. } => "FoldTray",
             Action::OpenShift => "OpenShift",
@@ -744,6 +754,7 @@ impl Action {
             Action::TakeInMonero { .. } => "TakeInMonero",
             Action::KeepAsCash { .. } => "KeepAsCash",
             Action::PaidInCash { .. } => "PaidInCash",
+            Action::ExtraRefunded { .. } => "ExtraRefunded",
             Action::NewCode { .. } => "NewCode",
             Action::PushToken { .. } => "PushToken",
         }

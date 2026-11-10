@@ -51,6 +51,9 @@ pub enum PageAction {
     Refund,
     ShowCodeAgain,
     NewCode,
+    /// An overpayment's extra went back to the customer (core.md decision
+    /// 168).
+    MarkRefunded,
 }
 
 /// A sale's page (the design's row 2b), in words and roles.
@@ -212,6 +215,20 @@ pub fn page(
                 )
             }
         }
+        Standing::Overpaid => SalePageModel {
+            heading_warn: true,
+            actions: vec![PageAction::MarkRefunded],
+            ..model(
+                StateIcon::Warning,
+                Ground::Warn,
+                format!("More than the sale's {xmr} arrived"),
+                Some(PageNote {
+                    text: "The sale is paid, and the customer is owed the extra. Monero can't take a payment back by itself: ask the customer for a return address and send the extra from your wallet.".into(),
+                    ground: Ground::Warn,
+                }),
+                facts(vec![rung_up, fact("Paid", sale.paid_at)]),
+            )
+        },
         Standing::Closed => {
             let then = if sale.settled {
                 "Monokulo has stopped watching it.".to_owned()
@@ -621,6 +638,7 @@ pub fn sale_page(
                     .enabled(!input.refunding),
                 PageAction::ShowCodeAgain => Press::new("Show the code again"),
                 PageAction::NewCode => Press::new("New code").enabled(!input.taking),
+                PageAction::MarkRefunded => Press::new("Mark as refunded"),
             },
         })
         .collect();
@@ -699,6 +717,24 @@ mod tests {
             "This till isn't signed in to the point of sale."
         )));
         assert!(!model.heading_warn);
+    }
+
+    #[test]
+    fn an_overpaid_sale_asks_for_the_extra_to_be_given_back_until_marked() {
+        let mut sale = sale_of("o3").phase(SalePhase::Paid).paid_at(at()).build();
+        sale.extras.overpaid = true;
+        let model = page(&sale, SQUARE, la(at()), false);
+        assert_eq!(model.heading, "Overpaid");
+        assert!(model.heading_warn);
+        assert_eq!(model.actions, [PageAction::MarkRefunded]);
+        assert!(note(&model).contains("return address"));
+        assert!(sale.needs_action());
+
+        sale.extras.extra_refunded_at = Some(monokulo_client::UnixSeconds(at()));
+        let done = page(&sale, SQUARE, la(at()), false);
+        assert_eq!(done.heading, "Paid");
+        assert!(done.actions.is_empty());
+        assert!(!sale.needs_action());
     }
 
     #[test]
@@ -1024,7 +1060,7 @@ mod tests {
         let sale = sale_of("paidHere").build();
         assert_eq!(
             sale_page(&input(sale.clone()), la(at), &money).back_to,
-            "Back to Square"
+            "Return to Square"
         );
         let clover_till = SalePageInput {
             till: CLOVER,

@@ -9,7 +9,7 @@ import TillCore
 /// as cash, Paid in cash; the CashTill board).
 ///
 /// Paid (D3) has the Till logo, green with its tick, as its hero, "Paid ·
-/// $13.88" and Done. A sale this screen watched turn paid gets the one
+/// $13.88", and Done at the top right of every page, beside Return to Square. A sale this screen watched turn paid gets the one
 /// moment: the logo's bar fills and it turns green (a crossfade under
 /// Reduce Motion); the engine's paid haptic plays with it.
 struct SalePageScreen: View {
@@ -19,7 +19,7 @@ struct SalePageScreen: View {
     let paid: Bool
     var celebrate = false
     let send: Send
-    /// Paid's "Back to Square" (A3), when it's offered (``BackToSquare``).
+    /// "Return to Square" in the toolbar, when it's offered (``BackToSquare``).
     var backToSquare: (@MainActor @Sendable () -> Void)?
 
     @State private var logo: TillLogoState = .paid
@@ -64,26 +64,16 @@ struct SalePageScreen: View {
             .padding(.bottom, 24)
         }
         .readableWidth()
-        .safeAreaInset(edge: .bottom) {
-            if paid {
-                VStack(spacing: 10) {
-                    if let backToSquare {
-                        Button {
-                            backToSquare()
-                        } label: {
-                            Label(page.backTo, systemImage: "chevron.left")
-                        }
-                        .buttonStyle(.primary)
-                        .accessibilityHint("Opens Square Point of Sale")
-                    }
-                    Button("Done") { send(.back) }
-                        .buttonStyle(.secondary)
+        .toolbar {
+            // Return to Square, then Done, at the top right on every page
+            // (the iPad round 3 designs).
+            if let backToSquare {
+                ToolbarItem(placement: .topBarTrailing) {
+                    ReturnToSquareButton(label: page.backTo, compact: sizeClass != .regular, action: backToSquare)
                 }
-                .frame(maxWidth: 440)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 8)
-                .frame(maxWidth: .infinity)
-                .background(Palette.ground)
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Done") { send(.back) }
             }
         }
         .foregroundStyle(Palette.ink)
@@ -99,14 +89,30 @@ struct SalePageScreen: View {
         }
     }
 
+    /// The Till logo that leads the page, as the designs have it (Q1 to Q5):
+    /// green with its tick when paid, the idle logo for a sale that ended
+    /// unpaid (expired, closed), the paid logo for an overpaid one (it is
+    /// paid, and owes the customer the extra). Other pages keep the small
+    /// status glyph.
+    private var logoState: TillLogoState? {
+        if paid { return logo }
+        switch (page.icon, page.ground) {
+        case (.clock, _): return .idle
+        case (.warning, .warn): return .paid
+        default: return nil
+        }
+    }
+
     @ViewBuilder
     private var hero: some View {
         VStack(spacing: 14) {
-            if paid {
-                TillWidget(state: logo, size: 160)
+            if let state = logoState {
+                TillWidget(state: state, size: sizeClass == .regular ? 160 : 120)
                 Text("\(page.heading) · \(page.amount)")
                     .display(34, tracking: -0.8)
+                    .foregroundStyle(!paid && (page.headingWarn || page.icon == .clock) ? Palette.expiredInk : Palette.ink)
                     .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.6)
                     .accessibilityAddTraits(.isHeader)
             } else {
                 StatusGlyph(kind: StatusGlyphKind.of(page.icon, step: 4), size: 56)
@@ -129,7 +135,7 @@ struct SalePageScreen: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 20)
-        .padding(.top, paid ? 32 : 12)
+        .padding(.top, logoState != nil ? 32 : 12)
     }
 
     /// What a page button asks of the engine.
@@ -142,6 +148,7 @@ struct SalePageScreen: View {
         case .refund: .refund(orderId: orderId)
         case .showCodeAgain: .reopen(orderId: orderId)
         case .newCode: .newCode(orderId: orderId)
+        case .markRefunded: .extraRefunded(orderId: orderId)
         }
     }
 
@@ -150,7 +157,7 @@ struct SalePageScreen: View {
     /// sale, or one taken before the point of sale changed).
     static func primary(_ action: PageAction) -> Bool {
         switch action {
-        case .refund: true
+        case .refund, .markRefunded: true
         default: false
         }
     }

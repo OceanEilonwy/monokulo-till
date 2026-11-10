@@ -69,6 +69,15 @@ pub struct SaleView {
     pub back_to_pos: Option<BackToPos>,
     /// The bar's X, which asks whether the customer is paying.
     pub closes: bool,
+    /// The code is on screen. From the moment the payment is seen it is
+    /// not (core.md decision 224): nothing is left to show the customer or
+    /// to share, so it cannot be paid twice.
+    #[cfg_attr(feature = "uniffi", uniffi(default = true))]
+    pub shows_code: bool,
+    /// Seen and Confirming lead with the status and the amount, "Seen ·
+    /// $13.88"; empty while the code is shown.
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub hero_title: String,
     /// The countdown is on screen: draw it again in a second.
     pub ticks: bool,
     /// How far the payment has come, in the Till widget's thirds, for the
@@ -86,6 +95,11 @@ pub struct SaleView {
     pub close_label: String,
     #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
     pub customer_view: String,
+    /// "Tap the code to enlarge it": the code is the button that opens it full
+    /// screen with the amount, in place of Customer view (core.md decision
+    /// 170).
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub enlarge_hint: String,
     #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
     pub share: String,
     #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
@@ -141,6 +155,7 @@ pub fn sale(
     SaleView {
         close_label: "Close the sale".into(),
         customer_view: "Customer view".into(),
+        enlarge_hint: "Tap the code to enlarge it".into(),
         share: "Share".into(),
         share_title: format!("Monero payment · {amount}"),
         order_title: "Order".into(),
@@ -166,6 +181,12 @@ pub fn sale(
             .filter(|_| header.back_to_pos)
             .map(BackToPos::new),
         closes: !close::choices(sale, header.elsewhere).is_empty(),
+        shows_code: !matches!(sale.phase, SalePhase::Seen | SalePhase::Confirming),
+        hero_title: match sale.phase {
+            SalePhase::Seen => format!("Seen · {}", sale_text::amount(sale, money)),
+            SalePhase::Confirming => format!("Confirming · {}", sale_text::amount(sale, money)),
+            _ => String::new(),
+        },
         ticks: live && sale.phase.counts_down(),
         progress: crate::view::progress(sale),
         cash: crate::sale_page::cash_buttons(sale, false),
@@ -241,17 +262,41 @@ mod tests {
         assert_eq!(
             view.back_to_pos,
             Some(BackToPos {
-                press: Press::new("Back to Square"),
+                press: Press::new("Return to Square"),
                 mark: PosMark::Square,
             })
         );
     }
 
     #[test]
+    fn from_seen_on_the_code_is_gone_and_the_hero_says_where_the_payment_is() {
+        let waiting = sale(&input(bp9m(), SQUARE), Device::Ipad, la(at()), &money);
+        assert!(waiting.shows_code && waiting.hero_title.is_empty());
+        for (phase, title) in [
+            (SalePhase::Seen, "Seen · $13.88"),
+            (SalePhase::Confirming, "Confirming · $13.88"),
+        ] {
+            let seen = TillSale { phase, ..bp9m() };
+            let view = sale(&input(seen, SQUARE), Device::Ipad, la(at()), &money);
+            assert!(!view.shows_code, "{phase:?}");
+            assert_eq!(view.hero_title, title);
+        }
+        let part = TillSale {
+            phase: SalePhase::Partial,
+            ..bp9m()
+        };
+        let view = sale(&input(part, SQUARE), Device::Ipad, la(at()), &money);
+        assert!(view.shows_code, "a part payment still needs the code");
+    }
+
+    #[test]
     fn back_to_the_point_of_sale_opens_the_one_it_names() {
         for pos in PointOfSale::ALL {
             let back = BackToPos::new(pos);
-            assert_eq!(back.press.label, format!("Back to {}", pos.display_name()));
+            assert_eq!(
+                back.press.label,
+                format!("Return to {}", pos.display_name())
+            );
             assert_eq!(back.mark, mark(pos), "the button opens {pos:?}, as it says");
         }
         let view = sale(&input(bp9m(), SQUARE), Device::Android, la(at()), &money);

@@ -309,6 +309,27 @@ pub fn summary(
     clock: DeviceClock,
     money: &dyn MoneyFormat,
 ) -> String {
+    let (count, totals) = paid_since(sales, started_at, money);
+    let mut parts = if count == 0 {
+        vec!["Nothing paid yet".to_owned()]
+    } else {
+        let mut parts = vec![format!("{count} paid")];
+        parts.extend(totals);
+        parts
+    };
+    if let Some(start) = started_at {
+        parts.push(format!("since {}", time(start, clock)));
+    }
+    parts.join(" · ")
+}
+
+/// How many sales were paid since the shift started, and their takings per
+/// currency (decision 72 of android.md).
+fn paid_since(
+    sales: &[TillSale],
+    started_at: Option<UnixSeconds>,
+    money: &dyn MoneyFormat,
+) -> (usize, Vec<String>) {
     let paid: Vec<&TillSale> = sales
         .iter()
         .filter(|sale| {
@@ -316,17 +337,66 @@ pub fn summary(
                 && started_at.is_none_or(|start| sale.paid_at.unwrap_or(start) >= start)
         })
         .collect();
-    let mut parts = if paid.is_empty() {
-        vec!["Nothing paid yet".to_owned()]
-    } else {
-        let mut parts = vec![format!("{} paid", paid.len())];
-        parts.extend(per_currency(&paid, money));
-        parts
-    };
-    if let Some(start) = started_at {
-        parts.push(format!("since {}", time(start, clock)));
+    (paid.len(), per_currency(&paid, money))
+}
+
+/// The shift's header on a screen that has room for it (the design's S1):
+/// "This shift", since when, the takings and the paid count, and the
+/// button that starts a new shift (core.md decision 223).
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct ShiftHeader {
+    /// "Since 9:02 AM", when the shift's start is known.
+    pub since: Option<String>,
+    /// The takings per currency, joined: "$142.30"; "$0.00" with nothing
+    /// paid yet.
+    pub total: String,
+    /// "9 paid", or "Nothing paid yet".
+    pub paid: String,
+    /// "New shift".
+    pub new_shift: Press,
+    /// What the confirmation asks and says.
+    pub confirm: NewShiftConfirm,
+}
+
+/// The alert that asks before a new shift starts.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct NewShiftConfirm {
+    pub title: String,
+    pub message: String,
+    pub cancel: String,
+    pub start: String,
+}
+
+/// The shift's header, from the same sales [`summary`] reads.
+pub fn header(
+    sales: &[TillSale],
+    started_at: Option<UnixSeconds>,
+    clock: DeviceClock,
+    money: &dyn MoneyFormat,
+) -> ShiftHeader {
+    let (count, totals) = paid_since(sales, started_at, money);
+    ShiftHeader {
+        since: started_at.map(|start| format!("Since {}", time(start, clock))),
+        total: if totals.is_empty() {
+            money.format(0, "USD")
+        } else {
+            totals.join(" · ")
+        },
+        paid: if count == 0 {
+            "Nothing paid yet".into()
+        } else {
+            format!("{count} paid")
+        },
+        new_shift: Press::new("New shift"),
+        confirm: NewShiftConfirm {
+            title: "Start a new shift?".into(),
+            message: "The total starts again at zero. Sales that still need you, and ones waiting for payment, stay in the list; the rest leave it.".into(),
+            cancel: "Cancel".into(),
+            start: "New shift".into(),
+        },
     }
-    parts.join(" · ")
 }
 
 /// `paid` summed per currency, in the order the currencies first appear:
@@ -446,6 +516,11 @@ pub fn row(
             sale_text::status(sale, till) + &at(sale.paid_at),
             if after_refund { Tone::Warn } else { Tone::Paid },
             StateIcon::Tick,
+        ),
+        Standing::Overpaid => (
+            "Overpaid · refund the extra".to_owned() + &at(sale.paid_at),
+            Tone::Warn,
+            StateIcon::Warning,
         ),
         Standing::CashOffer { kept: false } => (
             sale_text::status(sale, till)
@@ -887,6 +962,9 @@ pub struct ShiftView {
     /// decision 128).
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub offered_cash: Option<OfferedCash>,
+    /// The shift's header with its New shift button, while a shift is on.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub header: Option<ShiftHeader>,
 }
 
 /// "2 cash sales paid in Monero · $32.90", summed per currency; `None`
@@ -962,6 +1040,7 @@ pub fn shift(
             status: Vec::new(),
             ready: None,
             offered_cash: None,
+            header: None,
         };
     }
     let all = &input.sales;
@@ -1085,6 +1164,9 @@ pub fn shift(
         status: status_chips(input),
         ready,
         offered_cash: offered_cash(all, &input.counters, money),
+        header: input
+            .running
+            .then(|| header(sales, input.started_at, clock, money)),
     }
 }
 
@@ -1292,6 +1374,24 @@ pub(crate) mod tests {
         assert!(rows(&[sale_of("w").build()], ShiftFilter::NeedsAction).is_empty());
         assert_eq!(empty(ShiftFilter::NeedsAction), "Nothing needs action");
         assert_eq!(empty(ShiftFilter::Paid), "Nothing paid yet");
+    }
+
+    #[test]
+    fn the_header_has_since_the_takings_the_paid_count_and_new_shift() {
+        let shift = fixture_shift();
+        let started = instant("2026-10-22T16:02:00Z");
+        let clock = la(at());
+        let h = header(&shift, Some(UnixSeconds(started)), clock, &money);
+        assert_eq!(h.since.as_deref(), Some("Since 9:02 AM"));
+        assert_eq!((h.total.as_str(), h.paid.as_str()), ("$41.50", "3 paid"));
+        assert_eq!(h.new_shift.label, "New shift");
+        assert_eq!(h.confirm.title, "Start a new shift?");
+        let none = header(&[], None, clock, &money);
+        assert_eq!(none.since, None);
+        assert_eq!(
+            (none.total.as_str(), none.paid.as_str()),
+            ("$0.00", "Nothing paid yet")
+        );
     }
 
     #[test]

@@ -100,10 +100,11 @@ struct PipTests {
         #expect(PipCashOffer.of(nil) == nil)
     }
 
-    @Test func theStripIsThreeToOneAndTheSaleASquare() {
-        #expect(PipShape.strip.size(width: 300) == CGSize(width: 300, height: 100))
+    @Test func theStripIsUnderThreeToOneAndTheSaleASquare() {
+        #expect(PipShape.strip.size(width: 280) == CGSize(width: 280, height: 100))
         #expect(PipShape.square.size(width: 300) == CGSize(width: 300, height: 300))
-        #expect(PipShape.square.size(width: nil) == CGSize(width: 240, height: 240), "a medium window until iOS says")
+        #expect(PipShape.square.size(width: nil) == CGSize(width: 200, height: 200), "its default until iOS says")
+        #expect(PipShape.strip.size(width: nil) == CGSize(width: 124, height: 44), "124 × 44 pt by default")
         #expect(PipShape.strip.size(width: 40).width == PipShape.smallest)
     }
 

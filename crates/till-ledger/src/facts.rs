@@ -232,14 +232,18 @@ pub enum AlertKind {
     PaidMoment,
     /// Its code ran out, it was cancelled or its payment reversed.
     Ended,
+    /// Paid more than once or by more than asked: the extra is owed back
+    /// (core.md decision 222).
+    Overpaid,
 }
 
 impl AlertKind {
-    pub const ALL: [AlertKind; 4] = [
+    pub const ALL: [AlertKind; 5] = [
         AlertKind::NewSale,
         AlertKind::Paid,
         AlertKind::PaidMoment,
         AlertKind::Ended,
+        AlertKind::Overpaid,
     ];
 
     pub fn wire(self) -> &'static str {
@@ -248,6 +252,7 @@ impl AlertKind {
             AlertKind::Paid => "paid",
             AlertKind::PaidMoment => "paid_moment",
             AlertKind::Ended => "ended",
+            AlertKind::Overpaid => "overpaid",
         }
     }
 
@@ -383,6 +388,8 @@ pub enum MarkKind {
     Reopened,
     KeptAsCash,
     PaidInCash,
+    /// The cashier sent an overpayment's extra back to the customer.
+    ExtraRefunded,
     RefundPending,
     RefundConfirmed,
     /// This device's clock says the code ran out before Monokulo did.

@@ -1779,3 +1779,57 @@ still strings across the till, the ledger, the screens and the bridge.
      screens' records, the Live Activity, `DeviceClock`, previews), and is
      typed again as it comes in (`DeviceClock::time_now`); a custom UniFFI
      type would have changed the bindings, so they keep `i64`.
+221. **With cash as Monero off, cash sales are ignored.** (Owner,
+     2026-11-10, the iPad round 3 designs.) The ledger's list of sales
+     leaves out a cash sale this till doesn't take in Monero
+     (`SaleView::ignored`: offered while cash as Monero is off), so it is
+     no row and never alerts, shows a code, grows the floating window or
+     starts a Live Activity; only sales rung up as Other: Monero do
+     anything. This replaces decision 116's "Take it in Monero" offer for
+     the setting off; `Ledger::sale` still answers for one by its key. A
+     cash sale already given an order stays (it was taken while the
+     setting was on). Another counter's cash sale with the setting on is
+     still offered, as decision 165 says. The offer's actions and states
+     (`Standing::CashOffer`, `TakeInMonero`, `KeepAsCash`) remain for that
+     case.
+222. **Paying more than asked is an overpayment, and it alerts.**
+     (Owner, 2026-11-10.) The ledger already knew when a payment is
+     `overpaid`; now `SaleView::overpaid` says so, and `Standing::Overpaid`
+     (until the cashier says the extra went back) makes it a sale that needs
+     action, with the row "Overpaid · refund the extra", the page heading
+     "Overpaid" in warn and the note that Monero can't take a payment back by
+     itself, so the cashier asks for a return address and sends the extra
+     from their wallet. `Mark as refunded` (`PageAction::MarkRefunded`,
+     `Action::ExtraRefunded`, `MarkKind::ExtraRefunded`) settles it; the sale
+     is Paid after. A new alert kind, `AlertKind::Overpaid`, is claimed once
+     per sale when it turns overpaid on a till whose alerts it is, and always
+     posts a notice (even beside a Live Activity, and with Till in front):
+     "Overpaid · Priya · $8.40 / Give back the extra. Tap to see how."
+     Tapping it opens the sale's page, which says the rest.
+223. **A new shift is one action.** (Owner, 2026-11-10.) `Action::NewShift`
+     opens a new window now, as turning watching on after off does
+     (decisions 64, 86; docs/ledger.md §9): the takings and the paid count
+     start again, and only the sales that still need the cashier, and the
+     live ones, stay listed. The shift's header (`ShiftView::header`,
+     `ShiftHeader`) carries "Since 9:02 AM", the takings, the paid count, the
+     New shift button and its confirmation ("Start a new shift?"), while a
+     shift is on.
+224. **One vertical sale screen, Return to Square in the toolbar, no code
+     from Seen on.** (Owner, 2026-11-10, the iPad round 3 designs.) While it
+     waits, a sale shows the amount, the code, a line saying the code opens
+     full screen when tapped (it replaces Customer view, which is gone), and
+     the order, in one vertical column; Share, Return to Square and Close the
+     sale are in the toolbar. From Seen the code is gone (`SaleView::shows_code`,
+     `hero_title`): the Till logo leads with "Seen · $13.88" or "Confirming ·
+     $13.88", the payment's bar and the order, with Return to Square and Done
+     in the toolbar, so nothing can be shown or paid twice. A long live
+     order folds to one row, "Order · 15 items", that opens the whole order
+     (`OrderCard::folded`), a dialog beside the sales on iPad. The code is
+     drawn at the smaller of the pane's width less 80 pt and its height less
+     260 pt (the page never scrolls with the order folded), 480 pt at most
+     and never under 200 pt; a dense code that doesn't scan at that size is
+     tapped open. "Return to {POS}" (`pos_text::back_to`; "Back to" before)
+     is offered on every state, where Square is installed. The floating
+     window's strip is 124 × 44 pt by default with "Watching", "Confirming"
+     or "Paid" over the amount and no names, its frames drawn at twice the
+     window's pixel density (the blur on an iPad).

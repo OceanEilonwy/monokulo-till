@@ -711,6 +711,29 @@ async fn an_upgraded_till_runs_its_shift_makes_orders_and_tells_the_platform() {
     assert_eq!(platform.get("shift.on").as_deref(), Some("false"));
 }
 
+/// Core.md decision 223: "New shift" opens a new window now, whether or not
+/// the shift was just started.
+#[tokio::test(flavor = "multi_thread")]
+async fn new_shift_starts_a_new_window_now() {
+    let monokulo = monokulo().await;
+    let square = square().await;
+    let platform = signed_in_till(&monokulo);
+    platform.set("shift.started", "1000");
+    let (engine, _rx, _) = start(config(Some(&square)), platform.clone());
+    engine.send(Action::NewShift);
+    let mut started = None;
+    for _ in 0..100 {
+        started = platform
+            .get("shift.started")
+            .and_then(|v| v.parse::<i64>().ok());
+        if started.is_some_and(|at| at > 1000) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(started.is_some_and(|at| at > 1000), "{started:?}");
+}
+
 /// The Live Activity's state as the engine publishes it next.
 fn live_activity(rx: &Receiver<Heard>) -> Option<till_screens::LiveActivityState> {
     wait_for(rx, |heard| match heard {
@@ -1870,65 +1893,31 @@ async fn the_test_sale_names_this_counters_device_and_c4_asks_which_sales_alert(
     screen(&rx, Screen::Ready);
 }
 
+/// Core.md decision 221: with cash as Monero off, a cash sale is ignored:
+/// no row, no alert, no code, nothing for the cashier to take.
 #[tokio::test(flavor = "multi_thread")]
-async fn with_cash_offered_a_cash_sale_waits_quietly_and_take_it_in_monero_opens_its_code() {
+async fn with_cash_as_monero_off_a_cash_sale_is_ignored() {
     let monokulo = monokulo().await;
     let square = square_with_device("dev_front", "Front iPad", r#""source_type":"CASH""#).await;
     let platform = signed_in_till(&monokulo);
     platform.set("cash.monero", "false");
     let (engine, rx, _) = start(config(Some(&square)), platform.clone());
     engine.send(Action::Backgrounded);
-    let shift = shift_with(&rx, 1);
-    let order_id = shift
-        .entries
-        .iter()
-        .find_map(|e| match e {
-            till_screens::shift::ShiftEntry::Row { order_id, .. } => Some(order_id.clone()),
-            _ => None,
-        })
-        .unwrap();
-    assert_eq!(order_id, "cash:pay_monero");
-    assert!(shift.entries.iter().any(|e| matches!(
-        e,
-        till_screens::shift::ShiftEntry::Earlier { label } if label == "Cash · paying in Monero?"
-    )));
-    engine.send(Action::Opened);
-    engine.send(Action::TakeInMonero { order_id });
-    screen(
-        &rx,
-        Screen::Sale {
-            order_id: "ord_1".into(),
-        },
-    );
-    let page = wait_for(&rx, |heard| match heard {
-        Heard::Update(Update::Sale { view, .. }) => Some(view.clone()),
-        _ => None,
-    });
-    assert_eq!(page.title, "Sam");
-    assert_eq!(
-        page.cash
-            .iter()
-            .map(|b| b.press.label.as_str())
-            .collect::<Vec<_>>(),
-        ["Paid in cash"]
-    );
-    engine.send(Action::PaidInCash {
-        order_id: "ord_1".into(),
-    });
-    // The sale's page says how it ended.
-    wait_for(&rx, |heard| match heard {
-        Heard::Update(Update::Sale { page, .. }) if page.heading == "Paid in cash" => Some(()),
-        _ => None,
-    });
-    assert!(
-        !square
-            .received_requests()
-            .await
-            .unwrap()
-            .iter()
-            .any(|r| r.method.as_str() == "POST" && r.url.path() == "/v2/refunds"),
-        "a cash sale is never refunded in Square"
-    );
+    shift_with(&rx, 0);
+    // Give the till time to read Square's payment, then see that nothing
+    // about it ever reached the screens.
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    while let Ok(heard) = rx.try_recv() {
+        match heard {
+            Heard::Update(Update::Shift { view }) => {
+                assert_eq!(rows(&view), 0, "a cash sale is no row: {view:?}")
+            }
+            Heard::Update(Update::Notification { view }) => {
+                assert!(view.alert.is_none(), "alerted: {view:?}")
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Issue 1 of the iPad test (core.md decision 123): this counter's sale,

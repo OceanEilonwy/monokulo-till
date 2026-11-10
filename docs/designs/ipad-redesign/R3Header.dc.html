@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>New shift: header and confirmation</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width:1180px;height:820px;position:relative;overflow:hidden;background:#F4F1EA;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',system-ui,sans-serif;color:#1A1917;display:flex;align-items:center;justify-content:center;gap:80px;">
+  <div style="width:328px;background:#FFFFFF;border-radius:14px;padding:14px 16px 16px;display:flex;flex-direction:column;gap:10px;">
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span style="flex-grow:1;display:flex;flex-direction:column;"><span style="font-size:20px;font-weight:700;">This shift</span><span style="font-size:13px;color:#5A564C;">Since 9:02 · 9 paid</span></span>
+      <button type="button" style="height:36px;padding:0 14px 0 10px;border-radius:18px;border:0;background:#FBE6D6;color:#8A3800;font:inherit;font-size:15px;font-weight:600;display:flex;align-items:center;gap:6px;"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 1.5v11M1.5 7h11" stroke="#8A3800" stroke-width="2" stroke-linecap="round"></path></svg>New shift</button>
+    </div>
+    <span style="font-size:34px;font-weight:800;line-height:38px;font-variant-numeric:tabular-nums;">$142.30</span>
+  </div>
+  <div role="alertdialog" aria-label="Start a new shift?" style="width:270px;background:rgba(255,255,255,0.96);border-radius:14px;box-shadow:0 10px 40px rgba(0,0,0,0.25);text-align:center;overflow:hidden;">
+    <div style="padding:20px 16px 16px;"><div style="font-size:17px;font-weight:600;">Start a new shift?</div><div style="font-size:13px;line-height:18px;margin-top:4px;">$142.30 from 9 paid sales is kept under Earlier. The total starts again at $0.00.</div></div>
+    <div style="border-top:1px solid #D9D3C6;display:grid;grid-template-columns:1fr 1fr;"><span style="padding:12px;font-size:17px;color:#B34700;border-right:1px solid #D9D3C6;">Cancel</span><span style="padding:12px;font-size:17px;font-weight:600;color:#B34700;">New shift</span></div>
+  </div>
+  <div style="position:absolute;left:48px;top:40px;max-width:760px;">
+    <h1 style="margin:0 0 8px;font-size:28px;">This shift: a real header, and a way to start the next one</h1>
+    <p style="margin:0;font-size:15px;line-height:22px;color:#5A564C;">Title, start time and paid count on the left, <b>New shift</b> on the right (a 36 pt pill with a + so it reads as an action). The day's total gets its own line at 34 pt. Starting a shift asks once with the system alert, then the total returns to $0.00 and the old sales move under Earlier.</p>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1180,"height":820}}'>
+class Component extends DCLogic { renderVals() { return {}; } }
+</script>
+</body>
+</html>

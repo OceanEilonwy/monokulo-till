@@ -172,7 +172,7 @@ impl ShowSales {
         let name = pos_text::name(pos);
         match self {
             ShowSales::Alert => format!(
-                "A time-sensitive alert over {name}. Tap it and the code fills the screen; Back to {name} when it's paid."
+                "A time-sensitive alert over {name}. Tap it and the code fills the screen; Return to {name} when it's paid."
             ),
             ShowSales::FloatingWindow => format!(
                 "A small window stays over {name} and shows the code and payment as they happen. Pinch to resize, drag to any corner."

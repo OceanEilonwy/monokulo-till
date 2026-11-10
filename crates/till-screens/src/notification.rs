@@ -248,6 +248,19 @@ pub fn unpaid_notice(
     }
 }
 
+/// An overpaid sale's alert: the extra is owed back to the customer (core.md
+/// decision 222).
+pub fn overpaid_notice(sale: &TillSale, money: &dyn MoneyFormat) -> Notice {
+    Notice {
+        title: format!(
+            "Overpaid · {} · {}",
+            sale_text::heading(sale),
+            sale_text::amount(sale, money)
+        ),
+        text: Some("Give back the extra. Tap to see how.".into()),
+    }
+}
+
 /// How long Android keeps a "Paid" notification, and the ended group's
 /// summary, before taking them down (core.md decision 106).
 pub const ENDED_TIMEOUT_MS: u64 = 5 * 60 * 1000;

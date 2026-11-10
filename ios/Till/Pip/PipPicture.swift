@@ -21,10 +21,12 @@ enum PipPicture: Equatable, Sendable {
     /// system's play control takes it in Monero.
     case cash(PipCashOffer)
 
-    /// The window's shape: a square for a sale's code, else the strip.
+    /// The window's shape: a square for a sale's code, else the strip: a
+    /// sale whose payment is seen has no code left to show, so it is the
+    /// strip too (the design's P1 to P4).
     var shape: PipShape {
         switch self {
-        case .sale: .square
+        case .sale(let sale): sale.code == nil ? .strip : .square
         case .watching, .paid, .cash: .strip
         }
     }
@@ -102,6 +104,11 @@ struct PipSale: Equatable, Sendable {
     /// Once a payment is seen: "Seen on the network", "Confirming".
     let progress: String?
 
+    /// "Seen" or "Confirming", the strip's first line once a payment is seen.
+    var progressWord: String {
+        progress?.components(separatedBy: " ").first ?? "Seen"
+    }
+
     /// "14:32 left", from `now`; nil without a countdown.
     func timeLeft(now: Date) -> String? {
         guard let expiresAt else { return nil }
@@ -128,7 +135,7 @@ struct PipCashOffer: Equatable, Sendable {
 
 /// The window's two shapes (P4): Till chooses the shape, iOS the size.
 enum PipShape: Equatable, Sendable {
-    /// About 3:1, out of the way while watching.
+    /// Under 3:1 (124 × 44 pt by default), small and out of the way.
     case strip
     /// 1:1, for a sale's code.
     case square
@@ -136,21 +143,29 @@ enum PipShape: Equatable, Sendable {
     /// Width over height.
     var aspect: CGFloat {
         switch self {
-        case .strip: 3
+        case .strip: 2.8
         case .square: 1
         }
     }
 
+    /// The window's width in points until iOS says: the strip small, the
+    /// square big enough to scan.
+    var defaultWidth: CGFloat {
+        switch self {
+        case .strip: 124
+        case .square: 200
+        }
+    }
+
     /// The frames' size in points, for a window `width` points wide (what
-    /// iOS last said, else a medium window's 240): edge to edge, with
+    /// iOS last said, else the shape's default): edge to edge, with
     /// the shape's aspect, which is how iOS knows the shape.
     func size(width: CGFloat?) -> CGSize {
-        let width = max(PipShape.smallest, (width ?? PipShape.medium).rounded())
+        let width = max(PipShape.smallest, (width ?? defaultWidth).rounded())
         return CGSize(width: width, height: (width / aspect).rounded())
     }
 
-    static let smallest: CGFloat = 120
-    static let medium: CGFloat = 240
+    static let smallest: CGFloat = 100
 
     /// Below about 200 pt a phone's camera can't read the code reliably
     /// (P4), so the window shows the amount and "Tap ⤢ to show the

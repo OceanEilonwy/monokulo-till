@@ -8,7 +8,16 @@
   "launch": {
     "view": "canvas"
   },
-  "pages": [],
+  "pages": [
+    {
+      "id": "main",
+      "name": "First iPad test"
+    },
+    {
+      "id": "round3",
+      "name": "Round 3 \u00b7 iPad test 2"
+    }
+  ],
   "boards": {
     "Main.dc.html": {
       "x": 0,
@@ -210,33 +219,19 @@
       "h": 820,
       "title": "C5 \u00b7 Settings: sales from this device or every device"
     },
-    "CashPip.dc.html": {
-      "x": 0,
-      "y": 7464,
-      "w": 1180,
-      "h": 820,
-      "title": "K1 \u00b7 Setting off: the floating strip offers Monero for a cash sale"
-    },
     "CashPipCode.dc.html": {
       "x": 1260,
       "y": 7464,
       "w": 1180,
       "h": 820,
-      "title": "K2 \u00b7 Tapped (or setting on): the strip grows into the code"
-    },
-    "CashTill.dc.html": {
-      "x": 2520,
-      "y": 7464,
-      "w": 1180,
-      "h": 820,
-      "title": "K3 \u00b7 Setting off: a cash sale, quiet, with Take it in Monero"
+      "title": "K2 \u00b7 Cash treated as Monero: the strip grows into the code"
     },
     "CashSettings.dc.html": {
       "x": 3780,
       "y": 7464,
       "w": 1180,
       "h": 820,
-      "title": "K4 \u00b7 Settings: cash is treated as Monero by default",
+      "title": "K4 \u00b7 Settings: treat cash as Monero, or ignore cash completely",
       "is_interactive": true
     },
     "StatusGlyph.dc.html": {
@@ -245,6 +240,190 @@
       "w": 24,
       "h": 24,
       "title": "Part \u00b7 Status glyph (props: size, state, dark)"
+    },
+    "R3Header.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 1180,
+      "h": 820,
+      "title": "S1 \u00b7 This shift: header and New shift",
+      "page": "round3"
+    },
+    "R3Pad.dc.html": {
+      "x": 1260,
+      "y": 0,
+      "w": 1180,
+      "h": 820,
+      "title": "S2 \u00b7 iPad: new header and filter; Customer view and Share in the toolbar",
+      "page": "round3"
+    },
+    "R3Empty.dc.html": {
+      "x": 2520,
+      "y": 0,
+      "w": 1180,
+      "h": 820,
+      "title": "S3 \u00b7 Empty till: same header and filter",
+      "page": "round3"
+    },
+    "R3Settings.dc.html": {
+      "x": 0,
+      "y": 1240,
+      "w": 390,
+      "h": 1180,
+      "title": "T1 \u00b7 iPhone Settings: regrouped",
+      "page": "round3"
+    },
+    "R3PipIdle.dc.html": {
+      "x": 0,
+      "y": 2480,
+      "w": 1180,
+      "h": 820,
+      "title": "P1 \u00b7 Watching: a small strip",
+      "page": "round3"
+    },
+    "R3PipSale.dc.html": {
+      "x": 1260,
+      "y": 2480,
+      "w": 1180,
+      "h": 820,
+      "title": "P2 \u00b7 A sale: 200 pt square",
+      "page": "round3"
+    },
+    "R3PipPaid.dc.html": {
+      "x": 2520,
+      "y": 2480,
+      "w": 1180,
+      "h": 820,
+      "title": "P3 \u00b7 Paid: the same small strip",
+      "page": "round3"
+    },
+    "R3PipSizes.dc.html": {
+      "x": 3780,
+      "y": 2480,
+      "w": 1180,
+      "h": 820,
+      "title": "P4 \u00b7 Sizes, Confirming, and sharp rendering",
+      "page": "round3"
+    },
+    "SettingsPad.dc.html": {
+      "x": 1100,
+      "y": 1240,
+      "w": 1180,
+      "h": 1106,
+      "title": "T2 \u00b7 iPad Settings: a form sheet",
+      "page": "round3"
+    },
+    "ConfirmPhone.dc.html": {
+      "x": 0,
+      "y": 3720,
+      "w": 390,
+      "h": 844,
+      "title": "Q3 \u00b7 iPhone confirming",
+      "page": "round3"
+    },
+    "SideSeen.dc.html": {
+      "x": 1260,
+      "y": 4960,
+      "w": 1180,
+      "h": 820,
+      "title": "Q1 \u00b7 Seen, opened from the list",
+      "page": "round3"
+    },
+    "SideConf.dc.html": {
+      "x": 2520,
+      "y": 4960,
+      "w": 1180,
+      "h": 820,
+      "title": "Q1b \u00b7 Confirming 2 of 3, from the list",
+      "page": "round3"
+    },
+    "SideTwice.dc.html": {
+      "x": 0,
+      "y": 6200,
+      "w": 1180,
+      "h": 820,
+      "title": "Q2 \u00b7 Overpaid, an older sale",
+      "page": "round3"
+    },
+    "SidePaid.dc.html": {
+      "x": 3780,
+      "y": 4960,
+      "w": 1180,
+      "h": 820,
+      "title": "Q4 \u00b7 Paid, an older sale",
+      "page": "round3"
+    },
+    "SideWait.dc.html": {
+      "x": 0,
+      "y": 4960,
+      "w": 1180,
+      "h": 820,
+      "title": "Q0 \u00b7 Payment required, from the list",
+      "page": "round3"
+    },
+    "SideExpired.dc.html": {
+      "x": 1260,
+      "y": 6200,
+      "w": 1180,
+      "h": 820,
+      "title": "Q5 \u00b7 Expired, an older sale",
+      "page": "round3"
+    },
+    "SideBigFold.dc.html": {
+      "x": 2520,
+      "y": 6200,
+      "w": 1180,
+      "h": 820,
+      "title": "Q6 \u00b7 Big receipt, folded",
+      "page": "round3"
+    },
+    "SideBigOpen.dc.html": {
+      "x": 3780,
+      "y": 6200,
+      "w": 1180,
+      "h": 820,
+      "title": "Q6b \u00b7 Big receipt: the receipt dialog",
+      "page": "round3"
+    },
+    "SideWaitBig.dc.html": {
+      "x": 0,
+      "y": 7440,
+      "w": 1180,
+      "h": 820,
+      "title": "Q0b \u00b7 Tap the code: full screen with the amount (replaces Customer view)",
+      "page": "round3"
+    },
+    "SideDense.dc.html": {
+      "x": 1260,
+      "y": 7440,
+      "w": 1133,
+      "h": 744,
+      "title": "Q7 \u00b7 Dense code on iPad mini landscape, capped at 416 pt",
+      "page": "round3"
+    },
+    "PhoneDense.dc.html": {
+      "x": 2520,
+      "y": 7440,
+      "w": 390,
+      "h": 844,
+      "title": "Q8 \u00b7 iPhone portrait: dense code at full width, no scrolling",
+      "page": "round3"
+    },
+    "PhoneDenseBig.dc.html": {
+      "x": 2910,
+      "y": 7440,
+      "w": 390,
+      "h": 844,
+      "title": "Q8b \u00b7 iPhone: tap the code, full screen with the amount",
+      "page": "round3"
+    },
+    "OverpaidAlert.dc.html": {
+      "x": 3780,
+      "y": 7440,
+      "w": 1180,
+      "h": 820,
+      "title": "Q2a \u00b7 Overpaid: the alert",
+      "page": "round3"
     }
   },
   "order": [
@@ -276,11 +455,32 @@
     "CounterMenu.dc.html",
     "CounterLearn.dc.html",
     "CounterSettings.dc.html",
-    "CashPip.dc.html",
     "CashPipCode.dc.html",
-    "CashTill.dc.html",
     "CashSettings.dc.html",
-    "StatusGlyph.dc.html"
+    "StatusGlyph.dc.html",
+    "R3Header.dc.html",
+    "R3Pad.dc.html",
+    "R3Empty.dc.html",
+    "R3Settings.dc.html",
+    "R3PipIdle.dc.html",
+    "R3PipSale.dc.html",
+    "R3PipPaid.dc.html",
+    "R3PipSizes.dc.html",
+    "SettingsPad.dc.html",
+    "ConfirmPhone.dc.html",
+    "SideSeen.dc.html",
+    "SideConf.dc.html",
+    "SideTwice.dc.html",
+    "SidePaid.dc.html",
+    "SideWait.dc.html",
+    "SideExpired.dc.html",
+    "SideBigFold.dc.html",
+    "SideBigOpen.dc.html",
+    "SideWaitBig.dc.html",
+    "SideDense.dc.html",
+    "PhoneDense.dc.html",
+    "PhoneDenseBig.dc.html",
+    "OverpaidAlert.dc.html"
   ],
   "notes": {
     "t_alert": {
@@ -410,7 +610,7 @@
       "w": 560,
       "size": "s",
       "fill": "blue",
-      "text": "Cash sales (decided 2026-11-09)\n\n\u2022 By default a cash sale is treated as Monero: it alerts, gets a code, and the floating strip grows into the code, the same as Other: Monero (K2 onwards).\n\u2022 If the customer pays real cash after all, the sale's page offers 'Paid in cash': it closes the sale with no refund, since Square already recorded Cash.\n\u2022 Settings (K4) can turn this off. Then cash sales show quietly with 'Take it in Monero?' (K1, K3). In the floating strip the tap uses the system's play control (\u25b6), a review risk, with \u2922 as the fallback.\n\u2022 Open question: Square's books say Cash for a sale paid in Monero, so the end-of-day cash count won't match. Till's shift lists which cash sales were paid in Monero."
+      "text": "Cash sales (updated 2026-11-10)\n\n\u2022 By default a cash sale is treated as Monero: it alerts, gets a code, and the floating strip grows into the code, the same as Other: Monero (K2).\n\u2022 If the customer pays real cash after all, the sale's page offers 'Paid in cash': it closes the sale with no refund, since Square already recorded Cash.\n\u2022 Settings (K4) can turn this off. Then cash sales are ignored 100%: no alert, no code, no floating window, no Live Activity and no row in the list. Only sales rung up as Other: Monero do anything. The earlier 'Take it in Monero?' offer (K1, K3) is dropped.\n\u2022 Open question: Square's books say Cash for a sale paid in Monero, so the end-of-day cash count won't match. Till's shift lists which cash sales were paid in Monero."
     },
     "n_names": {
       "x": -760,
@@ -427,6 +627,118 @@
       "size": "m",
       "fill": "red",
       "text": "Rules from the owner's review\n\n\u2022 Status lines and names never wrap: one line, cut with an ellipsis.\n\u2022 The Till logo is the hero on empty and Paid screens; small status marks in lists use simple glyphs.\n\u2022 Floating window: small strip while watching, square only for the code, back to the strip for Paid.\n\u2022 Buttons say what they do, with an icon where it helps ('Customer view')."
+    },
+    "r3_t1": {
+      "x": 0,
+      "y": -300,
+      "text": "Shift list: header, New shift, filter",
+      "kind": "title1",
+      "maxW": 3700,
+      "page": "round3"
+    },
+    "r3_t2": {
+      "x": 0,
+      "y": 940,
+      "text": "Settings: regrouped",
+      "kind": "title1",
+      "maxW": 1180,
+      "page": "round3"
+    },
+    "r3_t3": {
+      "x": 0,
+      "y": 2180,
+      "text": "Floating window: small and sharp",
+      "kind": "title1",
+      "maxW": 4960,
+      "page": "round3"
+    },
+    "r3_sum": {
+      "x": -760,
+      "y": 0,
+      "w": 600,
+      "size": "m",
+      "fill": "orange",
+      "page": "round3",
+      "text": "Feedback from the second iPad test (2026-11-10)\n\n\u2022 All / Needs action / Paid toggle ugly and wrongly sized \u2192 S2, S3: full width, 36 pt, 15 pt labels, equal thirds\n\u2022 This shift header ugly, no way to start a shift \u2192 S1: real header with a New shift button and a confirmation\n\u2022 Settings order and groups confusing \u2192 T1: This till, Sales, Notifying you, Wallet\n\u2022 Watching / Confirming / Paid overlay too big \u2192 P1\u2013P4: 124 \u00d7 44 pt strip, 200 pt code square\n\u2022 PiP blurry on the iPad \u2192 P4 note: draw frames at the window's real pixel size"
+    },
+    "r3_pip": {
+      "x": 5040,
+      "y": 2480,
+      "w": 520,
+      "size": "s",
+      "fill": "blue",
+      "page": "round3",
+      "text": "Blurry on iPad\n\nThe build draws every frame at a fixed 2x scale. iOS gives Till the window's render size; Till should draw exactly that many pixels (points \u00d7 the screen's scale), keep the QR on whole pixels and redraw when the size changes. Not yet tested on a device.\n\niOS and the cashier still choose the real window size; Till sets the shape and how the content scales."
+    },
+    "r3_settings": {
+      "x": 500,
+      "y": 1240,
+      "w": 520,
+      "size": "s",
+      "fill": "blue",
+      "page": "round3",
+      "text": "Settings order\n\n1 Monokulo account: who is signed in to Monokulo, first and on its own\n2 This till: point of sale, Square account, store, this device\n3 Sales: which device alerts, other counters' sales, cash as Monero (one toggle)\n4 Notifying you: notification status, how sales show up, Live Activity\n5 Wake-ups: Timer only, Monokulo Bell or My own Bell, and their status\n6 Wallet: where payments arrive, with share\nThen Disconnect from Square, on its own at the bottom\n\nThe things you set up once come first; the things you check later come last."
+    },
+    "r3_t4": {
+      "x": 0,
+      "y": 3420,
+      "text": "Confirming on iPhone (the iPad states are in the row below)",
+      "kind": "title1",
+      "maxW": 1180,
+      "page": "round3"
+    },
+    "r3_q": {
+      "x": 500,
+      "y": 3720,
+      "w": 520,
+      "size": "s",
+      "fill": "blue",
+      "page": "round3",
+      "text": "One layout for every state\n\n\u2022 Seen, Confirming, Paid and Overpaid share one screen: hero Till widget, title with the amount, sale line, the order, then Done. It is the same screen as a paid sale opened from the list.\n\u2022 Only the logo state, the title and the progress line change as the payment moves on, so there's no jump when it turns Paid.\n\u2022 No code or Share from the moment the payment is seen: nothing can be shown or overpaid.\n\u2022 Overpaid: the order card becomes the amounts, amber title, Mark as refunded at the end of the card. It alerts (Q2a). Monero can't reverse a payment, so the cashier is told to ask for a return address.\n\u2022 Return to Square is a silver button with the Square mark in the toolbar, left of Close the sale or Done, shown only when Square is installed."
+    },
+    "r3_place": {
+      "x": 2520,
+      "y": 820,
+      "w": 520,
+      "size": "s",
+      "fill": "green",
+      "page": "round3",
+      "text": "Return to Square (decided): a silver button with the Square mark and the words 'Return to Square', in the toolbar to the left of Close the sale (or of Done). Shown only when Square is installed. Customer view is gone: the code is the button, and opens full screen with the amount (Q0b, Q8b)."
+    },
+    "r3_account": {
+      "x": 500,
+      "y": 2300,
+      "w": 520,
+      "size": "s",
+      "fill": "blue",
+      "page": "round3",
+      "text": "Changing store or account\n\n\u2022 Monokulo account: the account you sign in to when you first start the app (decided). It is the first group in Settings, separate from Wake-ups.\n\u2022 Square account and store: under This till. Store lists the signed-in Square account's locations; 'Sign out of Square' at the bottom ends that sign-in.\n\u2022 Wake-ups (Timer only, Monokulo Bell, My own Bell) and their status are their own group."
+    },
+    "r3_t6": {
+      "x": 0,
+      "y": 4660,
+      "text": "The same states with the sidebar: an older sale opened from the list",
+      "kind": "title1",
+      "maxW": 5000,
+      "page": "round3"
+    },
+    "r3_cap": {
+      "x": 3340,
+      "y": 7440,
+      "w": 520,
+      "size": "s",
+      "fill": "blue",
+      "page": "round3",
+      "text": "Capping the code (rule, from real iPad sizes)\n\nCode size = the smallest of: pane width \u2212 80, pane height \u2212 327 (toolbar, amount, sale line, one folded order row, spacing, safe areas), and 480 pt. If that is under 200 pt the code is not drawn and the tap-to-enlarge badge is the way in.\n\nPoint sizes (portrait, from the iPad specs list): iPad mini 744 \u00d7 1133, iPad and iPad Air 10.9\" 820 \u00d7 1180, iPad Pro 11\" 834 \u00d7 1194, iPad Pro 12.9\" 1024 \u00d7 1366. The tightest case is the mini in landscape (1133 \u00d7 744, pane 793 \u00d7 744 with the sidebar), which gives 416 pt (Q7). The 11\" in landscape gives 480 (the maximum). Portrait is limited by width, not height: mini 664 pt with the sidebar hidden, so portrait never scrolls.\n\niPhone portrait: width binds. 390\u2013393 pt phones: 334 pt (Q8); an iPhone SE (375 \u00d7 667): 319 pt.\n\nA dense code that is not legible at that size: tap it for the full-screen code with the amount (Q0b, Q8b)."
+    },
+    "sup": {
+      "x": -760,
+      "y": -300,
+      "w": 600,
+      "size": "m",
+      "fill": "red",
+      "page": "main",
+      "text": "Most of the boards on this page are superseded by Round 3 (the next page). For example A3 is now Q4, D1 is S2, D4 is T1/T2 and K1/K3 are dropped. Read this page for history, build from Round 3."
     }
   },
   "designSystems": []

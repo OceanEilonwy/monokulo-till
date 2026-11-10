@@ -120,6 +120,7 @@ pub fn status(sale: &TillSale, till: Option<PointOfSale>) -> String {
                 paid.into()
             }
         }
+        Standing::Overpaid => "Overpaid".into(),
         Standing::CashOffer { kept: false } => format!("Cash in {}", pos_text::name(till)),
         Standing::CashOffer { kept: true } => "Cash · kept as cash".into(),
         Standing::PaidInCash => "Paid in cash".into(),

@@ -187,6 +187,13 @@ pub struct SaleExtras {
     /// decision 171): false for an order an older Monokulo made.
     #[serde(default, skip_serializing_if = "is_false")]
     pub renewable: bool,
+    /// Paid more than asked (or twice): the extra is owed back to the
+    /// customer (core.md decision 222).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub overpaid: bool,
+    /// When the cashier said the extra went back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_refunded_at: Option<UnixSeconds>,
     /// Paid after it was refunded in the point of sale.
     #[serde(default, skip_serializing_if = "is_false")]
     pub paid_after_refund: bool,
@@ -261,6 +268,8 @@ impl TillSale {
             extras: SaleExtras {
                 sale_key: v.sale.text(),
                 renewable: v.renewable,
+                overpaid: v.overpaid,
+                extra_refunded_at: v.extra_refunded_at,
                 paid_after_refund: v.paid_after_refund,
                 paid_after_close: v.paid_after_close,
                 other_counter: v.other_counter,

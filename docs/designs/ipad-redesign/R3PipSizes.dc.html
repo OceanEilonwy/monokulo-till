@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Floating window content at each size</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width:1180px;height:820px;overflow:hidden;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',system-ui,sans-serif;color:#1a1917;box-sizing:border-box;padding:32px 48px;display:flex;flex-direction:column;gap:20px;">
+  <div style="display:flex;flex-direction:column;gap:6px;">
+    <h1 style="margin:0;font-family:Manrope,sans-serif;font-size:28px;font-weight:800;">Small and quiet: a strip, a square only for the code</h1>
+    <p style="margin:0;font-size:15px;line-height:22px;color:#5a564c;max-width:1000px;">The strip is the whole story while watching, confirming and paid: logo and one or two short words, no place or customer name. It is drawn small (default 124 × 44 pt, under 3:1) so the window never competes with Square. Only a sale grows it into a 200 pt square, and it shrinks back after Paid. Till chooses the shape; iOS and the cashier choose the size, and the content scales with it. Corners stay empty for iOS's ✕ and ⤢.</p>
+  </div>
+
+  <div style="display:grid;grid-template-columns:120px repeat(3,minmax(0,1fr));gap:12px 28px;align-items:end;">
+    <span></span>
+    <span style="font-size:13px;font-weight:700;color:#5a564c;">SMALL · 104 PT WIDE</span>
+    <span style="font-size:13px;font-weight:700;color:#5a564c;">DEFAULT · 124 PT WIDE (200 PT SQUARE)</span>
+    <span style="font-size:13px;font-weight:700;color:#5a564c;">LARGE · 160 PT WIDE (260 PT SQUARE)</span>
+    <span style="align-self:center;font-size:15px;font-weight:600;">Watching</span>
+    <div style="justify-self:start;width:104px;height:36px;border-radius:12px;background:#1a1917;display:flex;align-items:center;gap:8px;padding:0 10px;color:#fff;box-sizing:border-box;align-self:center;">
+      <dc-import name="TillWidget" size="22" state="idle" dark="{{yes}}" hint-size="22px,22px"></dc-import>
+      <span style="display:flex;flex-direction:column;min-width:0;"><span style="font-size:12px;font-weight:700;white-space:nowrap;">Watching</span></span>
+    </div>
+    <div style="justify-self:start;width:124px;height:44px;border-radius:12px;background:#1a1917;display:flex;align-items:center;gap:8px;padding:0 10px;color:#fff;box-sizing:border-box;align-self:center;">
+      <dc-import name="TillWidget" size="28" state="idle" dark="{{yes}}" hint-size="28px,28px"></dc-import>
+      <span style="display:flex;flex-direction:column;min-width:0;"><span style="font-size:14px;font-weight:700;white-space:nowrap;">Watching</span></span>
+    </div>
+    <div style="justify-self:start;width:160px;height:56px;border-radius:12px;background:#1a1917;display:flex;align-items:center;gap:8px;padding:0 10px;color:#fff;box-sizing:border-box;align-self:center;">
+      <dc-import name="TillWidget" size="36" state="idle" dark="{{yes}}" hint-size="36px,36px"></dc-import>
+      <span style="display:flex;flex-direction:column;min-width:0;"><span style="font-size:17px;font-weight:700;white-space:nowrap;">Watching</span></span>
+    </div>
+    <span style="align-self:center;font-size:15px;font-weight:600;">Confirming</span>
+    <div style="justify-self:start;width:104px;height:36px;border-radius:12px;background:#1a1917;display:flex;align-items:center;gap:8px;padding:0 10px;color:#fff;box-sizing:border-box;align-self:center;">
+      <dc-import name="TillWidget" size="22" state="confirming" dark="{{yes}}" hint-size="22px,22px"></dc-import>
+      <span style="display:flex;flex-direction:column;min-width:0;"><span style="font-size:12px;font-weight:700;white-space:nowrap;">Confirming</span></span>
+    </div>
+    <div style="justify-self:start;width:124px;height:44px;border-radius:12px;background:#1a1917;display:flex;align-items:center;gap:8px;padding:0 10px;color:#fff;box-sizing:border-box;align-self:center;">
+      <dc-import name="TillWidget" size="28" state="confirming" dark="{{yes}}" hint-size="28px,28px"></dc-import>
+      <span style="display:flex;flex-direction:column;min-width:0;"><span style="font-size:14px;font-weight:700;white-space:nowrap;">Confirming</span><span style="font-size:12px;color:#d9d4c9;white-space:nowrap;">$24.50</span></span>
+    </div>
+    <div style="justify-self:start;width:160px;height:56px;border-radius:12px;background:#1a1917;display:flex;align-items:center;gap:8px;padding:0 10px;color:#fff;box-sizing:border-box;align-self:center;">
+      <dc-import name="TillWidget" size="36" state="confirming" dark="{{yes}}" hint-size="36px,36px"></dc-import>
+      <span style="display:flex;flex-direction:column;min-width:0;"><span style="font-size:17px;font-weight:700;white-space:nowrap;">Confirming</span><span style="font-size:13px;color:#d9d4c9;white-space:nowrap;">$24.50</span></span>
+    </div>
+    <span style="align-self:center;font-size:15px;font-weight:600;">A sale</span>
+    <div style="width:130px;height:130px;border-radius:12px;background:#ff6600;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:#111;box-sizing:border-box;padding:8px;text-align:center;">
+      <span style="font-family:Manrope,sans-serif;font-size:22px;font-weight:800;">$24.50</span>
+      <span style="font-size:12px;font-weight:600;line-height:15px;">Tap ⤢ to show the customer</span>
+    </div>
+    <div style="width:200px;height:200px;border-radius:14px;background:#fff;border:1px solid #dcd5c7;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;box-sizing:border-box;">
+      <dc-import name="QR" size="140" hint-size="140px,140px"></dc-import>
+      <span style="font-family:Manrope,sans-serif;font-size:16px;font-weight:800;white-space:nowrap;">Sam · $24.50 <span style="font-family:-apple-system,system-ui,sans-serif;font-size:11px;font-weight:400;color:#5a564c;">· 14:32</span></span>
+    </div>
+    <div style="width:260px;height:260px;border-radius:16px;background:#fff;border:1px solid #dcd5c7;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;box-sizing:border-box;">
+      <dc-import name="QR" size="190" hint-size="190px,190px"></dc-import>
+      <span style="font-family:Manrope,sans-serif;font-size:18px;font-weight:800;white-space:nowrap;">Sam · $24.50 <span style="font-family:-apple-system,system-ui,sans-serif;font-size:12px;font-weight:400;color:#5a564c;">· 14:32 left</span></span>
+    </div>
+    <span style="align-self:center;font-size:15px;font-weight:600;">Paid</span>
+    <div style="justify-self:start;width:104px;height:36px;border-radius:12px;background:#1a1917;display:flex;align-items:center;gap:8px;padding:0 10px;color:#fff;box-sizing:border-box;align-self:center;">
+      <dc-import name="TillWidget" size="22" state="paid" dark="{{yes}}" hint-size="22px,22px"></dc-import>
+      <span style="display:flex;flex-direction:column;min-width:0;"><span style="font-size:12px;font-weight:700;white-space:nowrap;">Paid</span></span>
+    </div>
+    <div style="justify-self:start;width:124px;height:44px;border-radius:12px;background:#1a1917;display:flex;align-items:center;gap:8px;padding:0 10px;color:#fff;box-sizing:border-box;align-self:center;">
+      <dc-import name="TillWidget" size="28" state="paid" dark="{{yes}}" hint-size="28px,28px"></dc-import>
+      <span style="display:flex;flex-direction:column;min-width:0;"><span style="font-size:14px;font-weight:700;white-space:nowrap;">Paid</span><span style="font-size:12px;color:#d9d4c9;white-space:nowrap;">$24.50</span></span>
+    </div>
+    <div style="justify-self:start;width:160px;height:56px;border-radius:12px;background:#1a1917;display:flex;align-items:center;gap:8px;padding:0 10px;color:#fff;box-sizing:border-box;align-self:center;">
+      <dc-import name="TillWidget" size="36" state="paid" dark="{{yes}}" hint-size="36px,36px"></dc-import>
+      <span style="display:flex;flex-direction:column;min-width:0;"><span style="font-size:17px;font-weight:700;white-space:nowrap;">Paid</span><span style="font-size:13px;color:#d9d4c9;white-space:nowrap;">$24.50</span></span>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:28px;">
+    <p style="margin:0;font-size:14px;line-height:20px;color:#5a564c;flex:1;"><b style="color:#1a1917;">Sharp, not blurry.</b> Frames are drawn at the window's real pixel size. iOS tells Till its render size; Till draws exactly that many pixels (points × the screen's scale, 2× or 3×, never a smaller frame stretched up), keeps the QR on whole pixels, and redraws when the size changes. Text and the code stay crisp at every size.</p>
+    <p style="margin:0;font-size:14px;line-height:20px;color:#5a564c;flex:1;">Below about 200 pt a phone camera can't read the code reliably, so the small window shows the amount and a prompt instead. Confirming and Paid keep to the strip with a word and a glyph: colour is never the only signal.</p>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1180,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() { return { yes: true }; }
+}
+</script>
+</body>
+</html>
