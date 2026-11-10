@@ -1480,3 +1480,12 @@ the cause was a recursion, not memory.
      however often it's asked); the frame is marked drawn before it's
      enqueued; and a render size within 2 pt of the last is taken as the
      frame's own rounding coming back, not a new window size.
+207. **Only a payment or a double spend drops progress from an order's
+     observations.** The ledger's shuffle test failed on CI for #65 (and
+     fails within 3,000 cases on main): a final ending observed before
+     quotes were recorded (`quote: None`) dropped Seen, then an ending
+     with a quote replaced it, and the sale showed Waiting; in the other
+     order it showed Seen. The kept ending can be replaced, so progress
+     dropped under it made the join depend on arrival order. Paid and a
+     double spend never go away, so dropping progress under them stays
+     commutative; a final ending already beats progress in `phase`.

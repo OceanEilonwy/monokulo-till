@@ -348,15 +348,17 @@ impl Observations {
     }
 
     /// Drops what can no longer change the phase, so a stale observation
-    /// (a Seen after Paid) changes nothing and isn't journalled. Once paid,
-    /// reversed or finally ended, progress doesn't count; Confirming and
-    /// Partial imply Seen. Both only depend on parts that only grow, so the
-    /// join stays commutative, associative and idempotent. (Monokulo renews
-    /// an order only while it isn't final, so a final ending is never a
-    /// replaced quote's.)
+    /// (a Seen after Paid) changes nothing and isn't journalled. Once paid
+    /// or reversed, progress doesn't count; Confirming and Partial imply
+    /// Seen. Both only depend on parts that only grow, so the join stays
+    /// commutative, associative and idempotent. A final ending doesn't drop
+    /// progress: the ending kept can be replaced by another quote's (an
+    /// ending observed before quotes were recorded, `quote: None`, gives
+    /// way to any with a quote), and progress dropped under it would then
+    /// depend on the order observations arrived in. [`Self::phase`] already
+    /// lets a final ending beat progress.
     fn normalise(&mut self) {
-        let decided =
-            self.paid.is_some() || self.double_spend || self.ended.is_some_and(|e| e.is_final);
+        let decided = self.paid.is_some() || self.double_spend;
         if decided {
             self.seen = false;
             self.confirming = None;
