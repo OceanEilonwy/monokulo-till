@@ -912,7 +912,7 @@ async fn the_bubbles_paid_moment_holds_green_through_the_collapse_it_asks_for() 
     // no collapse.
     engine.poke(|s| s.just_paid("ord_1".into()));
     assert_eq!(engine.peek(|s| s.paid_moment), PaidMoment::Held);
-    engine.poke(|s| s.paid_dwell_ended("ord_1"));
+    engine.poke(|s| s.paid_dwell_ended(&"ord_1".into()));
     assert_eq!(engine.peek(|s| s.paid_moment), PaidMoment::None);
 
     // Nothing waiting: the dwell's end collapses the panel.
@@ -929,7 +929,7 @@ async fn the_bubbles_paid_moment_holds_green_through_the_collapse_it_asks_for() 
         Heard::Update(Update::Bubble { view }) if view.look == BubbleLook::Paid => Some(()),
         _ => None,
     });
-    engine.poke(|s| s.paid_dwell_ended("ord_1"));
+    engine.poke(|s| s.paid_dwell_ended(&"ord_1".into()));
     wait_for(&rx, |heard| match heard {
         Heard::Effect(Effect::LowerPanel) => Some(()),
         Heard::Update(Update::Bubble { view }) => {

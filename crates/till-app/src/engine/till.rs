@@ -3,6 +3,7 @@
 //! sales move the till, the paid sale's step back, and the shift, sale,
 //! close, refund, bubble and notification records the engine publishes.
 
+use monokulo_client::OrderId;
 use std::time::Duration;
 
 use till_sales::TillSale;
@@ -110,7 +111,7 @@ pub(crate) fn direction(from: &Screen, to: &Screen) -> (bool, bool) {
 }
 
 /// The sale a screen shows, if it shows one.
-pub(crate) fn order_id(screen: &Screen) -> Option<&str> {
+pub(crate) fn order_id(screen: &Screen) -> Option<&OrderId> {
     match screen {
         Screen::Sale { order_id } | Screen::Code { order_id } | Screen::Order { order_id } => {
             Some(order_id)
@@ -154,7 +155,7 @@ impl State {
 
     /// The sales that never rise out of the shift on their own: those the
     /// cashier left, and another counter's (core.md decision 113).
-    fn left_or_quiet(&self) -> std::collections::BTreeSet<String> {
+    fn left_or_quiet(&self) -> std::collections::BTreeSet<OrderId> {
         let mut left = self.left.clone();
         left.extend(self.quiet_ids());
         left
@@ -197,7 +198,7 @@ impl State {
         self.live_before = till_nav::live_ids(&sales);
     }
 
-    fn step_back_after_paid(&mut self, order_id: String) {
+    fn step_back_after_paid(&mut self, order_id: OrderId) {
         self.step_back += 1;
         let token = self.step_back;
         self.task(async move {
@@ -214,7 +215,7 @@ impl State {
     /// A payment landed on `order_id`: the bubble and the ongoing
     /// notification show it as paid for [`PAID_DWELL`], and the bubble's
     /// paid moment begins (decision 95).
-    pub(super) fn just_paid(&mut self, order_id: String) {
+    pub(super) fn just_paid(&mut self, order_id: OrderId) {
         self.just_paid = Some(order_id.clone());
         self.just_paid_token += 1;
         self.paid_moment =
@@ -235,7 +236,7 @@ impl State {
     /// it and no other code waiting, the panel collapses into the bubble,
     /// green until Android says the collapse landed
     /// ([`State::panel_shown`]).
-    pub(super) fn paid_dwell_ended(&mut self, order_id: &str) {
+    pub(super) fn paid_dwell_ended(&mut self, order_id: &OrderId) {
         let on_panel = self.panel_up && self.bubble_focus.as_deref() == Some(order_id);
         let next_waiting = self.sales().iter().any(TillSale::live);
         let step = bubble::paid_next(
@@ -262,7 +263,7 @@ impl State {
 
     /// The till's own sale `order_id` ended unpaid: the Live Activity
     /// shows it as expired for [`ENDED_DWELL`].
-    pub(super) fn just_ended(&mut self, order_id: String) {
+    pub(super) fn just_ended(&mut self, order_id: OrderId) {
         self.just_ended = Some(order_id);
         self.just_ended_token += 1;
         let token = self.just_ended_token;
@@ -409,7 +410,7 @@ impl State {
         );
         let order = order_page(&sale, pos_text::of(&sale, till), clock);
         Some(crate::Update::Sale {
-            order_id: order_id.to_owned(),
+            order_id: order_id.clone(),
             view,
             page,
             code,
@@ -419,7 +420,7 @@ impl State {
 
     /// The close sheet for the sale asked about, while it has answers.
     pub(super) fn close_view(&self, p: &Parts) -> Option<CloseView> {
-        let order_id = self.close_sheet.as_deref()?;
+        let order_id = self.close_sheet.as_ref()?;
         let runner = p.runner.state();
         let sale = runner.till.sale(order_id)?.clone();
         let view = close::close(

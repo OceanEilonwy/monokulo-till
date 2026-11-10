@@ -30,6 +30,16 @@
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
 
+// An order id crosses to Kotlin and Swift as the bare string it was.
+#[cfg(feature = "uniffi")]
+use monokulo_client::OrderId;
+#[cfg(feature = "uniffi")]
+uniffi::custom_type!(OrderId, String, {
+    remote,
+    lower: |id| id.0,
+    try_lift: |id| Ok(OrderId(id)),
+});
+
 pub mod bubble;
 pub mod close;
 pub mod code;

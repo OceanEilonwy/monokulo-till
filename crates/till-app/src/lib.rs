@@ -21,6 +21,10 @@
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
 
+// An order id crosses as till-screens' custom type over String.
+#[cfg(feature = "uniffi")]
+uniffi::use_remote_type!(till_screens::OrderId);
+
 mod background;
 mod engine;
 mod ledger;
@@ -36,6 +40,7 @@ pub mod store;
 mod testing;
 mod web_push;
 
+use monokulo_client::OrderId;
 use std::sync::{Arc, OnceLock};
 
 use tokio::sync::mpsc::UnboundedSender;
@@ -368,15 +373,15 @@ pub enum Screen {
     Till,
     /// One sale: its code while it's live, else its page.
     Sale {
-        order_id: String,
+        order_id: OrderId,
     },
     /// A live sale's code enlarged.
     Code {
-        order_id: String,
+        order_id: OrderId,
     },
     /// Every line of a live sale's order.
     Order {
-        order_id: String,
+        order_id: OrderId,
     },
     Settings,
 }
@@ -497,42 +502,42 @@ pub enum Action {
     /// A sale's X or a row's swipe: the close sheet, while the sale has
     /// answers.
     AskClose {
-        order_id: String,
+        order_id: OrderId,
     },
     /// The close sheet went without an answer.
     DismissClose,
     OpenSale {
-        order_id: String,
+        order_id: OrderId,
     },
     Enlarge {
-        order_id: String,
+        order_id: OrderId,
     },
     ShowOrder {
-        order_id: String,
+        order_id: OrderId,
     },
     Close {
-        order_id: String,
+        order_id: OrderId,
         choice: CloseChoice,
     },
     Refund {
-        order_id: String,
+        order_id: OrderId,
     },
     /// The refund sheet's "I've refunded it".
     ConfirmRefund {
-        order_id: String,
+        order_id: OrderId,
     },
     /// "Not yet", Back or the scrim.
     DismissRefund,
     /// "Show the code again" on a closed sale.
     Reopen {
-        order_id: String,
+        order_id: OrderId,
     },
     CopyAddress {
-        order_id: String,
+        order_id: OrderId,
     },
     /// The XMR amount tapped: it is copied.
     CopyAmount {
-        order_id: String,
+        order_id: OrderId,
     },
     /// Settings' "Copy wallet address": the store's whole wallet address
     /// is copied (core.md decision 105).
@@ -635,20 +640,20 @@ pub enum Action {
     /// "Take it in Monero" on an offered cash sale: its order and code are
     /// made, and the sale opens on its code.
     TakeInMonero {
-        order_id: String,
+        order_id: OrderId,
     },
     /// "Keep as cash" on an offered cash sale.
     KeepAsCash {
-        order_id: String,
+        order_id: OrderId,
     },
     /// "Paid in cash" on a cash sale: closed, nothing refunded.
     PaidInCash {
-        order_id: String,
+        order_id: OrderId,
     },
     /// "New code" on a sale whose code ran out unpaid (docs/ledger.md §7):
     /// its next order is made, and the sale opens on its code.
     NewCode {
-        order_id: String,
+        order_id: OrderId,
     },
     /// iOS's APNs device token, the bytes in hex, each time iOS gives one
     /// (every launch, from `registerForRemoteNotifications`); `None` when
@@ -801,7 +806,7 @@ pub enum Update {
     /// screen, its page, its enlarged code, and its whole order while the
     /// till has its receipt.
     Sale {
-        order_id: String,
+        order_id: OrderId,
         view: SaleView,
         page: SalePageView,
         code: CodeView,
@@ -809,7 +814,7 @@ pub enum Update {
     },
     /// The close sheet over a sale, while one is asked.
     CloseSheet {
-        order_id: Option<String>,
+        order_id: Option<OrderId>,
         view: Option<CloseView>,
     },
     /// The refund sheet over a sale the cashier refunds at the point of sale.
@@ -833,7 +838,7 @@ pub enum Update {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct RefundSheetView {
-    pub order_id: String,
+    pub order_id: OrderId,
     /// "Refund in Clover".
     pub title: String,
     /// What to refund, and where.
@@ -870,7 +875,7 @@ pub struct BubbleView {
     /// collapse at its end until the panel has gone (decision 95).
     pub look: BubbleLook,
     /// The sale the bubble and its panel are about.
-    pub order_id: Option<String>,
+    pub order_id: Option<OrderId>,
     /// What a screen reader says for the bubble.
     pub label: String,
     /// What a tap does with the panel down, and with it up.
@@ -911,7 +916,7 @@ pub enum Effect {
     /// `quiet` posts it without sound or banner, the app being on screen.
     /// With two or more showing, their summary is [`ended_summary`]'s.
     Notify {
-        order_id: String,
+        order_id: OrderId,
         notice: Notice,
         paid: bool,
         timeout_ms: Option<u64>,

@@ -880,8 +880,8 @@ async fn a_cash_sale_is_treated_as_monero_by_default_and_never_refunded() {
     );
     assert!(shown.code.has_receipt);
     assert_eq!(shown.customer_name.as_deref(), Some("Sam"));
-    till.close("ord_1");
-    till.refund("ord_1").await;
+    till.close(&"ord_1".into());
+    till.refund(&"ord_1".into()).await;
     assert!(
         source.refunded().is_empty(),
         "cash is never refunded in Square"
@@ -903,15 +903,15 @@ async fn paid_in_cash_closes_a_cash_sale_with_nothing_to_refund() {
     f.enqueue(order());
     f.enqueue(second_order());
     till.check().await;
-    till.paid_in_cash("ord_1");
+    till.paid_in_cash(&"ord_1".into());
     let state = till.state();
-    let cash = state.sale("ord_1").unwrap();
+    let cash = state.sale(&"ord_1".into()).unwrap();
     assert_eq!(cash.standing(), Standing::PaidInCash);
     assert!(!cash.live());
     assert!(!cash.needs_action());
-    till.paid_in_cash("ord_2");
+    till.paid_in_cash(&"ord_2".into());
     assert_eq!(
-        till.state().sale("ord_2").unwrap().paid_in_cash_at,
+        till.state().sale(&"ord_2".into()).unwrap().paid_in_cash_at,
         None,
         "only a cash sale"
     );
@@ -937,12 +937,14 @@ async fn with_cash_offered_a_cash_sale_waits_quietly_until_its_taken_in_monero()
     assert!(!offered.live() && !offered.needs_action() && !offered.open());
     assert_eq!(offered.customer_name.as_deref(), Some("Sam"));
     assert_eq!(offered.price.amount(), "13.88");
-    till.keep_as_cash("cash:pay_cash");
+    till.keep_as_cash(&"cash:pay_cash".into());
     assert_eq!(only(&till).standing(), Standing::CashOffer { kept: true });
 
     f.enqueue(order());
     assert_eq!(
-        till.take_in_monero("cash:pay_cash").await.as_deref(),
+        till.take_in_monero(&"cash:pay_cash".into())
+            .await
+            .as_deref(),
         Ok("ord_1")
     );
     let taken = only(&till);
@@ -956,7 +958,7 @@ async fn with_cash_offered_a_cash_sale_waits_quietly_until_its_taken_in_monero()
         "names never go to Monokulo"
     );
     assert_eq!(
-        till.take_in_monero("ord_1").await.as_deref(),
+        till.take_in_monero(&"ord_1".into()).await.as_deref(),
         Ok("ord_1"),
         "taken already"
     );
@@ -973,7 +975,7 @@ async fn a_cash_sale_whose_order_fails_stays_offered_and_says_why() {
     });
     till.check().await;
     f.enqueue(ResponseTemplate::new(503));
-    assert!(till.take_in_monero("cash:pay_cash").await.is_err());
+    assert!(till.take_in_monero(&"cash:pay_cash".into()).await.is_err());
     assert!(only(&till).offered);
     assert!(till.state().problem.is_some());
 }
@@ -999,7 +1001,7 @@ async fn another_devices_sale_is_taken_with_its_name_and_its_receipt() {
     till.check().await;
     let state = till.state();
     assert_eq!(state.sales.len(), 2, "{:?}", state.sales);
-    let theirs = state.sale("ord_2").unwrap();
+    let theirs = state.sale(&"ord_2".into()).unwrap();
     assert!(
         theirs.receipt.is_some(),
         "every till signed in to the point of sale builds the receipt (docs/ledger.md §8)"
@@ -1010,7 +1012,7 @@ async fn another_devices_sale_is_taken_with_its_name_and_its_receipt() {
         theirs.pos_device(),
         Some((&"dev_back".into(), Some("Bar iPad")))
     );
-    let mine = state.sale("ord_1").unwrap();
+    let mine = state.sale(&"ord_1".into()).unwrap();
     assert!(mine.code.has_receipt);
     assert!(mine.receipt.is_some());
     assert_eq!(source.handled_ids(), ["pay_monero", "pay_2"]);
@@ -1128,8 +1130,8 @@ async fn an_unpaid_sale_is_refunded_in_the_pos() {
     let till = f.till(source.clone());
     f.enqueue(order());
     till.check().await;
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired));
-    till.refund("ord_1").await;
+    till.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::Expired));
+    till.refund(&"ord_1".into()).await;
     assert_eq!(source.refunded(), ["pay_monero"]);
     assert!(only(&till).refunded());
 }
@@ -1147,8 +1149,8 @@ async fn a_refund_square_answers_pending_refunds_the_sale_at_once() {
     f.enqueue(order());
     till.check().await;
     assert!(only(&till).live());
-    till.close("ord_1");
-    till.refund("ord_1").await;
+    till.close(&"ord_1".into());
+    till.refund(&"ord_1".into()).await;
     assert_eq!(source.refunded(), ["pay_monero"]);
     let refunded = only(&till);
     assert!(refunded.refunded(), "{refunded:?}");
@@ -1162,8 +1164,8 @@ async fn a_refund_square_answers_pending_refunds_the_sale_at_once() {
     let till = f.till(failed.clone());
     f.enqueue(order());
     till.check().await;
-    till.close("ord_1");
-    till.refund("ord_1").await;
+    till.close(&"ord_1".into());
+    till.refund(&"ord_1".into()).await;
     assert!(!only(&till).refunded(), "a rejected refund isn't one");
 }
 
@@ -1201,7 +1203,7 @@ async fn a_refund_made_in_squares_own_app_is_seen_on_the_next_look() {
         [till_pos::time::instant(window_from)],
         "the first listing starts with the shift"
     );
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired));
+    till.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::Expired));
     *source.pos_refunds.lock().unwrap() = Some(vec![
         listed_refund("rf_card", "pay_card", "COMPLETED", "2026-10-22T16:15:00Z"),
         listed_refund("rf_1", "pay_monero", "PENDING", "2026-10-22T16:20:00Z"),
@@ -1248,7 +1250,7 @@ async fn a_refund_status_the_till_doesnt_know_never_holds_the_cursor() {
     let till = f.till(source.clone());
     f.enqueue(order());
     till.check().await;
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired));
+    till.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::Expired));
     *source.pos_refunds.lock().unwrap() = Some(vec![
         listed_refund("rf_1", "pay_monero", "IN_REVIEW", "2026-10-22T16:20:00Z"),
         listed_refund("rf_card", "pay_card", "COMPLETED", "2026-10-22T16:25:00Z"),
@@ -1322,7 +1324,7 @@ async fn a_paid_sale_is_never_refunded_nor_a_refunded_one_twice() {
     f.enqueue(order());
     till.check().await;
     till.on_event(&ord_1("sale.paid", 2));
-    till.refund("ord_1").await;
+    till.refund(&"ord_1".into()).await;
     let paid = only(&till);
     assert_eq!(paid.phase, SalePhase::Paid);
     assert_eq!(
@@ -1337,9 +1339,9 @@ async fn a_paid_sale_is_never_refunded_nor_a_refunded_one_twice() {
     let again = f.till(other.clone());
     f.enqueue(order());
     again.check().await;
-    again.on_status("ord_1", OrderStatus::of(SalePhase::Expired));
-    again.refund("ord_1").await;
-    again.refund("ord_1").await;
+    again.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::Expired));
+    again.refund(&"ord_1".into()).await;
+    again.refund(&"ord_1".into()).await;
     assert_eq!(other.refunded(), ["pay_monero"], "one refund in the POS");
 }
 
@@ -1350,11 +1352,14 @@ async fn a_cancelled_order_ends_its_sale_unpaid_and_can_be_refunded() {
     let till = f.till(source.clone());
     f.enqueue(order());
     till.check().await;
-    till.on_status("ord_1", OrderStatus::of(Order::phase_of("cancelled")));
+    till.on_status(
+        &"ord_1".into(),
+        OrderStatus::of(Order::phase_of("cancelled")),
+    );
     let shown = only(&till);
     assert_eq!(shown.phase, SalePhase::Cancelled);
     assert!(shown.phase.is_final() && shown.phase.is_unpaid());
-    till.refund("ord_1").await;
+    till.refund(&"ord_1".into()).await;
     assert_eq!(source.refunded(), ["pay_monero"]);
 }
 
@@ -1365,12 +1370,15 @@ async fn an_expired_sale_stays_open_while_monokulo_watches_it_and_a_late_payment
     let till = f.till(FakeSource::new(vec![sale()]));
     f.enqueue(order());
     till.check().await;
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired).settled(false));
+    till.on_status(
+        &"ord_1".into(),
+        OrderStatus::of(SalePhase::Expired).settled(false),
+    );
     assert!(
         only(&till).open(),
         "Monokulo still watches it for a late payment"
     );
-    till.refund("ord_1").await;
+    till.refund(&"ord_1".into()).await;
     till.on_event(&sale_event(
         "sale.paid",
         "ord_1",
@@ -1390,7 +1398,10 @@ async fn an_expired_sale_stays_open_while_monokulo_watches_it_and_a_late_payment
         "the till still knows the Square sale was refunded"
     );
     assert!(!shown.open());
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired).settled(true));
+    till.on_status(
+        &"ord_1".into(),
+        OrderStatus::of(SalePhase::Expired).settled(true),
+    );
     assert!(
         !only(&till).open(),
         "nothing more will happen once Monokulo says it's final"
@@ -1568,8 +1579,8 @@ async fn closing_a_sale_for_now_takes_its_code_down_and_keeps_it_in_the_shift_wh
     assert!(shown.live());
     assert!(!shown.needs_action());
     clock.set(1_060);
-    till.close("ord_1");
-    till.close("ord_1");
+    till.close(&"ord_1".into());
+    till.close(&"ord_1".into());
     let closed = only(&till);
     assert_eq!(closed.standing(), Standing::Closed);
     assert_eq!(
@@ -1603,8 +1614,8 @@ async fn show_the_code_again_reopens_a_closed_sale() {
     let till = f.till(FakeSource::new(vec![sale()]));
     f.enqueue(order());
     till.check().await;
-    till.close("ord_1");
-    till.reopen("ord_1");
+    till.close(&"ord_1".into());
+    till.reopen(&"ord_1".into());
     let shown = only(&till);
     assert_eq!(shown.standing(), Standing::Live(SalePhase::Waiting));
     assert_eq!(shown.closed_at, None);
@@ -1618,9 +1629,9 @@ async fn refunding_a_closed_sale_marks_both_and_a_late_payment_then_says_paid_af
     let till = f.till(source.clone()).with_clock(Arc::new(clock.clone()));
     f.enqueue(order());
     till.check().await;
-    till.close("ord_1");
+    till.close(&"ord_1".into());
     clock.set(20);
-    till.refund("ord_1").await;
+    till.refund(&"ord_1".into()).await;
     let refunded = only(&till);
     assert_eq!(refunded.standing(), Standing::Refunded);
     assert_eq!(refunded.closed_at, Some(10));
@@ -1650,9 +1661,9 @@ async fn where_the_cashier_refunds_in_the_pos_refunding_marks_the_sale_to_refund
     let till = f.till(source.clone()).with_clock(Arc::new(clock.clone()));
     f.enqueue(order());
     till.check().await;
-    till.close("ord_1");
+    till.close(&"ord_1".into());
     clock.set(20);
-    till.refund("ord_1").await;
+    till.refund(&"ord_1".into()).await;
     let pending = only(&till);
     assert_eq!(pending.standing(), Standing::RefundInPos);
     assert_eq!(pending.refund_pending_at, Some(20));
@@ -1666,7 +1677,7 @@ async fn where_the_cashier_refunds_in_the_pos_refunding_marks_the_sale_to_refund
     );
     assert_eq!(source.looks(), 0, "refunding asks the POS nothing");
     clock.set(25);
-    till.refund("ord_1").await;
+    till.refund(&"ord_1".into()).await;
     assert_eq!(
         only(&till).refund_pending_at,
         Some(20),
@@ -1688,30 +1699,30 @@ async fn ive_refunded_it_marks_the_sale_refunded_when_the_pos_shows_it_and_leave
     let till = f.till(source.clone()).with_clock(Arc::new(clock.clone()));
     f.enqueue(order());
     till.check().await;
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired));
-    till.refund("ord_1").await;
+    till.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::Expired));
+    till.refund(&"ord_1".into()).await;
     assert!(
-        !till.confirm_refund("ord_1").await,
+        !till.confirm_refund(&"ord_1".into()).await,
         "the POS doesn't show it yet"
     );
     assert_eq!(only(&till).standing(), Standing::RefundInPos);
     source.set_down(true);
     assert!(
-        !till.confirm_refund("ord_1").await,
+        !till.confirm_refund(&"ord_1".into()).await,
         "the POS couldn't be asked"
     );
     assert_eq!(only(&till).standing(), Standing::RefundInPos);
     source.set_down(false);
     source.refund_there("pay_monero");
     clock.set(40);
-    assert!(till.confirm_refund("ord_1").await);
+    assert!(till.confirm_refund(&"ord_1".into()).await);
     let refunded = only(&till);
     assert_eq!(refunded.standing(), Standing::Refunded);
     assert_eq!(refunded.refunded_at, Some(40));
     assert!(!refunded.needs_action());
     let looks = source.looks();
     assert!(
-        till.confirm_refund("ord_1").await,
+        till.confirm_refund(&"ord_1".into()).await,
         "refunded already: nothing to ask"
     );
     assert_eq!(source.looks(), looks);
@@ -1734,8 +1745,8 @@ async fn a_sale_told_to_refund_in_a_pos_the_till_no_longer_uses_is_refunded_on_t
     let till = f.till(clover.clone()).with_clock(Arc::new(clock.clone()));
     f.enqueue(order());
     till.check().await;
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired));
-    till.refund("ord_1").await;
+    till.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::Expired));
+    till.refund(&"ord_1".into()).await;
     assert_eq!(only(&till).standing(), Standing::RefundInPos);
     // The cashier changed the point of sale to Square: the shift's sales stay, Clover can't be asked.
     let square = FakeSource::new(vec![]);
@@ -1750,7 +1761,7 @@ async fn a_sale_told_to_refund_in_a_pos_the_till_no_longer_uses_is_refunded_on_t
         "and marks nothing itself"
     );
     assert!(
-        again.confirm_refund("ord_1").await,
+        again.confirm_refund(&"ord_1".into()).await,
         "nothing to ask: the cashier's word"
     );
     let refunded = only(&again);
@@ -1774,12 +1785,12 @@ async fn a_clover_sale_refunded_after_a_change_to_square_is_marked_to_refund_in_
     let till = f.till(clover.clone()).with_clock(Arc::new(clock.clone()));
     f.enqueue(order());
     till.check().await;
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired));
+    till.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::Expired));
     // The cashier changed the point of sale to Square before refunding it.
     let square = FakeSource::new(vec![]);
     clock.set(50);
     let again = f.till(square.clone()).with_clock(Arc::new(clock.clone()));
-    again.refund("ord_1").await;
+    again.refund(&"ord_1".into()).await;
     assert!(
         square.refunded().is_empty(),
         "Clover's payment id is never sent to Square"
@@ -1790,7 +1801,7 @@ async fn a_clover_sale_refunded_after_a_change_to_square_is_marked_to_refund_in_
     assert_eq!(pending.refund_pending_at, Some(50));
     clock.set(60);
     assert!(
-        again.confirm_refund("ord_1").await,
+        again.confirm_refund(&"ord_1".into()).await,
         "nothing can ask Clover: the cashier's word"
     );
     let refunded = only(&again);
@@ -1810,12 +1821,12 @@ async fn a_square_sale_refunded_after_a_change_to_clover_is_never_asked_about_at
         .with_clock(Arc::new(clock.clone()));
     f.enqueue(order());
     till.check().await;
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired));
+    till.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::Expired));
     // The cashier changed the point of sale to Clover before refunding it.
     let clover = InPosSource::new(vec![]);
     clock.set(100);
     let again = f.till(clover.clone()).with_clock(Arc::new(clock.clone()));
-    again.refund("ord_1").await;
+    again.refund(&"ord_1".into()).await;
     assert_eq!(
         only(&again).standing(),
         Standing::RefundInPos,
@@ -1831,7 +1842,7 @@ async fn a_square_sale_refunded_after_a_change_to_clover_is_never_asked_about_at
     );
     assert_eq!(only(&again).standing(), Standing::RefundInPos);
     assert!(
-        again.confirm_refund("ord_1").await,
+        again.confirm_refund(&"ord_1".into()).await,
         "nothing can ask Square: the cashier's word"
     );
     assert_eq!(clover.looks(), 0);
@@ -1846,8 +1857,8 @@ async fn ive_refunded_it_changes_nothing_for_a_sale_never_told_to_refund_in_the_
     let till = f.till(FakeSource::new(vec![sale()]));
     f.enqueue(order());
     till.check().await;
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired));
-    assert!(!till.confirm_refund("ord_1").await);
+    till.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::Expired));
+    assert!(!till.confirm_refund(&"ord_1".into()).await);
     assert_eq!(only(&till).standing(), Standing::Expired);
 }
 
@@ -1861,8 +1872,8 @@ async fn the_till_looks_for_a_refund_in_the_pos_at_most_every_30_seconds_and_mar
     f.enqueue(order());
     till.check().await;
     assert_eq!(source.looks(), 0, "nothing pending, nothing asked");
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired));
-    till.refund("ord_1").await;
+    till.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::Expired));
+    till.refund(&"ord_1".into()).await;
     till.check().await;
     assert_eq!(source.looks(), 1);
     clock.set(129);
@@ -1906,7 +1917,7 @@ async fn a_paid_sale_is_never_marked_to_refund_in_the_pos() {
     f.enqueue(order());
     till.check().await;
     till.on_event(&ord_1("sale.paid", 2));
-    till.refund("ord_1").await;
+    till.refund(&"ord_1".into()).await;
     let paid = only(&till);
     assert_eq!(paid.refund_pending_at, None);
     assert_eq!(paid.standing(), Standing::PAID);
@@ -1923,9 +1934,12 @@ async fn an_expired_or_reversed_sale_needs_action_until_refunded_while_another_t
         .with_clock(Arc::new(clock.clone()));
     f.enqueue(order());
     till.check().await;
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Seen));
+    till.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::Seen));
     clock.set(200);
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired).settled(true));
+    till.on_status(
+        &"ord_1".into(),
+        OrderStatus::of(SalePhase::Expired).settled(true),
+    );
     let expired = only(&till);
     assert_eq!(expired.standing(), Standing::Expired);
     assert_eq!(
@@ -1935,10 +1949,10 @@ async fn an_expired_or_reversed_sale_needs_action_until_refunded_while_another_t
     );
     assert_eq!(expired.ended_at, Some(200));
     assert!(expired.needs_action());
-    till.on_status("ord_1", OrderStatus::of(SalePhase::DoubleSpend));
+    till.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::DoubleSpend));
     assert_eq!(only(&till).standing(), Standing::Reversed);
     assert_eq!(only(&till).ended_at, Some(200), "ended once");
-    till.refund("ord_1").await;
+    till.refund(&"ord_1".into()).await;
     assert_eq!(only(&till).standing(), Standing::Refunded);
     // Another till's sale, on a till with no point of sale: it can't refund
     // it, so it never needs action here.
@@ -1970,7 +1984,10 @@ async fn an_expired_or_reversed_sale_needs_action_until_refunded_while_another_t
         310,
     ));
     clock.set(320);
-    till.on_status("ord_2", OrderStatus::of(SalePhase::Expired).settled(true));
+    till.on_status(
+        &"ord_2".into(),
+        OrderStatus::of(SalePhase::Expired).settled(true),
+    );
     till.on_event(&sale_event(
         "sale.expired",
         "ord_2",
@@ -1983,7 +2000,7 @@ async fn an_expired_or_reversed_sale_needs_action_until_refunded_while_another_t
         "Back till",
         320,
     ));
-    let theirs = till.state().sale("ord_2").unwrap().clone();
+    let theirs = till.state().sale(&"ord_2".into()).unwrap().clone();
     assert_eq!(theirs.standing(), Standing::OtherTill);
     assert_eq!(theirs.created_at, 300);
     assert_eq!(theirs.seen_at, Some(310));
@@ -1993,9 +2010,9 @@ async fn an_expired_or_reversed_sale_needs_action_until_refunded_while_another_t
         theirs.receipt, None,
         "another till's sale has no items here"
     );
-    till.close("ord_2");
+    till.close(&"ord_2".into());
     assert_eq!(
-        till.state().sale("ord_2").unwrap().standing(),
+        till.state().sale(&"ord_2".into()).unwrap().standing(),
         Standing::OtherTill,
         "closing it here changes nothing about who has its Square sale"
     );
@@ -2009,7 +2026,7 @@ async fn a_till_started_on_the_ledger_shows_its_sales_marks_and_receipts() {
         .with_clock(Arc::new(clock(50)));
     f.enqueue(order());
     first.check().await;
-    first.close("ord_1");
+    first.close(&"ord_1".into());
     // Android ended the process: the next run reads the ledger.
     let again = f.till(FakeSource::new(vec![]));
     let shown = only(&again);
@@ -2027,7 +2044,10 @@ async fn a_till_started_on_the_ledger_shows_its_sales_marks_and_receipts() {
     let journal = again.books().with(|l| l.journal()).unwrap().len();
     again.check().await;
     assert_eq!(again.books().with(|l| l.journal()).unwrap().len(), journal);
-    again.on_status("ord_1", OrderStatus::of(SalePhase::Expired).settled(true));
+    again.on_status(
+        &"ord_1".into(),
+        OrderStatus::of(SalePhase::Expired).settled(true),
+    );
     assert_eq!(f.reloaded()[0].standing(), Standing::Expired);
 }
 
@@ -2071,7 +2091,7 @@ async fn the_shift_lists_its_sales_newest_first() {
             i as i64,
         ));
     }
-    let ids: Vec<String> = till
+    let ids: Vec<OrderId> = till
         .state()
         .sales
         .into_iter()
@@ -2090,9 +2110,9 @@ async fn a_refund_the_pos_refuses_leaves_the_sale_closed_and_unrefunded_says_why
     f.enqueue(order());
     till.check().await;
     // The close sheet's "No": close, then refund.
-    till.close("ord_1");
+    till.close(&"ord_1".into());
     *source.refusal.lock().unwrap() = Some("Square is down".into());
-    till.refund("ord_1").await;
+    till.refund(&"ord_1".into()).await;
     let failed = only(&till);
     assert_eq!(failed.standing(), Standing::Closed);
     assert!(!failed.refunded());
@@ -2111,7 +2131,7 @@ async fn a_refund_the_pos_refuses_leaves_the_sale_closed_and_unrefunded_says_why
         "a check doesn't wipe the sale's refund problem"
     );
     *source.refusal.lock().unwrap() = None;
-    till.refund("ord_1").await;
+    till.refund(&"ord_1".into()).await;
     assert_eq!(only(&till).standing(), Standing::Refunded);
     assert!(till.state().refund_problems.is_empty());
 }
@@ -2128,11 +2148,14 @@ async fn a_closed_sale_keeps_its_marks_and_times_through_the_stream_and_a_resync
     clock.set(5);
     till.on_event(&ord_1("sale.seen", 5));
     clock.set(20);
-    till.close("ord_1");
+    till.close(&"ord_1".into());
     clock.set(30);
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Seen));
+    till.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::Seen));
     clock.set(40);
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired).settled(true));
+    till.on_status(
+        &"ord_1".into(),
+        OrderStatus::of(SalePhase::Expired).settled(true),
+    );
     let shown = only(&till);
     assert_eq!(shown.seen_at, Some(5));
     assert_eq!(shown.closed_at, Some(20));
@@ -2166,7 +2189,7 @@ async fn a_reversed_sale_stays_reversed_through_a_resync_that_reads_pending_and_
         .till(FakeSource::new(vec![]))
         .with_clock(Arc::new(clock.clone()));
     again.on_status(
-        "ord_1",
+        &"ord_1".into(),
         OrderStatus::of(Order::phase_of("pending")).settled(false),
     );
     let shown = only(&again);
@@ -2180,10 +2203,16 @@ async fn a_reversed_sale_stays_reversed_through_a_resync_that_reads_pending_and_
     assert_eq!(shown.ended_at, Some(7));
     assert_eq!(f.reloaded()[0].standing(), Standing::Reversed);
     // Nor does it read as expired once its code runs out: it still mustn't be handed over.
-    again.on_status("ord_1", OrderStatus::of(SalePhase::Expired).settled(false));
+    again.on_status(
+        &"ord_1".into(),
+        OrderStatus::of(SalePhase::Expired).settled(false),
+    );
     assert_eq!(only(&again).standing(), Standing::Reversed);
     // Only a payment moves it on.
-    again.on_status("ord_1", OrderStatus::of(SalePhase::Paid).settled(true));
+    again.on_status(
+        &"ord_1".into(),
+        OrderStatus::of(SalePhase::Paid).settled(true),
+    );
     assert_eq!(
         only(&again).standing(),
         Standing::Paid {
@@ -2201,9 +2230,12 @@ async fn an_expired_sale_never_goes_back_to_waiting_whatever_a_resync_reads() {
         .with_clock(Arc::new(clock(10)));
     f.enqueue(order());
     till.check().await;
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired).settled(true));
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Waiting));
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Seen));
+    till.on_status(
+        &"ord_1".into(),
+        OrderStatus::of(SalePhase::Expired).settled(true),
+    );
+    till.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::Waiting));
+    till.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::Seen));
     assert_eq!(only(&till).standing(), Standing::Expired);
     assert_eq!(
         only(&till).seen_at,
@@ -2234,13 +2266,13 @@ async fn a_code_whose_time_ran_out_is_expired_by_the_clock_and_a_payment_still_p
     );
     assert_eq!(lapsed.ended_at, Some(1761312000));
     assert_eq!(Till::next_lapse(&till.state()), None);
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Waiting));
+    till.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::Waiting));
     assert_eq!(
         only(&till).standing(),
         Standing::Expired,
         "a server late to expire it doesn't bring it back"
     );
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Paid));
+    till.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::Paid));
     assert_eq!(only(&till).phase, SalePhase::Paid);
 }
 
@@ -2337,9 +2369,12 @@ async fn stopping_watching_closes_every_live_sale_which_a_late_payment_still_pay
         Some(UnixSeconds(at).to_millis()),
         "and the shift's window ends"
     );
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Paid).settled(true));
+    till.on_status(
+        &"ord_1".into(),
+        OrderStatus::of(SalePhase::Paid).settled(true),
+    );
     assert_eq!(
-        till.state().sale("ord_1").unwrap().standing(),
+        till.state().sale(&"ord_1".into()).unwrap().standing(),
         Standing::Paid {
             late: true,
             after_refund: false
@@ -2374,7 +2409,7 @@ async fn a_sale_keeps_the_stores_threshold_from_its_order_and_its_events_say_wha
         "confirming: at least the block it's in"
     );
     till.on_status(
-        "ord_1",
+        &"ord_1".into(),
         OrderStatus::of(SalePhase::Confirming).counted(4, 10),
     );
     till.on_event(&event("sale.confirming"));
@@ -2392,7 +2427,7 @@ async fn an_older_monokulo_that_gives_no_count_leaves_the_ring_to_fill_by_step()
     f.enqueue(order());
     till.check().await;
     assert_eq!(only(&till).confirmations_required, None);
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Confirming));
+    till.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::Confirming));
     let shown = only(&till);
     assert_eq!(shown.confirmations, Some(1));
     assert_eq!(shown.confirmations_required, None, "nothing to count to");
@@ -2543,7 +2578,9 @@ async fn another_counters_cash_sale_is_listed_quietly_and_its_order_made_only_by
     // and still alerts nothing on this counter's till.
     f.enqueue(order());
     assert_eq!(
-        till.take_in_monero("cash:pay_cash").await.as_deref(),
+        till.take_in_monero(&"cash:pay_cash".into())
+            .await
+            .as_deref(),
         Ok("ord_1")
     );
     assert_eq!(f.request_count(), 2, "the entry, then the order");
@@ -2600,12 +2637,12 @@ async fn new_code_renews_the_one_order_with_its_form() {
     let till = f.till(FakeSource::new(vec![sale()]));
     f.enqueue(renewable_order());
     till.check().await;
-    assert!(till.new_code("ord_1").await.is_err(), "not while it's live");
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired));
+    assert!(till.new_code(&"ord_1".into()).await.is_err(), "not while it's live");
+    till.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::Expired));
     assert!(only(&till).may_new_code());
     let before = f.request_count();
     f.enqueue(renewed_order());
-    assert_eq!(till.new_code("ord_1").await.as_deref(), Ok("ord_1"));
+    assert_eq!(till.new_code(&"ord_1".into()).await.as_deref(), Ok("ord_1"));
     assert_eq!(f.request_count(), before + 1, "one request: the renewal");
     while f.taken.load(Ordering::SeqCst) < before {
         f.take_request();
@@ -2623,13 +2660,13 @@ async fn new_code_renews_the_one_order_with_its_form() {
     );
     assert_eq!(shown.code.uri, "monero:8Bx?tx_amount=0.09");
     // The first code's ending, heard late, doesn't end the new one.
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired));
+    till.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::Expired));
     assert!(
         only(&till).live(),
         "an observation with no quote is the first's"
     );
     // Paid against either: the sale is paid.
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Paid).settled(true));
+    till.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::Paid).settled(true));
     assert_eq!(only(&till).phase, SalePhase::Paid);
 }
 
@@ -2643,18 +2680,18 @@ async fn new_code_makes_no_second_order_and_says_why_it_cant_renew() {
     let till = f.till(FakeSource::new(vec![sale()]));
     f.enqueue(order());
     till.check().await;
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired));
+    till.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::Expired));
     let older = only(&till);
     assert!(!older.extras.renewable && !older.may_new_code());
     let before = f.request_count();
-    assert!(till.new_code("ord_1").await.is_err());
+    assert!(till.new_code(&"ord_1".into()).await.is_err());
     assert_eq!(f.request_count(), before, "nothing was asked");
 
     let f = fixture().await;
     let till = f.till(FakeSource::new(vec![sale()]));
     f.enqueue(renewable_order());
     till.check().await;
-    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired));
+    till.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::Expired));
     f.enqueue(
         ResponseTemplate::new(409)
             .insert_header("Content-Type", "application/problem+json")
@@ -2664,7 +2701,7 @@ async fn new_code_makes_no_second_order_and_says_why_it_cant_renew() {
                 "application/problem+json",
             ),
     );
-    let refused = till.new_code("ord_1").await.unwrap_err();
+    let refused = till.new_code(&"ord_1".into()).await.unwrap_err();
     assert_eq!(
         refused,
         "This order can't be renewed: a payment has reached it."
@@ -2673,7 +2710,7 @@ async fn new_code_makes_no_second_order_and_says_why_it_cant_renew() {
     assert_eq!(still.phase, SalePhase::Expired);
     assert_eq!(still.expires_at, 1_761_312_000);
     f.enqueue(ResponseTemplate::new(405));
-    let gone = till.new_code("ord_1").await.unwrap_err();
+    let gone = till.new_code(&"ord_1".into()).await.unwrap_err();
     assert!(
         gone.starts_with("This store's Monokulo can't make a new code"),
         "{gone}"

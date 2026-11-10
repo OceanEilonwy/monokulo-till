@@ -13,6 +13,7 @@
 //! posted on the device, the lock screen included (core.md decision 124);
 //! what was bought is never on Android's lock screen.
 
+use monokulo_client::OrderId;
 use monokulo_client::{MoneyFormat, PointOfSale, SalePhase};
 use till_sales::TillSale;
 
@@ -325,7 +326,7 @@ pub enum OngoingFace {
     /// "Watching for Monero sales", and "The Bean Room · Front Counter".
     Watching { title: String, text: String },
     Sale {
-        order_id: String,
+        order_id: OrderId,
         face: Face,
         /// The sale's title, the notification's sub-text.
         sub_text: String,
@@ -339,7 +340,7 @@ pub enum OngoingFace {
         address: String,
     },
     Paid {
-        order_id: String,
+        order_id: OrderId,
         face: Face,
         sub_text: String,
     },
@@ -349,7 +350,7 @@ pub enum OngoingFace {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct SaleAlert {
-    pub order_id: String,
+    pub order_id: OrderId,
     /// "New Monero sale · $24.50".
     pub title: String,
     /// "Front Counter. Swipe in Till, or tap here, to show the payment
@@ -386,10 +387,10 @@ pub struct NotificationInput {
     /// The till's sales, newest first.
     pub sales: Vec<TillSale>,
     /// The sale just paid, for the few seconds it shows as paid.
-    pub just_paid: Option<String>,
+    pub just_paid: Option<OrderId>,
     /// The sale to alert about: new since the last look
     /// ([`crate::till_nav::PhaseChanges`]), while the app isn't in front.
-    pub alert_for: Option<String>,
+    pub alert_for: Option<OrderId>,
     /// The store's name as last read.
     pub store: Option<String>,
     /// The till's Square location or Clover merchant.

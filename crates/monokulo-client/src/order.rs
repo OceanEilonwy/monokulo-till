@@ -3,13 +3,19 @@
 use serde::{Deserialize, Serialize};
 
 use crate::payment_uri;
+
+till_types::text_id!(
+    /// Monokulo's id for an order: what create-order answers, and what a
+    /// sale event names. Every crate's order id is this one type.
+    OrderId
+);
 use crate::sale::SalePhase;
 
 /// An order, as the API answers it: made with the `create-order` form, or
 /// read at its `self` link. Fields it doesn't know are ignored.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Order {
-    pub order_id: String,
+    pub order_id: OrderId,
     #[serde(default = "pending")]
     pub status: OrderStatus,
     #[serde(default)]

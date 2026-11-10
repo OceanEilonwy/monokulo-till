@@ -8,6 +8,7 @@
 //! decision 2): the same state draws both. Android has its ongoing
 //! notification ([`crate::notification`]).
 
+use monokulo_client::OrderId;
 use till_sales::TillSale;
 
 use monokulo_client::SalePhase;
@@ -38,7 +39,7 @@ pub struct LiveActivityState {
     /// The order shown, for the tap's `monokulo-till://sale/{id}`. The app
     /// sets it; Monokulo's pushes don't carry it, so after one the tap
     /// opens the app at its shift.
-    pub order_id: Option<String>,
+    pub order_id: Option<OrderId>,
     /// "#1042": the sale's label.
     pub sale: Option<String>,
     /// "24.50": formatted by the device with `currency`, as Monokulo sends
@@ -73,10 +74,10 @@ pub struct LiveActivityInput {
     pub sales: Vec<TillSale>,
     /// The sale just paid, while it shows as paid (the app then idles the
     /// activity).
-    pub just_paid: Option<String>,
+    pub just_paid: Option<OrderId>,
     /// The sale whose code just ran out (or whose payment was reversed),
     /// while it shows as expired.
-    pub just_ended: Option<String>,
+    pub just_ended: Option<OrderId>,
     /// Settings › Dynamic Island › "Show code in island" (off by default).
     pub code_in_island: bool,
     /// The code keeps its receipt: the state is drawn on this device alone

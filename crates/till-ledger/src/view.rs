@@ -12,7 +12,7 @@ use till_pos::FoundSale;
 
 use crate::UnixMillis;
 use crate::facts::{Outcome, RefundStatus, Tender};
-use crate::ids::{DeviceId, SaleKey};
+use crate::ids::{DeviceId, OrderId, SaleKey};
 use crate::model::{LocalMarks, PaymentPhase, SharedSale};
 
 /// What an offered cash sale's `order_id` starts with, before the
@@ -95,7 +95,7 @@ pub struct SaleView {
     pub sale: SaleKey,
     /// Its order's id; `cash:<payment>` for a cash sale
     /// with no order; the sale key for a sale still waiting for its order.
-    pub order_id: String,
+    pub order_id: OrderId,
     /// The deciding order's price, else the POS payment's.
     #[serde(flatten)]
     pub price: till_types::Price,
@@ -288,9 +288,9 @@ pub fn view(
     SaleView {
         sale: sale.clone(),
         order_id: match (order, payment) {
-            (Some(o), _) => o.order_id.0.clone(),
-            (None, Some(p)) if cash => format!("{OFFERED}{}", p.payment),
-            (None, _) => sale.text(),
+            (Some(o), _) => o.order_id.clone(),
+            (None, Some(p)) if cash => format!("{OFFERED}{}", p.payment).into(),
+            (None, _) => sale.text().into(),
         },
         price: order.map(|o| o.price.clone()).unwrap_or_else(|| {
             payment.map_or_else(

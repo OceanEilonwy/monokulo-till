@@ -3,6 +3,7 @@
 //! `SaleText.kt`'s `Bubble` and `PaidBuzz`, `overlay/Faces.kt`'s `Panel`
 //! words).
 
+use monokulo_client::OrderId;
 use monokulo_client::{MoneyFormat, PointOfSale, SalePhase};
 use till_sales::{Standing, TillSale};
 
@@ -49,7 +50,7 @@ pub fn look(sales: &[TillSale], just_paid: bool) -> BubbleLook {
 /// Which sale the bubble and its panel are about: the one just paid, while
 /// it shows as paid; else the newest whose code is up; else the last one
 /// they showed.
-pub fn focus(sales: &[TillSale], previous: Option<&str>, just_paid: bool) -> Option<String> {
+pub fn focus(sales: &[TillSale], previous: Option<&str>, just_paid: bool) -> Option<OrderId> {
     let shown = sales
         .iter()
         .find(|sale| Some(sale.order_id.as_str()) == previous);
@@ -403,7 +404,7 @@ pub struct PanelInput {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct PanelView {
-    pub order_id: String,
+    pub order_id: OrderId,
     /// The sale, as its live screen shows it.
     pub sale: SaleView,
     /// The header's second line: the till's location, or who took it.

@@ -75,7 +75,7 @@ impl SalePhase {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SaleEvent {
     pub event: String,
-    pub order_id: String,
+    pub order_id: crate::order::OrderId,
     pub amount: String,
     pub currency: String,
     pub address: String,

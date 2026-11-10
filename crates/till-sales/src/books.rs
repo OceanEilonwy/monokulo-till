@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 
+use till_ledger::OrderId;
 use till_ledger::{
     Claim, ClaimPolicy, Fact, Ledger, LedgerError, Opened, Recorded, SaleKey, SaleRow, SaleView,
     Scope, UnixMillis, UnixSeconds, ViewSettings, view::setting,
@@ -183,7 +184,7 @@ impl Books {
         }
         sales.truncate(crate::Till::MAX_SALES);
         shown.truncate(crate::Till::MAX_SALES);
-        let refund_problems: BTreeMap<String, String> = shown
+        let refund_problems: BTreeMap<OrderId, String> = shown
             .iter()
             .filter_map(|v| Some((v.order_id.clone(), v.refund_problem.clone()?)))
             .collect();
@@ -243,7 +244,7 @@ impl Books {
 
     /// The sale a screen calls `order_id`: its deciding order's id, one of
     /// an offered cash sale's `cash:` id, or its key.
-    pub fn sale_key(&self, order_id: &str) -> Option<SaleKey> {
+    pub fn sale_key(&self, order_id: &OrderId) -> Option<SaleKey> {
         let state = self.state.borrow();
         state
             .views

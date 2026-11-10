@@ -201,8 +201,9 @@ impl OrderFacts {
         self.renew = max_opt(self.renew.take(), other.renew.clone());
         self.reference = max_opt(self.reference.take(), other.reference.clone());
         larger(&mut self.address, &other.address);
-        larger(&mut self.amount, &other.amount);
-        larger(&mut self.currency, &other.currency);
+        // One order's two accounts carry one price; a known one beats an
+        // empty one, as above.
+        larger(&mut self.price, &other.price);
     }
 
     /// Which of two orders made for one sale stands, as `Ordering`: only a
@@ -1024,8 +1025,7 @@ mod tests {
             payment_uri: format!("monero:8a?tx_amount={xmr}"),
             address: "8a".into(),
             xmr: xmr.into(),
-            amount: "24.50".into(),
-            currency: "USD".into(),
+            price: till_types::Price::new("24.50", "USD"),
             reference: None,
             expires_at,
             confirmations_required: None,

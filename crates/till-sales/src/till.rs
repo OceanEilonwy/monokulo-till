@@ -273,7 +273,7 @@ impl Till {
     }
 
     /// The sale for `order_id` as the shift shows it, with its key.
-    fn sale(&self, order_id: &str) -> Option<(SaleKey, TillSale)> {
+    fn sale(&self, order_id: &OrderId) -> Option<(SaleKey, TillSale)> {
         let state = self.books.state();
         let at = state
             .views
@@ -586,9 +586,9 @@ impl Till {
     /// What a read of an order said about its sale (after the stream
     /// reconnects, say): its phase, whether it's [`TillSale::settled`], and
     /// its confirmations when Monokulo said.
-    pub fn on_status(&self, order_id: &str, status: OrderStatus) {
+    pub fn on_status(&self, order_id: &OrderId, status: OrderStatus) {
         self.record(Fact::OrderObserved(OrderObserved {
-            order_id: OrderId::new(order_id),
+            order_id: order_id.clone(),
             phase: status.phase,
             confirmations: status.confirmations.or(stepped(status.phase)),
             is_final: status.settled,
@@ -694,7 +694,7 @@ impl Till {
     /// to the shift, where Monokulo's late payment still reaches it and the
     /// cashier can refund it. Nothing is said to Monokulo (docs/ledger.md
     /// §7: a close stays on this till).
-    pub fn close(&self, order_id: &str) {
+    pub fn close(&self, order_id: &OrderId) {
         if let Some((key, _)) = self.sale(order_id) {
             self.mark(&key, MarkKind::Closed);
         }
@@ -770,7 +770,7 @@ impl Till {
     }
 
     /// "Show the code again" on a closed sale: its code is back up.
-    pub fn reopen(&self, order_id: &str) {
+    pub fn reopen(&self, order_id: &OrderId) {
         if let Some((key, _)) = self.sale(order_id) {
             self.mark(&key, MarkKind::Reopened);
         }
@@ -838,7 +838,7 @@ impl Till {
         key: &SaleKey,
         found: &FoundSale,
         action: Action,
-    ) -> Result<String, String> {
+    ) -> Result<OrderId, String> {
         let order = self.acted(key, action, self.create_order(found)).await?;
         self.created(key, &order, found);
         Ok(order.order_id)
@@ -847,7 +847,7 @@ impl Till {
     /// "Take it in Monero" on an offered cash sale: its order is made now,
     /// by the cashier, from any till. The new order's id, or what went
     /// wrong. A sale that isn't offered any more answers its own id.
-    pub async fn take_in_monero(&self, order_id: &str) -> Result<String, String> {
+    pub async fn take_in_monero(&self, order_id: &OrderId) -> Result<OrderId, String> {
         let Some((key, offered)) = self.sale(order_id) else {
             return Err("That sale isn't on the till any more.".into());
         };
@@ -864,7 +864,7 @@ impl Till {
     /// tills asking at once get one renewal). Only when the order offers
     /// the form: never a second order instead. The order's id (unchanged),
     /// or what went wrong.
-    pub async fn new_code(&self, order_id: &str) -> Result<String, String> {
+    pub async fn new_code(&self, order_id: &OrderId) -> Result<OrderId, String> {
         let Some((key, sale)) = self.sale(order_id) else {
             return Err("That sale isn't on the till any more.".into());
         };
@@ -891,7 +891,7 @@ impl Till {
     }
 
     /// "Keep as cash" on an offered cash sale: it stays listed, quietly.
-    pub fn keep_as_cash(&self, order_id: &str) {
+    pub fn keep_as_cash(&self, order_id: &OrderId) {
         if let Some((key, sale)) = self.sale(order_id)
             && sale.offered
         {
@@ -903,7 +903,7 @@ impl Till {
     /// cash after all, so its code comes down and nothing is refunded (the
     /// point of sale already has the cash). Only a cash sale, and never one
     /// already paid in Monero.
-    pub fn paid_in_cash(&self, order_id: &str) {
+    pub fn paid_in_cash(&self, order_id: &OrderId) {
         if let Some((key, sale)) = self.sale(order_id)
             && sale.cash()
             && !sale.offered
@@ -922,7 +922,7 @@ impl Till {
     /// A paid sale is never refunded from here, nor one already refunded:
     /// the payment may land while the cashier's "No" is on its way. Why the
     /// POS refused is kept with the sale ([`TillState::refund_problems`]).
-    pub async fn refund(&self, order_id: &str) {
+    pub async fn refund(&self, order_id: &OrderId) {
         let Some((key, sale)) = self.sale(order_id) else {
             return;
         };
@@ -992,7 +992,7 @@ impl Till {
     /// till's any more (the cashier changed it), or the source can't ask
     /// its own ([`Refunds::ByTill`]). The cashier's word marks the sale
     /// refunded, so it isn't left needing action for the rest of the shift.
-    pub async fn confirm_refund(&self, order_id: &str) -> bool {
+    pub async fn confirm_refund(&self, order_id: &OrderId) -> bool {
         let Some((key, sale)) = self.sale(order_id) else {
             return false;
         };

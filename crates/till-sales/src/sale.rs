@@ -4,6 +4,7 @@
 
 use std::collections::BTreeMap;
 
+use monokulo_client::OrderId;
 use monokulo_client::{SalePhase, UnixSeconds};
 use orf_codec::Receipt;
 use serde::{Deserialize, Serialize};
@@ -67,7 +68,7 @@ impl PaymentCode {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TillSale {
-    pub order_id: String,
+    pub order_id: OrderId,
     /// Its price, as the order said it: kept as Kotlin kept it, `amount`
     /// and `currency` as written, and read once as money.
     #[serde(flatten)]
@@ -340,12 +341,12 @@ pub struct TillState {
     /// Why the POS refused a refund, by order: shown on that sale's page
     /// beside its Refund button until it's tried again, which the next
     /// check, clearing `problem`, doesn't undo.
-    pub refund_problems: BTreeMap<String, String>,
+    pub refund_problems: BTreeMap<OrderId, String>,
 }
 
 impl TillState {
     /// The sale for `order_id`, if the till has it.
-    pub fn sale(&self, order_id: &str) -> Option<&TillSale> {
+    pub fn sale(&self, order_id: &OrderId) -> Option<&TillSale> {
         self.sales.iter().find(|sale| sale.order_id == order_id)
     }
 }

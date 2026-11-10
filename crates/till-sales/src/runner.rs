@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use futures_util::StreamExt;
+use monokulo_client::OrderId;
 use monokulo_client::{
     Clock, Connection, MonokuloApi, PointOfSale, StreamEvent, SystemClock, problems,
 };
@@ -324,7 +325,7 @@ impl TillRunner {
     /// Refunds the sale's POS sale ([`Till::refund`]), closing it first when
     /// `close` says (the close sheet's "No"). The task ends when the POS
     /// has answered; `None` with no till.
-    pub fn refund(&self, order_id: &str, close: bool) -> Option<JoinHandle<()>> {
+    pub fn refund(&self, order_id: &OrderId, close: bool) -> Option<JoinHandle<()>> {
         let till = self.till()?;
         let order_id = order_id.to_owned();
         Some(self.inner.runtime.spawn(async move {
@@ -337,7 +338,7 @@ impl TillRunner {
 
     /// Where `order_id` stands in the till itself, ahead of the runner's
     /// copy.
-    pub fn standing(&self, order_id: &str) -> Option<Standing> {
+    pub fn standing(&self, order_id: &OrderId) -> Option<Standing> {
         self.till()?
             .state()
             .sale(order_id)
@@ -346,7 +347,7 @@ impl TillRunner {
 
     /// The refund sheet's "I've refunded it": whether the point of sale now
     /// shows the sale refunded (decision 130).
-    pub async fn confirm_refund(&self, order_id: &str) -> bool {
+    pub async fn confirm_refund(&self, order_id: &OrderId) -> bool {
         match self.till() {
             Some(till) => till.confirm_refund(order_id).await,
             None => false,
@@ -355,28 +356,28 @@ impl TillRunner {
 
     /// Closes the sale for now (the close sheet's "Not sure"): its code
     /// comes down, it stays in the shift.
-    pub fn close(&self, order_id: &str) {
+    pub fn close(&self, order_id: &OrderId) {
         if let Some(till) = self.till() {
             till.close(order_id);
         }
     }
 
     /// "Show the code again" on a closed sale.
-    pub fn reopen(&self, order_id: &str) {
+    pub fn reopen(&self, order_id: &OrderId) {
         if let Some(till) = self.till() {
             till.reopen(order_id);
         }
     }
 
     /// "Keep as cash" on an offered cash sale.
-    pub fn keep_as_cash(&self, order_id: &str) {
+    pub fn keep_as_cash(&self, order_id: &OrderId) {
         if let Some(till) = self.till() {
             till.keep_as_cash(order_id);
         }
     }
 
     /// "Paid in cash" on a cash sale with a code.
-    pub fn paid_in_cash(&self, order_id: &str) {
+    pub fn paid_in_cash(&self, order_id: &OrderId) {
         if let Some(till) = self.till() {
             till.paid_in_cash(order_id);
         }
@@ -640,7 +641,7 @@ mod tests {
         assert_eq!(side.reads.load(Ordering::SeqCst), 1, "one shift at a time");
         until(&runner, |s| s.till.sales.len() == 1).await;
         assert_eq!(
-            runner.standing("ord_2"),
+            runner.standing(&"ord_2".into()),
             Some(Standing::Live(monokulo_client::SalePhase::Waiting))
         );
         runner.close_live();
@@ -655,7 +656,7 @@ mod tests {
         );
         runner.stop();
         assert!(!runner.state().running);
-        runner.reopen("ord_2");
+        runner.reopen(&"ord_2".into());
         until(&runner, |s| s.till.sales[0].closed_at.is_none()).await;
     }
 

@@ -3,6 +3,7 @@
 //! (Android: `SaleText.kt`'s `TillNav` and `PhaseChanges`). The engine
 //! holds what the last look saw and asks these after every change.
 
+use monokulo_client::OrderId;
 use std::collections::{BTreeSet, HashMap};
 
 use monokulo_client::SalePhase;
@@ -17,15 +18,15 @@ pub enum TillPlace {
     Shift,
     /// One sale: its code while it's live, else its page.
     Sale {
-        order_id: String,
+        order_id: OrderId,
     },
     /// A live sale's code enlarged.
     Code {
-        order_id: String,
+        order_id: OrderId,
     },
     /// What a live sale's customer bought, every line.
     Order {
-        order_id: String,
+        order_id: OrderId,
     },
     Other,
 }
@@ -41,8 +42,8 @@ pub enum TillPlace {
 pub fn follow(
     place: &TillPlace,
     sales: &[TillSale],
-    left: &BTreeSet<String>,
-    live_before: &BTreeSet<String>,
+    left: &BTreeSet<OrderId>,
+    live_before: &BTreeSet<OrderId>,
     resting_on_shift: bool,
 ) -> TillPlace {
     match place {
@@ -73,26 +74,26 @@ pub fn follow(
 pub fn paid_on_screen(
     place: &TillPlace,
     sales: &[TillSale],
-    live_before: &BTreeSet<String>,
-) -> Option<String> {
+    live_before: &BTreeSet<OrderId>,
+) -> Option<OrderId> {
     let TillPlace::Sale { order_id } = place else {
         return None;
     };
-    let sale = sales.iter().find(|sale| &sale.order_id == order_id)?;
+    let sale = sales.iter().find(|sale| sale.order_id == order_id)?;
     (live_before.contains(order_id) && matches!(sale.standing(), Standing::Paid { .. }))
         .then(|| order_id.clone())
 }
 
 /// Whether a payment landed since the last look: a sale that was live then
 /// is paid now.
-pub fn payment_landed(sales: &[TillSale], live_before: &BTreeSet<String>) -> bool {
+pub fn payment_landed(sales: &[TillSale], live_before: &BTreeSet<OrderId>) -> bool {
     sales.iter().any(|sale| {
         live_before.contains(&sale.order_id) && matches!(sale.standing(), Standing::Paid { .. })
     })
 }
 
 /// The live sales' ids: what the next look's `live_before` is.
-pub fn live_ids(sales: &[TillSale]) -> BTreeSet<String> {
+pub fn live_ids(sales: &[TillSale]) -> BTreeSet<OrderId> {
     sales
         .iter()
         .filter(|sale| sale.live())
@@ -112,7 +113,7 @@ fn live_or_unknown(sales: &[TillSale], order_id: &str) -> bool {
 /// sale).
 #[derive(Debug, Default)]
 pub struct PhaseChanges {
-    last: HashMap<String, SalePhase>,
+    last: HashMap<OrderId, SalePhase>,
     started: bool,
 }
 
@@ -145,8 +146,8 @@ mod tests {
     use super::*;
     use crate::shift::tests::{fixture_shift, sale_of as sale};
 
-    fn ids(ids: &[&str]) -> BTreeSet<String> {
-        ids.iter().map(|id| id.to_string()).collect()
+    fn ids(ids: &[&str]) -> BTreeSet<OrderId> {
+        ids.iter().map(|id| (*id).into()).collect()
     }
 
     fn at_sale(id: &str) -> TillPlace {
@@ -194,7 +195,7 @@ mod tests {
      {
         let waiting = sale("w").build();
         let none = BTreeSet::new();
-        let on_shift = |sales: &[TillSale], left: &BTreeSet<String>| {
+        let on_shift = |sales: &[TillSale], left: &BTreeSet<OrderId>| {
             follow(&TillPlace::Shift, sales, left, &none, true)
         };
         assert_eq!(
@@ -343,8 +344,8 @@ mod tests {
     fn a_sale_that_arrived_elsewhere_never_rises_later() {
         let sales = [sale("b").build(), sale("a").build()];
         let left = ids(&["a"]);
-        let mut live_before: BTreeSet<String>;
-        let look = |place: TillPlace, resting: bool, live_before: &mut BTreeSet<String>| {
+        let mut live_before: BTreeSet<OrderId>;
+        let look = |place: TillPlace, resting: bool, live_before: &mut BTreeSet<OrderId>| {
             let next = follow(&place, &sales, &left, live_before, resting);
             *live_before = live_ids(&sales);
             next

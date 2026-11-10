@@ -5,6 +5,7 @@
 //! forgotten (the generation), and after each batch of messages every
 //! [`Update`] slice is published if it changed.
 
+use monokulo_client::OrderId;
 use std::collections::BTreeSet;
 use std::future::Future;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -144,7 +145,7 @@ pub(crate) fn spawn(
 /// through (decision 130 of android.md).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RefundSheet {
-    pub order_id: String,
+    pub order_id: OrderId,
     pub pos: PointOfSale,
     /// The point of sale can be asked whether it's refunded yet.
     pub asks: bool,
@@ -191,7 +192,7 @@ struct Published {
     nav: Option<NavSlice>,
     shift: Option<till_screens::ShiftView>,
     sale: Option<Update>,
-    close: Option<(Option<String>, Option<till_screens::CloseView>)>,
+    close: Option<(Option<OrderId>, Option<till_screens::CloseView>)>,
     refund: Option<Option<crate::RefundSheetView>>,
     bubble: Option<crate::BubbleView>,
     notification: Option<till_screens::NotificationView>,
@@ -228,17 +229,17 @@ pub(crate) struct State {
     from_settings: bool,
     /// Clover's Monero payment type; `None` while not known.
     tender: Option<TenderState>,
-    left: BTreeSet<String>,
-    refunding: BTreeSet<String>,
+    left: BTreeSet<OrderId>,
+    refunding: BTreeSet<OrderId>,
     /// Offered cash sales whose order is being made ("Take it in Monero").
-    taking: BTreeSet<String>,
+    taking: BTreeSet<OrderId>,
     /// Whose sales the shift's list shows, once the cashier chose
     /// (core.md decision 114).
     counter: Option<CounterChoice>,
     /// Step 4 is past choosing the point of sale (O1), on to signing in.
     pos_confirmed: bool,
     /// "Find this device again" waits for a sale that isn't one of these.
-    finding: Option<BTreeSet<String>>,
+    finding: Option<BTreeSet<OrderId>>,
     /// The Clover devices whose names were asked for since the till
     /// started, named or not (core.md decision 142): each is asked once.
     devices_asked: BTreeSet<till_pos::PosDeviceId>,
@@ -256,9 +257,9 @@ pub(crate) struct State {
     filter: ShiftFilter,
     folded: bool,
     /// The sale whose close sheet is up.
-    close_sheet: Option<String>,
+    close_sheet: Option<OrderId>,
     /// The sales that were live at the last look.
-    live_before: BTreeSet<String>,
+    live_before: BTreeSet<OrderId>,
     /// The screen the platform's stage rests on; `None` while it moves.
     resting_on: Option<Screen>,
     /// The screen up was put there by the sales, not the cashier.
@@ -266,19 +267,19 @@ pub(crate) struct State {
     /// Bumped to call off a paid sale's step back.
     step_back: u64,
     /// The sale just paid, for [`till::PAID_DWELL`].
-    just_paid: Option<String>,
+    just_paid: Option<OrderId>,
     just_paid_token: u64,
     /// The till's own sale whose code just ran out or was reversed, for
     /// [`till::ENDED_DWELL`]: the Live Activity shows it as expired.
-    just_ended: Option<String>,
+    just_ended: Option<OrderId>,
     just_ended_token: u64,
     /// The sale that arrived while the app wasn't in front, alerted in the
     /// next notification update only.
-    alert_for: Option<String>,
+    alert_for: Option<OrderId>,
     /// Where the bubble's paid moment is (decision 95).
     paid_moment: PaidMoment,
     /// The sale the bubble showed last.
-    bubble_focus: Option<String>,
+    bubble_focus: Option<OrderId>,
     /// Android's bubble panel is up, as the platform last said.
     panel_up: bool,
     /// A redraw is due in a second.
@@ -287,7 +288,7 @@ pub(crate) struct State {
     hours_24: bool,
     /// The sales listed at the last look: one gone from the list has its
     /// notification cleared.
-    listed: Option<BTreeSet<String>>,
+    listed: Option<BTreeSet<OrderId>>,
     /// The ledger's scope as last seen: when the store or the point of
     /// sale's account changes, the old scope's rows go (docs/ledger.md §4).
     scope: Option<Scope>,
@@ -994,7 +995,7 @@ impl State {
                     p.runner.paid_in_cash(&order_id);
                 }
                 // Its code is down: the sale's page shows how it ended.
-                if till::order_id(&self.screen) == Some(order_id.as_str())
+                if till::order_id(&self.screen) == Some(&order_id)
                     && self.screen
                         != (Screen::Sale {
                             order_id: order_id.clone(),
@@ -1014,7 +1015,7 @@ impl State {
 
     /// The sales that stay quiet here: another counter's, while alerts are
     /// for this device alone (core.md decision 113).
-    pub(crate) fn quiet_ids(&self) -> BTreeSet<String> {
+    pub(crate) fn quiet_ids(&self) -> BTreeSet<OrderId> {
         let counters = self.counters();
         self.parts
             .as_ref()
@@ -1130,7 +1131,7 @@ impl State {
 
     /// "Take it in Monero": the offered cash sale's order is made, and the
     /// sale opens on its code.
-    fn take_in_monero(&mut self, order_id: String) {
+    fn take_in_monero(&mut self, order_id: OrderId) {
         if self.taking.contains(&order_id) {
             return;
         }
@@ -1151,7 +1152,7 @@ impl State {
 
     /// "New code": the expired sale's next order is made, and the sale opens
     /// on its code.
-    fn new_code(&mut self, order_id: String) {
+    fn new_code(&mut self, order_id: OrderId) {
         if self.taking.contains(&order_id) {
             return;
         }
@@ -1807,7 +1808,7 @@ impl State {
         }
     }
 
-    fn sale(&self, order_id: &str) -> Option<TillSale> {
+    fn sale(&self, order_id: &OrderId) -> Option<TillSale> {
         self.parts
             .as_ref()?
             .runner
@@ -1818,7 +1819,7 @@ impl State {
     }
 
     /// Shows a sale full screen.
-    fn open(&mut self, order_id: String) {
+    fn open(&mut self, order_id: OrderId) {
         self.left.remove(&order_id);
         self.step_back += 1;
         if self.setup_done() {
@@ -1827,7 +1828,7 @@ impl State {
     }
 
     /// The cashier left a sale's full screen for the shift.
-    fn leave(&mut self, order_id: String) {
+    fn leave(&mut self, order_id: OrderId) {
         // Left by the cashier during a paid moment, the step back has nothing left to do.
         self.step_back += 1;
         let on_it = matches!(
@@ -1844,7 +1845,7 @@ impl State {
     /// The close sheet's answer, while the sale's code is still up: what it
     /// does ([`close::outcome`]), and where the cashier lands, from the sale
     /// or from the shift's row alike (decision 96).
-    fn close(&mut self, order_id: String, choice: CloseChoice) {
+    fn close(&mut self, order_id: OrderId, choice: CloseChoice) {
         if !close::applies(self.sale(&order_id).as_ref()) {
             return;
         }
@@ -1868,7 +1869,7 @@ impl State {
     /// Refunds a sale's point-of-sale sale (closing it first: the close
     /// sheet's "No"). A sale the till leaves to the cashier opens the
     /// refund sheet once it stands so.
-    fn refund(&mut self, order_id: String, close: bool) {
+    fn refund(&mut self, order_id: OrderId, close: bool) {
         if self.refunding.contains(&order_id) {
             return;
         }
@@ -1906,7 +1907,7 @@ impl State {
         });
     }
 
-    fn confirm_refund(&mut self, order_id: String) {
+    fn confirm_refund(&mut self, order_id: OrderId) {
         let Some(sheet) = self
             .refund_sheet
             .as_mut()
@@ -2082,7 +2083,7 @@ impl State {
         let books = p.side.books().clone();
         let open = till::order_id(&self.screen).and_then(|id| books.sale_key(id));
         books.set_open_sale(open);
-        let now: BTreeSet<String> = p
+        let now: BTreeSet<OrderId> = p
             .runner
             .state()
             .till
@@ -2092,7 +2093,9 @@ impl State {
             .collect();
         if let Some(before) = self.listed.replace(now.clone()) {
             for gone in before.difference(&now) {
-                self.effect(Effect::ClearNotification { id: gone.clone() });
+                self.effect(Effect::ClearNotification {
+                    id: gone.to_string(),
+                });
             }
         }
     }
@@ -2595,7 +2598,7 @@ async fn finish_clover(
 pub(crate) mod tests;
 
 /// Every sale the till shows.
-fn till_sales_ids(s: &State) -> Vec<String> {
+fn till_sales_ids(s: &State) -> Vec<OrderId> {
     s.parts
         .as_ref()
         .map(|p| {

@@ -17,7 +17,9 @@ pub use time::{UnixMillis, UnixSeconds};
 
 /// A newtype over `String` for an opaque id: `Clone, Debug, Eq, Ord, Hash`,
 /// serialized as the bare string (`#[serde(transparent)]`), with `new`,
-/// `as_str`, `Display` and `From<&str>`/`From<String>`.
+/// `as_str`, `Display`, `From<&str>`/`From<String>`, and read as its text
+/// (`Deref<Target = str>`, `AsRef<str>`, `Borrow<str>`, comparison with
+/// text).
 ///
 /// ```
 /// till_types::text_id!(
@@ -63,6 +65,75 @@ macro_rules! text_id {
         impl ::std::convert::From<String> for $name {
             fn from(id: String) -> $name {
                 $name(id)
+            }
+        }
+
+        impl ::std::convert::From<&String> for $name {
+            fn from(id: &String) -> $name {
+                $name(id.clone())
+            }
+        }
+
+        impl ::std::convert::From<&$name> for $name {
+            fn from(id: &$name) -> $name {
+                id.clone()
+            }
+        }
+
+        /// Read as its text; made only through `new` and `From`.
+        impl ::std::ops::Deref for $name {
+            type Target = str;
+
+            fn deref(&self) -> &str {
+                &self.0
+            }
+        }
+
+        impl ::std::convert::AsRef<str> for $name {
+            fn as_ref(&self) -> &str {
+                &self.0
+            }
+        }
+
+        impl ::std::borrow::Borrow<str> for $name {
+            fn borrow(&self) -> &str {
+                &self.0
+            }
+        }
+
+        impl ::std::cmp::PartialEq<str> for $name {
+            fn eq(&self, other: &str) -> bool {
+                self.0 == other
+            }
+        }
+
+        impl ::std::cmp::PartialEq<&str> for $name {
+            fn eq(&self, other: &&str) -> bool {
+                self.0 == *other
+            }
+        }
+
+        impl ::std::cmp::PartialEq<String> for $name {
+            fn eq(&self, other: &String) -> bool {
+                self.0 == *other
+            }
+        }
+
+        impl ::std::cmp::PartialEq<&$name> for $name {
+            fn eq(&self, other: &&$name) -> bool {
+                self == *other
+            }
+        }
+
+        impl ::std::cmp::PartialEq<$name> for String {
+            fn eq(&self, other: &$name) -> bool {
+                *self == other.0
+            }
+        }
+
+        impl ::std::cmp::PartialEq<&$name> for String {
+            fn eq(&self, other: &&$name) -> bool {
+                *self == other.0
             }
         }
     };

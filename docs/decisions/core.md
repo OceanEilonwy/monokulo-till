@@ -1749,3 +1749,19 @@ still strings across the till, the ledger, the screens and the bridge.
      doesn't list was priced at. Nothing on the bridge carries it: the
      views send formatted strings, and the Live Activity's `amount` and
      `currency` are the price's two texts.
+178. **One `OrderId`, from Monokulo's answer to the platform's tap.**
+     monokulo-client's `OrderId` (`till_types::text_id!`) is the order id
+     of an `Order` and a sale event, the ledger's `OrderId` (re-exported,
+     the same type), a `TillSale`'s and a `SaleView`'s, every `Till`,
+     `TillRunner` and `Books` method's, the engine's sets and choices,
+     and the `order_id` of every `Action`, `Screen`, `Update`, `Effect`
+     and view record. It crosses UniFFI as a custom type over `String`,
+     declared once in till-screens and used from till-app with
+     `use_remote_type!`, so Swift and Kotlin see `OrderId` as an alias of
+     `String` and their code is unchanged. It's still the handle a screen
+     uses for a sale, so a cash sale with no order is `cash:<payment>`
+     and a sale waiting for its order its sale key, as before: those are
+     what the platforms already keep (notification ids, Picture in
+     Picture's sale); carrying `SaleKey` instead would change that text.
+     The macro's ids read as their text (`Deref<Target = str>`, comparison
+     with text) and are made only through `new` and `From`.

@@ -147,7 +147,7 @@ impl PreviewSale {
             self.address, self.xmr, self.order_id
         );
         TillSale {
-            order_id: self.order_id.clone(),
+            order_id: self.order_id.as_str().into(),
             price: till_pos::Price::new(self.amount.as_str(), self.currency.as_str()),
             reference: Some(reference.clone()),
             code: PaymentCode::of(&uri, receipt.as_ref()),

@@ -6,6 +6,7 @@
 //! Where the platforms differ: the idle hint names the bubble only on
 //! Android, which has one.
 
+use monokulo_client::OrderId;
 use monokulo_client::{MoneyFormat, PointOfSale, SalePhase, amounts};
 use till_sales::{Standing, TillSale};
 use till_types::CurrencyCode;
@@ -693,7 +694,7 @@ pub struct ShiftReady {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct OfferedCash {
-    pub order_id: String,
+    pub order_id: OrderId,
     /// "Sam · $9.00".
     pub title: String,
     /// "Cash · paying in Monero?".
@@ -814,7 +815,7 @@ pub enum ShiftEntry {
         count: u32,
     },
     Row {
-        order_id: String,
+        order_id: OrderId,
         row: ShiftRow,
         ends: RowEnds,
         tray: bool,
@@ -2115,7 +2116,7 @@ pub(crate) mod tests {
         let offered = |id: &str, device: &str| {
             let mut sale = TillSale {
                 offered: true,
-                order_id: format!("cash:{id}"),
+                order_id: format!("cash:{id}").into(),
                 ..cash(sale_of(id).build())
             };
             sale.found.as_mut().unwrap().device_id = Some(device.into());

@@ -13,10 +13,9 @@ text_id!(
     /// The point of sale's id for a payment.
     PaymentId
 );
-text_id!(
-    /// Monokulo's id for an order: what create-order returns.
-    OrderId
-);
+/// Monokulo's id for an order: monokulo-client's, the one type every crate
+/// uses.
+pub use monokulo_client::OrderId;
 /// The point of sale's id for a device (a Square register, a Clover
 /// station): till-pos's, one type from the payment to the journal.
 pub use till_pos::PosDeviceId as DeviceId;
