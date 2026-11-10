@@ -1,0 +1,13 @@
+[package]
+name = "till-types"
+version = "0.1.0"
+description = "Small shared types for the till's Rust core: a redacting Secret and the text-id newtype macro"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
