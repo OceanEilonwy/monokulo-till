@@ -515,7 +515,7 @@ impl Inner {
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use monokulo_client::{AppIdentity, FixedClock};
+    use monokulo_client::{AppIdentity, FixedClock, UnixSeconds};
 
     use till_ledger::{Fact, OrderCreated, OrderId, SaleKey};
 
@@ -572,7 +572,7 @@ mod tests {
             xmr: "0.03".into(),
             price: till_types::Price::new("5.00", "USD"),
             reference: None,
-            expires_at: monokulo_client::UnixSeconds(0),
+            expires_at: UnixSeconds(0),
             confirmations_required: None,
             device_name: None,
             renew: None,
@@ -645,13 +645,16 @@ mod tests {
             Some(Standing::Live(monokulo_client::SalePhase::Waiting))
         );
         runner.close_live();
-        until(&runner, |s| s.till.sales[0].closed_at == Some(70)).await;
+        until(&runner, |s| {
+            s.till.sales[0].closed_at == Some(UnixSeconds(70))
+        })
+        .await;
         assert_eq!(
             side.books
                 .view(&SaleKey::Order(OrderId::new("ord_2")))
                 .unwrap()
                 .closed_at,
-            Some(70),
+            Some(UnixSeconds(70)),
             "and kept"
         );
         runner.stop();

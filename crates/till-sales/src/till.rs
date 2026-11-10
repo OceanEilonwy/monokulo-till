@@ -244,13 +244,12 @@ impl Till {
         OrderKey::new(PaymentId::new(sale.id.as_str())).key()
     }
 
-    /// When the next live code runs out, Unix seconds; `None` with none
-    /// live.
-    pub fn next_lapse(state: &TillState) -> Option<i64> {
+    /// When the next live code runs out; `None` with none live.
+    pub fn next_lapse(state: &TillState) -> Option<UnixSeconds> {
         state
             .sales
             .iter()
-            .filter(|sale| sale.live() && sale.expires_at > 0)
+            .filter(|sale| sale.live() && sale.expires_at > UnixSeconds(0))
             .map(|sale| sale.expires_at)
             .min()
     }
@@ -723,10 +722,10 @@ impl Till {
     /// local mark only: Monokulo's phase is untouched, and a payment still
     /// pays it (decision 174 in docs/decisions/android.md).
     pub fn lapse(&self) {
-        let at = self.clock.now().0;
+        let at = self.clock.now();
         let state = self.books.state();
         for (view, sale) in state.views.iter().zip(&state.sales) {
-            if sale.live() && (1..=at).contains(&sale.expires_at) {
+            if sale.live() && (UnixSeconds(1)..=at).contains(&sale.expires_at) {
                 self.mark(&view.sale, MarkKind::ClockLapsed);
             }
         }
@@ -752,11 +751,11 @@ impl Till {
     }
 
     /// Waits for `next` by `now_ms` and lapses until it's ended; never ends.
-    async fn lapse_when(&self, next: Option<i64>, now_ms: &impl Fn() -> UnixMillis) {
+    async fn lapse_when(&self, next: Option<UnixSeconds>, now_ms: &impl Fn() -> UnixMillis) {
         let Some(next) = next else {
             return pending().await;
         };
-        let wait = (UnixSeconds(next).to_millis().0 - now_ms().0).max(0);
+        let wait = (next.to_millis().0 - now_ms().0).max(0);
         tokio::time::sleep(Duration::from_millis(wait as u64)).await;
         loop {
             self.lapse();

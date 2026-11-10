@@ -1567,7 +1567,7 @@ async fn closing_a_sale_for_now_takes_its_code_down_and_keeps_it_in_the_shift_wh
     let shown = only(&till);
     assert_eq!(
         shown.created_at,
-        till_pos::time::unix_seconds("2026-10-22T16:07:00Z").unwrap(),
+        UnixSeconds(till_pos::time::unix_seconds("2026-10-22T16:07:00Z").unwrap()),
         "rung up at the POS's time"
     );
     assert_eq!(
@@ -1585,7 +1585,7 @@ async fn closing_a_sale_for_now_takes_its_code_down_and_keeps_it_in_the_shift_wh
     assert_eq!(closed.standing(), Standing::Closed);
     assert_eq!(
         closed.closed_at,
-        Some(1_060),
+        Some(UnixSeconds(1_060)),
         "closed once, at the first close"
     );
     assert!(!closed.live());
@@ -1604,7 +1604,11 @@ async fn closing_a_sale_for_now_takes_its_code_down_and_keeps_it_in_the_shift_wh
             after_refund: false
         }
     );
-    assert_eq!(paid.paid_at, Some(2_000), "paid when this till heard of it");
+    assert_eq!(
+        paid.paid_at,
+        Some(UnixSeconds(2_000)),
+        "paid when this till heard of it"
+    );
     assert!(!paid.needs_action());
 }
 
@@ -1634,8 +1638,8 @@ async fn refunding_a_closed_sale_marks_both_and_a_late_payment_then_says_paid_af
     till.refund(&"ord_1".into()).await;
     let refunded = only(&till);
     assert_eq!(refunded.standing(), Standing::Refunded);
-    assert_eq!(refunded.closed_at, Some(10));
-    assert_eq!(refunded.refunded_at, Some(20));
+    assert_eq!(refunded.closed_at, Some(UnixSeconds(10)));
+    assert_eq!(refunded.refunded_at, Some(UnixSeconds(20)));
     assert!(!refunded.needs_action(), "nothing more to do");
     assert_eq!(source.refunded(), ["pay_monero"]);
     till.on_event(&ord_1("sale.paid", 30));
@@ -1666,7 +1670,7 @@ async fn where_the_cashier_refunds_in_the_pos_refunding_marks_the_sale_to_refund
     till.refund(&"ord_1".into()).await;
     let pending = only(&till);
     assert_eq!(pending.standing(), Standing::RefundInPos);
-    assert_eq!(pending.refund_pending_at, Some(20));
+    assert_eq!(pending.refund_pending_at, Some(UnixSeconds(20)));
     assert_eq!(
         pending.refunded_at, None,
         "not refunded until the POS shows it"
@@ -1680,7 +1684,7 @@ async fn where_the_cashier_refunds_in_the_pos_refunding_marks_the_sale_to_refund
     till.refund(&"ord_1".into()).await;
     assert_eq!(
         only(&till).refund_pending_at,
-        Some(20),
+        Some(UnixSeconds(20)),
         "told once, when first told"
     );
     assert_eq!(
@@ -1718,7 +1722,7 @@ async fn ive_refunded_it_marks_the_sale_refunded_when_the_pos_shows_it_and_leave
     assert!(till.confirm_refund(&"ord_1".into()).await);
     let refunded = only(&till);
     assert_eq!(refunded.standing(), Standing::Refunded);
-    assert_eq!(refunded.refunded_at, Some(40));
+    assert_eq!(refunded.refunded_at, Some(UnixSeconds(40)));
     assert!(!refunded.needs_action());
     let looks = source.looks();
     assert!(
@@ -1766,7 +1770,7 @@ async fn a_sale_told_to_refund_in_a_pos_the_till_no_longer_uses_is_refunded_on_t
     );
     let refunded = only(&again);
     assert_eq!(refunded.standing(), Standing::Refunded);
-    assert_eq!(refunded.refunded_at, Some(100));
+    assert_eq!(refunded.refunded_at, Some(UnixSeconds(100)));
     assert!(!refunded.needs_action());
     assert!(
         square.refunded().is_empty(),
@@ -1798,7 +1802,7 @@ async fn a_clover_sale_refunded_after_a_change_to_square_is_marked_to_refund_in_
     assert_eq!(again.state().refund_problems.get("ord_1"), None);
     let pending = only(&again);
     assert_eq!(pending.standing(), Standing::RefundInPos);
-    assert_eq!(pending.refund_pending_at, Some(50));
+    assert_eq!(pending.refund_pending_at, Some(UnixSeconds(50)));
     clock.set(60);
     assert!(
         again.confirm_refund(&"ord_1".into()).await,
@@ -1806,7 +1810,7 @@ async fn a_clover_sale_refunded_after_a_change_to_square_is_marked_to_refund_in_
     );
     let refunded = only(&again);
     assert_eq!(refunded.standing(), Standing::Refunded);
-    assert_eq!(refunded.refunded_at, Some(60));
+    assert_eq!(refunded.refunded_at, Some(UnixSeconds(60)));
     assert!(square.refunded().is_empty());
     assert_eq!(clover.looks(), 0);
     assert_eq!(f.reloaded()[0].standing(), Standing::Refunded, "and saved");
@@ -1832,7 +1836,7 @@ async fn a_square_sale_refunded_after_a_change_to_clover_is_never_asked_about_at
         Standing::RefundInPos,
         "refund it in Square"
     );
-    assert_eq!(only(&again).refund_pending_at, Some(100));
+    assert_eq!(only(&again).refund_pending_at, Some(UnixSeconds(100)));
     clock.set(200);
     again.check().await;
     assert_eq!(
@@ -1847,7 +1851,7 @@ async fn a_square_sale_refunded_after_a_change_to_clover_is_never_asked_about_at
     );
     assert_eq!(clover.looks(), 0);
     assert_eq!(only(&again).standing(), Standing::Refunded);
-    assert_eq!(only(&again).refunded_at, Some(200));
+    assert_eq!(only(&again).refunded_at, Some(UnixSeconds(200)));
     assert_eq!(f.reloaded()[0].standing(), Standing::Refunded, "and saved");
 }
 
@@ -1903,7 +1907,7 @@ async fn the_till_looks_for_a_refund_in_the_pos_at_most_every_30_seconds_and_mar
     till.check().await;
     assert_eq!(source.looks(), 3);
     assert_eq!(only(&till).standing(), Standing::Refunded);
-    assert_eq!(only(&till).refunded_at, Some(160));
+    assert_eq!(only(&till).refunded_at, Some(UnixSeconds(160)));
     clock.set(300);
     till.check().await;
     assert_eq!(source.looks(), 3, "nothing pending any more");
@@ -1944,14 +1948,14 @@ async fn an_expired_or_reversed_sale_needs_action_until_refunded_while_another_t
     assert_eq!(expired.standing(), Standing::Expired);
     assert_eq!(
         expired.seen_at,
-        Some(100),
+        Some(UnixSeconds(100)),
         "the first time it was seen is kept"
     );
-    assert_eq!(expired.ended_at, Some(200));
+    assert_eq!(expired.ended_at, Some(UnixSeconds(200)));
     assert!(expired.needs_action());
     till.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::DoubleSpend));
     assert_eq!(only(&till).standing(), Standing::Reversed);
-    assert_eq!(only(&till).ended_at, Some(200), "ended once");
+    assert_eq!(only(&till).ended_at, Some(UnixSeconds(200)), "ended once");
     till.refund(&"ord_1".into()).await;
     assert_eq!(only(&till).standing(), Standing::Refunded);
     // Another till's sale, on a till with no point of sale: it can't refund
@@ -2002,9 +2006,9 @@ async fn an_expired_or_reversed_sale_needs_action_until_refunded_while_another_t
     ));
     let theirs = till.state().sale(&"ord_2".into()).unwrap().clone();
     assert_eq!(theirs.standing(), Standing::OtherTill);
-    assert_eq!(theirs.created_at, 300);
-    assert_eq!(theirs.seen_at, Some(310));
-    assert_eq!(theirs.ended_at, Some(320));
+    assert_eq!(theirs.created_at, UnixSeconds(300));
+    assert_eq!(theirs.seen_at, Some(UnixSeconds(310)));
+    assert_eq!(theirs.ended_at, Some(UnixSeconds(320)));
     assert!(!theirs.needs_action());
     assert_eq!(
         theirs.receipt, None,
@@ -2031,7 +2035,7 @@ async fn a_till_started_on_the_ledger_shows_its_sales_marks_and_receipts() {
     let again = f.till(FakeSource::new(vec![]));
     let shown = only(&again);
     assert_eq!(shown.order_id, "ord_1");
-    assert_eq!(shown.closed_at, Some(50));
+    assert_eq!(shown.closed_at, Some(UnixSeconds(50)));
     assert_eq!(shown.standing(), Standing::Closed);
     assert_eq!(
         shown.receipt,
@@ -2157,9 +2161,9 @@ async fn a_closed_sale_keeps_its_marks_and_times_through_the_stream_and_a_resync
         OrderStatus::of(SalePhase::Expired).settled(true),
     );
     let shown = only(&till);
-    assert_eq!(shown.seen_at, Some(5));
-    assert_eq!(shown.closed_at, Some(20));
-    assert_eq!(shown.ended_at, Some(40));
+    assert_eq!(shown.seen_at, Some(UnixSeconds(5)));
+    assert_eq!(shown.closed_at, Some(UnixSeconds(20)));
+    assert_eq!(shown.ended_at, Some(UnixSeconds(40)));
     assert_eq!(
         shown.standing(),
         Standing::Expired,
@@ -2200,7 +2204,7 @@ async fn a_reversed_sale_stays_reversed_through_a_resync_that_reads_pending_and_
     );
     assert!(!shown.live(), "no code, bubble or chip");
     assert!(shown.needs_action());
-    assert_eq!(shown.ended_at, Some(7));
+    assert_eq!(shown.ended_at, Some(UnixSeconds(7)));
     assert_eq!(f.reloaded()[0].standing(), Standing::Reversed);
     // Nor does it read as expired once its code runs out: it still mustn't be handed over.
     again.on_status(
@@ -2253,7 +2257,10 @@ async fn a_code_whose_time_ran_out_is_expired_by_the_clock_and_a_payment_still_p
         .with_clock(Arc::new(clock.clone()));
     f.enqueue(order());
     till.check().await;
-    assert_eq!(Till::next_lapse(&till.state()), Some(1761312000));
+    assert_eq!(
+        Till::next_lapse(&till.state()),
+        Some(UnixSeconds(1761312000))
+    );
     till.lapse();
     assert!(only(&till).live(), "not before its time");
     clock.set(1761312000);
@@ -2264,7 +2271,7 @@ async fn a_code_whose_time_ran_out_is_expired_by_the_clock_and_a_payment_still_p
         !lapsed.live(),
         "so it never pulses, takes the panel or waits"
     );
-    assert_eq!(lapsed.ended_at, Some(1761312000));
+    assert_eq!(lapsed.ended_at, Some(UnixSeconds(1761312000)));
     assert_eq!(Till::next_lapse(&till.state()), None);
     till.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::Waiting));
     assert_eq!(
@@ -2345,7 +2352,7 @@ async fn a_code_is_ended_on_time_even_when_the_tills_clock_reads_a_second_behind
         lapsed,
         "only the clock ended it"
     );
-    assert_eq!(lapsed.ended_at, Some(1761312000));
+    assert_eq!(lapsed.ended_at, Some(UnixSeconds(1761312000)));
     lapsing.abort();
 }
 
@@ -2362,7 +2369,7 @@ async fn stopping_watching_closes_every_live_sale_which_a_late_payment_still_pay
     till.close_live();
     let ours = only(&till);
     assert_eq!(ours.standing(), Standing::Closed);
-    assert_eq!(ours.closed_at, Some(at));
+    assert_eq!(ours.closed_at, Some(UnixSeconds(at)));
     assert!(ours.needs_action(), "to refund");
     assert_eq!(
         till.books().with(|l| l.shift_window()).unwrap().until,
@@ -2656,7 +2663,7 @@ async fn new_code_renews_the_one_order_with_its_form() {
     assert!(shown.live(), "waiting again: {:?}", shown.phase);
     assert_eq!(
         (shown.xmr.as_str(), shown.expires_at),
-        ("0.09", 1_761_313_200)
+        ("0.09", UnixSeconds(1_761_313_200))
     );
     assert_eq!(shown.code.uri, "monero:8Bx?tx_amount=0.09");
     // The first code's ending, heard late, doesn't end the new one.
@@ -2708,7 +2715,7 @@ async fn new_code_makes_no_second_order_and_says_why_it_cant_renew() {
     );
     let still = only(&till);
     assert_eq!(still.phase, SalePhase::Expired);
-    assert_eq!(still.expires_at, 1_761_312_000);
+    assert_eq!(still.expires_at, UnixSeconds(1_761_312_000));
     f.enqueue(ResponseTemplate::new(405));
     let gone = till.new_code(&"ord_1".into()).await.unwrap_err();
     assert!(

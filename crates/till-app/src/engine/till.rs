@@ -348,11 +348,7 @@ impl State {
             disconnected: runner.disconnected,
             problem: runner.till.problem.or(runner.stream_problem),
             sign_in_again: runner.till.sign_in_again,
-            started_at: runner
-                .till
-                .shift_from
-                .or(model.shift_started_at)
-                .map(|at| at.0),
+            started_at: runner.till.shift_from.or(model.shift_started_at),
             filter: self.filter,
             folded: self.folded,
             counters: self.counters(),
@@ -443,8 +439,8 @@ impl State {
             .found
             .as_ref()
             .and_then(|found| found.title.clone().or(found.order_id.clone()));
-        let time =
-            (sale.created_at > 0).then(|| sale_text::time_of(sale.created_at, self.device_clock()));
+        let time = (sale.created_at.0 > 0)
+            .then(|| sale_text::time_of(sale.created_at, self.device_clock()));
         Some(RefundSheetView {
             order_id: sheet.order_id.clone(),
             title: pos_text::refund_sheet_title(sheet.pos),

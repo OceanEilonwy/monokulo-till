@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use till_ledger::OrderId;
 use till_ledger::{
     Claim, ClaimPolicy, Fact, Ledger, LedgerError, Opened, Recorded, SaleKey, SaleRow, SaleView,
-    Scope, UnixMillis, UnixSeconds, ViewSettings, view::setting,
+    Scope, UnixMillis, ViewSettings, view::setting,
 };
 use tokio::sync::watch;
 
@@ -169,7 +169,7 @@ impl Books {
                 continue;
             }
             let sale = TillSale::of_view(&view);
-            let in_window = window.contains(UnixSeconds(view.created_at).to_millis());
+            let in_window = window.contains(view.created_at.to_millis());
             // Another counter's cash sale waits for its own till's order,
             // which this till never hears of: it's listed with the shift it
             // was rung up in, not for ever.

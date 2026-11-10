@@ -474,6 +474,7 @@ mod tests {
     use super::*;
     use crate::fixtures::{found, money, receipt as make_receipt, till_sale};
     use orf_codec::Receipt;
+    use till_types::UnixSeconds;
 
     fn bean_room() -> Receipt {
         make_receipt(
@@ -683,7 +684,7 @@ mod tests {
             "then back to watching"
         );
         let closed = TillSale {
-            closed_at: Some(5),
+            closed_at: Some(UnixSeconds(5)),
             ..of(SalePhase::Waiting)
         };
         assert_eq!(

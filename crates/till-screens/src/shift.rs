@@ -9,7 +9,7 @@
 use monokulo_client::OrderId;
 use monokulo_client::{MoneyFormat, PointOfSale, SalePhase, amounts};
 use till_sales::{Standing, TillSale};
-use till_types::CurrencyCode;
+use till_types::{CurrencyCode, UnixSeconds};
 
 use crate::close;
 use crate::counters::{CounterChoice, CounterMenu, Counters};
@@ -305,7 +305,7 @@ pub fn needs_action(sales: &[TillSale]) -> usize {
 /// takings.
 pub fn summary(
     sales: &[TillSale],
-    started_at: Option<i64>,
+    started_at: Option<UnixSeconds>,
     clock: DeviceClock,
     money: &dyn MoneyFormat,
 ) -> String {
@@ -426,7 +426,7 @@ pub fn row(
     clock: DeviceClock,
     money: &dyn MoneyFormat,
 ) -> ShiftRow {
-    let at = |when: Option<i64>| {
+    let at = |when: Option<UnixSeconds>| {
         when.map(|t| format!(" · {}", time(t, clock)))
             .unwrap_or_default()
     };
@@ -448,7 +448,8 @@ pub fn row(
             StateIcon::Tick,
         ),
         Standing::CashOffer { kept: false } => (
-            sale_text::status(sale, till) + &at(Some(sale.created_at).filter(|&t| t > 0)),
+            sale_text::status(sale, till)
+                + &at(Some(sale.created_at).filter(|&t| t > UnixSeconds(0))),
             Tone::Link,
             StateIcon::Cash,
         ),
@@ -609,8 +610,8 @@ pub fn ready_line(
 }
 
 /// "just now", "4 minutes ago" within the hour, then "at 9:41 AM".
-fn ago(at: i64, clock: DeviceClock) -> String {
-    let minutes = (clock.now - at).max(0) / 60;
+fn ago(at: UnixSeconds, clock: DeviceClock) -> String {
+    let minutes = (clock.now - at.0).max(0) / 60;
     match minutes {
         0 => "just now".into(),
         1 => "a minute ago".into(),
@@ -746,7 +747,7 @@ pub struct ShiftInput {
     /// The point of sale's sign-in has ended.
     pub sign_in_again: bool,
     /// When this shift began, if it's known.
-    pub started_at: Option<i64>,
+    pub started_at: Option<UnixSeconds>,
     /// The chip chosen.
     pub filter: ShiftFilter,
     /// The tray folded (its default).
@@ -1035,7 +1036,7 @@ pub fn shift(
                 let live = sale.live();
                 ticks |= live && sale.phase.counts_down();
                 let seconds = if live {
-                    sale_text::seconds_left(sale.expires_at, clock.now)
+                    sale_text::seconds_left(sale.expires_at, UnixSeconds(clock.now))
                 } else {
                     0
                 };
@@ -1190,11 +1191,11 @@ pub(crate) mod tests {
                     )
                 }),
                 device_name: if self.mine { None } else { self.device.clone() },
-                created_at: at() - 600,
-                paid_at: self.paid_at,
-                ended_at: self.ended_at,
-                closed_at: self.closed_at,
-                refunded_at: self.refunded_at,
+                created_at: UnixSeconds(at() - 600),
+                paid_at: self.paid_at.map(UnixSeconds),
+                ended_at: self.ended_at.map(UnixSeconds),
+                closed_at: self.closed_at.map(UnixSeconds),
+                refunded_at: self.refunded_at.map(UnixSeconds),
                 ..till_sale(id, &self.amount, &self.currency, "0.0336")
             }
         }
@@ -1300,11 +1301,16 @@ pub(crate) mod tests {
         let started = instant("2026-10-22T16:02:00Z");
         let clock = la(at());
         assert_eq!(
-            summary(&shift, Some(started), clock, &money),
+            summary(&shift, Some(UnixSeconds(started)), clock, &money),
             "3 paid · $41.50 · since 9:02 AM"
         );
         assert_eq!(
-            summary(&[sale_of("w").build()], Some(started), clock, &money),
+            summary(
+                &[sale_of("w").build()],
+                Some(UnixSeconds(started)),
+                clock,
+                &money
+            ),
             "Nothing paid yet · since 9:02 AM"
         );
         assert_eq!(summary(&[], None, clock, &money), "Nothing paid yet");
@@ -1346,7 +1352,7 @@ pub(crate) mod tests {
             .paid_at(at())
             .build();
         assert_eq!(
-            summary(&[carried, paid], Some(started), clock, &money),
+            summary(&[carried, paid], Some(UnixSeconds(started)), clock, &money),
             "1 paid · $24.50 · since 9:02 AM"
         );
     }
@@ -1534,7 +1540,7 @@ pub(crate) mod tests {
             "Refunded in Clover · 3:58 PM"
         );
         let pending = TillSale {
-            refund_pending_at: Some(at),
+            refund_pending_at: Some(UnixSeconds(at)),
             ..sale_of("p").phase(Expired).ended_at(at - 60).build()
         };
         assert_eq!(
@@ -1900,7 +1906,7 @@ pub(crate) mod tests {
             disconnected: false,
             problem: None,
             sign_in_again: false,
-            started_at: Some(instant("2026-10-22T16:02:00Z")),
+            started_at: Some(UnixSeconds(instant("2026-10-22T16:02:00Z"))),
             filter: ShiftFilter::All,
             folded: true,
             counters: Counters::default(),
@@ -1932,7 +1938,7 @@ pub(crate) mod tests {
     #[test]
     fn the_shift_draws_its_top_row_summary_chips_and_rows() {
         let waiting = TillSale {
-            expires_at: at() + 552,
+            expires_at: UnixSeconds(at() + 552),
             ..sale_of("waiting").build()
         };
         let mut sales = fixture_shift();
@@ -2123,7 +2129,7 @@ pub(crate) mod tests {
             sale
         };
         let kept = TillSale {
-            kept_as_cash_at: Some(at()),
+            kept_as_cash_at: Some(UnixSeconds(at())),
             ..offered("k", "dev_front")
         };
         let sales = vec![
@@ -2244,7 +2250,7 @@ pub(crate) mod tests {
     fn ready_says_when_the_last_sale_was_paid() {
         let paid = |id: &str, ago: i64| TillSale {
             phase: SalePhase::Paid,
-            paid_at: Some(at() - ago),
+            paid_at: Some(UnixSeconds(at() - ago)),
             ..sale_of(id).build()
         };
         let ready = |sales: Vec<TillSale>| shift(&input(sales), Device::Ipad, la(at()), &money);
@@ -2316,11 +2322,11 @@ pub(crate) mod tests {
             ..cash(sale_of("q8Lw").build())
         };
         let kept = TillSale {
-            kept_as_cash_at: Some(at()),
+            kept_as_cash_at: Some(UnixSeconds(at())),
             ..offered.clone()
         };
         let paid = TillSale {
-            paid_at: Some(at()),
+            paid_at: Some(UnixSeconds(at())),
             phase: SalePhase::Paid,
             ..cash(sale_of("j1Qx").build())
         };

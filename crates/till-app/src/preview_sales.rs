@@ -8,6 +8,7 @@ use monokulo_client::{PointOfSale, SalePhase};
 use serde_json::json;
 use till_pos::FoundSale;
 use till_sales::{PaymentCode, TillSale, shift_json};
+use till_types::UnixSeconds;
 
 use crate::Pos;
 
@@ -152,7 +153,7 @@ impl PreviewSale {
             reference: Some(reference.clone()),
             code: PaymentCode::of(&uri, receipt.as_ref()),
             phase: self.phase.unwrap_or(PreviewPhase::Waiting).into(),
-            expires_at: self.expires_at.unwrap_or(i64::MAX / 2),
+            expires_at: UnixSeconds(self.expires_at.unwrap_or(i64::MAX / 2)),
             xmr: self.xmr.clone(),
             address: self.address.clone(),
             found: self.found.then(|| FoundSale {
@@ -174,13 +175,13 @@ impl PreviewSale {
             device_name: self.device_name.clone(),
             url: None,
             settled: self.settled,
-            created_at: self.created_at,
-            seen_at: self.seen_at,
-            paid_at: self.paid_at,
-            ended_at: self.ended_at,
-            closed_at: self.closed_at,
-            refunded_at: self.refunded_at,
-            refund_pending_at: self.refund_pending_at,
+            created_at: UnixSeconds(self.created_at),
+            seen_at: self.seen_at.map(UnixSeconds),
+            paid_at: self.paid_at.map(UnixSeconds),
+            ended_at: self.ended_at.map(UnixSeconds),
+            closed_at: self.closed_at.map(UnixSeconds),
+            refunded_at: self.refunded_at.map(UnixSeconds),
+            refund_pending_at: self.refund_pending_at.map(UnixSeconds),
             confirmations: self.confirmations,
             confirmations_required: self.confirmations_required,
             offered: false,

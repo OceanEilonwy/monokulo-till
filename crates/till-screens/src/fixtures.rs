@@ -6,6 +6,7 @@ use orf_codec::Receipt;
 use serde_json::json;
 use till_pos::FoundSale;
 use till_sales::{PaymentCode, TillSale};
+use till_types::UnixSeconds;
 
 use crate::time::DeviceClock;
 
@@ -18,7 +19,7 @@ pub(crate) fn till_sale(id: &str, amount: &str, currency: &str, xmr: &str) -> Ti
         reference: None,
         code: PaymentCode::plain("monero:4abc"),
         phase: SalePhase::Waiting,
-        expires_at: 0,
+        expires_at: UnixSeconds(0),
         xmr: xmr.into(),
         address: "4abc".into(),
         found: None,
@@ -27,7 +28,7 @@ pub(crate) fn till_sale(id: &str, amount: &str, currency: &str, xmr: &str) -> Ti
         device_name: None,
         url: None,
         settled: false,
-        created_at: 0,
+        created_at: UnixSeconds(0),
         seen_at: None,
         paid_at: None,
         ended_at: None,

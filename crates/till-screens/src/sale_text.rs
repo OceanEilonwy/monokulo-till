@@ -9,7 +9,7 @@ use monokulo_client::{MoneyFormat, PointOfSale, SalePhase, amounts};
 use orf_codec::LineItem;
 use orf_codec::Receipt;
 use till_sales::{Standing, TillSale};
-use till_types::{CurrencyCode, Money};
+use till_types::{CurrencyCode, Money, UnixSeconds};
 
 use crate::decimal::Decimal;
 use crate::pos_text;
@@ -185,8 +185,8 @@ pub fn clock(seconds: i64) -> String {
 }
 
 /// Seconds from the clock's now until `expires_at`; 0 once it's passed.
-pub fn seconds_left(expires_at: i64, now: i64) -> i64 {
-    (expires_at - now).max(0)
+pub fn seconds_left(expires_at: UnixSeconds, now: UnixSeconds) -> i64 {
+    (expires_at.0 - now.0).max(0)
 }
 
 /// "15 items" or "1 item": the receipt's whole quantities added up, and a
@@ -325,7 +325,7 @@ pub fn receipt_summary(receipt: &Receipt, pos: Option<PointOfSale>) -> String {
 }
 
 /// "4:07 PM" (or "16:07"): a time of day on the device's clock.
-pub fn time_of(at: i64, clock: DeviceClock) -> String {
+pub fn time_of(at: UnixSeconds, clock: DeviceClock) -> String {
     time(at, clock)
 }
 
@@ -356,8 +356,8 @@ mod tests {
             phase,
             found: mine.then(|| found("p1", 2450, "USD", reference, "ord", "2026-10-23T10:00:00Z")),
             device_name: device.map(Into::into),
-            closed_at,
-            refunded_at,
+            closed_at: closed_at.map(UnixSeconds),
+            refunded_at: refunded_at.map(UnixSeconds),
             ..till_sale("o1", "24.50", "USD", "0.1421")
         }
     }
@@ -507,14 +507,14 @@ mod tests {
         assert_eq!(s(mine(Paid, Some(1), None)), "Paid after you closed it");
         assert_eq!(
             s(TillSale {
-                ended_at: Some(1),
+                ended_at: Some(UnixSeconds(1)),
                 ..phased(Paid)
             }),
             "Paid after the code expired"
         );
         assert_eq!(
             s(TillSale {
-                ended_at: Some(2),
+                ended_at: Some(UnixSeconds(2)),
                 ..mine(Paid, Some(1), None)
             }),
             "Paid after you closed it",
@@ -617,16 +617,26 @@ mod tests {
             "exact in minor units, where doubles give 0.30000000000000004"
         );
         let at = instant("2026-10-22T16:07:00Z");
-        assert_eq!(time_of(at, la(0)), "9:07 AM", "the device's own form");
-        assert_eq!(time_of(at, uk(0)), "16:07");
+        assert_eq!(
+            time_of(UnixSeconds(at), la(0)),
+            "9:07 AM",
+            "the device's own form"
+        );
+        assert_eq!(time_of(UnixSeconds(at), uk(0)), "16:07");
     }
 
     #[test]
     fn a_countdown_is_the_seconds_from_now_to_the_codes_end_and_never_below_none() {
-        assert_eq!(seconds_left(1_000_552, 1_000_000), 552);
-        assert_eq!(seconds_left(1_000_000, 1_000_000), 0);
         assert_eq!(
-            seconds_left(1_000_000, 1_000_009),
+            seconds_left(UnixSeconds(1_000_552), UnixSeconds(1_000_000)),
+            552
+        );
+        assert_eq!(
+            seconds_left(UnixSeconds(1_000_000), UnixSeconds(1_000_000)),
+            0
+        );
+        assert_eq!(
+            seconds_left(UnixSeconds(1_000_000), UnixSeconds(1_000_009)),
             0,
             "a code past its end shows 0:00, not a negative time"
         );

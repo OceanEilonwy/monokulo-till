@@ -10,10 +10,10 @@ use orf_codec::Receipt;
 use serde::{Deserialize, Serialize};
 use till_pos::FoundSale;
 
-use crate::UnixMillis;
 use crate::facts::{Outcome, RefundStatus, Tender};
 use crate::ids::{DeviceId, OrderId, SaleKey};
 use crate::model::{LocalMarks, PaymentPhase, SharedSale};
+use crate::{UnixMillis, UnixSeconds};
 
 /// What an offered cash sale's `order_id` starts with, before the
 /// payment's id (`TillSale::OFFERED`).
@@ -106,7 +106,7 @@ pub struct SaleView {
     pub payment: Option<PaymentPhase>,
     /// When its code (the order's latest quote) runs out, Unix seconds; 0
     /// with no order.
-    pub expires_at: i64,
+    pub expires_at: UnixSeconds,
     pub xmr: String,
     pub address: String,
     /// The POS payment as `TillSale::found` holds it, when this till sees it.
@@ -118,13 +118,13 @@ pub struct SaleView {
     pub url: Option<String>,
     /// Monokulo said nothing more will happen to its order.
     pub settled: bool,
-    pub created_at: i64,
-    pub seen_at: Option<i64>,
-    pub paid_at: Option<i64>,
-    pub ended_at: Option<i64>,
-    pub closed_at: Option<i64>,
-    pub refunded_at: Option<i64>,
-    pub refund_pending_at: Option<i64>,
+    pub created_at: UnixSeconds,
+    pub seen_at: Option<UnixSeconds>,
+    pub paid_at: Option<UnixSeconds>,
+    pub ended_at: Option<UnixSeconds>,
+    pub closed_at: Option<UnixSeconds>,
+    pub refunded_at: Option<UnixSeconds>,
+    pub refund_pending_at: Option<UnixSeconds>,
     pub confirmations: Option<u32>,
     pub confirmations_required: Option<u32>,
     /// A cash sale offered in Monero, with no order: cash as Monero is off,
@@ -135,8 +135,8 @@ pub struct SaleView {
     /// Monero on: its own counter's till makes the order. Listed quietly,
     /// never alerted, until the cashier here takes it in Monero.
     pub for_its_counter: bool,
-    pub kept_as_cash_at: Option<i64>,
-    pub paid_in_cash_at: Option<i64>,
+    pub kept_as_cash_at: Option<UnixSeconds>,
+    pub paid_in_cash_at: Option<UnixSeconds>,
 
     /// Rung up as cash at the POS.
     pub cash: bool,
@@ -164,8 +164,8 @@ pub struct SaleView {
 }
 
 /// A ledger time as a view shows it, in whole seconds.
-fn secs(ms: Option<UnixMillis>) -> Option<i64> {
-    ms.map(|ms| ms.to_seconds().0)
+fn secs(ms: Option<UnixMillis>) -> Option<UnixSeconds> {
+    ms.map(UnixMillis::to_seconds)
 }
 
 /// The view of one sale, from its shared state, this device's marks and
@@ -304,7 +304,7 @@ pub fn view(
         code,
         phase: phase.map_or(SalePhase::Waiting, PaymentPhase::sale_phase),
         payment: phase,
-        expires_at: order.map_or(0, |o| o.expires_at.0),
+        expires_at: order.map_or(UnixSeconds(0), |o| o.expires_at),
         xmr: order.map(|o| o.xmr.clone()).unwrap_or_default(),
         address: order.map(|o| o.address.clone()).unwrap_or_default(),
         found,
@@ -316,7 +316,7 @@ pub fn view(
         device_id,
         url: order.and_then(|o| o.url.clone()),
         settled: deciding.is_some_and(|a| a.observed.settled),
-        created_at: rung_at.to_seconds().0,
+        created_at: rung_at.to_seconds(),
         seen_at: secs(marks.seen_at),
         paid_at: secs(marks.paid_at),
         ended_at: secs(marks.ended_at),

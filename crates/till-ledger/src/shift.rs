@@ -9,9 +9,9 @@ use jiff::civil::Time;
 use jiff::tz::TimeZone;
 use serde::{Deserialize, Serialize};
 
+use crate::UnixMillis;
 use crate::model::PaymentPhase;
 use crate::view::SaleView;
-use crate::{UnixMillis, UnixSeconds};
 
 /// Minutes after local midnight when the trading day starts: 04:00.
 pub const DEFAULT_DAY_START_MINUTES: u32 = 4 * 60;
@@ -95,7 +95,7 @@ fn minor(view: &SaleView) -> Option<i64> {
 
 /// The shift over `views` (any order), within `window`.
 pub fn summarise(mut views: Vec<SaleView>, window: ShiftWindow) -> ShiftSummary {
-    views.retain(|v| v.live || window.contains(UnixSeconds(v.created_at).to_millis()));
+    views.retain(|v| v.live || window.contains(v.created_at.to_millis()));
     views.sort_by(|a, b| b.created_at.cmp(&a.created_at).then(a.sale.cmp(&b.sale)));
     let mut summary = ShiftSummary {
         window,
@@ -107,7 +107,7 @@ pub fn summarise(mut views: Vec<SaleView>, window: ShiftWindow) -> ShiftSummary 
     };
     for v in &views {
         let paid = v.payment.is_some_and(PaymentPhase::is_paid);
-        if paid && window.contains(UnixSeconds(v.created_at).to_millis()) {
+        if paid && window.contains(v.created_at.to_millis()) {
             let amount = minor(v).unwrap_or(0);
             summary.paid_count += 1;
             *summary

@@ -8,8 +8,8 @@ use till_ledger::view::setting;
 use till_ledger::{
     AlertKind, AlertState, ClaimPolicy, Fact, Imported, KeyMaterial, Ledger, LedgerError, MarkKind,
     OrderCreated, OrderObserved, OrderRead, PaymentPhase, PaymentSeen, Process, Quote, RefundSeen,
-    RefundStatus, SaleKey, Scope, SecretStore, Tender, TestClock, UnixMillis, UnixSeconds, ViewSettings,
-    may_make_order,
+    RefundStatus, SaleKey, Scope, SecretStore, Tender, TestClock, UnixMillis, UnixSeconds,
+    ViewSettings, may_make_order,
 };
 
 /// 2026-11-09 18:00 UTC.
@@ -635,7 +635,7 @@ fn a_new_code_renews_the_one_order_with_a_new_quote() {
     let v = l.sale(&sale("p1")).unwrap().unwrap();
     assert_eq!(
         (v.order_id.as_str(), v.payment, v.live, v.expires_at),
-        ("o1", Some(PaymentPhase::Waiting), true, renewed)
+        ("o1", Some(PaymentPhase::Waiting), true, UnixSeconds(renewed))
     );
     assert_eq!(v.xmr, "0.16");
     assert_eq!(v.code.uri, "monero:8o1?tx_amount=0.16");
@@ -805,22 +805,26 @@ fn the_kept_shift_is_imported_once() {
 
     let one = app.sale(&sale("pay_1")).unwrap().unwrap();
     assert_eq!(one.phase, SalePhase::Expired);
-    assert_eq!(one.closed_at, Some(1794244100));
-    assert_eq!(one.refund_pending_at, Some(1794244200));
+    assert_eq!(one.closed_at, Some(UnixSeconds(1794244100)));
+    assert_eq!(one.refund_pending_at, Some(UnixSeconds(1794244200)));
     assert_eq!(one.customer_name.as_deref(), Some("Sam"));
     assert!(one.receipt.is_some() && one.code.has_receipt);
-    assert_eq!(one.created_at, 1794243600);
+    assert_eq!(one.created_at, UnixSeconds(1794243600));
     let two = app.sale(&sale("pay_2")).unwrap().unwrap();
     assert_eq!(
         (two.phase, two.paid_at, two.seen_at),
-        (SalePhase::Paid, Some(1794245520), Some(1794245460))
+        (
+            SalePhase::Paid,
+            Some(UnixSeconds(1794245520)),
+            Some(UnixSeconds(1794245460))
+        )
     );
     assert!(two.settled && two.cash);
     let nine = app.sale(&SaleKey::order("ord_9")).unwrap().unwrap();
     assert_eq!(nine.device_name.as_deref(), Some("Back iPad"));
     assert!(nine.code.why.is_some());
     let three = app.sale(&sale("pay_3")).unwrap().unwrap();
-    assert_eq!(three.kept_as_cash_at, Some(1794246400));
+    assert_eq!(three.kept_as_cash_at, Some(UnixSeconds(1794246400)));
     assert_eq!(three.order_id, "cash:pay_3");
     assert_eq!(
         app.alert(&sale("pay_1"), AlertKind::NewSale)
@@ -1074,7 +1078,11 @@ fn a_sale_kept_from_monokulo_alone_is_folded_into_the_pos_sale_that_finds_it() {
         "the Monokulo-only rows are gone"
     );
     let seven = l.sale(&sale("p7")).unwrap().unwrap();
-    assert_eq!(seven.closed_at, Some(1794244100), "its close kept");
+    assert_eq!(
+        seven.closed_at,
+        Some(UnixSeconds(1794244100)),
+        "its close kept"
+    );
     assert!(!seven.live);
     assert_eq!(seven.order_id, "ord_7");
     assert_eq!(
@@ -1087,7 +1095,7 @@ fn a_sale_kept_from_monokulo_alone_is_folded_into_the_pos_sale_that_finds_it() {
     assert!(l.alert(&kept7, AlertKind::NewSale).unwrap().is_none());
     let eight = l.sale(&sale("p8")).unwrap().unwrap();
     assert_eq!(eight.phase, SalePhase::Paid, "what Monokulo said, kept");
-    assert_eq!(eight.paid_at, Some(1794243800));
+    assert_eq!(eight.paid_at, Some(UnixSeconds(1794243800)));
     assert!(eight.settled);
     assert_eq!(
         l.order(&"ord_7".into()).unwrap(),

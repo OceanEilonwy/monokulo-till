@@ -6,6 +6,7 @@
 
 use monokulo_client::{MoneyFormat, PointOfSale};
 use till_sales::TillSale;
+use till_types::UnixSeconds;
 
 use crate::time::DeviceClock;
 use crate::view::{Ring, ring};
@@ -85,7 +86,7 @@ pub struct CodeView {
 /// The enlarged code at the clock's now, amounts written by `money`.
 pub fn code(input: &CodeInput, clock: DeviceClock, money: &dyn MoneyFormat) -> CodeView {
     let sale = &input.sale;
-    let seconds = sale_text::seconds_left(sale.expires_at, clock.now);
+    let seconds = sale_text::seconds_left(sale.expires_at, UnixSeconds(clock.now));
     let live = sale.live();
     let pos = pos_text::of(sale, input.till);
     CodeView {
@@ -155,7 +156,7 @@ mod tests {
     #[test]
     fn the_enlarged_code_shows_the_amount_and_its_line() {
         let waiting = TillSale {
-            expires_at: 1_000_892,
+            expires_at: UnixSeconds(1_000_892),
             ..sale(SalePhase::Waiting)
         };
         let view = code(

@@ -5,6 +5,7 @@
 
 use monokulo_client::{MoneyFormat, PointOfSale, SalePhase};
 use till_sales::{Standing, TillSale};
+use till_types::UnixSeconds;
 
 use crate::time::DeviceClock;
 use crate::view::{Ring, ring};
@@ -216,7 +217,7 @@ pub fn close(input: &CloseInput, clock: DeviceClock, money: &dyn MoneyFormat) ->
     let sale = &input.sale;
     let pos = pos_text::of(sale, input.till);
     let elsewhere = pos_text::elsewhere(sale, input.till);
-    let seconds = sale_text::seconds_left(sale.expires_at, clock.now);
+    let seconds = sale_text::seconds_left(sale.expires_at, UnixSeconds(clock.now));
     let answers: Vec<CloseAnswer> = choices(sale, elsewhere)
         .into_iter()
         .map(|choice| CloseAnswer {
@@ -322,7 +323,7 @@ mod tests {
     #[test]
     fn the_sheet_asks_with_the_answers_this_till_can_give() {
         let sale = TillSale {
-            expires_at: at() + 892,
+            expires_at: UnixSeconds(at() + 892),
             ..sale_of("bP9m").build()
         };
         let view = close(

@@ -79,8 +79,7 @@ pub struct TillSale {
     /// the sale and could add it.
     pub code: PaymentCode,
     pub phase: SalePhase,
-    /// Unix seconds.
-    pub expires_at: i64,
+    pub expires_at: UnixSeconds,
     pub xmr: String,
     /// The address the customer pays: what "Copy address" copies.
     pub address: String,
@@ -117,34 +116,34 @@ pub struct TillSale {
     /// a late payment that turns it paid.
     #[serde(default, skip_serializing_if = "is_false")]
     pub settled: bool,
-    /// When it was rung up, Unix seconds: the POS's time for this till's
-    /// own, the event's for another's.
+    /// When it was rung up: the POS's time for this till's own, the
+    /// event's for another's.
     #[serde(default, skip_serializing_if = "is_zero")]
-    pub created_at: i64,
+    pub created_at: UnixSeconds,
     /// When its payment was first seen on the network, if it was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub seen_at: Option<i64>,
+    pub seen_at: Option<UnixSeconds>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub paid_at: Option<i64>,
+    pub paid_at: Option<UnixSeconds>,
     /// When it ended unpaid: the code ran out, the order was cancelled or
     /// the payment reversed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ended_at: Option<i64>,
+    pub ended_at: Option<UnixSeconds>,
     /// When the cashier closed it on this till (the close sheet's "Not
     /// sure" or "No"), if they did.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub closed_at: Option<i64>,
+    pub closed_at: Option<UnixSeconds>,
     /// When it was refunded in the POS: by this till through the POS's API
     /// ([`till_pos::Refunds::ByTill`]), or when the till saw the cashier had
     /// done it there ([`till_pos::Refunds::InPos`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub refunded_at: Option<i64>,
+    pub refunded_at: Option<UnixSeconds>,
     /// When the cashier was told to refund it in the POS themselves
     /// ([`till_pos::Refunds::InPos`]): until `refunded_at`, and only while
     /// the sale's point of sale ([`FoundSale::point_of_sale`]) is the
     /// till's, the till looks for the refund.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub refund_pending_at: Option<i64>,
+    pub refund_pending_at: Option<UnixSeconds>,
     /// How many confirmations its payment has, of the
     /// `confirmations_required` the store asks for its amount: what a seen
     /// or confirming sale's ring grows by and its "Confirming · 4 of 10"
@@ -164,12 +163,12 @@ pub struct TillSale {
     pub offered: bool,
     /// When the cashier chose "Keep as cash" for an offered sale.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kept_as_cash_at: Option<i64>,
+    pub kept_as_cash_at: Option<UnixSeconds>,
     /// When the cashier said a cash sale's customer paid in real cash after
     /// all ("Paid in cash"): its code comes down, and nothing is refunded,
     /// as the point of sale already has the cash.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub paid_in_cash_at: Option<i64>,
+    pub paid_in_cash_at: Option<UnixSeconds>,
     /// What only the ledger knows (docs/ledger.md §5, §7): whether its order
     /// can be renewed, and its warnings. Empty for a sale read from a kept
     /// shift or a fixture, and left out of their JSON.
@@ -212,8 +211,8 @@ fn is_false(b: &bool) -> bool {
     !*b
 }
 
-fn is_zero(n: &i64) -> bool {
-    *n == 0
+fn is_zero(at: &UnixSeconds) -> bool {
+    at.0 == 0
 }
 
 impl TillSale {
@@ -250,7 +249,7 @@ impl TillSale {
             paid_at: v.paid_at,
             ended_at: v
                 .ended_at
-                .or_else(|| lapsed.then_some(v.expires_at).filter(|&at| at > 0)),
+                .or_else(|| lapsed.then_some(v.expires_at).filter(|at| at.0 > 0)),
             closed_at: v.closed_at,
             refunded_at: v.refunded_at,
             refund_pending_at: v.refund_pending_at,

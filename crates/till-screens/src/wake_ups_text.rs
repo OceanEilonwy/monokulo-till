@@ -11,6 +11,7 @@
 
 use monokulo_client::PointOfSale;
 use till_bell::{BellAddress, WakeUpStatus};
+use till_types::UnixSeconds;
 
 use crate::pos_text::{self, name, name_first};
 use crate::time::{self, DeviceClock};
@@ -114,7 +115,10 @@ pub fn last_wake_up(status: &WakeUpStatus, clock: DeviceClock) -> Option<String>
         WakeUpStatus::MissingWakeups { last_ding_at } => last_ding_at,
         _ => return None,
     };
-    Some(at.map_or_else(|| "None yet".to_owned(), |at| time::time(at, clock)))
+    Some(at.map_or_else(
+        || "None yet".to_owned(),
+        |at| time::time(UnixSeconds(at), clock),
+    ))
 }
 
 /// The footnote under the cards, for a till at `pos`.
@@ -316,7 +320,7 @@ mod tests {
                 },
                 US_UTC
             ),
-            Some(time::time(DING, US_UTC))
+            Some(time::time(UnixSeconds(DING), US_UTC))
         );
         for status in every() {
             if !matches!(status, S::Connected { .. } | S::MissingWakeups { .. }) {

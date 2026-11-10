@@ -141,7 +141,7 @@ pub fn live_activity(input: &LiveActivityInput, device: Device) -> Option<LiveAc
         amount: shown.map(|sale| sale.price.amount().to_owned()),
         currency: shown.map(|sale| sale.price.currency().to_owned()),
         xmr: shown.map(|sale| sale.xmr.clone()),
-        expires_at: shown.map(|sale| sale.expires_at),
+        expires_at: shown.map(|sale| sale.expires_at.0),
         waiting_count,
         payment_uri: shown
             .filter(|sale| input.code_in_island && sale.live() && sale.phase == SalePhase::Waiting)
@@ -164,6 +164,7 @@ pub fn live_activity(input: &LiveActivityInput, device: Device) -> Option<LiveAc
 mod tests {
     use super::*;
     use crate::fixtures::{found, till_sale};
+    use till_types::UnixSeconds;
 
     fn sale(id: &str, phase: SalePhase, mine: bool) -> TillSale {
         TillSale {
@@ -174,7 +175,7 @@ mod tests {
                 why: None,
             },
             phase,
-            expires_at: 1_761_312_000,
+            expires_at: UnixSeconds(1_761_312_000),
             found: mine.then(|| {
                 found(
                     "p1",

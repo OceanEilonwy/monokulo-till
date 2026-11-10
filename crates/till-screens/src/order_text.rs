@@ -7,6 +7,7 @@ use monokulo_client::PointOfSale;
 use orf_codec::{LineItem, Receipt};
 use till_sales::TillSale;
 use till_types::Money;
+use till_types::UnixSeconds;
 
 use crate::decimal::Decimal;
 use crate::time::{DeviceClock, time};
@@ -115,7 +116,7 @@ pub fn subtitle(
     let issued = receipt
         .receipt
         .issued()
-        .map(|at| time(at.as_second(), clock));
+        .map(|at| time(UnixSeconds(at.as_second()), clock));
     let mut parts = vec![sale_text::title(sale)];
     if sale.reference.is_some() {
         parts.push(pos_text::receipt_label(pos, &receipt.receipt.receipt_id));

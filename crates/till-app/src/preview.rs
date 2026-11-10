@@ -5,6 +5,7 @@
 
 use monokulo_client::OrderId;
 use std::sync::Arc;
+use till_types::UnixSeconds;
 
 use till_sales::{TillSale, shift_json};
 use till_screens::bubble::{self, PanelInput, PanelView};
@@ -107,7 +108,7 @@ pub fn preview_shift(preview: TillPreview, platform: Arc<dyn Platform>) -> Optio
         disconnected: preview.disconnected,
         problem: preview.problem.clone(),
         sign_in_again: preview.sign_in_again,
-        started_at: preview.started_at,
+        started_at: preview.started_at.map(UnixSeconds),
         filter: preview.filter.unwrap_or(ShiftFilter::All),
         folded: preview.folded,
         counters: Default::default(),
