@@ -73,7 +73,7 @@ pub enum LedgerError {
     Import(String),
 }
 
-/// The core's one clock (decision 194): the ledger reads it in
+/// The core's one clock (decision 217): the ledger reads it in
 /// milliseconds.
 pub use monokulo_client::{Clock, SystemClock, UnixMillis, UnixSeconds};
 

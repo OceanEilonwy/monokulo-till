@@ -96,7 +96,7 @@ till_types::wire_enum!(
     /// A refund's status as Square writes it. One Square adds later
     /// ([`Other`](RefundStatus::Other)) is neither pending nor done: the
     /// till records it as not yet done, but it never holds the refunds
-    /// listing's cursor back (core.md decision 170).
+    /// listing's cursor back (core.md decision 208).
     RefundStatus {
         Pending = "PENDING",
         Completed = "COMPLETED",

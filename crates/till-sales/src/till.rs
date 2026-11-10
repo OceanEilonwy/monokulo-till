@@ -397,7 +397,7 @@ impl Till {
                 // Only a refund Square says is pending holds the cursor: one
                 // whose status this build doesn't know may never change to
                 // one it does, and would hold it there for good (core.md
-                // decision 170).
+                // decision 208).
                 if refund.status == till_pos::RefundStatus::Pending {
                     pending = Some(pending.map_or(at, |p| p.min(at)));
                 }

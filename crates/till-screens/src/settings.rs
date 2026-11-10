@@ -138,7 +138,7 @@ impl ShowSales {
 
     /// The choice as it is kept, by the platform's store and in the
     /// ledger's settings alike: `pip`, `side`, or nothing for the default
-    /// alert (decision 191).
+    /// alert (decision 214).
     pub fn wire(self) -> Option<&'static str> {
         match self {
             ShowSales::Alert => None,

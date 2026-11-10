@@ -123,7 +123,7 @@ pub enum RefundStatus {
 
 impl RefundStatus {
     /// The point of sale's status, as the ledger keeps it. One this build
-    /// doesn't know is kept as pending, not done (core.md decision 170).
+    /// doesn't know is kept as pending, not done (core.md decision 208).
     pub fn of_pos(status: &till_pos::RefundStatus) -> RefundStatus {
         match status {
             till_pos::RefundStatus::Completed => RefundStatus::Completed,

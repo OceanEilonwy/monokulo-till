@@ -64,7 +64,7 @@ struct PushTests {
         #expect(config.bellUrl == Build.bellUrl)
         #expect(Build.relayUrl == "https://relay.invalid")
         #expect(Build.bellUrl == "https://bell.invalid")
-        #expect(config.platform == "ios")
+        #expect(config.device == .iphone)
         #expect(config.dataDir == TillShared.dataDirectory().path)
         #expect(!config.dataDir.isEmpty)
         #expect(SaleAlerts.orderKey == TillShared.orderKey)

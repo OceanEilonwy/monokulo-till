@@ -1582,7 +1582,7 @@ Bell send were `String`s compared with literals, three ISO 4217 tables
 disagreed, and two payment-URI strippers did. Each is now a type, read
 once at the edge, with the stored and sent text unchanged.
 
-170. **A status this build doesn't know is kept, and never holds a
+208. **A status this build doesn't know is kept, and never holds a
      cursor.** The words a service writes (Square's payment, refund,
      source and location statuses; Clover's payment result and order
      payment state; Monokulo's order status) are enums made with
@@ -1597,7 +1597,7 @@ once at the edge, with the stored and sent text unchanged.
      one the till knows, and the cursor would stay there for good. A
      Monokulo order status the till doesn't know leaves the sale waiting,
      as `pending` does.
-171. **One `CurrencyCode` and one ISO 4217 table, in till-types.** A
+209. **One `CurrencyCode` and one ISO 4217 table, in till-types.** A
      currency is a `till_types::CurrencyCode`: three ASCII letters, read
      trimmed and upper-cased (`"usd"` is USD), written as its letters, so
      stored JSON is unchanged. Its `iso_digits()` come from the one table
@@ -1612,7 +1612,7 @@ once at the edge, with the stored and sent text unchanged.
      keeps `amountMinor`/`amount_minor` and `currency`), Square's refund
      amount, and Monokulo's create-order, which takes the price as one
      `&Money`. A shift's summary sums per currency whatever its case.
-172. **A code ISO 4217 doesn't list counts in two digits, everywhere it's
+210. **A code ISO 4217 doesn't list counts in two digits, everywhere it's
      counted.** Where an amount is counted in minor units (a sale's
      price, a receipt's numbers, orf-codec's encoding) a code that isn't on
      the list ("XMR") has 2, as Java's `Currency` answered and till-pos and
@@ -1624,7 +1624,7 @@ once at the edge, with the stored and sent text unchanged.
      the metals, funds and test codes in none. No receipt the till made
      was in those codes; USD, EUR, GBP and every currency a point of sale
      takes encode exactly as before, and the corpus is unchanged.
-173. **A point of sale's instants are an `Rfc3339Instant` that keeps its
+211. **A point of sale's instants are an `Rfc3339Instant` that keeps its
      text.** Square's payment and refund times, a `FoundSale`'s, a listed
      refund's, a journalled payment's, a sign-in's expiry, the payment
      cursor and Square's `begin_time` are `till_pos::Rfc3339Instant`: a
@@ -1641,7 +1641,7 @@ once at the edge, with the stored and sent text unchanged.
      `HandledMarker`s (`id` or `id@updated_at`, the same text), matched
      the same way at Square and Clover; a kept cursor that isn't a time is
      the store's error, as reading it was the source's.
-174. **A receipt's amounts are counted in minor units, read exactly at the
+212. **A receipt's amounts are counted in minor units, read exactly at the
      edge of the view.** The order card and page no longer add doubles:
      each receipt amount becomes `Money` once (`sale_text::receipt_money`),
      and the subtotal, the taxes and the tip and discount (read in one
@@ -1657,7 +1657,7 @@ once at the edge, with the stored and sent text unchanged.
 
 ## String typing: app, time and secrets (2026-11-10)
 
-190. **A log line names an action, never prints it.** The engine's two
+213. **A log line names an action, never prints it.** The engine's two
      log lines about an action (the one a handler's panic leaves, and the
      one for an action that waits while nothing kept can be read) say only
      its name, from a hand-written `Action::name`, where they printed its
@@ -1674,7 +1674,7 @@ once at the edge, with the stored and sent text unchanged.
      they cross to Swift and Kotlin as named fields, and the log no longer
      prints them. The Monokulo client keys its kept entries by the app key
      and entry as a pair, no longer formatted into one string.
-191. **How a new sale shows up is kept as `pip` or `side`, in both
+214. **How a new sale shows up is kept as `pip` or `side`, in both
      stores.** The engine gave the ledger's `sales.show` setting the
      variant's `Debug` (`FloatingWindow`) while the platform's store kept
      the same choice as `pip`, so a rename would have changed what the
@@ -1688,7 +1688,7 @@ once at the edge, with the stored and sent text unchanged.
      settings' names are constants in the ledger's `setting` module. A
      typed `Setting` enum for every ledger setting was left: the ledger
      can't name `ShowSales`, which is till-screens'.
-192. **A build names its points of sale's environments as enums.**
+215. **A build names its points of sale's environments as enums.**
      `CloverSetup.environment` was a string the engine read at start, and a
      build that misspelt it had an engine that refused every action, Square
      tills included; `SquareSetup.sandbox` was a bool. Both are now enums
@@ -1700,7 +1700,7 @@ once at the edge, with the stored and sent text unchanged.
      sign-in registers with a Bell under, spelt as the Bell spells it, so
      `BellClient::register` takes the typed sign-in and the token as a
      `Secret` instead of four adjacent strings.
-193. **The ledger's store key is the kept API address, spelt as kept.**
+216. **The ledger's store key is the kept API address, spelt as kept.**
      A connection's `api` is now an `ApiUrl`, written once from the URL the
      connect resolved and read back verbatim; the scope hashes its text, or
      nothing with no store, as before. It isn't normalised for the key: a
@@ -1711,7 +1711,7 @@ once at the edge, with the stored and sent text unchanged.
      address gets written is from a parsed URL at connect, so one store
      can't come to have two spellings without a new connection, which is a
      new scope anyway.
-194. **One clock, and a time's unit in its type.** The core had two clock
+217. **One clock, and a time's unit in its type.** The core had two clock
      traits, monokulo-client's in seconds and the ledger's in
      milliseconds, bridged by hand-written `* 1000` and `div_euclid(1000)`
      at a dozen places. There is now one `Clock`, monokulo-client's, which
@@ -1733,7 +1733,7 @@ once at the edge, with the stored and sent text unchanged.
 What the first pass left: a sale's price, and Monokulo's order id, were
 still strings across the till, the ledger, the screens and the bridge.
 
-177. **A sale's price is a `Price` that keeps Monokulo's text.** The
+218. **A sale's price is a `Price` that keeps Monokulo's text.** The
      price an order was made for (`OrderCreated`, the ledger's order, a
      `SaleView`, a `TillSale`) is a `till_types::Price`: Monokulo's
      `amount` and `currency` texts, read once, where the order is
@@ -1749,7 +1749,7 @@ still strings across the till, the ledger, the screens and the bridge.
      doesn't list was priced at. Nothing on the bridge carries it: the
      views send formatted strings, and the Live Activity's `amount` and
      `currency` are the price's two texts.
-178. **One `OrderId`, from Monokulo's answer to the platform's tap.**
+219. **One `OrderId`, from Monokulo's answer to the platform's tap.**
      monokulo-client's `OrderId` (`till_types::text_id!`) is the order id
      of an `Order` and a sale event, the ledger's `OrderId` (re-exported,
      the same type), a `TillSale`'s and a `SaleView`'s, every `Till`,
@@ -1768,7 +1768,7 @@ still strings across the till, the ledger, the screens and the bridge.
 
 ## String typing: the rest of the times (2026-11-10)
 
-179. **Every time in the core has its unit's type.** What decision 176
+220. **Every time in the core has its unit's type.** What decision 217
      left as `i64`s is typed: the ledger's facts, marks, rows and imported
      times are `UnixMillis` (an order's expiry, Monokulo's, `UnixSeconds`),
      and the sales' times (`SaleView`, `TillSale`) are `UnixSeconds`, as

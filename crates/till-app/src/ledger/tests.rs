@@ -239,7 +239,7 @@ fn another_point_of_sale_account_deletes_the_old_scopes_sales() {
     );
 }
 
-/// Decision 191: how a new sale shows up is kept in the ledger as the
+/// Decision 214: how a new sale shows up is kept in the ledger as the
 /// platform's store keeps it, and a ledger that was given the variant's
 /// name before has it replaced.
 #[test]
@@ -360,7 +360,7 @@ fn the_kept_shift_is_imported_once_by_whichever_process_opens_first() {
     assert!(claimed.lock().unwrap().is_empty(), "{:?}", claimed.lock());
 }
 
-/// Decision 193: the scope is the kept API address's text, as it was
+/// Decision 216: the scope is the kept API address's text, as it was
 /// before the address had a type, so no kept ledger's rows are deleted as
 /// changed (decision 166).
 #[test]

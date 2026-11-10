@@ -246,7 +246,7 @@ pub fn quantity(quantity: f64) -> String {
 /// rounded half up to the currency's minor unit. Exact for any amount
 /// orf-codec encodes (at most 9 × 10^15 minor units, fewer than 16
 /// digits). `None` for a currency that isn't a code, or a value that isn't
-/// a number or doesn't fit (core.md decision 174).
+/// a number or doesn't fit (core.md decision 212).
 pub fn receipt_money(value: f64, currency: &str) -> Option<Money> {
     let currency = CurrencyCode::new(currency).ok()?;
     let minor = Decimal::of(value)?

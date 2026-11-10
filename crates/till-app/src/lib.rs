@@ -672,7 +672,7 @@ impl Action {
     /// it. Its fields can hold a sign-in's redirect (with its code), a push
     /// subscription's auth secret, an APNs token or a connect link, none of
     /// which may reach the system log, so the log never prints an action's
-    /// `Debug` (decision 190).
+    /// `Debug` (decision 213).
     pub fn name(&self) -> &'static str {
         match self {
             Action::Opened => "Opened",

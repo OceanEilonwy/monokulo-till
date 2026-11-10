@@ -10,7 +10,7 @@ till_types::text_id!(
     /// A store's API entry, absolute (`https://pay.example/api/v1`), as the
     /// connection keeps it: written once, as the URL it was resolved to at
     /// connect, and read back as it was written, never spelt again. Its text
-    /// is the ledger's key for the store (decision 193).
+    /// is the ledger's key for the store (decision 216).
     ApiUrl
 );
 

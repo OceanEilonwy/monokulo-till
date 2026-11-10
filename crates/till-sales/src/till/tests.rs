@@ -1242,7 +1242,7 @@ async fn a_refund_made_in_squares_own_app_is_seen_on_the_next_look() {
 
 /// A refund status Square adds later is kept as not yet done, so the sale
 /// isn't refunded by it, but it never holds the refunds cursor back
-/// (core.md decision 170): the next listing starts from the newest refund.
+/// (core.md decision 208): the next listing starts from the newest refund.
 #[tokio::test]
 async fn a_refund_status_the_till_doesnt_know_never_holds_the_cursor() {
     let f = fixture().await;

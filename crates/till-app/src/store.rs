@@ -682,7 +682,7 @@ impl Model {
 
     /// The settings the ledger keeps beside [`Model::till_options`]: whether
     /// other counters' sales are listed, and how a new sale shows up, in
-    /// the words the platform's store keeps them in (decision 173).
+    /// the words the platform's store keeps them in (decision 214).
     pub fn ledger_settings(&self) -> [(&'static str, Option<String>); 2] {
         use till_ledger::view::setting;
         [

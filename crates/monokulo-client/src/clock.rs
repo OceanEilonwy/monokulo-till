@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicI64, Ordering};
 pub use till_types::{UnixMillis, UnixSeconds};
 
 /// The time now: the one clock every crate of the core reads, in the unit
-/// each wants (decision 194). The ledger keeps milliseconds; Monokulo, the
+/// each wants (decision 217). The ledger keeps milliseconds; Monokulo, the
 /// points of sale and the screens whole seconds.
 pub trait Clock: Send + Sync {
     /// Now, to the millisecond.

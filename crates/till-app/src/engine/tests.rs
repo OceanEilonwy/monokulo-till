@@ -268,7 +268,7 @@ fn a_store_that_cant_answer_says_so_and_is_read_again_when_opened() {
     );
 }
 
-/// Decision 190: an action that waits is logged by its name alone, never
+/// Decision 213: an action that waits is logged by its name alone, never
 /// with the redirect, auth secret, token or link it carries.
 #[test]
 fn a_waiting_action_is_logged_without_what_it_carries() {
