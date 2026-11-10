@@ -150,13 +150,13 @@ pub struct RefundSeen {
 }
 
 /// The order create-order made (or, on a till without a POS, the order a
-/// Monokulo event or read described).
+/// Monokulo event or read described). A sale has one (core.md decision
+/// 167); a body written before then may carry an `attempt`, which is
+/// ignored (decision 173).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct OrderCreated {
     pub sale: SaleKey,
     pub order_id: OrderId,
-    /// 1 for the first order, n for the code made by the (n-1)th New code.
-    pub attempt: u8,
     /// Its `self` link: where to read it again.
     #[serde(default)]
     pub url: Option<String>,
@@ -176,6 +176,19 @@ pub struct OrderCreated {
     /// `device_name`), for a sale known only from Monokulo.
     #[serde(default)]
     pub device_name: Option<String>,
+    /// Where its `renew-order` form goes (New code), when Monokulo offers
+    /// it (decision 171).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub renew: Option<String>,
+}
+
+/// The price and expiry an order had when Monokulo said something about
+/// it: a renewal gives the order a new one (core.md decision 169).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct Quote {
+    /// Unix seconds.
+    pub expires_at: i64,
+    pub piconero: u64,
 }
 
 /// What Monokulo said about an order, from an event or a read.
@@ -193,6 +206,13 @@ pub struct OrderObserved {
     /// Paid more than asked (`overpaid`).
     #[serde(default)]
     pub overpaid: bool,
+    /// The quote the order had when Monokulo said it; `None` in a body
+    /// written before quotes were recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quote: Option<Quote>,
+    /// Where its `renew-order` form goes, from a read that offers it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub renew: Option<String>,
 }
 
 /// What an alert is for.
@@ -527,6 +547,11 @@ mod tests {
                 is_final: false,
                 received: None,
                 overpaid: false,
+                quote: Some(Quote {
+                    expires_at: 900,
+                    piconero: 150_000_000_000,
+                }),
+                renew: Some("https://shop.example/api/v1/orders/ord".into()),
             }),
             Fact::Mark {
                 sale: sale.clone(),
@@ -573,6 +598,27 @@ mod tests {
             Some(fact)
         );
         assert_eq!(Fact::decode("Foreground", b"not json"), None);
+    }
+
+    /// An `OrderCreated` journalled before core.md decision 167 carries its
+    /// `attempt`: read as the order it names, the attempt ignored; and an
+    /// `OrderObserved` from before quotes has none.
+    #[test]
+    fn facts_written_before_one_order_per_sale_still_read() {
+        let body = br#"{"v":1,"sale":"sq:p1","order_id":"o2","attempt":2,"url":null,
+            "payment_uri":"monero:8a?tx_amount=0.15","address":"8a","xmr":"0.15",
+            "amount":"24.50","currency":"USD","reference":null,"expires_at":900,
+            "confirmations_required":10,"device_name":null}"#;
+        let Some(Fact::OrderCreated(o)) = Fact::decode("OrderCreated", body) else {
+            panic!("an order")
+        };
+        assert_eq!((o.order_id.as_str(), o.renew), ("o2", None));
+        let body = br#"{"v":1,"order_id":"o2","phase":"Expired","confirmations":0,
+            "is_final":false,"received":null,"overpaid":false}"#;
+        let Some(Fact::OrderObserved(o)) = Fact::decode("OrderObserved", body) else {
+            panic!("an observation")
+        };
+        assert_eq!(o.quote, None);
     }
 
     #[test]

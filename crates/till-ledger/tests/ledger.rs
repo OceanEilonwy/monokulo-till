@@ -7,7 +7,7 @@ use proptest::prelude::*;
 use till_ledger::view::setting;
 use till_ledger::{
     AlertKind, ClaimPolicy, Fact, Imported, KeyMaterial, Ledger, LedgerError, MarkKind,
-    OrderCreated, OrderObserved, OrderRead, PaymentPhase, PaymentSeen, Process, RefundSeen,
+    OrderCreated, OrderObserved, OrderRead, PaymentPhase, PaymentSeen, Process, Quote, RefundSeen,
     RefundStatus, SaleKey, Scope, SecretStore, Tender, TestClock, ViewSettings, may_make_order,
 };
 
@@ -76,11 +76,10 @@ fn payment(id: &str, device: &str, tender: Tender, updated_at: i64) -> Fact {
     })
 }
 
-fn created(id: &str, order: &str, attempt: u8) -> Fact {
+fn created(id: &str, order: &str) -> Fact {
     Fact::OrderCreated(OrderCreated {
         sale: sale(id),
         order_id: order.into(),
-        attempt,
         url: Some(format!("https://shop.example/api/v1/orders/{order}")),
         payment_uri: format!("monero:8{order}?tx_amount=0.15"),
         address: format!("8{order}"),
@@ -91,6 +90,7 @@ fn created(id: &str, order: &str, attempt: u8) -> Fact {
         expires_at: NOW / 1000 + 900,
         confirmations_required: Some(10),
         device_name: None,
+        renew: Some(format!("https://shop.example/api/v1/orders/{order}")),
     })
 }
 
@@ -106,6 +106,26 @@ fn observed(order: &str, phase: SalePhase, is_final: bool) -> Fact {
         is_final,
         received: (phase == SalePhase::Partial).then_some(1_000),
         overpaid: false,
+        quote: None,
+        renew: None,
+    })
+}
+
+/// When `created`'s code runs out, Unix seconds.
+const FIRST_EXPIRY: i64 = NOW / 1000 + 900;
+
+/// `observed`, said under the quote that runs out at `expires_at` for
+/// `piconero`.
+fn quoted(order: &str, phase: SalePhase, expires_at: i64, piconero: u64) -> Fact {
+    let Fact::OrderObserved(o) = observed(order, phase, false) else {
+        unreachable!("an observation")
+    };
+    Fact::OrderObserved(OrderObserved {
+        quote: Some(Quote {
+            expires_at,
+            piconero,
+        }),
+        ..o
     })
 }
 
@@ -158,9 +178,20 @@ fn pool() -> Vec<Fact> {
             amount_minor: 2450,
             status: RefundStatus::Completed,
         }),
-        created("p1", "o1", 1),
-        created("p1", "o1b", 2),
-        created("p2", "o2", 1),
+        created("p1", "o1"),
+        // Two orders for one sale, as only a build before core.md decision
+        // 167 made: the later code stands.
+        created("p1", "o1b"),
+        created("p2", "o2"),
+        // A renewal of o2: its first quote's ending, and the new quote.
+        quoted("o2", SalePhase::Expired, FIRST_EXPIRY, 150_000_000_000),
+        quoted(
+            "o2",
+            SalePhase::Waiting,
+            FIRST_EXPIRY + 1_200,
+            160_000_000_000,
+        ),
+        quoted("o2", SalePhase::Seen, FIRST_EXPIRY + 1_200, 160_000_000_000),
     ];
     for order in ["o1", "o1b", "o2"] {
         for phase in SalePhase::ALL {
@@ -237,7 +268,7 @@ fn an_unknown_order_waits_and_one_order_never_changes_another_sale() {
     ledger
         .record(payment("p1", "front", Tender::Monero, 1))
         .unwrap();
-    ledger.record(created("p1", "o1", 1)).unwrap();
+    ledger.record(created("p1", "o1")).unwrap();
     ledger
         .record(payment("p2", "front", Tender::Monero, 1))
         .unwrap();
@@ -259,7 +290,7 @@ fn an_unknown_order_waits_and_one_order_never_changes_another_sale() {
             .changed
     );
 
-    let made = ledger.record(created("p2", "o2", 1)).unwrap();
+    let made = ledger.record(created("p2", "o2")).unwrap();
     assert!(made.changed);
     assert_eq!(
         phase(&ledger, "p2"),
@@ -288,7 +319,7 @@ fn only_changes_are_journalled() {
     ledger
         .record(payment("p1", "front", Tender::Monero, 1))
         .unwrap();
-    ledger.record(created("p1", "o1", 1)).unwrap();
+    ledger.record(created("p1", "o1")).unwrap();
     ledger
         .record(observed("o1", SalePhase::Confirming, false))
         .unwrap();
@@ -320,12 +351,12 @@ fn a_stale_extension_round_moves_nothing_backwards() {
     let mut ext = fx.open(Process::Extension);
     app.record(payment("p1", "front", Tender::Monero, 1))
         .unwrap();
-    let r = app.record(created("p1", "o1", 1)).unwrap();
+    let r = app.record(created("p1", "o1")).unwrap();
     assert_eq!(r.effects_claimed.len(), 1);
     app.posted(&r.effects_claimed[0]).unwrap();
     app.record(payment("p2", "front", Tender::Monero, 1))
         .unwrap();
-    let r = app.record(created("p2", "o2", 1)).unwrap();
+    let r = app.record(created("p2", "o2")).unwrap();
     app.posted(&r.effects_claimed[0]).unwrap();
     app.record(Fact::Foreground {
         until: NOW + 60_000,
@@ -338,11 +369,11 @@ fn a_stale_extension_round_moves_nothing_backwards() {
     // The extension read both orders a while ago.
     for fact in [
         payment("p1", "front", Tender::Monero, 1),
-        created("p1", "o1", 1),
+        created("p1", "o1"),
         observed("o1", SalePhase::Seen, false),
         observed("o1", SalePhase::Waiting, false),
         payment("p2", "front", Tender::Monero, 1),
-        created("p2", "o2", 1),
+        created("p2", "o2"),
         observed("o2", SalePhase::Waiting, false),
     ] {
         let about_p1 = matches!(&fact, Fact::OrderObserved(o) if o.order_id.as_str() == "o1")
@@ -380,7 +411,7 @@ fn two_tills_differ_only_in_effects() {
     back.record(set(setting::DEVICE, "back", 1)).unwrap();
     let facts = [
         payment("p1", "front", Tender::Monero, 1),
-        created("p1", "o1", 1),
+        created("p1", "o1"),
         observed("o1", SalePhase::Paid, true),
     ];
     let mut front_effects = Vec::new();
@@ -410,8 +441,8 @@ fn one_alert_per_sale_and_a_dead_claim_is_redelivered_once() {
     let mut b = fx.open(Process::App);
     a.record(payment("p1", "front", Tender::Monero, 1)).unwrap();
     b.record(payment("p1", "front", Tender::Monero, 1)).unwrap();
-    let ra = a.record(created("p1", "o1", 1)).unwrap();
-    let rb = b.record(created("p1", "o1", 1)).unwrap();
+    let ra = a.record(created("p1", "o1")).unwrap();
+    let rb = b.record(created("p1", "o1")).unwrap();
     assert_eq!(ra.effects_claimed.len(), 1);
     assert_eq!(ra.effects_claimed[0].notification_id, "sq:p1#new_sale");
     assert!(rb.effects_claimed.is_empty() && !rb.changed);
@@ -445,7 +476,7 @@ fn the_extension_claims_only_the_newest_new_sale_and_leaves_the_rest() {
     let mut app = fx.open(Process::App);
     for (id, order) in [("p1", "o1"), ("p2", "o2")] {
         ext.record(payment(id, "front", Tender::Monero, 1)).unwrap();
-        let r = ext.record(created(id, order, 1)).unwrap();
+        let r = ext.record(created(id, order)).unwrap();
         assert_eq!(r.effects.len(), 1);
         assert!(r.effects_claimed.is_empty());
     }
@@ -464,7 +495,7 @@ fn a_new_sale_paid_before_anyone_showed_it_is_not_shown() {
     let mut app = fx.open(Process::App);
     ext.record(payment("p1", "front", Tender::Monero, 1))
         .unwrap();
-    ext.record(created("p1", "o1", 1)).unwrap();
+    ext.record(created("p1", "o1")).unwrap();
     ext.record(observed("o1", SalePhase::Paid, true)).unwrap();
     let claims = app.claim_due(ClaimPolicy::All).unwrap();
     assert_eq!(
@@ -543,7 +574,7 @@ fn a_late_payment_always_shows_and_alerts() {
         let fx = Fixture::new();
         let mut l = fx.open(Process::App);
         l.record(payment("p1", "front", Tender::Monero, 1)).unwrap();
-        l.record(created("p1", "o1", 1)).unwrap();
+        l.record(created("p1", "o1")).unwrap();
         before(&mut l);
         let r = l.record(observed("o1", SalePhase::Paid, false)).unwrap();
         let v = l.sale(&sale("p1")).unwrap().unwrap();
@@ -563,7 +594,7 @@ fn a_double_spend_stays_unless_monokulo_settles_it_paid() {
     let fx = Fixture::new();
     let mut l = fx.open(Process::App);
     l.record(payment("p1", "front", Tender::Monero, 1)).unwrap();
-    l.record(created("p1", "o1", 1)).unwrap();
+    l.record(created("p1", "o1")).unwrap();
     l.record(observed("o1", SalePhase::DoubleSpend, false))
         .unwrap();
     l.record(observed("o1", SalePhase::Paid, false)).unwrap();
@@ -575,39 +606,110 @@ fn a_double_spend_stays_unless_monokulo_settles_it_paid() {
     );
 }
 
-/// §15.8: New code.
+/// §15.8: New code renews the sale's one order (core.md decisions 167 to
+/// 172): the same order with a new quote, waiting again with its new code;
+/// the old quote's ending doesn't end it, whichever arrives first; the
+/// renewal alerts nothing; a Paid against either quote shows; and a sale
+/// whose order offers no `renew-order` isn't renewable.
 #[test]
-fn a_new_code_is_attempt_two_and_a_paid_first_attempt_ends_it() {
-    let key = sale("p1").order_key(2).unwrap().key();
-    assert!(key.ends_with("#2"));
-    assert_eq!(
-        &key[..key.len() - 2],
-        sale("p1").order_key(1).unwrap().key()
-    );
+fn a_new_code_renews_the_one_order_with_a_new_quote() {
+    let key = sale("p1").order_key().unwrap().key();
+    assert!(key.starts_with("sq:") && !key.contains('#'), "{key}");
 
     let fx = Fixture::new();
     let mut l = fx.open(Process::App);
     l.record(payment("p1", "front", Tender::Monero, 1)).unwrap();
-    l.record(created("p1", "o1", 1)).unwrap();
+    l.record(created("p1", "o1")).unwrap();
     l.record(observed("o1", SalePhase::Expired, false)).unwrap();
-    let r = l.record(created("p1", "o2", 2)).unwrap();
+    let v = l.sale(&sale("p1")).unwrap().unwrap();
+    assert!(v.renewable && !v.live);
+    assert_eq!(v.payment, Some(PaymentPhase::Expired));
+
+    let renewed = FIRST_EXPIRY + 1_200;
+    let r = l
+        .record(quoted("o1", SalePhase::Waiting, renewed, 160_000_000_000))
+        .unwrap();
     assert!(
         r.effects.is_empty(),
         "the cashier asked for it: no new alert"
     );
     let v = l.sale(&sale("p1")).unwrap().unwrap();
-    assert_eq!((v.attempt, v.order_id.as_str(), v.live), (2, "o2", true));
-
-    l.record(observed("o1", SalePhase::Paid, false)).unwrap();
-    let v = l.sale(&sale("p1")).unwrap().unwrap();
     assert_eq!(
-        (v.phase, v.attempt, v.order_id.as_str()),
-        (SalePhase::Paid, 1, "o1")
+        (v.order_id.as_str(), v.payment, v.live, v.expires_at),
+        ("o1", Some(PaymentPhase::Waiting), true, renewed)
     );
-    assert!(v.attempts[1].superseded && !v.attempts[0].superseded);
-    assert!(!v.paid_twice);
-    l.record(observed("o2", SalePhase::Paid, false)).unwrap();
-    assert!(l.sale(&sale("p1")).unwrap().unwrap().paid_twice);
+    assert_eq!(v.xmr, "0.16");
+    assert_eq!(v.code.uri, "monero:8o1?tx_amount=0.16");
+    // The first quote's ending, heard late from the stream, changes nothing.
+    l.record(quoted(
+        "o1",
+        SalePhase::Expired,
+        FIRST_EXPIRY,
+        150_000_000_000,
+    ))
+    .unwrap();
+    assert_eq!(phase(&l, "p1"), Some(PaymentPhase::Waiting));
+    // A payment at the old price shows as Monokulo judges it.
+    l.record(quoted("o1", SalePhase::Partial, renewed, 160_000_000_000))
+        .unwrap();
+    assert_eq!(
+        phase(&l, "p1"),
+        Some(PaymentPhase::Partial { received: 1_000 })
+    );
+    l.record(quoted("o1", SalePhase::Paid, FIRST_EXPIRY, 150_000_000_000))
+        .unwrap();
+    assert!(phase(&l, "p1").unwrap().is_paid());
+
+    // The new quote's own ending ends it.
+    l.record(payment("p2", "front", Tender::Monero, 1)).unwrap();
+    l.record(created("p2", "o2")).unwrap();
+    l.record(quoted("o2", SalePhase::Waiting, renewed, 160_000_000_000))
+        .unwrap();
+    l.record(quoted("o2", SalePhase::Expired, renewed, 160_000_000_000))
+        .unwrap();
+    assert_eq!(phase(&l, "p2"), Some(PaymentPhase::Expired));
+
+    // An order an older Monokulo made offers no renewal.
+    let Fact::OrderCreated(older) = created("p3", "o3") else {
+        unreachable!("an order")
+    };
+    l.record(payment("p3", "front", Tender::Monero, 1)).unwrap();
+    l.record(Fact::OrderCreated(OrderCreated {
+        renew: None,
+        ..older
+    }))
+    .unwrap();
+    assert!(!l.sale(&sale("p3")).unwrap().unwrap().renewable);
+}
+
+/// A code this device's clock said ran out counts only for the quote it
+/// ran out under: renewed, the code is up again, and when the renewed code
+/// runs out by the clock it lapses again.
+#[test]
+fn a_clock_lapse_belongs_to_the_quote_it_lapsed() {
+    let fx = Fixture::new();
+    let mut l = fx.open(Process::App);
+    l.record(payment("p1", "front", Tender::Monero, 1)).unwrap();
+    l.record(created("p1", "o1")).unwrap();
+    l.record(Fact::Mark {
+        sale: sale("p1"),
+        mark: MarkKind::ClockLapsed,
+        at: (FIRST_EXPIRY + 1) * 1000,
+    })
+    .unwrap();
+    assert!(l.sale(&sale("p1")).unwrap().unwrap().clock_lapsed);
+    let renewed = FIRST_EXPIRY + 1_200;
+    l.record(quoted("o1", SalePhase::Waiting, renewed, 160_000_000_000))
+        .unwrap();
+    let v = l.sale(&sale("p1")).unwrap().unwrap();
+    assert!(v.live && !v.clock_lapsed, "renewed, the code is up again");
+    l.record(Fact::Mark {
+        sale: sale("p1"),
+        mark: MarkKind::ClockLapsed,
+        at: (renewed + 1) * 1000,
+    })
+    .unwrap();
+    assert!(l.sale(&sale("p1")).unwrap().unwrap().clock_lapsed);
 }
 
 /// §15.9: settings never change `shared`; a cash sale gets an order only
@@ -826,7 +928,7 @@ fn the_key_states() {
     let mut l = recovered.ledger;
     assert!(l.row(&sale("p1")).unwrap().is_none());
     l.record(payment("p1", "front", Tender::Monero, 1)).unwrap();
-    let r = l.record(created("p1", "o1", 1)).unwrap();
+    let r = l.record(created("p1", "o1")).unwrap();
     assert_eq!(r.effects.len(), 1);
     assert!(r.effects_claimed.is_empty(), "learning: nothing delivered");
     assert_eq!(
@@ -882,7 +984,7 @@ fn deleting_a_scope_deletes_its_rows_only() {
     let fx = Fixture::new();
     let mut l = fx.open(Process::App);
     l.record(payment("p1", "front", Tender::Monero, 1)).unwrap();
-    l.record(created("p1", "o1", 1)).unwrap();
+    l.record(created("p1", "o1")).unwrap();
     l.record(observed("o9", SalePhase::Seen, false)).unwrap();
     l.set_cursor("square.payments", "2026-11-09T17:00:00Z")
         .unwrap();
@@ -957,9 +1059,9 @@ fn a_sale_kept_from_monokulo_alone_is_folded_into_the_pos_sale_that_finds_it() {
     let mut claimed = Vec::new();
     for fact in [
         payment("p7", "front", Tender::Monero, 1),
-        created("p7", "ord_7", 1),
+        created("p7", "ord_7"),
         payment("p8", "front", Tender::Monero, 1),
-        created("p8", "ord_8", 1),
+        created("p8", "ord_8"),
     ] {
         fx.clock.advance(1000);
         claimed.extend(l.record(fact).unwrap().effects_claimed);
@@ -990,7 +1092,7 @@ fn a_sale_kept_from_monokulo_alone_is_folded_into_the_pos_sale_that_finds_it() {
     assert!(eight.settled);
     assert_eq!(
         l.order(&"ord_7".into()).unwrap(),
-        Some((sale("p7"), 1)),
+        Some(sale("p7")),
         "its order is the POS sale's"
     );
     let kept_prefix = format!("{}:", "mk");
@@ -1042,13 +1144,13 @@ fn compaction_keeps_the_projections() {
     };
     for fact in [
         old("p1"),
-        created("p1", "o1", 1),
+        created("p1", "o1"),
         observed("o1", SalePhase::Seen, false),
         observed("o1", SalePhase::Paid, true),
         old("p2"),
-        created("p2", "o2", 1),
+        created("p2", "o2"),
         payment("p3", "front", Tender::Monero, 1),
-        created("p3", "o3", 1),
+        created("p3", "o3"),
         observed("o3", SalePhase::Paid, true),
     ] {
         fx.clock.advance(1000);
@@ -1110,12 +1212,12 @@ fn the_shift_lists_live_sales_always_and_ended_ones_in_its_window() {
     // Yesterday's live sale and paid sale; today's paid cash sale.
     for fact in [
         at("old_live", "2026-11-08T17:00:00Z", Tender::Monero),
-        created("old_live", "o1", 1),
+        created("old_live", "o1"),
         at("old_paid", "2026-11-08T17:00:00Z", Tender::Monero),
-        created("old_paid", "o2", 1),
+        created("old_paid", "o2"),
         observed("o2", SalePhase::Paid, true),
         at("today", "2026-11-09T17:00:00Z", Tender::Cash),
-        created("today", "o3", 1),
+        created("today", "o3"),
         observed("o3", SalePhase::Paid, true),
     ] {
         l.record(fact).unwrap();

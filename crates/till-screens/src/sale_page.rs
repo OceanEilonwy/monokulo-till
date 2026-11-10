@@ -425,33 +425,11 @@ pub fn page(
 }
 
 /// What the ledger adds to a page (docs/ledger.md §5, §7): New code on a
-/// sale whose code ran out unpaid, its earlier codes, two payments to
-/// return one of, and why its code has no receipt.
+/// sale whose code ran out unpaid, when the store's Monokulo can renew its
+/// order (core.md decision 171), and why its code has no receipt.
 fn ledger_lines(sale: &TillSale, here: &mut SalePageModel) {
     if sale.may_new_code() && !here.actions.contains(&PageAction::NewCode) {
         here.actions.push(PageAction::NewCode);
-    }
-    for attempt in &sale.extras.attempts {
-        if attempt.order_id == sale.order_id {
-            continue;
-        }
-        let said = if attempt.superseded {
-            "Replaced: another code was paid"
-        } else if attempt.phase == SalePhase::Paid {
-            "Paid"
-        } else {
-            "Replaced by a new code"
-        };
-        here.facts
-            .push(Fact::new(format!("Code {}", attempt.attempt), said));
-    }
-    if sale.extras.paid_twice {
-        here.heading_warn = true;
-        here.note = Some(PageNote {
-            text: "Two of this sale's codes were paid. Return one of the payments to the customer."
-                .into(),
-            ground: Ground::Warn,
-        });
     }
     if !sale.code.has_receipt
         && !sale.code.uri.is_empty()
@@ -707,42 +685,19 @@ mod tests {
     }
 
     #[test]
-    fn a_sales_earlier_codes_two_payments_and_why_its_code_has_no_receipt_show_on_its_page() {
+    fn why_a_sales_code_has_no_receipt_shows_on_its_page() {
         let mut sale = sale_of("o2").phase(SalePhase::Paid).paid_at(at()).build();
         sale.code = till_sales::PaymentCode {
             uri: "monero:4abc".into(),
             has_receipt: false,
             why: Some("This till isn't signed in to the point of sale.".into()),
         };
-        sale.extras.attempts = vec![
-            till_sales::AttemptLine {
-                attempt: 1,
-                order_id: "o1".into(),
-                phase: SalePhase::Expired,
-                superseded: true,
-            },
-            till_sales::AttemptLine {
-                attempt: 2,
-                order_id: "o2".into(),
-                phase: SalePhase::Paid,
-                superseded: false,
-            },
-        ];
         let model = page(&sale, SQUARE, la(at()), false);
-        assert!(
-            model
-                .facts
-                .contains(&Fact::new("Code 1", "Replaced: another code was paid"))
-        );
         assert!(model.facts.contains(&Fact::new(
             "No receipt in the code",
             "This till isn't signed in to the point of sale."
         )));
         assert!(!model.heading_warn);
-        sale.extras.paid_twice = true;
-        let twice = page(&sale, SQUARE, la(at()), false);
-        assert!(twice.heading_warn);
-        assert!(note(&twice).starts_with("Two of this sale's codes were paid"));
     }
 
     #[test]
@@ -951,10 +906,12 @@ mod tests {
             note(&still_live)
                 .contains("The code is still live until 4:22 PM, and Monokulo keeps watching")
         );
+        let mut renewable = sale_of("c").phase(SalePhase::Expired).ended_at(at).build();
+        renewable.extras.renewable = true;
         let settled = page(
             &TillSale {
                 settled: true,
-                ..sale_of("c").phase(SalePhase::Expired).ended_at(at).build()
+                ..renewable.clone()
             },
             SQUARE,
             la(at),
@@ -965,6 +922,20 @@ mod tests {
             settled.actions,
             [PageAction::Refund, PageAction::NewCode],
             "an expired code can't be shown again, but it can have a new one (docs/ledger.md §7)"
+        );
+        let older_monokulo = page(
+            &TillSale {
+                settled: true,
+                ..sale_of("c").phase(SalePhase::Expired).ended_at(at).build()
+            },
+            SQUARE,
+            la(at),
+            false,
+        );
+        assert_eq!(
+            older_monokulo.actions,
+            [PageAction::Refund],
+            "a Monokulo that can't renew the order gets no New code, never a second order (core.md 171)"
         );
 
         let reversed = of("reversed");

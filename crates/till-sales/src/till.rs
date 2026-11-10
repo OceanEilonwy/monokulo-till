@@ -15,7 +15,8 @@ use monokulo_client::{
 };
 use till_ledger::{
     Action, Fact, MarkKind, OrderCreated, OrderId, OrderKey, OrderObserved, OrderRead, Outcome,
-    PaymentId, PaymentSeen, RefundSeen, RefundStatus, SaleKey, ShiftMark, Tender, may_make_order,
+    PaymentId, PaymentSeen, Quote, RefundSeen, RefundStatus, SaleKey, ShiftMark, Tender,
+    may_make_order,
 };
 use till_pos::{FoundSale, PosError, RefundInPos, Refunds, SaleSource, decimal_amount};
 use tokio::sync::watch;
@@ -221,10 +222,10 @@ impl Till {
     }
 
     /// `sq:` and the start of SHA-256 of the POS's payment id: the same for
-    /// every till, and opaque. The first order's key; New code's are this
-    /// with `#n` after it ([`OrderKey`]).
+    /// every till, and opaque ([`OrderKey`]). One payment is one order: New
+    /// code renews it (core.md decision 167).
     pub fn idempotency_key(sale: &FoundSale) -> String {
-        OrderKey::new(PaymentId::new(sale.id.as_str()), 1).key()
+        OrderKey::new(PaymentId::new(sale.id.as_str())).key()
     }
 
     /// When the next live code runs out, Unix seconds; `None` with none
@@ -257,11 +258,10 @@ impl Till {
     /// The sale for `order_id` as the shift shows it, with its key.
     fn sale(&self, order_id: &str) -> Option<(SaleKey, TillSale)> {
         let state = self.books.state();
-        let at = state.views.iter().position(|v| {
-            v.order_id == order_id
-                || v.sale.text() == order_id
-                || v.attempts.iter().any(|a| a.order_id == order_id)
-        })?;
+        let at = state
+            .views
+            .iter()
+            .position(|v| v.order_id == order_id || v.sale.text() == order_id)?;
         Some((state.views[at].sale.clone(), state.sales[at].clone()))
     }
 
@@ -403,26 +403,25 @@ impl Till {
         let Some(view) = self.books.view(&key) else {
             return Ok(());
         };
-        if view.attempt > 0 || view.offered {
+        if view.has_order() || view.offered {
             return Ok(());
         }
         if !may_make_order(&view, &self.books.view_settings(), false) {
             // Another counter's cash sale: its own till makes the order.
             return Ok(());
         }
-        let order = self.create_order(sale, 1).await?;
-        self.created(&key, 1, &order, sale);
+        let order = self.create_order(sale).await?;
+        self.created(&key, &order, sale);
         Ok(())
     }
 
-    /// Records the order made for `key`'s `attempt`, and what it said of
-    /// itself (another till may have made it already, and the store's
-    /// events may have moved it on).
-    fn created(&self, key: &SaleKey, attempt: u8, order: &Order, sale: &FoundSale) {
+    /// Records the order made for `key`, and what it said of itself
+    /// (another till may have made it already, and the store's events may
+    /// have moved it on, or renewed it).
+    fn created(&self, key: &SaleKey, order: &Order, sale: &FoundSale) {
         self.record(Fact::OrderCreated(OrderCreated {
             sale: key.clone(),
             order_id: OrderId::new(order.order_id.as_str()),
-            attempt,
             url: Some(order.url.clone()).filter(|url| !url.is_empty()),
             payment_uri: order.payment_uri(),
             address: order.address.clone(),
@@ -439,6 +438,7 @@ impl Till {
             expires_at: order.expires_at,
             confirmations_required: order.confirmations_required,
             device_name: None,
+            renew: order.renew.clone(),
         }));
         self.on_order(order);
     }
@@ -513,6 +513,13 @@ impl Till {
             is_final: false,
             received: None,
             overpaid: false,
+            // The quote the order had then: a renewal's `sale.waiting`
+            // carries its new one (core.md decision 169).
+            quote: Some(Quote {
+                expires_at: event.expires_at,
+                piconero: event.piconero,
+            }),
+            renew: None,
         }));
     }
 
@@ -527,11 +534,14 @@ impl Till {
             is_final: status.settled,
             received: None,
             overpaid: false,
+            quote: None,
+            renew: None,
         }));
     }
 
-    /// `order`, read again: its phase, whether it's settled and its
-    /// confirmations.
+    /// `order`, read again (or as a renewal answered): its phase, whether
+    /// it's settled, its confirmations, its quote and its `renew-order`
+    /// form.
     pub fn on_order(&self, order: &Order) {
         let order_id = OrderId::new(order.order_id.as_str());
         if let Some(required) = order.confirmations_required {
@@ -544,6 +554,11 @@ impl Till {
             is_final: order.is_final,
             received: None,
             overpaid: order.status == "overpaid",
+            quote: Some(Quote {
+                expires_at: order.expires_at,
+                piconero: order.piconero,
+            }),
+            renew: order.renew.clone(),
         }));
     }
 
@@ -551,13 +566,13 @@ impl Till {
     /// older create-order answer): the order as made, with it, which the
     /// ledger's merge takes over the one without.
     fn learn_required(&self, order_id: &OrderId, required: u32) {
-        let Ok(Some((key, attempt))) = self.books.with(|ledger| ledger.order(order_id)) else {
+        let Ok(Some(key)) = self.books.with(|ledger| ledger.order(order_id)) else {
             return;
         };
         let Some(row) = self.books.row(&key) else {
             return;
         };
-        let Some(made) = row.shared.attempts.iter().find(|a| a.attempt == attempt) else {
+        let Some(made) = row.shared.order.filter(|o| o.order.order_id == *order_id) else {
             return;
         };
         if made.order.confirmations_required.is_some() {
@@ -567,7 +582,6 @@ impl Till {
         self.record(Fact::OrderCreated(OrderCreated {
             sale: key.clone(),
             order_id: o.order_id.clone(),
-            attempt,
             url: o.url.clone(),
             payment_uri: o.payment_uri.clone(),
             address: o.address.clone(),
@@ -578,6 +592,7 @@ impl Till {
             expires_at: o.expires_at,
             confirmations_required: Some(required),
             device_name: o.device_name.clone(),
+            renew: o.renew.clone(),
         }));
     }
 
@@ -702,38 +717,37 @@ impl Till {
         }
     }
 
-    /// The Monokulo order for `sale`'s `attempt`: its amount, currency and
-    /// receipt number, and the idempotency key, never whom it's for (names
-    /// stay on the device). What went wrong, in the till's words.
-    async fn create_order(&self, sale: &FoundSale, attempt: u8) -> Result<Order, String> {
+    /// The Monokulo order for `sale`: its amount, currency and receipt
+    /// number, and the idempotency key, never whom it's for (names stay on
+    /// the device). What went wrong, in the till's words.
+    async fn create_order(&self, sale: &FoundSale) -> Result<Order, String> {
         self.monokulo
             .create_order(
                 &self.connection,
                 &decimal_amount(sale.amount_minor, &sale.currency),
                 &sale.currency,
                 sale.reference.as_deref(),
-                &OrderKey::new(PaymentId::new(sale.id.as_str()), attempt).key(),
+                &Till::idempotency_key(sale),
             )
             .await
             .map_err(|e| creation_problem(&e))
     }
 
-    /// Makes the order for `key`'s `attempt` as the cashier asked
-    /// (`action`), noting the action and how it ended: the new order's id,
-    /// or what went wrong (also kept as the till's problem).
-    async fn order_for(
+    /// Notes that the cashier asked for `action` on `key`, runs `act`, and
+    /// notes how it ended; what went wrong is also kept as the till's
+    /// problem.
+    async fn acted(
         &self,
         key: &SaleKey,
-        found: &FoundSale,
-        attempt: u8,
         action: Action,
-    ) -> Result<String, String> {
+        act: impl Future<Output = Result<Order, String>>,
+    ) -> Result<Order, String> {
         self.record(Fact::ActionAsked {
             sale: key.clone(),
             action,
             at: self.now_ms(),
         });
-        let made = self.create_order(found, attempt).await;
+        let made = act.await;
         self.record(Fact::ActionDone {
             sale: key.clone(),
             action,
@@ -743,19 +757,27 @@ impl Till {
             },
             at: self.now_ms(),
         });
-        match made {
-            Ok(order) => {
-                self.created(key, attempt, &order, found);
-                Ok(order.order_id)
-            }
-            Err(e) => {
-                self.books.change(|s| TillState {
-                    problem: Some(e.clone()),
-                    ..s.clone()
-                });
-                Err(e)
-            }
+        if let Err(e) = &made {
+            self.books.change(|s| TillState {
+                problem: Some(e.clone()),
+                ..s.clone()
+            });
         }
+        made
+    }
+
+    /// Makes the order for `key` as the cashier asked (`action`), noting the
+    /// action and how it ended: the new order's id, or what went wrong
+    /// (also kept as the till's problem).
+    async fn order_for(
+        &self,
+        key: &SaleKey,
+        found: &FoundSale,
+        action: Action,
+    ) -> Result<String, String> {
+        let order = self.acted(key, action, self.create_order(found)).await?;
+        self.created(key, &order, found);
+        Ok(order.order_id)
     }
 
     /// "Take it in Monero" on an offered cash sale: its order is made now,
@@ -768,13 +790,16 @@ impl Till {
         let Some(found) = offered.found.clone().filter(|_| offered.offered) else {
             return Ok(order_id.to_owned());
         };
-        self.order_for(&key, &found, 1, Action::TakeInMonero).await
+        self.order_for(&key, &found, Action::TakeInMonero).await
     }
 
     /// "New code" on a sale whose code ran out unpaid (docs/ledger.md §7,
-    /// reversing android.md 43): its next order, with the first's key and
-    /// `#n` after it. A payment on any of its codes pays the sale, and the
-    /// others show as superseded. The new order's id, or what went wrong.
+    /// core.md decisions 167 to 172): Monokulo renews its one order, the
+    /// same order and address with a new price and expiry, through the
+    /// order's `renew-order` form, for the code the sale shows (so two
+    /// tills asking at once get one renewal). Only when the order offers
+    /// the form: never a second order instead. The order's id (unchanged),
+    /// or what went wrong.
     pub async fn new_code(&self, order_id: &str) -> Result<String, String> {
         let Some((key, sale)) = self.sale(order_id) else {
             return Err("That sale isn't on the till any more.".into());
@@ -782,14 +807,23 @@ impl Till {
         if !sale.may_new_code() {
             return Err("That sale can't have a new code.".into());
         }
-        let Some(found) = sale.found.clone() else {
-            return Err("That sale can't have a new code.".into());
-        };
-        let next = self
+        let order = self
             .books
             .row(&key)
-            .map_or(1, |row| row.shared.last_attempt().saturating_add(1));
-        self.order_for(&key, &found, next, Action::NewCode).await
+            .and_then(|row| row.shared.order)
+            .map(|o| o.order);
+        let Some((renew, expires_at)) = order.and_then(|o| Some((o.renew?, o.expires_at))) else {
+            return Err(CANT_RENEW.into());
+        };
+        let renewing = async {
+            self.monokulo
+                .renew_order(&self.connection, &renew, expires_at)
+                .await
+                .map_err(|e| renewal_problem(&e))
+        };
+        let order = self.acted(&key, Action::NewCode, renewing).await?;
+        self.on_order(&order);
+        Ok(order.order_id)
     }
 
     /// "Keep as cash" on an offered cash sale: it stays listed, quietly.
@@ -1010,7 +1044,6 @@ fn event_order(event: &SaleEvent) -> OrderCreated {
     OrderCreated {
         sale: SaleKey::Order(OrderId::new(event.order_id.as_str())),
         order_id: OrderId::new(event.order_id.as_str()),
-        attempt: 1,
         url: event.order_url.clone(),
         payment_uri: payment_uri::build(&event.address, event.piconero),
         address: event.address.clone(),
@@ -1021,6 +1054,7 @@ fn event_order(event: &SaleEvent) -> OrderCreated {
         expires_at: event.expires_at,
         confirmations_required: None,
         device_name: Some(event.device_name.clone()).filter(|name| !name.trim().is_empty()),
+        renew: None,
     }
 }
 
@@ -1049,6 +1083,25 @@ fn with_pos_problem(s: &TillState, e: &PosError) -> TillState {
 /// problem means and who can fix it ([`problems::say`]). No order was made,
 /// so the sale stays unhandled and the next check asks again with the same
 /// idempotency key.
+/// What New code says when the store's Monokulo can't renew an order
+/// (core.md decision 171).
+const CANT_RENEW: &str =
+    "This store's Monokulo can't make a new code for a sale. Update it, or ring the sale up again.";
+
+/// What a failed renewal says: Monokulo's own words when it refused (a
+/// payment reached the order, say); [`CANT_RENEW`] when the form wasn't
+/// there to send.
+fn renewal_problem(e: &MonokuloError) -> String {
+    let gone = e.status() == 405 || (e.status() == 404 && e.problem() != Some("not-found"));
+    if gone {
+        CANT_RENEW.into()
+    } else if e.answered() {
+        problems::say(e)
+    } else {
+        format!("Couldn't make a new code: {e}")
+    }
+}
+
 fn creation_problem(e: &MonokuloError) -> String {
     if e.answered() {
         problems::say(e)

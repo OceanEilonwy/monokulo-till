@@ -6,26 +6,66 @@
 //! the same facts, so every till fed the same facts in any order, with
 //! repeats, holds the same `SharedSale`, and a stale fact can't move a sale
 //! backwards.
+//!
+//! A sale has one Monokulo order (core.md decision 167). New code renews it:
+//! the same order, a new quote (price and expiry, decision 169). An ending
+//! belongs to the quote it was seen under; a payment to the order
+//! (decision 170).
 
 use std::collections::BTreeMap;
 
-use monokulo_client::SalePhase;
+use monokulo_client::{SalePhase, payment_uri};
 use serde::{Deserialize, Serialize};
 
 use crate::facts::{
-    Action, MarkKind, OrderCreated, OrderObserved, OrderRead, Outcome, PaymentSeen, RefundSeen,
-    RefundStatus,
+    Action, MarkKind, OrderCreated, OrderObserved, OrderRead, Outcome, PaymentSeen, Quote,
+    RefundSeen, RefundStatus,
 };
 use crate::ids::OrderId;
 
 /// What the sources said about one sale.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "SharedSaleWire")]
 pub struct SharedSale {
     pub pos: PosFacts,
-    /// Monokulo orders, attempt 1..n, in attempt order.
-    pub attempts: Vec<Attempt>,
-    /// The POS's refund, if any: beside the attempts, never instead of them.
+    /// The sale's one Monokulo order, once it has one.
+    pub order: Option<SaleOrder>,
+    /// The POS's refund, if any: beside the order, never instead of it.
     pub refund: Option<PosRefund>,
+}
+
+/// A [`SharedSale`] as read: as this build writes it, or with the
+/// `attempts` a build before core.md decision 167 wrote (in a compacted
+/// sale's snapshot), which become its one order (decision 173).
+#[derive(Deserialize)]
+struct SharedSaleWire {
+    #[serde(default)]
+    pos: PosFacts,
+    #[serde(default)]
+    order: Option<SaleOrder>,
+    #[serde(default)]
+    refund: Option<PosRefund>,
+    #[serde(default)]
+    attempts: Vec<SaleOrder>,
+}
+
+impl From<SharedSaleWire> for SharedSale {
+    fn from(wire: SharedSaleWire) -> SharedSale {
+        // The paid one if any (money always shows), else the latest code.
+        let order = wire.order.or_else(|| {
+            let paid = wire.attempts.iter().find(|a| a.payment.is_paid()).cloned();
+            paid.or_else(|| {
+                wire.attempts
+                    .into_iter()
+                    .max_by(|a, b| a.order.stands_over(&b.order))
+            })
+        });
+        SharedSale {
+            pos: wire.pos,
+            order: order.map(SaleOrder::settled),
+            refund: wire.refund,
+        }
+    }
 }
 
 /// The latest payment and order read from the POS.
@@ -35,30 +75,44 @@ pub struct PosFacts {
     pub order: Option<OrderRead>,
 }
 
-/// One of a sale's Monokulo orders.
+/// A sale's Monokulo order.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Attempt {
-    pub attempt: u8,
+pub struct SaleOrder {
+    /// What create-order said, with the latest quote.
     pub order: OrderFacts,
-    /// Where its payment is, as merged from [`Attempt::observed`].
+    /// Where its payment is, from [`SaleOrder::observed`] and the quote.
     pub payment: PaymentPhase,
     pub observed: Observations,
 }
 
-/// What create-order said about an attempt's order.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+/// What create-order said about the order, with its latest quote: the
+/// price and expiry of its code, which a renewal replaces.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OrderFacts {
     pub order_id: OrderId,
     pub url: Option<String>,
+    /// The latest quote's plain payment URI.
     pub payment_uri: String,
     pub address: String,
+    /// The latest quote's XMR.
     pub xmr: String,
     pub amount: String,
     pub currency: String,
     pub reference: Option<String>,
+    /// When the latest quote runs out, Unix seconds.
     pub expires_at: i64,
     pub confirmations_required: Option<u32>,
     pub device_name: Option<String>,
+    /// Where its `renew-order` form goes: New code, when Monokulo offers it
+    /// (decision 171).
+    #[serde(default)]
+    pub renew: Option<String>,
+    /// The first quote's expiry, as create-order answered (the earliest of
+    /// its answers): observations made before quotes were recorded belong
+    /// to it (decision 170). 0 in a body written before then, read as
+    /// `expires_at`.
+    #[serde(default)]
+    pub first_expires_at: i64,
 }
 
 impl From<&OrderCreated> for OrderFacts {
@@ -75,11 +129,91 @@ impl From<&OrderCreated> for OrderFacts {
             expires_at: o.expires_at,
             confirmations_required: o.confirmations_required,
             device_name: o.device_name.clone(),
+            renew: o.renew.clone(),
+            first_expires_at: o.expires_at,
         }
     }
 }
 
-/// Where an attempt's payment is.
+fn max_opt<T: Ord>(a: Option<T>, b: Option<T>) -> Option<T> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.max(b)),
+        (a, b) => a.or(b),
+    }
+}
+
+/// The larger of two, by `key`, keeping `mine` on a tie.
+fn larger<T: Ord + Clone>(mine: &mut T, theirs: &T) {
+    if theirs > mine {
+        *mine = theirs.clone();
+    }
+}
+
+impl OrderFacts {
+    /// The first quote's expiry.
+    pub fn first_expiry(&self) -> i64 {
+        if self.first_expires_at == 0 {
+            self.expires_at
+        } else {
+            self.first_expires_at.min(self.expires_at)
+        }
+    }
+
+    /// Its quote: the expiry first, so the latest wins.
+    fn quote(&self) -> (i64, &str, &str) {
+        (self.expires_at, &self.xmr, &self.payment_uri)
+    }
+
+    /// Takes a quote, if it's later than the one it has.
+    fn take_quote(&mut self, expires_at: i64, xmr: String, payment_uri: String) {
+        if (expires_at, xmr.as_str(), payment_uri.as_str()) > self.quote() {
+            self.expires_at = expires_at;
+            self.xmr = xmr;
+            self.payment_uri = payment_uri;
+        }
+    }
+
+    /// Takes a quote Monokulo gave for the order (an event, a read, a
+    /// renewal's answer).
+    fn see_quote(&mut self, quote: &Quote) {
+        self.take_quote(
+            quote.expires_at,
+            payment_uri::xmr(quote.piconero),
+            payment_uri::build(&self.address, quote.piconero),
+        );
+    }
+
+    /// Joins another account of the same order: the latest quote, the
+    /// earliest first one, and each other part's larger value (a part
+    /// known beats one not, as the store's threshold learnt later does).
+    fn join(&mut self, other: &OrderFacts) {
+        let first = self.first_expiry().min(other.first_expiry());
+        self.take_quote(
+            other.expires_at,
+            other.xmr.clone(),
+            other.payment_uri.clone(),
+        );
+        self.first_expires_at = first;
+        self.url = max_opt(self.url.take(), other.url.clone());
+        self.confirmations_required =
+            max_opt(self.confirmations_required, other.confirmations_required);
+        self.device_name = max_opt(self.device_name.take(), other.device_name.clone());
+        self.renew = max_opt(self.renew.take(), other.renew.clone());
+        self.reference = max_opt(self.reference.take(), other.reference.clone());
+        larger(&mut self.address, &other.address);
+        larger(&mut self.amount, &other.amount);
+        larger(&mut self.currency, &other.currency);
+    }
+
+    /// Which of two orders made for one sale stands, as `Ordering`: only a
+    /// build before core.md decision 167 made two (its New code), and the
+    /// later code stands (decision 173). By first expiry, then id.
+    fn stands_over(&self, other: &OrderFacts) -> std::cmp::Ordering {
+        (self.first_expiry(), &self.order_id).cmp(&(other.first_expiry(), &other.order_id))
+    }
+}
+
+/// Where the order's payment is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PaymentPhase {
     Waiting,
@@ -136,6 +270,7 @@ impl PaymentPhase {
 pub struct Observations {
     pub paid: Option<PaidSeen>,
     pub double_spend: bool,
+    /// The ending of the latest quote one was seen under.
     pub ended: Option<EndedSeen>,
     pub seen: bool,
     /// The most confirmations a Confirming observation had.
@@ -160,12 +295,23 @@ pub struct PaidSeen {
 pub struct EndedSeen {
     pub cancelled: bool,
     pub is_final: bool,
+    /// The expiry of the quote it was seen under; `None` for one observed
+    /// before quotes were recorded, which belongs to the first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quote: Option<i64>,
 }
 
-fn max_opt<T: Ord>(a: Option<T>, b: Option<T>) -> Option<T> {
-    match (a, b) {
-        (Some(a), Some(b)) => Some(a.max(b)),
-        (a, b) => a.or(b),
+impl EndedSeen {
+    /// Joins another ending in: the later quote's, and both of one quote's.
+    fn join(mine: &mut Option<EndedSeen>, theirs: EndedSeen) {
+        match mine {
+            Some(m) if m.quote == theirs.quote => {
+                m.cancelled |= theirs.cancelled;
+                m.is_final |= theirs.is_final;
+            }
+            Some(m) if m.quote > theirs.quote => {}
+            _ => *mine = Some(theirs),
+        }
     }
 }
 
@@ -188,11 +334,14 @@ impl Observations {
                 paid.overpaid |= o.overpaid;
                 paid.is_final |= o.is_final;
             }
-            SalePhase::Expired | SalePhase::Cancelled => {
-                let ended = self.ended.get_or_insert_default();
-                ended.cancelled |= o.phase == SalePhase::Cancelled;
-                ended.is_final |= o.is_final;
-            }
+            SalePhase::Expired | SalePhase::Cancelled => EndedSeen::join(
+                &mut self.ended,
+                EndedSeen {
+                    cancelled: o.phase == SalePhase::Cancelled,
+                    is_final: o.is_final,
+                    quote: o.quote.as_ref().map(|q| q.expires_at),
+                },
+            ),
             SalePhase::DoubleSpend => self.double_spend = true,
         }
         self.normalise();
@@ -202,7 +351,9 @@ impl Observations {
     /// (a Seen after Paid) changes nothing and isn't journalled. Once paid,
     /// reversed or finally ended, progress doesn't count; Confirming and
     /// Partial imply Seen. Both only depend on parts that only grow, so the
-    /// join stays commutative, associative and idempotent.
+    /// join stays commutative, associative and idempotent. (Monokulo renews
+    /// an order only while it isn't final, so a final ending is never a
+    /// replaced quote's.)
     fn normalise(&mut self) {
         let decided =
             self.paid.is_some() || self.double_spend || self.ended.is_some_and(|e| e.is_final);
@@ -215,8 +366,8 @@ impl Observations {
         }
     }
 
-    /// Joins another order's observations in (two order ids for one
-    /// attempt, which Monokulo shouldn't give).
+    /// Joins another account of the same order's observations in (a sale
+    /// kept from Monokulo alone, or a snapshot).
     fn join(&mut self, other: &Observations) {
         if let Some(p) = other.paid {
             let paid = self.paid.get_or_insert_default();
@@ -224,9 +375,7 @@ impl Observations {
             paid.is_final |= p.is_final;
         }
         if let Some(e) = other.ended {
-            let ended = self.ended.get_or_insert_default();
-            ended.cancelled |= e.cancelled;
-            ended.is_final |= e.is_final;
+            EndedSeen::join(&mut self.ended, e);
         }
         self.double_spend |= other.double_spend;
         self.seen |= other.seen;
@@ -237,16 +386,19 @@ impl Observations {
         self.normalise();
     }
 
-    /// The phase the observations add up to:
+    /// The phase the observations add up to, for an order whose latest
+    /// quote runs out at `expires_at` and whose first ran out at `first`:
     /// - Paid absorbs everything, except that a double spend needs a final
     ///   Paid (Monokulo's own resolution) to be overridden.
     /// - A double spend stays once seen.
+    /// - An ending counts only for the quote it was seen under (one with no
+    ///   quote, for the first): a renewed order is waiting again.
     /// - An ending Monokulo calls final (`is_final`) beats progress; one it
     ///   doesn't (it still watches for a late payment) beats only Waiting,
     ///   so a later Seen, Confirming or Partial still shows.
     /// - Otherwise the further phase: Seen < Confirming (more
     ///   confirmations) < Partial (more received).
-    pub fn phase(&self) -> PaymentPhase {
+    pub fn phase(&self, expires_at: i64, first: i64) -> PaymentPhase {
         if let Some(paid) = self.paid
             && (paid.is_final || !self.double_spend)
         {
@@ -257,16 +409,19 @@ impl Observations {
         if self.double_spend {
             return PaymentPhase::DoubleSpend;
         }
-        let ended = self.ended.map(|e| {
-            (
-                e.is_final,
-                if e.cancelled {
-                    PaymentPhase::Cancelled
-                } else {
-                    PaymentPhase::Expired
-                },
-            )
-        });
+        let ended = self
+            .ended
+            .filter(|e| e.quote.unwrap_or(first) >= expires_at)
+            .map(|e| {
+                (
+                    e.is_final,
+                    if e.cancelled {
+                        PaymentPhase::Cancelled
+                    } else {
+                        PaymentPhase::Expired
+                    },
+                )
+            });
         if let Some((true, phase)) = ended {
             return phase;
         }
@@ -297,6 +452,48 @@ pub struct PosRefund {
 impl PosRefund {
     fn key(&self) -> (u8, &str, i64) {
         (self.status.rank(), &self.refund_id, self.amount_minor)
+    }
+}
+
+impl SaleOrder {
+    fn new(order: OrderFacts) -> SaleOrder {
+        SaleOrder {
+            order,
+            payment: PaymentPhase::Waiting,
+            observed: Observations::default(),
+        }
+        .settled()
+    }
+
+    /// With its phase worked out again from its observations and quote.
+    fn settled(mut self) -> SaleOrder {
+        self.payment = self
+            .observed
+            .phase(self.order.expires_at, self.order.first_expiry());
+        self
+    }
+
+    fn settle(&mut self) {
+        self.payment = self
+            .observed
+            .phase(self.order.expires_at, self.order.first_expiry());
+    }
+
+    /// Joins an observation of this order: its quote and what it said.
+    fn observe(&mut self, o: &OrderObserved) {
+        if let Some(quote) = &o.quote {
+            self.order.see_quote(quote);
+        }
+        self.order.renew = max_opt(self.order.renew.take(), o.renew.clone());
+        self.observed.observe(o);
+        self.settle();
+    }
+
+    /// Joins another account of the same order.
+    fn join(&mut self, other: &SaleOrder) {
+        self.order.join(&other.order);
+        self.observed.join(&other.observed);
+        self.settle();
     }
 }
 
@@ -342,56 +539,51 @@ impl SharedSale {
         }
     }
 
-    /// Joins an order create-order made, as its attempt.
+    /// Joins the order create-order made (or a Monokulo event described).
     pub fn create_order(&mut self, o: &OrderCreated) {
-        let attempt = o.attempt.max(1);
-        let order = OrderFacts::from(o);
-        match self.attempts.iter_mut().find(|a| a.attempt == attempt) {
-            Some(existing) => {
-                if order > existing.order {
-                    existing.order = order;
+        self.take_order(&SaleOrder::new(OrderFacts::from(o)));
+    }
+
+    /// Joins `order`: the same order joins in; another (only a build before
+    /// core.md decision 167 made two for one sale) stands only if it's the
+    /// later code, and replaces this one with what's known of it.
+    fn take_order(&mut self, order: &SaleOrder) {
+        match &mut self.order {
+            None => self.order = Some(order.clone()),
+            Some(mine) if mine.order.order_id == order.order.order_id => mine.join(order),
+            Some(mine) => {
+                if order.order.stands_over(&mine.order).is_gt() {
+                    *mine = order.clone();
                 }
-            }
-            None => {
-                let at = self
-                    .attempts
-                    .iter()
-                    .position(|a| a.attempt > attempt)
-                    .unwrap_or(self.attempts.len());
-                self.attempts.insert(
-                    at,
-                    Attempt {
-                        attempt,
-                        order,
-                        payment: PaymentPhase::Waiting,
-                        observed: Observations::default(),
-                    },
-                );
             }
         }
     }
 
-    /// Joins an observation of `attempt`'s order. An attempt with no order
-    /// yet is ignored (the ledger keeps such observations pending).
-    pub fn observe(&mut self, attempt: u8, o: &OrderObserved) {
-        if let Some(a) = self.attempts.iter_mut().find(|a| a.attempt == attempt) {
-            a.observed.observe(o);
-            a.payment = a.observed.phase();
+    /// Joins an observation of the sale's order; one of another order (one
+    /// an older build's New code replaced) changes nothing.
+    pub fn observe(&mut self, o: &OrderObserved) {
+        if let Some(mine) = &mut self.order
+            && mine.order.order_id == o.order_id
+        {
+            mine.observe(o);
         }
     }
 
     /// Joins what Monokulo said about `order` in `other` (a sale kept from
-    /// Monokulo alone) into this sale's `attempt`, whose order it is: the
+    /// Monokulo alone) into this sale's order, when it's that one: the
     /// observations only, since this sale's own create-order answer stands
     /// for the order.
-    pub fn take_observations(&mut self, other: &SharedSale, order: &OrderId, attempt: u8) {
-        let Some(mine) = self.attempts.iter_mut().find(|a| a.attempt == attempt) else {
+    pub fn take_observations(&mut self, other: &SharedSale, order: &OrderId) {
+        let Some(mine) = &mut self.order else {
             return;
         };
-        for theirs in other.attempts.iter().filter(|a| a.order.order_id == *order) {
-            mine.observed.join(&theirs.observed);
+        if mine.order.order_id != *order {
+            return;
         }
-        mine.payment = mine.observed.phase();
+        if let Some(theirs) = other.order.as_ref().filter(|o| o.order.order_id == *order) {
+            mine.observed.join(&theirs.observed);
+            mine.settle();
+        }
     }
 
     /// Joins another view of the same sale (a snapshot over a row).
@@ -411,44 +603,14 @@ impl SharedSale {
                 self.refund = Some(r.clone());
             }
         }
-        for a in &other.attempts {
-            match self.attempts.iter_mut().find(|m| m.attempt == a.attempt) {
-                Some(mine) => {
-                    if a.order > mine.order {
-                        mine.order = a.order.clone();
-                    }
-                    mine.observed.join(&a.observed);
-                    mine.payment = mine.observed.phase();
-                }
-                None => {
-                    let at = self
-                        .attempts
-                        .iter()
-                        .position(|m| m.attempt > a.attempt)
-                        .unwrap_or(self.attempts.len());
-                    self.attempts.insert(at, a.clone());
-                }
-            }
+        if let Some(o) = &other.order {
+            self.take_order(o);
         }
     }
 
-    /// The attempt that decides what the sale shows: the first paid one,
-    /// else the newest.
-    pub fn deciding(&self) -> Option<&Attempt> {
-        self.attempts
-            .iter()
-            .find(|a| a.payment.is_paid())
-            .or_else(|| self.attempts.last())
-    }
-
-    /// The newest attempt number, 0 with no order.
-    pub fn last_attempt(&self) -> u8 {
-        self.attempts.last().map_or(0, |a| a.attempt)
-    }
-
-    /// The phase the sale shows, from its deciding attempt.
+    /// The phase the sale shows, from its order.
     pub fn phase(&self) -> Option<PaymentPhase> {
-        self.deciding().map(|a| a.payment)
+        self.order.as_ref().map(|o| o.payment)
     }
 
     /// When it was rung up, Unix ms, from the POS's payment.
@@ -467,11 +629,11 @@ impl SharedSale {
         {
             return true;
         }
-        match self.deciding() {
-            Some(a) => match a.payment {
+        match &self.order {
+            Some(o) => match o.payment {
                 PaymentPhase::Paid { .. } => true,
                 PaymentPhase::Expired | PaymentPhase::Cancelled | PaymentPhase::DoubleSpend => {
-                    a.observed.settled
+                    o.observed.settled
                 }
                 _ => false,
             },
@@ -521,6 +683,8 @@ pub struct LocalMarks {
     pub kept_as_cash: Option<i64>,
     pub paid_in_cash: Option<i64>,
     pub refund: Option<RefundMark>,
+    /// When this device's clock last said a code ran out; it counts only
+    /// for a quote that ran out before it ([`crate::view`]).
     pub clock_lapsed: Option<i64>,
     /// When this device first knew the sale.
     pub first_at: Option<i64>,
@@ -562,7 +726,9 @@ impl LocalMarks {
                 let r = self.refund.get_or_insert_default();
                 r.confirmed_at = min_opt(r.confirmed_at, at);
             }
-            MarkKind::ClockLapsed => self.clock_lapsed = min_opt(self.clock_lapsed, at),
+            // The latest: a renewed code that runs out again lapses again
+            // (core.md decision 170).
+            MarkKind::ClockLapsed => self.clock_lapsed = max_opt(self.clock_lapsed, Some(at)),
         }
     }
 
@@ -583,8 +749,8 @@ impl LocalMarks {
 
     /// Joins another row's marks for the same sale (a sale kept from
     /// Monokulo alone, folded into the point-of-sale sale it is): the later
-    /// close and reopen, the earliest of every first time, and the actions
-    /// this row has no word of.
+    /// close, reopen and clock lapse, the earliest of every first time, and
+    /// the actions this row has no word of.
     pub fn join(&mut self, other: &LocalMarks) {
         if let Some(c) = other.closed
             && self.closed.is_none_or(|mine| c.at > mine.at)
@@ -603,7 +769,7 @@ impl LocalMarks {
         };
         earliest(&mut self.kept_as_cash, other.kept_as_cash);
         earliest(&mut self.paid_in_cash, other.paid_in_cash);
-        earliest(&mut self.clock_lapsed, other.clock_lapsed);
+        self.clock_lapsed = max_opt(self.clock_lapsed, other.clock_lapsed);
         earliest(&mut self.first_at, other.first_at);
         earliest(&mut self.seen_at, other.seen_at);
         earliest(&mut self.paid_at, other.paid_at);
@@ -688,6 +854,8 @@ mod tests {
             is_final,
             received: None,
             overpaid: false,
+            quote: None,
+            renew: None,
         }
     }
 
@@ -696,7 +864,7 @@ mod tests {
         for x in list {
             o.observe(x);
         }
-        o.phase()
+        o.phase(0, 0)
     }
 
     #[test]
@@ -754,6 +922,148 @@ mod tests {
         let mut p = obs(SalePhase::Partial, false);
         p.received = Some(10);
         assert_eq!(phase_of(&[p, c]), PaymentPhase::Partial { received: 10 });
+    }
+
+    fn created(order: &str, expires_at: i64, xmr: &str) -> OrderCreated {
+        OrderCreated {
+            sale: crate::ids::SaleKey::pos(monokulo_client::PointOfSale::Square, "p1"),
+            order_id: order.into(),
+            url: None,
+            payment_uri: format!("monero:8a?tx_amount={xmr}"),
+            address: "8a".into(),
+            xmr: xmr.into(),
+            amount: "24.50".into(),
+            currency: "USD".into(),
+            reference: None,
+            expires_at,
+            confirmations_required: None,
+            device_name: None,
+            renew: None,
+        }
+    }
+
+    fn under(phase: SalePhase, expires_at: i64, piconero: u64) -> OrderObserved {
+        OrderObserved {
+            quote: Some(Quote {
+                expires_at,
+                piconero,
+            }),
+            ..obs(phase, false)
+        }
+    }
+
+    /// Every order of `facts`, joined into one sale, in that order.
+    fn sale_of(facts: &[Result<OrderCreated, OrderObserved>]) -> SharedSale {
+        let mut sale = SharedSale::default();
+        for fact in facts {
+            match fact {
+                Ok(c) => sale.create_order(c),
+                Err(o) => sale.observe(o),
+            }
+        }
+        sale
+    }
+
+    /// A renewal is a later quote on the same order: whatever order the
+    /// facts arrive in, the order is waiting again on the new code, and the
+    /// old quote's ending doesn't end it; one under the new quote does, and
+    /// a payment against either always shows.
+    #[test]
+    fn a_renewal_is_a_new_quote_and_an_ending_belongs_to_its_quote() {
+        use SalePhase::*;
+        let facts = [
+            Ok(created("o", 100, "0.15")),
+            Err(under(Expired, 100, 150_000_000_000)),
+            Err(OrderObserved {
+                order_id: "o".into(),
+                ..obs(Expired, false)
+            }),
+            Err(under(Waiting, 1_000, 160_000_000_000)),
+        ];
+        // Every order of the four.
+        let orders: [[usize; 4]; 6] = [
+            [0, 1, 2, 3],
+            [0, 3, 1, 2],
+            [0, 3, 2, 1],
+            [0, 2, 3, 1],
+            [0, 1, 3, 2],
+            [0, 2, 1, 3],
+        ];
+        let mut sales = orders
+            .iter()
+            .map(|order| sale_of(&order.map(|i| facts[i].clone())));
+        let first = sales.next().unwrap();
+        for other in sales {
+            assert_eq!(other, first);
+        }
+        let order = first.order.as_ref().unwrap();
+        assert_eq!(order.payment, PaymentPhase::Waiting);
+        assert_eq!(
+            (order.order.expires_at, order.order.xmr.as_str()),
+            (1_000, "0.16")
+        );
+        assert_eq!(order.order.payment_uri, "monero:8a?tx_amount=0.16");
+        assert_eq!(order.order.first_expiry(), 100);
+
+        let mut ended = first.clone();
+        ended.observe(&under(Expired, 1_000, 160_000_000_000));
+        assert_eq!(ended.phase(), Some(PaymentPhase::Expired));
+        let mut paid = first.clone();
+        paid.observe(&under(Paid, 100, 150_000_000_000));
+        assert!(paid.phase().unwrap().is_paid(), "paid at the old price");
+    }
+
+    /// Two orders for one sale (only an older build's New code made them):
+    /// the later code stands, whatever order they arrive in, and what was
+    /// said of the other changes nothing.
+    #[test]
+    fn of_two_orders_for_one_sale_the_later_code_stands() {
+        use SalePhase::*;
+        let one = Ok(created("o1", 100, "0.15"));
+        let two = Ok(created("o2", 1_000, "0.16"));
+        let paid_one = Err(OrderObserved {
+            order_id: "o1".into(),
+            ..obs(Paid, false)
+        });
+        for facts in [
+            [one.clone(), paid_one.clone(), two.clone()],
+            [two.clone(), one.clone(), paid_one.clone()],
+            [paid_one.clone(), two.clone(), one.clone()],
+        ] {
+            let sale = sale_of(&facts);
+            let order = sale.order.unwrap();
+            assert_eq!(order.order.order_id.as_str(), "o2");
+            assert_eq!(order.payment, PaymentPhase::Waiting);
+        }
+    }
+
+    /// A compacted sale written before decision 167 keeps its paid order,
+    /// else its latest.
+    #[test]
+    fn a_snapshots_attempts_become_its_one_order() {
+        let attempt = |order: &str, expires_at: i64, paid: bool| {
+            let mut o = SaleOrder::new(OrderFacts::from(&created(order, expires_at, "0.15")));
+            if paid {
+                o.observe(&obs(SalePhase::Paid, false));
+            }
+            let mut v = serde_json::to_value(&o).unwrap();
+            v["attempt"] = serde_json::json!(1);
+            v
+        };
+        let legacy = |attempts: Vec<serde_json::Value>| {
+            let v = serde_json::json!({
+                "pos": {"payment": null, "order": null},
+                "attempts": attempts,
+                "refund": null,
+            });
+            serde_json::from_value::<SharedSale>(v).unwrap()
+        };
+        let latest = legacy(vec![attempt("o1", 100, false), attempt("o2", 1_000, false)]);
+        assert_eq!(latest.order.unwrap().order.order_id.as_str(), "o2");
+        let paid = legacy(vec![attempt("o1", 100, true), attempt("o2", 1_000, false)]);
+        let paid = paid.order.unwrap();
+        assert_eq!(paid.order.order_id.as_str(), "o1");
+        assert!(paid.payment.is_paid());
     }
 
     #[test]

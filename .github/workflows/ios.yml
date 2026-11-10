@@ -95,9 +95,13 @@ jobs:
           fi
           echo "iphone=$iphone" >> "$GITHUB_OUTPUT"
           echo "ipad=$ipad" >> "$GITHUB_OUTPUT"
+      # The layout's pictures (TillTests/LayoutSnapshotTests.swift): each
+      # iPad window size, drawn on the iPad simulator, kept as an artifact.
       - name: Test on iPhone and iPad
         working-directory: ios
         run: |
+          mkdir -p "$RUNNER_TEMP/layout-snapshots"
+          TEST_RUNNER_SNAPSHOT_DIR="$RUNNER_TEMP/layout-snapshots" \
           xcodebuild test \
             -project Till.xcodeproj -scheme Till \
             -destination "id=${{ steps.simulators.outputs.iphone }}" \
@@ -109,5 +113,12 @@ jobs:
         with:
           name: till-ios-test-results
           path: ${{ runner.temp }}/Till.xcresult
+          retention-days: 14
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: till-ios-layout-snapshots
+          path: ${{ runner.temp }}/layout-snapshots
           retention-days: 14
           if-no-files-found: ignore

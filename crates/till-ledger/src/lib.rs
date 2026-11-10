@@ -29,14 +29,14 @@ pub use db::{KEY_SECRET, KeyMaterial, SecretStore};
 pub use effects::{DiffContext, Effect, diff};
 pub use facts::{
     Action, AlertKind, Fact, MarkKind, OrderCreated, OrderObserved, OrderRead, Outcome,
-    PaymentSeen, Process, RefundSeen, RefundStatus, ShiftMark, Tender,
+    PaymentSeen, Process, Quote, RefundSeen, RefundStatus, ShiftMark, Tender,
 };
 pub use ids::{DeviceId, OrderId, OrderKey, PaymentId, SaleKey, Scope};
 pub use ledger::{
     AlertRow, COMPACT_EVERY_MS, Claim, ClaimPolicy, DEFAULT_RETENTION_DAYS, Imported, JournalRow,
     Ledger, Opened, REDELIVER_AFTER_MS, Recorded, SaleRow,
 };
-pub use model::{Attempt, LocalMarks, PaymentPhase, SharedSale};
+pub use model::{LocalMarks, PaymentPhase, SaleOrder, SharedSale};
 pub use shift::{ShiftSummary, ShiftWindow};
 pub use view::{Code, SaleView, ViewSettings, may_make_order, view};
 

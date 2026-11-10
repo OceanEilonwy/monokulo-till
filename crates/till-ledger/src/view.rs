@@ -83,21 +83,11 @@ pub struct Code {
     pub why: Option<String>,
 }
 
-/// One of a sale's orders, as its page lists them.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AttemptView {
-    pub attempt: u8,
-    pub order_id: String,
-    pub phase: SalePhase,
-    /// Another attempt was paid, so this one is over.
-    pub superseded: bool,
-}
-
 /// Everything a screen needs about one sale.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SaleView {
     pub sale: SaleKey,
-    /// The deciding attempt's order id; `cash:<payment>` for a cash sale
+    /// Its order's id; `cash:<payment>` for a cash sale
     /// with no order; the sale key for a sale still waiting for its order.
     pub order_id: String,
     pub amount: String,
@@ -105,9 +95,10 @@ pub struct SaleView {
     pub reference: Option<String>,
     pub code: Code,
     pub phase: SalePhase,
-    /// The deciding attempt's phase; `None` with no order yet.
+    /// Its order's phase; `None` with no order yet.
     pub payment: Option<PaymentPhase>,
-    /// Unix seconds; 0 with no order.
+    /// When its code (the order's latest quote) runs out, Unix seconds; 0
+    /// with no order.
     pub expires_at: i64,
     pub xmr: String,
     pub address: String,
@@ -118,7 +109,7 @@ pub struct SaleView {
     pub device_id: Option<DeviceId>,
     pub device_name: Option<String>,
     pub url: Option<String>,
-    /// Monokulo said nothing more will happen to the deciding order.
+    /// Monokulo said nothing more will happen to its order.
     pub settled: bool,
     pub created_at: i64,
     pub seen_at: Option<i64>,
@@ -144,9 +135,9 @@ pub struct SaleView {
     pub cash: bool,
     /// No order yet, and not offered: one is being made.
     pub waiting_for_order: bool,
-    /// The deciding attempt's number; 0 with no order.
-    pub attempt: u8,
-    pub attempts: Vec<AttemptView>,
+    /// Its order offers `renew-order`: New code can renew it (core.md
+    /// decision 171).
+    pub renewable: bool,
     /// Another counter's sale, with this counter's device chosen.
     pub other_counter: bool,
     /// Its alerts are this till's: not another counter's, or every
@@ -161,8 +152,6 @@ pub struct SaleView {
     pub paid_after_refund: bool,
     /// Paid after the cashier closed it.
     pub paid_after_close: bool,
-    /// Two attempts were paid: refund one.
-    pub paid_twice: bool,
     /// Why the last refund this till tried failed.
     pub refund_problem: Option<String>,
 }
@@ -181,7 +170,7 @@ pub fn view(
     rung_at: i64,
 ) -> SaleView {
     let payment = shared.pos.payment.as_ref();
-    let deciding = shared.deciding();
+    let deciding = shared.order.as_ref();
     let order = deciding.map(|a| &a.order);
     let cash = payment.is_some_and(|p| p.tender == Tender::Cash);
     let other_counter = match &settings.device {
@@ -252,21 +241,6 @@ pub fn view(
 
     let phase = shared.phase();
     let paid = phase.is_some_and(PaymentPhase::is_paid);
-    let paid_count = shared
-        .attempts
-        .iter()
-        .filter(|a| a.payment.is_paid())
-        .count();
-    let attempts = shared
-        .attempts
-        .iter()
-        .map(|a| AttemptView {
-            attempt: a.attempt,
-            order_id: a.order.order_id.0.clone(),
-            phase: a.payment.sale_phase(),
-            superseded: paid && !a.payment.is_paid(),
-        })
-        .collect();
 
     let device_id = payment.and_then(|p| p.device_id.clone());
     // Refunded once the POS completes the refund, or as soon as it accepts
@@ -353,16 +327,27 @@ pub fn view(
         paid_in_cash_at: secs(marks.paid_in_cash),
         cash,
         waiting_for_order,
-        attempt: deciding.map_or(0, |a| a.attempt),
-        attempts,
+        renewable: order.is_some_and(|o| o.renew.is_some()),
         alerts_here: !other_counter || settings.every_device,
         other_counter,
         live,
-        clock_lapsed: marks.clock_lapsed.is_some() && live,
+        // Only a lapse after this quote ran out: a renewed code is up again
+        // (core.md decision 170).
+        clock_lapsed: live
+            && marks
+                .clock_lapsed
+                .zip(order)
+                .is_some_and(|(at, o)| at >= o.expires_at.saturating_mul(1000)),
         paid_after_refund: paid && refunded_at.is_some(),
         paid_after_close: paid && closed_at.is_some(),
-        paid_twice: paid_count > 1,
         refund_problem,
+    }
+}
+
+impl SaleView {
+    /// It has its Monokulo order.
+    pub fn has_order(&self) -> bool {
+        self.payment.is_some()
     }
 }
 
