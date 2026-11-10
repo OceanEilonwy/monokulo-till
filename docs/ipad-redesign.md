@@ -39,15 +39,15 @@ The board names below (A1, P2, O3 …) are the canvas's.
    content source, rendering frames of its own. Till has no buttons of its
    own in the window: iOS shows ✕ (top left), ⤢ (top right) and playback
    controls on a tap, so those corners stay empty.
-   - Watching: a short, wide strip (about 3:1) with the Till logo (idle,
-     dark) and "Watching / Front Counter".
+   - Watching: a small strip (about 124 × 44 pt, under 3:1) with the Till logo (idle,
+     dark) and the word "Watching".
    - A sale: Till switches the frames to 1:1 and iOS reshapes the window into
      a square with the customer's name, the code (with its receipt, as the
      window is drawn on the device: core.md decision 140) and the amount with
      time left. Below about 200 pt the code isn't drawn (it can't be scanned);
      the amount and "Tap ⤢ to show the customer" show instead.
-   - Paid: back to the strip with the green Till logo and "Paid · $24.50 /
-     Sam", then after a few seconds back to Watching.
+   - Paid: back to the strip with the green Till logo and "Paid / $24.50" (no place or customer name, to keep it narrow), then
+     after a few seconds back to Watching.
    - ⤢ opens Till full screen (A2). It is offered as an opt-in setting
      because App Review expects Picture in Picture for video.
 3. **Side by side** stays as the third choice ("Till and Square in two
@@ -84,10 +84,10 @@ The board names below (A1, P2, O3 …) are the canvas's.
    same flow as Other: Monero. The sale's page offers **Paid in cash**,
    which closes it with no refund (Square already recorded Cash) when the
    customer pays real cash after all.
-8. Settings (K4) can turn that off ("Only offer Monero"). Then cash sales show
-   quietly with **Take it in Monero** and **Keep as cash** (K3). In the PiP
-   strip (K1) the take action is the system play control, which Till treats
-   as "take it in Monero". This is a review risk; ⤢ is the fallback.
+8. Settings (K4) can turn that off ("Ignore cash sales", decided 2026-11-10).
+   Then cash sales are ignored completely: no alert, no code, no PiP, no Live
+   Activity and no row in the list. Only sales rung up as Other: Monero do
+   anything. The "Take it in Monero" offer (K1, K3) is dropped.
 9. Square's books say Cash for a sale paid in Monero. Till's shift lists which
    cash sales were paid in Monero, for the end-of-day count.
 

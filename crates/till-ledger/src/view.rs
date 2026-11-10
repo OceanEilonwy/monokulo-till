@@ -163,6 +163,14 @@ pub struct SaleView {
     pub refund_problem: Option<String>,
 }
 
+impl SaleView {
+    /// A cash sale with no order of its own while cash as Monero is off:
+    /// ignored, with no alert, code, row or window (core.md decision 167).
+    pub fn ignored(&self, settings: &ViewSettings) -> bool {
+        self.offered && !settings.cash_as_monero
+    }
+}
+
 /// A ledger time as a view shows it, in whole seconds.
 fn secs(ms: Option<UnixMillis>) -> Option<UnixSeconds> {
     ms.map(UnixMillis::to_seconds)

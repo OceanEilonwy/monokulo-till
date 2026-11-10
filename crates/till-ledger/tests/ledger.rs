@@ -762,6 +762,27 @@ fn settings_never_enter_the_merge() {
     assert!(may_make_order(&v, &back, false));
 }
 
+/// Core.md decision 167: with cash as Monero off, a cash sale is ignored
+/// altogether: it is no row in the list, while a Monero sale is.
+#[test]
+fn with_cash_as_monero_off_cash_sales_are_ignored() {
+    let fx = Fixture::new();
+    let mut l = fx.open(Process::App);
+    l.record(payment("cash1", "front", Tender::Cash, 1))
+        .unwrap();
+    l.record(payment("monero1", "front", Tender::Monero, 2))
+        .unwrap();
+    assert_eq!(l.sales().unwrap().len(), 2, "cash as Monero is on");
+
+    l.record(set(setting::CASH_AS_MONERO, "false", 3)).unwrap();
+    let keys: Vec<_> = l.sales().unwrap().into_iter().map(|v| v.sale).collect();
+    assert_eq!(keys, vec![sale("monero1")], "the cash sale is gone");
+    assert!(
+        l.sale(&sale("cash1")).unwrap().is_some(),
+        "still known by its key"
+    );
+}
+
 const SHIFT: &str = r#"[
  {"orderId":"ord_2","amount":"5.00","currency":"USD","code":{"uri":"monero:8B2?tx_amount=0.03","hasReceipt":false},
   "phase":"Paid","expiresAt":1794248000,"xmr":"0.03","address":"8B2",

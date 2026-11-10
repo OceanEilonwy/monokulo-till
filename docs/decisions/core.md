@@ -1779,3 +1779,16 @@ still strings across the till, the ledger, the screens and the bridge.
      screens' records, the Live Activity, `DeviceClock`, previews), and is
      typed again as it comes in (`DeviceClock::time_now`); a custom UniFFI
      type would have changed the bindings, so they keep `i64`.
+167. **With cash as Monero off, cash sales are ignored.** (Owner,
+     2026-11-10, the iPad round 3 designs.) The ledger's list of sales
+     leaves out a cash sale this till doesn't take in Monero
+     (`SaleView::ignored`: offered while cash as Monero is off), so it is
+     no row and never alerts, shows a code, grows the floating window or
+     starts a Live Activity; only sales rung up as Other: Monero do
+     anything. This replaces decision 116's "Take it in Monero" offer for
+     the setting off; `Ledger::sale` still answers for one by its key. A
+     cash sale already given an order stays (it was taken while the
+     setting was on). Another counter's cash sale with the setting on is
+     still offered, as decision 165 says. The offer's actions and states
+     (`Standing::CashOffer`, `TakeInMonero`, `KeepAsCash`) remain for that
+     case.
