@@ -159,6 +159,11 @@ pub struct SaleView {
     pub paid_after_refund: bool,
     /// Paid after the cashier closed it.
     pub paid_after_close: bool,
+    /// Paid more than asked (or twice): the extra is owed back to the
+    /// customer (core.md decision 168).
+    pub overpaid: bool,
+    /// When the cashier said the extra went back.
+    pub extra_refunded_at: Option<UnixSeconds>,
     /// Why the last refund this till tried failed.
     pub refund_problem: Option<String>,
 }
@@ -350,6 +355,10 @@ pub fn view(
                 .is_some_and(|(at, o)| at >= o.expires_at.to_millis()),
         paid_after_refund: paid && refunded_at.is_some(),
         paid_after_close: paid && closed_at.is_some(),
+        overpaid: shared
+            .phase()
+            .is_some_and(|p| matches!(p, PaymentPhase::Paid { overpaid: true })),
+        extra_refunded_at: secs(marks.extra_refunded),
         refund_problem,
     }
 }

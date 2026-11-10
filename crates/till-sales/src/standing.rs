@@ -14,6 +14,9 @@ pub enum Standing {
     /// Its code is up: waiting, seen, confirming or part paid, and not
     /// closed.
     Live(SalePhase),
+    /// Paid, and more than asked (or twice): the extra is owed back to the
+    /// customer until the cashier says it went (core.md decision 168).
+    Overpaid,
     /// Paid: `late` after the cashier closed it or its code ran out (which
     /// one, `closed_at` and `ended_at` say), `after_refund` after it was
     /// refunded in the POS, so the cashier has to ring it up again or
@@ -58,7 +61,12 @@ impl TillSale {
     /// make in the POS, a reversal and an ending, before a plain close
     /// (decisions 60 onwards in docs/decisions/android.md).
     pub fn standing(&self) -> Standing {
-        if self.phase == SalePhase::Paid {
+        if self.phase == SalePhase::Paid
+            && self.extras.overpaid
+            && self.extras.extra_refunded_at.is_none()
+        {
+            Standing::Overpaid
+        } else if self.phase == SalePhase::Paid {
             Standing::Paid {
                 late: self.closed_at.is_some() || self.ended_at.is_some(),
                 after_refund: self.refunded(),
@@ -98,9 +106,11 @@ impl TillSale {
     /// again or the payment returned.
     pub fn needs_action(&self) -> bool {
         match self.standing() {
-            Standing::Closed | Standing::Expired | Standing::Reversed | Standing::RefundInPos => {
-                true
-            }
+            Standing::Closed
+            | Standing::Expired
+            | Standing::Reversed
+            | Standing::RefundInPos
+            | Standing::Overpaid => true,
             Standing::Paid { after_refund, .. } => after_refund,
             _ => false,
         }

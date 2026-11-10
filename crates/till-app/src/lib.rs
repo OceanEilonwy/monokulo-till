@@ -650,6 +650,11 @@ pub enum Action {
     PaidInCash {
         order_id: OrderId,
     },
+    /// "Mark as refunded" on an overpaid sale: the extra went back to the
+    /// customer (core.md decision 168).
+    ExtraRefunded {
+        order_id: OrderId,
+    },
     /// "New code" on a sale whose code ran out unpaid (docs/ledger.md §7):
     /// its next order is made, and the sale opens on its code.
     NewCode {
@@ -744,6 +749,7 @@ impl Action {
             Action::TakeInMonero { .. } => "TakeInMonero",
             Action::KeepAsCash { .. } => "KeepAsCash",
             Action::PaidInCash { .. } => "PaidInCash",
+            Action::ExtraRefunded { .. } => "ExtraRefunded",
             Action::NewCode { .. } => "NewCode",
             Action::PushToken { .. } => "PushToken",
         }

@@ -718,6 +718,9 @@ pub struct LocalMarks {
     pub reopened: Option<Stamp>,
     pub kept_as_cash: Option<UnixMillis>,
     pub paid_in_cash: Option<UnixMillis>,
+    /// When the cashier said an overpayment's extra went back.
+    #[serde(default)]
+    pub extra_refunded: Option<UnixMillis>,
     pub refund: Option<RefundMark>,
     /// When this device's clock last said a code ran out; it counts only
     /// for a quote that ran out before it ([`crate::view`]).
@@ -756,6 +759,7 @@ impl LocalMarks {
             }
             MarkKind::KeptAsCash => self.kept_as_cash = min_opt(self.kept_as_cash, at),
             MarkKind::PaidInCash => self.paid_in_cash = min_opt(self.paid_in_cash, at),
+            MarkKind::ExtraRefunded => self.extra_refunded = min_opt(self.extra_refunded, at),
             MarkKind::RefundPending => {
                 let r = self.refund.get_or_insert_default();
                 r.pending_at = min_opt(r.pending_at, at);
@@ -807,6 +811,7 @@ impl LocalMarks {
         };
         earliest(&mut self.kept_as_cash, other.kept_as_cash);
         earliest(&mut self.paid_in_cash, other.paid_in_cash);
+        earliest(&mut self.extra_refunded, other.extra_refunded);
         self.clock_lapsed = max_opt(self.clock_lapsed, other.clock_lapsed);
         earliest(&mut self.first_at, other.first_at);
         earliest(&mut self.seen_at, other.seen_at);

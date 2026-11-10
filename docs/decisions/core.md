@@ -1792,3 +1792,17 @@ still strings across the till, the ledger, the screens and the bridge.
      still offered, as decision 165 says. The offer's actions and states
      (`Standing::CashOffer`, `TakeInMonero`, `KeepAsCash`) remain for that
      case.
+168. **Paid twice, or by more than asked, is an overpayment, and it alerts.**
+     (Owner, 2026-11-10.) The ledger already knew a payment's `overpaid` and
+     two paid codes (`SaleView::paid_twice`); now `SaleView::overpaid` is
+     either, and `Standing::Overpaid` (until the cashier says the extra went
+     back) makes it a sale that needs action, with the row "Overpaid · refund
+     the extra", the page heading "Overpaid" in warn and the note that Monero
+     can't take a payment back by itself, so the cashier asks for a return
+     address and sends the extra from their wallet. `Mark as refunded`
+     (`PageAction::MarkRefunded`, `Action::ExtraRefunded`,
+     `MarkKind::ExtraRefunded`) settles it; the sale is Paid after. A new
+     alert kind, `AlertKind::Overpaid`, is claimed once per sale when it turns
+     overpaid on a till whose alerts it is, and always posts a notice (even
+     beside a Live Activity): "Overpaid · Priya · $8.40 / Give back the extra.
+     Tap to see how."

@@ -142,6 +142,7 @@ struct SalePageScreen: View {
         case .refund: .refund(orderId: orderId)
         case .showCodeAgain: .reopen(orderId: orderId)
         case .newCode: .newCode(orderId: orderId)
+        case .markRefunded: .extraRefunded(orderId: orderId)
         }
     }
 
@@ -150,7 +151,7 @@ struct SalePageScreen: View {
     /// sale, or one taken before the point of sale changed).
     static func primary(_ action: PageAction) -> Bool {
         switch action {
-        case .refund: true
+        case .refund, .markRefunded: true
         default: false
         }
     }

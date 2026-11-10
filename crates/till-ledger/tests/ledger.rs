@@ -605,6 +605,47 @@ fn a_double_spend_stays_unless_monokulo_settles_it_paid() {
     );
 }
 
+/// Core.md decision 168: paying more than asked is an overpayment: it alerts
+/// once, and the cashier saying the extra went back settles it.
+#[test]
+fn an_overpaid_sale_alerts_once_until_the_extra_is_marked_refunded() {
+    let fx = Fixture::new();
+    let mut l = fx.open(Process::App);
+    l.record(payment("p1", "front", Tender::Monero, 1)).unwrap();
+    l.record(created("p1", "o1")).unwrap();
+    let r = l.record(observed("o1", SalePhase::Paid, false)).unwrap();
+    assert!(
+        r.effects_claimed
+            .iter()
+            .all(|c| c.kind != AlertKind::Overpaid),
+        "an exact payment is not an overpayment"
+    );
+    assert!(!l.sale(&sale("p1")).unwrap().unwrap().overpaid);
+
+    let mut over = observed("o1", SalePhase::Paid, true);
+    if let Fact::OrderObserved(o) = &mut over {
+        o.overpaid = true;
+    }
+    let r = l.record(over).unwrap();
+    let overpaid: Vec<_> = r
+        .effects_claimed
+        .iter()
+        .filter(|c| c.kind == AlertKind::Overpaid)
+        .collect();
+    assert_eq!(overpaid.len(), 1, "the overpayment alerts");
+    let v = l.sale(&sale("p1")).unwrap().unwrap();
+    assert!(v.overpaid && v.extra_refunded_at.is_none());
+
+    l.record(Fact::Mark {
+        sale: sale("p1"),
+        mark: MarkKind::ExtraRefunded,
+        at: monokulo_client::UnixMillis(NOW),
+    })
+    .unwrap();
+    let v = l.sale(&sale("p1")).unwrap().unwrap();
+    assert!(v.overpaid && v.extra_refunded_at.is_some());
+}
+
 /// §15.8: New code renews the sale's one order (core.md decisions 167 to
 /// 172): the same order with a new quote, waiting again with its new code;
 /// the old quote's ending doesn't end it, whichever arrives first; the

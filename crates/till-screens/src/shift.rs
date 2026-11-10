@@ -447,6 +447,11 @@ pub fn row(
             if after_refund { Tone::Warn } else { Tone::Paid },
             StateIcon::Tick,
         ),
+        Standing::Overpaid => (
+            "Overpaid · refund the extra".to_owned() + &at(sale.paid_at),
+            Tone::Warn,
+            StateIcon::Warning,
+        ),
         Standing::CashOffer { kept: false } => (
             sale_text::status(sale, till)
                 + &at(Some(sale.created_at).filter(|&t| t > UnixSeconds(0))),

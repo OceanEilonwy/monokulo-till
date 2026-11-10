@@ -985,6 +985,11 @@ impl State {
             }
             Action::TakeInMonero { order_id } => self.take_in_monero(order_id),
             Action::NewCode { order_id } => self.new_code(order_id),
+            Action::ExtraRefunded { order_id } => {
+                if let Some(p) = &self.parts {
+                    p.runner.extra_refunded(&order_id);
+                }
+            }
             Action::KeepAsCash { order_id } => {
                 if let Some(p) = &self.parts {
                     p.runner.keep_as_cash(&order_id);
@@ -1317,6 +1322,14 @@ impl State {
                         });
                     }
                 }
+                // Always a notice, even beside a Live Activity: money is owed.
+                AlertKind::Overpaid => self.effect(Effect::Notify {
+                    order_id,
+                    notice: notification::overpaid_notice(&sale, &money),
+                    paid: false,
+                    timeout_ms: notification::notice_timeout(false),
+                    quiet,
+                }),
                 AlertKind::Ended => {
                     if sale.found.is_some() {
                         self.just_ended(order_id.clone());

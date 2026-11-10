@@ -912,6 +912,17 @@ impl Till {
         }
     }
 
+    /// "Mark as refunded" on an overpaid sale: the extra went back to the
+    /// customer, so the sale stops asking for the cashier (core.md decision
+    /// 168). Only a paid sale.
+    pub fn extra_refunded(&self, order_id: &OrderId) {
+        if let Some((key, sale)) = self.sale(order_id)
+            && sale.phase == SalePhase::Paid
+        {
+            self.mark(&key, MarkKind::ExtraRefunded);
+        }
+    }
+
     /// Refunds the POS sale of an order that was never paid: through the
     /// POS when the till can ([`Refunds::ByTill`]), else marks it for the
     /// cashier to refund there ([`Refunds::InPos`]), which sends nothing. A

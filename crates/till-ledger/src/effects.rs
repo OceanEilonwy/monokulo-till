@@ -53,6 +53,8 @@ fn has_order(view: &SaleView) -> bool {
 ///   in front, a notice behind (the open sale only in front).
 /// - **Ended**: newly expired, cancelled or reversed while live, this
 ///   till's.
+/// - **Overpaid**: newly paid twice or by more than asked, this till's:
+///   the extra is owed back (core.md decision 168).
 pub fn diff(old: Option<&SaleView>, new: &SaleView, cx: &DiffContext<'_>) -> Vec<Effect> {
     let mut effects = Vec::new();
     let effect = |kind| Effect {
@@ -77,6 +79,14 @@ pub fn diff(old: Option<&SaleView>, new: &SaleView, cx: &DiffContext<'_>) -> Vec
         } else if !cx.foreground && new.alerts_here {
             effects.push(effect(AlertKind::Paid));
         }
+    }
+    // The extra of an overpayment is owed back: this till's alert, once.
+    if new.overpaid
+        && new.extra_refunded_at.is_none()
+        && !old.is_some_and(|o| o.overpaid)
+        && new.alerts_here
+    {
+        effects.push(effect(AlertKind::Overpaid));
     }
     let ended = |v: &SaleView| {
         matches!(
