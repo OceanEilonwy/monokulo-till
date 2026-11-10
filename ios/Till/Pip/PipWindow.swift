@@ -2,6 +2,7 @@
 @preconcurrency import AVKit
 import CoreMedia
 import CoreVideo
+import os
 import SwiftUI
 import UIKit
 
@@ -37,12 +38,29 @@ final class PipWindow: NSObject {
     let layer = AVSampleBufferDisplayLayer()
 
     private var controller: AVPictureInPictureController?
+    /// A controller let go while its window was still closing: kept until
+    /// iOS says it stopped, as one freed mid-animation can bring the app
+    /// down.
+    private var stopping: AVPictureInPictureController?
+    /// Pixel buffers for the frames, reused while the size stays the same,
+    /// so a countdown doesn't allocate a new surface each second.
+    private var pool: (size: CGSize, pool: CVPixelBufferPool)?
     private var state: TillActivityAttributes.ContentState?
     private var cash: PipCashOffer?
     private var place = ""
     /// The window's width in points, as iOS last said.
     private var width: CGFloat?
     private var drawn: PipFrameKey?
+    /// A frame is being drawn and enqueued. Enqueueing can call back into
+    /// this class on the same stack: a frame of a new size makes the layer
+    /// post its presentation size, and AVKit then reports the window's new
+    /// render size (`didTransitionToRenderSize`). A draw from that callback
+    /// waits for the next turn of the main run loop instead, as drawing
+    /// there recursed until the main thread's stack ran out (the two crash
+    /// reports of 2026-11-10, both inside `enqueueSampleBuffer`).
+    private var drawing = false
+    /// A draw is waiting for the next turn of the main run loop.
+    private var redrawQueued = false
     private var ticker: Task<Void, Never>?
     private let timebase: CMTimebase?
 
@@ -115,8 +133,11 @@ final class PipWindow: NSObject {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback, options: [.mixWithOthers])
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
-            NSLog("till: no audio session for Picture in Picture: %@", String(describing: error))
+            let said = String(describing: error)
+            TillLog.pip.error("no audio session for Picture in Picture: \(said, privacy: .public)")
         }
+        let left = MemoryHeadroom.described
+        TillLog.pip.notice("floating window ready, memory left \(left, privacy: .public)")
         let source = AVPictureInPictureController.ContentSource(sampleBufferDisplayLayer: layer, playbackDelegate: self)
         let controller = AVPictureInPictureController(contentSource: source)
         controller.delegate = self
@@ -136,46 +157,123 @@ final class PipWindow: NSObject {
         ticker?.cancel()
         ticker = nil
         if let controller {
+            let was = controller.isPictureInPictureActive ? "up" : "down"
+            TillLog.pip.notice("floating window off (was \(was, privacy: .public))")
             controller.canStartPictureInPictureAutomaticallyFromInline = false
             if controller.isPictureInPictureActive {
+                stopping = controller
                 controller.stopPictureInPicture()
             }
         }
         controller = nil
         drawn = nil
+        pool = nil
         layer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
         try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
     }
 
     // MARK: Frames
 
-    /// Draws the picture again if anything it shows changed.
+    /// iOS is short of memory: the buffers kept for the next frames go.
+    func memoryWarning() {
+        pool = nil
+    }
+
+    /// Draws the picture again if anything it shows changed. Nothing is
+    /// drawn while Till is in the back without the window up: nobody sees
+    /// the layer then, and its renderer is failed or holds what's queued.
+    /// The window's start (`didStartPictureInPicture`) draws again.
     private func draw() {
         guard controller != nil else { return }
+        if !isActive, UIApplication.shared.applicationState == .background { return }
         let picture = picture
         let now = Date()
         let size = picture.shape.size(width: width)
         let key = PipFrameKey(picture: picture, size: size, timeLeft: picture.timeLeft(now: now))
         guard key != drawn else { return }
-        guard let buffer = PipWindow.frame(PipFrameView(picture: picture, size: size, now: now), size: size, scale: PipWindow.scale, timebase: timebase) else {
+        if drawing {
+            redrawSoon()
             return
         }
+        drawing = true
+        defer { drawing = false }
         let renderer = layer.sampleBufferRenderer
         if renderer.status == .failed {
+            // After going to the back (AVErrorOperationInterrupted, say): a
+            // failed renderer drops what's enqueued until it's flushed.
+            let said = renderer.error.map { String(describing: $0) } ?? "no error"
+            TillLog.pip.error("frames failed: \(said, privacy: .public); flushing")
             renderer.flush()
         }
-        renderer.enqueue(buffer)
+        guard renderer.isReadyForMoreMediaData else {
+            // Its queue is full: the next tick tries again, rather than
+            // piling up frames nobody sees.
+            return
+        }
+        let pixels = pixelBuffer(size: size)
+        let buffer = autoreleasepool {
+            PipWindow.frame(PipFrameView(picture: picture, size: size, now: now), size: size, scale: PipWindow.scale, into: pixels, timebase: timebase)
+        }
+        guard let buffer else { return }
+        // Marked before enqueueing, so a callback during the enqueue sees
+        // this frame as drawn.
         drawn = key
+        renderer.enqueue(buffer)
     }
 
-    /// `view` as a sample buffer, shown as soon as it's enqueued.
-    private static func frame(_ view: some View, size: CGSize, scale: CGFloat, timebase: CMTimebase?) -> CMSampleBuffer? {
+    /// [draw] on the next turn of the main run loop, once however often it's
+    /// asked for before then; never on the stack that asked.
+    private func redrawSoon() {
+        guard !redrawQueued else { return }
+        redrawQueued = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.redrawQueued = false
+            self.draw()
+        }
+    }
+
+    /// A pixel buffer for a frame of `size` points, from the pool kept for
+    /// that size.
+    private func pixelBuffer(size: CGSize) -> CVPixelBuffer? {
+        if pool?.size != size {
+            pool = PipWindow.makePool(width: Int((size.width * PipWindow.scale).rounded(.up)), height: Int((size.height * PipWindow.scale).rounded(.up))).map { (size: size, pool: $0) }
+        }
+        guard let pool = pool?.pool else { return nil }
+        var buffer: CVPixelBuffer?
+        let status = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &buffer)
+        guard status == kCVReturnSuccess else {
+            let code = Int(status)
+            TillLog.pip.error("no pixel buffer from the pool: \(code, privacy: .public)")
+            return nil
+        }
+        return buffer
+    }
+
+    private static func makePool(width: Int, height: Int) -> CVPixelBufferPool? {
+        guard width > 0, height > 0 else { return nil }
+        let attributes: [CFString: Any] = [
+            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey: width,
+            kCVPixelBufferHeightKey: height,
+            kCVPixelBufferCGImageCompatibilityKey: true,
+            kCVPixelBufferCGBitmapContextCompatibilityKey: true,
+            kCVPixelBufferIOSurfacePropertiesKey: [String: Any](),
+        ]
+        var pool: CVPixelBufferPool?
+        CVPixelBufferPoolCreate(kCFAllocatorDefault, nil, attributes as CFDictionary, &pool)
+        return pool
+    }
+
+    /// `view` as a sample buffer in `pixels` (or a buffer of its own when
+    /// the pool gave none), shown as soon as it's enqueued.
+    private static func frame(_ view: some View, size: CGSize, scale: CGFloat, into pixels: CVPixelBuffer?, timebase: CMTimebase?) -> CMSampleBuffer? {
         let renderer = ImageRenderer(content: view)
         renderer.proposedSize = ProposedViewSize(size)
         renderer.scale = scale
         renderer.isOpaque = true
         guard let image = renderer.cgImage else { return nil }
-        guard let pixels = PipWindow.pixelBuffer(image) else { return nil }
+        guard let pixels = PipWindow.draw(image, into: pixels) else { return nil }
         var format: CMVideoFormatDescription?
         CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: pixels, formatDescriptionOut: &format)
         guard let format else { return nil }
@@ -202,17 +300,24 @@ final class PipWindow: NSObject {
         return sample
     }
 
-    /// `image` in a BGRA pixel buffer the display layer can show.
-    private static func pixelBuffer(_ image: CGImage) -> CVPixelBuffer? {
+    /// `image` in a BGRA pixel buffer the display layer can show: `pooled`
+    /// when it's the image's size, else one made for it.
+    private static func draw(_ image: CGImage, into pooled: CVPixelBuffer?) -> CVPixelBuffer? {
         let width = image.width, height = image.height
-        let attributes: [CFString: Any] = [
-            kCVPixelBufferCGImageCompatibilityKey: true,
-            kCVPixelBufferCGBitmapContextCompatibilityKey: true,
-            kCVPixelBufferIOSurfacePropertiesKey: [String: Any](),
-        ]
-        var buffer: CVPixelBuffer?
-        let status = CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA, attributes as CFDictionary, &buffer)
-        guard status == kCVReturnSuccess, let buffer else { return nil }
+        let buffer: CVPixelBuffer
+        if let pooled, CVPixelBufferGetWidth(pooled) == width, CVPixelBufferGetHeight(pooled) == height {
+            buffer = pooled
+        } else {
+            let attributes: [CFString: Any] = [
+                kCVPixelBufferCGImageCompatibilityKey: true,
+                kCVPixelBufferCGBitmapContextCompatibilityKey: true,
+                kCVPixelBufferIOSurfacePropertiesKey: [String: Any](),
+            ]
+            var made: CVPixelBuffer?
+            let status = CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA, attributes as CFDictionary, &made)
+            guard status == kCVReturnSuccess, let made else { return nil }
+            buffer = made
+        }
         CVPixelBufferLockBaseAddress(buffer, [])
         defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
         guard let context = CGContext(
@@ -280,8 +385,12 @@ extension PipWindow: @preconcurrency AVPictureInPictureSampleBufferPlaybackDeleg
         didTransitionToRenderSize newRenderSize: CMVideoDimensions
     ) {
         // iOS reports pixels; the frames are laid out in points.
-        width = PipShape.width(renderWidth: newRenderSize.width, scale: PipWindow.scale)
-        draw()
+        let new = PipShape.width(renderWidth: newRenderSize.width, scale: PipWindow.scale)
+        // A point or so either way is the frame's own rounding coming back:
+        // drawing again for it would chase the size without end.
+        if let width, abs(new - width) < 2 { return }
+        width = new
+        redrawSoon()
     }
 
     func pictureInPictureController(
@@ -302,6 +411,7 @@ extension PipWindow: @preconcurrency AVPictureInPictureControllerDelegate {
         _ pictureInPictureController: AVPictureInPictureController,
         restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
     ) {
+        TillLog.pip.notice("floating window: back to Till")
         if let orderId = picture.orderId {
             onRestore?(orderId)
         }
@@ -312,7 +422,25 @@ extension PipWindow: @preconcurrency AVPictureInPictureControllerDelegate {
         _ pictureInPictureController: AVPictureInPictureController,
         failedToStartPictureInPictureWithError error: any Error
     ) {
-        NSLog("till: Picture in Picture didn't start: %@", String(describing: error))
+        let said = String(describing: error)
+        TillLog.pip.error("floating window didn't start: \(said, privacy: .public)")
+    }
+
+    func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        let left = MemoryHeadroom.described
+        let frames = layer.sampleBufferRenderer.status == .failed ? "failed" : "rendering"
+        TillLog.pip.notice("floating window up, memory left \(left, privacy: .public), frames \(frames, privacy: .public)")
+        // Frames weren't drawn while Till was in the back without it.
+        drawn = nil
+        draw()
+    }
+
+    func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        let left = MemoryHeadroom.described
+        TillLog.pip.notice("floating window down, memory left \(left, privacy: .public)")
+        if stopping === pictureInPictureController {
+            stopping = nil
+        }
     }
 }
 

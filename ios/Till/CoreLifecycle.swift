@@ -1,5 +1,6 @@
 import CoreFoundation
 import Foundation
+import os
 import TillCore
 
 /// What only iOS can do for the core's ledger (docs/ledger.md §11; docs/
@@ -26,13 +27,25 @@ final class DeviceBackgroundWork: BackgroundWork, @unchecked Sendable {
     /// short transaction is left to finish or roll back.
     func begin(reason: String) -> UInt64 {
         let release = DispatchSemaphore(value: 0)
-        let id = lock.withLock {
+        let (id, open) = lock.withLock {
             next += 1
             held[next] = release
-            return next
+            return (next, held.count)
         }
+        if open > DeviceBackgroundWork.manyOpen {
+            // Each open hold parks a thread until it ends: many at once is
+            // a hold never ended, which would starve the core's threads.
+            DeviceBackgroundWork.log.error("\(open, privacy: .public) background holds open at once (\(reason, privacy: .public))")
+        }
+        let started = Date()
         ProcessInfo.processInfo.performExpiringActivity(withReason: reason) { expired in
             if expired {
+                // iOS is about to suspend the process with the core's write
+                // still under way: the line to look for beside a 0xdead10cc.
+                let held = Date().timeIntervalSince(started)
+                DeviceBackgroundWork.log.error(
+                    "background hold \(id, privacy: .public) (\(reason, privacy: .public)) ran out after \(held, format: .fixed(precision: 1), privacy: .public) s"
+                )
                 release.signal()
             } else {
                 release.wait()
@@ -40,6 +53,9 @@ final class DeviceBackgroundWork: BackgroundWork, @unchecked Sendable {
         }
         return id
     }
+
+    private static let log = Logger(subsystem: "com.monokulo.till", category: "background-work")
+    private static let manyOpen = 8
 
     func end(id: UInt64) {
         let release = lock.withLock { held.removeValue(forKey: id) }
@@ -97,10 +113,17 @@ final class EngineLifecycle: @unchecked Sendable {
         let work = DeviceBackgroundWork.shared
         let hold = work.begin(reason: "Till closes its ledger")
         queue.async {
+            let started = Date()
             engine.suspend()
             work.end(id: hold)
+            let took = Date().timeIntervalSince(started)
+            if took > 1 {
+                EngineLifecycle.log.error("closing the ledger took \(took, format: .fixed(precision: 1), privacy: .public) s")
+            }
         }
     }
+
+    private static let log = Logger(subsystem: "com.monokulo.till", category: "lifecycle")
 
     func resume(_ engine: Engine) {
         queue.async { engine.resume() }
