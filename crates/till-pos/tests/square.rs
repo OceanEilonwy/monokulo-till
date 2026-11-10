@@ -14,7 +14,8 @@ use till_pos::square::{
     SquareApi, SquareAuth, SquareConfig, SquareLocation, SquareOrder, SquareSource,
 };
 use till_pos::{
-    FoundSale, ListedRefund, Pkce, PointOfSale, Refunds, SaleSource, SquareEnvironment,
+    AuthCode, FoundSale, ListedRefund, OAuthRedirect, OAuthState, Pkce, PointOfSale, Refunds,
+    SaleSource, SquareEnvironment,
 };
 
 const NOW: &str = "2026-10-22T16:10:00Z";
@@ -128,7 +129,7 @@ async fn signing_in_asks_for_the_tills_scopes_and_keeps_the_tokens() {
     // Another attempt's state is refused before Square is asked.
     let refused = f
         .auth
-        .finish(&pkce, Some("other"), Some("code"), None)
+        .finish(&pkce, &redirect(Some("other"), Some("code"), None))
         .await
         .unwrap_err();
     assert_eq!(refused.pos(), Some(PointOfSale::Square));
@@ -136,7 +137,10 @@ async fn signing_in_asks_for_the_tills_scopes_and_keeps_the_tokens() {
         r#"{"access_token":"EAAA1","expires_at":"2026-11-21T16:10:00Z","refresh_token":"r1","merchant_id":"M1"}"#,
     ));
     f.auth
-        .finish(&pkce, Some(&pkce.state), Some("code1"), None)
+        .finish(
+            &pkce,
+            &redirect(Some(pkce.state.as_str()), Some("code1"), None),
+        )
         .await
         .unwrap();
     assert_eq!(f.tokens.get().unwrap().access_token.expose_str(), "EAAA1");
@@ -655,4 +659,14 @@ async fn a_cursor_that_cant_be_read_is_an_error_and_never_saved_over() {
     });
     assert_eq!(cursor.saves(), 0);
     assert_eq!(f.stand.request_count().await, 0);
+}
+
+/// A Square redirect saying `state`, `code` and `error`.
+fn redirect(state: Option<&str>, code: Option<&str>, error: Option<&str>) -> OAuthRedirect {
+    OAuthRedirect {
+        state: state.map(OAuthState::new),
+        code: code.map(AuthCode::new),
+        error: error.map(String::from),
+        merchant_id: None,
+    }
 }

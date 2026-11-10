@@ -12,7 +12,7 @@ use std::time::Duration;
 use common::*;
 use monokulo_client::FixedClock;
 use till_pos::clover::{CloverAuth, CloverConfig, CloverEnvironment};
-use till_pos::{Pkce, PointOfSale, PosTokens};
+use till_pos::{AuthCode, OAuthRedirect, OAuthState, Pkce, PointOfSale, PosTokens};
 
 struct Fixture {
     stand: Stand,
@@ -110,7 +110,7 @@ async fn the_sign_in_page_gets_the_pkce_challenge_the_redirect_and_a_state_and_n
     );
     assert_eq!(param("code_challenge"), Some(pkce.challenge()));
     assert_eq!(param("code_challenge_method").as_deref(), Some("S256"));
-    assert_eq!(param("state"), Some(pkce.state.clone()));
+    assert_eq!(param("state"), Some(pkce.state.0.clone()));
     assert_eq!(
         url.query_pairs()
             .map(|(n, _)| n.into_owned())
@@ -136,7 +136,10 @@ async fn finishing_posts_exactly_the_code_and_verifier_and_keeps_the_tokens_with
     f.stand.enqueue(token_answer("acc1", "ref1", 1761600000));
     let signed_in = f
         .auth
-        .finish(&pkce, Some("MCLOVER00001"), Some("code1"), None, None)
+        .finish(
+            &pkce,
+            &redirect(Some("MCLOVER00001"), Some("code1"), None, None),
+        )
         .await
         .unwrap();
     assert_eq!(
@@ -170,10 +173,7 @@ async fn an_echoed_state_must_be_the_attempts_and_a_redirect_needs_its_merchant_
         .auth
         .finish(
             &pkce,
-            Some("MCLOVER00001"),
-            Some("code"),
-            Some("other"),
-            None,
+            &redirect(Some("MCLOVER00001"), Some("code"), Some("other"), None),
         )
         .await
         .unwrap_err();
@@ -189,14 +189,14 @@ async fn an_echoed_state_must_be_the_attempts_and_a_redirect_needs_its_merchant_
     ] {
         let e = f
             .auth
-            .finish(&pkce, merchant, code, None, None)
+            .finish(&pkce, &redirect(merchant, code, None, None))
             .await
             .unwrap_err();
         assert_eq!(e.pos(), Some(PointOfSale::Clover), "{merchant:?} {code:?}");
     }
     let refused = f
         .auth
-        .finish(&pkce, None, None, None, Some("access_denied"))
+        .finish(&pkce, &redirect(None, None, None, Some("access_denied")))
         .await
         .unwrap_err();
     assert_eq!(
@@ -210,10 +210,12 @@ async fn an_echoed_state_must_be_the_attempts_and_a_redirect_needs_its_merchant_
     f.auth
         .finish(
             &pkce,
-            Some("MCLOVER00001"),
-            Some("code"),
-            Some(&pkce.state),
-            None,
+            &redirect(
+                Some("MCLOVER00001"),
+                Some("code"),
+                Some(pkce.state.as_str()),
+                None,
+            ),
         )
         .await
         .unwrap();
@@ -351,4 +353,19 @@ async fn two_refreshes_after_one_refusal_sharing_a_lock_make_one_refresh_request
         kept.refresh_token.as_ref().map(|t| t.expose_str()),
         Some("ref2")
     );
+}
+
+/// A Clover redirect saying `merchant_id`, `code`, `state` and `error`.
+fn redirect(
+    merchant_id: Option<&str>,
+    code: Option<&str>,
+    state: Option<&str>,
+    error: Option<&str>,
+) -> OAuthRedirect {
+    OAuthRedirect {
+        state: state.map(OAuthState::new),
+        code: code.map(AuthCode::new),
+        error: error.map(String::from),
+        merchant_id: merchant_id.map(String::from),
+    }
 }

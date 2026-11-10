@@ -114,7 +114,7 @@ fn every_key_stores_kt_writes_reads_into_the_model() {
     let pending = model.pending_sign_in.as_ref().unwrap();
     assert_eq!(pending.point_of_sale, PointOfSale::Clover);
     assert_eq!(pending.pkce.verifier.expose_str(), "v-86");
-    assert_eq!(pending.pkce.state, "s-43");
+    assert_eq!(pending.pkce.state.as_str(), "s-43");
     assert_eq!(pending.application_id.as_deref(), Some("clv-bell"));
     assert_eq!(model.square_application_id.as_deref(), Some("sq0idp-bell"));
     assert_eq!(model.clover_application_id.as_deref(), Some("clv-bell"));

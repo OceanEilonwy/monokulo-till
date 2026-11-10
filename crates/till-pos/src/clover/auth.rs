@@ -10,7 +10,7 @@ use till_types::Secret;
 use super::{CloverConfig, CloverMerchantId, clover_error, retry_after};
 use crate::http;
 use crate::tokens::{hold, no_lock};
-use crate::{Pkce, PosError, PosTokens, StoreError, TokenLock, TokenStore};
+use crate::{OAuthRedirect, Pkce, PosError, PosTokens, StoreError, TokenLock, TokenStore};
 
 /// Clover's token answer: the expirations are Unix seconds, where the rest
 /// of Clover is milliseconds.
@@ -88,7 +88,7 @@ impl CloverAuth {
                 ("redirect_uri", &self.config.redirect_uri),
                 ("code_challenge", &challenge),
                 ("code_challenge_method", "S256"),
-                ("state", &pkce.state),
+                ("state", pkce.state.as_str()),
             ],
         )
     }
@@ -106,23 +106,25 @@ impl CloverAuth {
     pub async fn finish(
         &self,
         pkce: &Pkce,
-        merchant_id: Option<&str>,
-        code: Option<&str>,
-        state: Option<&str>,
-        error: Option<&str>,
+        redirect: &OAuthRedirect,
     ) -> Result<PosTokens, PosError> {
         let refused = |message: String| PosError::answered(PointOfSale::Clover, 0, message);
-        if let Some(error) = error {
+        if let Some(error) = &redirect.error {
             return Err(refused(format!(
                 "Clover sign-in was cancelled or refused ({error})."
             )));
         }
-        if state.is_some_and(|state| state != pkce.state) {
+        if redirect
+            .state
+            .as_ref()
+            .is_some_and(|state| *state != pkce.state)
+        {
             return Err(refused(
                 "That sign-in wasn't the one this app started. Try again.".into(),
             ));
         }
-        let (Some(code), Some(merchant_id)) = (code.filter(|c| !c.is_empty()), merchant_id) else {
+        let (Some(code), Some(merchant_id)) = (redirect.code(), redirect.merchant_id.as_deref())
+        else {
             return Err(refused(
                 "Clover didn't say which merchant signed in. Try again.".into(),
             ));
@@ -137,7 +139,7 @@ impl CloverAuth {
                 "oauth/v2/token",
                 json!({
                     "client_id": self.config.application_id,
-                    "code": code,
+                    "code": code.0,
                     "code_verifier": pkce.verifier,
                 }),
             )

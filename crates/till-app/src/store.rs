@@ -27,7 +27,7 @@ use till_bell::{BellAddress, BellRegistration, WakeUpChoice, WakeUpStore};
 use till_pos::clover::{CloverMerchant, CloverMerchantId, CloverTenderId, TenderStore};
 use till_pos::square::SquareLocation;
 use till_pos::{
-    CursorStore, HandledMarker, Pkce, PosTokens, Rfc3339Instant, StoreError, TokenStore,
+    CursorStore, HandledMarker, OAuthState, Pkce, PosTokens, Rfc3339Instant, StoreError, TokenStore,
 };
 use till_sales::{TillSale, shift_json};
 use till_types::Secret;
@@ -177,7 +177,7 @@ pub struct CounterKept {
 #[serde(rename_all = "camelCase")]
 struct PkceState {
     verifier: Secret,
-    state: String,
+    state: OAuthState,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     application_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -676,7 +676,7 @@ impl Model {
 
     /// The settings the ledger keeps beside [`Model::till_options`]: whether
     /// other counters' sales are listed, and how a new sale shows up, in
-    /// the words the platform's store keeps them in (decision 191).
+    /// the words the platform's store keeps them in (decision 173).
     pub fn ledger_settings(&self) -> [(&'static str, Option<String>); 2] {
         use till_ledger::view::setting;
         [

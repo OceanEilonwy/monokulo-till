@@ -9,7 +9,7 @@ use till_types::Secret;
 use super::{SquareConfig, answered};
 use crate::http;
 use crate::tokens::{hold, no_lock};
-use crate::{Pkce, PosError, PosTokens, StoreError, TokenLock, TokenStore};
+use crate::{OAuthRedirect, Pkce, PosError, PosTokens, StoreError, TokenLock, TokenStore};
 
 /// An access token with less than this left is refreshed first: a day
 /// (decision 19).
@@ -88,19 +88,17 @@ impl SquareAuth {
     pub async fn finish(
         &self,
         pkce: &Pkce,
-        state: Option<&str>,
-        code: Option<&str>,
-        error: Option<&str>,
+        redirect: &OAuthRedirect,
     ) -> Result<PosTokens, PosError> {
-        if let Some(error) = error {
+        if let Some(error) = &redirect.error {
             return Err(PosError::answered(
                 PointOfSale::Square,
                 0,
                 format!("Square sign-in was cancelled or refused ({error})."),
             ));
         }
-        let code = match code {
-            Some(code) if !code.is_empty() && state == Some(pkce.state.as_str()) => code,
+        let code = match redirect.code() {
+            Some(code) if redirect.state.as_ref() == Some(&pkce.state) => code,
             _ => {
                 return Err(PosError::answered(
                     PointOfSale::Square,
@@ -113,7 +111,7 @@ impl SquareAuth {
             .token(json!({
                 "client_id": self.config.application_id,
                 "grant_type": "authorization_code",
-                "code": code,
+                "code": code.0,
                 "redirect_uri": self.config.redirect_uri,
                 "code_verifier": pkce.verifier,
             }))

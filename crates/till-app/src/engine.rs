@@ -21,7 +21,7 @@ use till_bell::{
 use till_ledger::{AlertKind, Claim, ClaimPolicy, Fact, Process, Scope, ShiftMark};
 use till_pos::clover::TenderState;
 use till_pos::square::SquareLocation;
-use till_pos::{Pkce, PosError};
+use till_pos::{OAuthRedirect, Pkce, PosError};
 use till_sales::{Books, LiveStore, PosSwitch, Standing, TillRunner, TillSale};
 use till_screens::bubble::PaidMoment;
 use till_screens::close::{self, CloseThen};
@@ -1610,23 +1610,16 @@ impl State {
         let Ok(parsed) = reqwest::Url::parse(url) else {
             return;
         };
-        let without_query = url.split(['?', '#']).next().unwrap_or(url);
-        // Back on the redirect itself, or on the build's return link to the
-        // app (decision 57): either way the exchange names the redirect.
-        let returns_to = |redirect: &str, back: &Option<String>| {
-            without_query == redirect_base(redirect)
-                || back
-                    .as_deref()
-                    .is_some_and(|back| without_query == redirect_base(back))
-        };
+        let returned = ReturnLink::new(url);
         let (square, clover) = (&self.config.square, &self.config.clover);
-        let pos = if returns_to(&square.redirect_uri, &square.return_uri) {
+        let pos = if returned.is_for(&square.redirect_uri, square.return_uri.as_deref()) {
             PointOfSale::Square
-        } else if returns_to(&clover.redirect_uri, &clover.return_uri) {
+        } else if returned.is_for(&clover.redirect_uri, clover.return_uri.as_deref()) {
             PointOfSale::Clover
         } else {
             self.log(format!(
-                "till-core: a redirect to no sign-in: {without_query}"
+                "till-core: a redirect to no sign-in: {}",
+                returned.as_str()
             ));
             return;
         };
@@ -1641,26 +1634,15 @@ impl State {
             ));
             return;
         };
-        let query = |name: &str| {
-            parsed
-                .query_pairs()
-                .find(|(key, _)| key == name)
-                .map(|(_, value)| value.into_owned())
-        };
-        let (state, code, error, merchant) = (
-            query("state"),
-            query("code"),
-            query("error"),
-            query("merchant_id"),
-        );
+        let redirect = OAuthRedirect::parse(&parsed);
         let setup_done = side.model().setup_done;
         self.work(async move {
             let through = pending.application_id.is_some();
             let finished = match pos {
-                PointOfSale::Square => finish_square(&side, &pending, state, code, error)
+                PointOfSale::Square => finish_square(&side, &pending, &redirect)
                     .await
                     .map(Finished::Square),
-                PointOfSale::Clover => finish_clover(&side, &pending, state, code, error, merchant)
+                PointOfSale::Clover => finish_clover(&side, &pending, &redirect)
                     .await
                     .map(Finished::Clover),
             };
@@ -2524,8 +2506,25 @@ fn keep_onion_api(side: &Side, onion: Option<&str>) {
     });
 }
 
-fn redirect_base(uri: &str) -> &str {
-    uri.split(['?', '#']).next().unwrap_or(uri)
+/// A link a sign-in came back on, without its query and fragment: what is
+/// compared with the setups' redirects.
+struct ReturnLink<'a>(&'a str);
+
+impl<'a> ReturnLink<'a> {
+    fn new(url: &'a str) -> ReturnLink<'a> {
+        ReturnLink(url.split(['?', '#']).next().unwrap_or(url))
+    }
+
+    fn as_str(&self) -> &'a str {
+        self.0
+    }
+
+    /// Back on `redirect` itself, or on the build's return link to the app,
+    /// `back` (decision 57): either way the exchange names the redirect.
+    fn is_for(&self, redirect: &str, back: Option<&str>) -> bool {
+        let matches = |uri: &str| ReturnLink::new(uri).0 == self.0;
+        matches(redirect) || back.is_some_and(matches)
+    }
 }
 
 /// What a finished sign-in leaves to choose.
@@ -2539,17 +2538,10 @@ enum Finished {
 async fn finish_square(
     side: &Side,
     pending: &PendingSignIn,
-    state: Option<String>,
-    code: Option<String>,
-    error: Option<String>,
+    redirect: &OAuthRedirect,
 ) -> Result<Vec<SquareLocation>, PosError> {
     side.square_auth(pending.application_id.as_deref())
-        .finish(
-            &pending.pkce,
-            state.as_deref(),
-            code.as_deref(),
-            error.as_deref(),
-        )
+        .finish(&pending.pkce, redirect)
         .await?;
     let build = side.config.square.application_id.clone();
     side.update(|m| {
@@ -2568,20 +2560,11 @@ async fn finish_square(
 async fn finish_clover(
     side: &Side,
     pending: &PendingSignIn,
-    state: Option<String>,
-    code: Option<String>,
-    error: Option<String>,
-    merchant_id: Option<String>,
+    redirect: &OAuthRedirect,
 ) -> Result<TenderState, PosError> {
     let tokens = side
         .clover_auth(pending.application_id.as_deref())
-        .finish(
-            &pending.pkce,
-            merchant_id.as_deref(),
-            code.as_deref(),
-            state.as_deref(),
-            error.as_deref(),
-        )
+        .finish(&pending.pkce, redirect)
         .await?;
     let build = side.config.clover.application_id.clone();
     side.update(|m| {

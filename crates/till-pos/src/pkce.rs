@@ -6,6 +6,8 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use sha2::{Digest, Sha256};
 use till_types::Secret;
 
+use crate::OAuthState;
+
 /// One sign-in attempt's PKCE verifier and state. The app keeps it while
 /// the cashier signs in, and hands it back with the redirect.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -13,7 +15,7 @@ pub struct Pkce {
     /// The `code_verifier`, sent only with the code it was made for.
     pub verifier: Secret,
     /// The `state`, which the redirect must echo.
-    pub state: String,
+    pub state: OAuthState,
 }
 
 impl Pkce {
@@ -27,7 +29,7 @@ impl Pkce {
     pub fn create() -> Pkce {
         Pkce {
             verifier: Secret::new(random_string::<64>()),
-            state: random_string::<32>(),
+            state: OAuthState(random_string::<32>()),
         }
     }
 
@@ -52,12 +54,12 @@ mod tests {
         let (a, b) = (Pkce::create(), Pkce::create());
         assert_ne!(a, b);
         assert_eq!(a.verifier.expose_str().len(), 86);
-        assert_eq!(a.state.len(), 43);
+        assert_eq!(a.state.as_str().len(), 43);
         let safe = |s: &str| {
             s.bytes()
                 .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
         };
-        assert!(safe(a.verifier.expose_str()) && safe(&a.state) && safe(&a.challenge()));
+        assert!(safe(a.verifier.expose_str()) && safe(a.state.as_str()) && safe(&a.challenge()));
         assert!(!format!("{a:?}").contains(a.verifier.expose_str()));
     }
 }
