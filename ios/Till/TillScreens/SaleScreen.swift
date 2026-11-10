@@ -2,14 +2,23 @@ import SwiftUI
 import TillCore
 import UIKit
 
-/// A live sale (D1's detail, D2), drawn from the engine's `SaleView`: whom
-/// it's for and its line as the toolbar's title, Close in the toolbar, the
-/// amount and the XMR, the code on its white card, the payment's progress
-/// bar and its label, what was bought, and at the foot Customer view (the
-/// full-screen code, to turn towards the customer) and Share, which shares
-/// the `monero:` payment link (decision 17), and a cash sale's Paid in cash
-/// (decision 7). The customer's name is the title, 28 pt on iPad
-/// (decision 10).
+/// A live sale (D1's detail, D2), drawn from the engine's `SaleView`.
+///
+/// Regular width (D1, the DesignPad board): a header row under the
+/// system's bar with whom it's for (28 pt, decision 10), its line, and
+/// Close the sale as a tinted capsule at the end; then, centred in what's
+/// left, the amount, the XMR, the code on its white card and the payment's
+/// progress, with what was bought beside them where both fit and under
+/// them where they don't; at the foot, Customer view (the full-screen
+/// code, to turn towards the customer) and Share, which shares the
+/// `monero:` payment link (decision 17), and a cash sale's Paid in cash
+/// (decision 7).
+///
+/// Compact width (D2, a narrow iPad window): the title and Close in the
+/// system's bar, one column, the buttons stacked.
+///
+/// Nothing is sized for a device: the column, the code and the buttons
+/// follow the space the window gives them (decisions 27–31).
 struct SaleScreen: View {
     let orderId: String
     let view: SaleView
@@ -20,54 +29,48 @@ struct SaleScreen: View {
     private var regular: Bool { sizeClass == .regular }
 
     var body: some View {
-        ScrollView {
-            Group {
-                if regular, let order = view.order {
-                    HStack(alignment: .center, spacing: 40) {
-                        codeColumn
-                        VStack(alignment: .leading, spacing: 10) {
-                            SectionCaption(text: view.orderTitle)
-                            OrderCardSection(card: order) { send(.showOrder(orderId: orderId)) }
-                                .padding(.horizontal, -16)
-                        }
-                        .frame(width: 260)
-                    }
-                    .frame(maxWidth: .infinity)
-                } else {
-                    VStack(spacing: 16) {
-                        codeColumn
-                        if let order = view.order {
-                            OrderCardSection(card: order) { send(.showOrder(orderId: orderId)) }
-                        }
-                    }
-                }
+        // Inside the safe area, and inside the header and the buttons, so
+        // the column centres in what's left and scrolls only when it must.
+        GeometryReader { box in
+            ScrollView {
+                content(width: box.size.width)
+                    .padding(.horizontal, regular ? SaleLayout.margin : 0)
+                    .padding(.vertical, 16)
+                    .frame(maxWidth: .infinity, minHeight: box.size.height)
             }
-            .padding(.vertical, 16)
+            .scrollBounceBehavior(.basedOnSize)
         }
-        .readableWidth(regular ? 760 : readableColumn)
-        .safeAreaInset(edge: .bottom) {
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if regular {
+                header
+                    .padding(.horizontal, SaleLayout.margin)
+                    .padding(.top, 4)
+                    .padding(.bottom, 8)
+                    .background(Palette.ground)
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             actions
                 .padding(.horizontal, 20)
-                .padding(.top, 8)
-                .padding(.bottom, 8)
+                .padding(.top, 12)
+                .padding(.bottom, regular ? 24 : 16)
                 .background(Palette.ground)
         }
         .foregroundStyle(Palette.ink)
         .background(Palette.ground)
         .navigationTitle(view.title)
         .navigationSubtitle(view.titleLine)
-        .toolbarTitleDisplayMode(regular ? .inlineLarge : .inline)
+        .toolbarTitleDisplayMode(.inline)
+        // On iPad the header row carries the title; the bar keeps only
+        // what the system puts there (the sidebar button).
+        .toolbar(removing: regular ? .title : nil)
         .toolbar {
-            if view.closes {
+            if view.closes && !regular {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(role: .destructive) {
                         send(.askClose(orderId: orderId))
                     } label: {
-                        if regular {
-                            Text(view.closeLabel)
-                        } else {
-                            Label(view.closeLabel, systemImage: "xmark")
-                        }
+                        Label(view.closeLabel, systemImage: "xmark")
                     }
                     .tint(Palette.danger)
                 }
@@ -75,10 +78,86 @@ struct SaleScreen: View {
         }
     }
 
-    /// The amount, the code and the progress, as one column.
-    private var codeColumn: some View {
-        let side: CGFloat = regular ? 300 : 240
-        return VStack(spacing: 8) {
+    /// D1's header: the name and its line, one line each, and Close the
+    /// sale, the system's bordered capsule in the danger tint.
+    private var header: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(view.title)
+                    .font(.title.weight(.bold))
+                    .lineLimit(1)
+                    .accessibilityAddTraits(.isHeader)
+                Text(view.titleLine)
+                    .font(.footnote)
+                    .foregroundStyle(Palette.secondary)
+                    .monospacedDigit()
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if view.closes {
+                Button(role: .destructive) {
+                    send(.askClose(orderId: orderId))
+                } label: {
+                    Text(view.closeLabel)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .controlSize(.large)
+                .tint(Palette.danger)
+                .fixedSize()
+            }
+        }
+        .frame(minHeight: minimumTarget)
+    }
+
+    /// The code column, and the order beside it where both fit, else under
+    /// it; on a phone-width window, one column.
+    @ViewBuilder
+    private func content(width: CGFloat) -> some View {
+        let side = SaleLayout.codeSide(width: width, regular: regular)
+        if regular {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: SaleLayout.gap) {
+                    codeColumn(side: side)
+                    if let order = view.order {
+                        orderColumn(order)
+                            .frame(minWidth: 220, idealWidth: 260, maxWidth: 300)
+                    }
+                }
+                VStack(spacing: 24) {
+                    codeColumn(side: side)
+                    if let order = view.order {
+                        orderColumn(order)
+                            .frame(maxWidth: side + 28)
+                    }
+                }
+            }
+        } else {
+            VStack(spacing: 16) {
+                codeColumn(side: side)
+                if let order = view.order {
+                    OrderCardSection(card: order) { send(.showOrder(orderId: orderId)) }
+                }
+            }
+            .frame(maxWidth: readableColumn)
+        }
+    }
+
+    /// "ORDER" over the receipt's card.
+    private func orderColumn(_ order: OrderCard) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionCaption(text: view.orderTitle)
+            OrderCardSection(card: order) { send(.showOrder(orderId: orderId)) }
+                .padding(.horizontal, -16)
+        }
+    }
+
+    /// The amount, the code and the progress, as one column as wide as
+    /// the code's card.
+    private func codeColumn(side: CGFloat) -> some View {
+        VStack(spacing: 8) {
             Text(view.amount)
                 .display(44, tracking: -1)
                 .minimumScaleFactor(0.5)
@@ -92,10 +171,9 @@ struct SaleScreen: View {
             }
             .padding(.top, 4)
             progress
-                .frame(width: side + 28)
-                .padding(.top, 6)
+                .padding(.top, 10)
         }
-        .frame(maxWidth: .infinity)
+        .frame(width: side + 28)
     }
 
     /// The payment's bar and words: the engine's thirds where it gives
@@ -105,7 +183,8 @@ struct SaleScreen: View {
         if let progress = view.progress {
             PaymentProgress(
                 step: Int(view.step),
-                status: progress.line,
+                status: progress.label.isEmpty ? progress.line : progress.label,
+                count: EngineProgress.count(label: progress.label, count: progress.count, line: progress.line),
                 hint: view.hint,
                 fraction: EngineProgress.fraction(value: progress.value, total: progress.total),
                 said: progress.said
@@ -119,40 +198,78 @@ struct SaleScreen: View {
     /// Paid in cash.
     private var actions: some View {
         VStack(spacing: 6) {
-            mainActions
+            if regular {
+                // Side by side at their own widths where they fit (the
+                // board's row), else stacked in a column.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        customerView.fixedSize(horizontal: true, vertical: false)
+                        share.fixedSize(horizontal: true, vertical: false)
+                    }
+                    VStack(spacing: 10) {
+                        customerView
+                        share
+                    }
+                    .frame(maxWidth: SaleLayout.stackedButtons)
+                }
+                .frame(maxWidth: .infinity)
+            } else {
+                VStack(spacing: 10) {
+                    customerView
+                    share
+                }
+            }
             ForEach(Array(view.cash.enumerated()), id: \.offset) { _, button in
                 LinkPress(press: button.press) { send(CashButtons.action(button.action, orderId: orderId)) }
-                    .frame(maxWidth: regular ? 452 : .infinity)
+                    .frame(maxWidth: regular ? SaleLayout.stackedButtons : .infinity)
             }
         }
     }
 
-    @ViewBuilder
-    private var mainActions: some View {
-        let layout = regular
-            ? AnyLayout(HStackLayout(spacing: 12))
-            : AnyLayout(VStackLayout(spacing: 10))
-        layout {
-            Button {
-                send(.enlarge(orderId: orderId))
-            } label: {
-                Label(view.customerView, systemImage: "arrow.2.circlepath")
-            }
-            .buttonStyle(.primary)
-            .frame(maxWidth: regular ? 260 : .infinity)
-            .accessibilityHint("Shows the code full screen, to turn towards the customer")
-            ShareLink(
-                item: SaleShare.uri(code: view.code, address: view.address),
-                subject: Text(view.amount),
-                preview: SharePreview(view.shareTitle)
-            ) {
-                Label(view.share, systemImage: "square.and.arrow.up")
-            }
-            .buttonStyle(.secondary)
-            .frame(maxWidth: regular ? 180 : .infinity)
-            .disabled(!view.copyAddress.enabled)
+    private var customerView: some View {
+        Button {
+            send(.enlarge(orderId: orderId))
+        } label: {
+            Label(view.customerView, systemImage: "arrow.2.circlepath")
+                .lineLimit(1)
+                .frame(minWidth: regular ? 180 : nil)
         }
-        .frame(maxWidth: .infinity)
+        .buttonStyle(.primary)
+        .accessibilityHint("Shows the code full screen, to turn towards the customer")
+    }
+
+    private var share: some View {
+        ShareLink(
+            item: SaleShare.uri(code: view.code, address: view.address),
+            subject: Text(view.amount),
+            preview: SharePreview(view.shareTitle)
+        ) {
+            Label(view.share, systemImage: "square.and.arrow.up")
+                .lineLimit(1)
+                .frame(minWidth: regular ? 100 : nil)
+        }
+        .buttonStyle(.secondary)
+        .disabled(!view.copyAddress.enabled)
+    }
+}
+
+/// The live sale's measures on iPad (the DesignPad board), and how the
+/// code shrinks to the window rather than overflowing it.
+enum SaleLayout {
+    /// The page's side margin on iPad.
+    static let margin: CGFloat = 28
+    /// Between the code's column and the order's.
+    static let gap: CGFloat = 40
+    /// The widest the buttons grow once stacked.
+    static let stackedButtons: CGFloat = 360
+
+    /// The code's side: the board's 300 pt on iPad and 240 pt on a phone,
+    /// smaller where the window is narrower than the code's card (its 14 pt
+    /// padding each side) and the page's margins, never under 160 pt.
+    static func codeSide(width: CGFloat, regular: Bool) -> CGFloat {
+        let largest: CGFloat = regular ? 300 : 240
+        let margins: CGFloat = regular ? margin * 2 : 32
+        return max(160, min(largest, width - margins - 28))
     }
 }
 

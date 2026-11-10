@@ -35,6 +35,9 @@ struct ShiftScreen: View {
                 }
             }
             .background(Palette.ground)
+            // The column itself is the paper too, not the system's grey
+            // sidebar material (decision 31).
+            .containerBackground(Palette.ground, for: .navigation)
     }
 
     @ViewBuilder
@@ -84,6 +87,7 @@ struct ShiftScreen: View {
                         .disabled(!start.enabled)
                 }
             }
+            .listRowBackground(Palette.card)
             if !view.chips.isEmpty {
                 Section {
                     FilterPicker(chips: view.chips) { send(.chooseFilter(filter: $0)) }
@@ -113,6 +117,9 @@ struct ShiftScreen: View {
             }
         }
         .listStyle(.insetGrouped)
+        // The board's tight gaps: the filter sits just under the summary,
+        // with no empty band between them (decision 31).
+        .listSectionSpacing(.compact)
         .scrollContentBackground(.hidden)
         .readableWidth(sidebar ? .greatestFiniteMagnitude : readableColumn)
         .foregroundStyle(Palette.ink)
@@ -123,7 +130,7 @@ struct ShiftScreen: View {
         switch entry {
         case .row(let orderId, let row, _, _, let closes):
             SaleRow(row: row, selected: selected == orderId) { send(.openSale(orderId: orderId)) }
-                .listRowBackground(selected == orderId ? Palette.chip : Palette.card)
+                .listRowBackground(selected == orderId ? Palette.selection : Palette.card)
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                     if closes {
                         Button {

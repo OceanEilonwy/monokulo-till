@@ -45,6 +45,10 @@ enum Palette {
     static let onDangerGround = Color.adaptive(light: 0x6E1A1A, dark: 0xFFD2CE)
     /// A quiet badge's ground, and an unselected filter chip's (Android's `chip`).
     static let chip = Color.adaptive(light: 0xE4DFD5, dark: 0x3A3733)
+    /// The sale open beside the sidebar, its row's fill (the DesignPad
+    /// board's #FBE6D6): a pale wash of the accent, under ink text that
+    /// stays 4.5:1.
+    static let selection = Color.adaptive(light: 0xFBE6D6, dark: 0x3A2414)
     /// A secondary button's outline (the boards' 1.5 pt #8C8577 edge).
     static let outline = Color.adaptive(light: 0x8C8577, dark: 0x77726A)
 
