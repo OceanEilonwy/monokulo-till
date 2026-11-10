@@ -1346,8 +1346,9 @@ scope that changed while the app wasn't running.
 
 The owner's iPad (an older one with a home button) ended Till as the
 cashier left it for Square with the floating window on, but only once the
-app had run a while. No crash log yet; what grew with the run is cut, and
-the run up to the next one is logged.
+app had run a while. What grew with the run is cut, and the run up to a
+crash is logged (200–202). The crash reports that came later (206) show
+the cause was a recursion, not memory.
 
 200. **The app keeps no dump of the engine's updates.** `Core.updates`
      (phase I0's core page, no longer shown) kept `String(describing:)`
@@ -1381,3 +1382,19 @@ the run up to the next one is logged.
      the pool), a background hold that ran out before the core's write
      ended (the line to find beside a 0xdead10cc), many holds open at
      once, and a ledger close that took over a second.
+206. **A frame is never drawn on the stack that enqueued one.** The two
+     crash reports from the owner's iPad (2026-11-10 08:40:59 and
+     08:41:01, EXC_BAD_ACCESS, "Thread stack size exceeded due to
+     excessive recursion") show the main thread inside
+     `enqueueSampleBuffer`: a frame of a new size makes the display layer
+     post its presentation size, AVKit reports the window's new render
+     size to `didTransitionToRenderSize` on that same stack, and the
+     handler drew and enqueued the next frame at once, sized from that
+     render size, and again, with each frame's rounding giving a slightly
+     different size, until the stack ran out. The second report is the
+     relaunch five seconds later, as the window came back. Now a draw
+     asked for during a draw, and every draw after a render-size change,
+     waits for the next turn of the main run loop (`redrawSoon`, once
+     however often it's asked); the frame is marked drawn before it's
+     enqueued; and a render size within 2 pt of the last is taken as the
+     frame's own rounding coming back, not a new window size.

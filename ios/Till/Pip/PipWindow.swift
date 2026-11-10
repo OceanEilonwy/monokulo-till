@@ -51,6 +51,16 @@ final class PipWindow: NSObject {
     /// The window's width in points, as iOS last said.
     private var width: CGFloat?
     private var drawn: PipFrameKey?
+    /// A frame is being drawn and enqueued. Enqueueing can call back into
+    /// this class on the same stack: a frame of a new size makes the layer
+    /// post its presentation size, and AVKit then reports the window's new
+    /// render size (`didTransitionToRenderSize`). A draw from that callback
+    /// waits for the next turn of the main run loop instead, as drawing
+    /// there recursed until the main thread's stack ran out (the two crash
+    /// reports of 2026-11-10, both inside `enqueueSampleBuffer`).
+    private var drawing = false
+    /// A draw is waiting for the next turn of the main run loop.
+    private var redrawQueued = false
     private var ticker: Task<Void, Never>?
     private let timebase: CMTimebase?
 
@@ -181,6 +191,12 @@ final class PipWindow: NSObject {
         let size = picture.shape.size(width: width)
         let key = PipFrameKey(picture: picture, size: size, timeLeft: picture.timeLeft(now: now))
         guard key != drawn else { return }
+        if drawing {
+            redrawSoon()
+            return
+        }
+        drawing = true
+        defer { drawing = false }
         let renderer = layer.sampleBufferRenderer
         if renderer.status == .failed {
             // After going to the back (AVErrorOperationInterrupted, say): a
@@ -199,8 +215,22 @@ final class PipWindow: NSObject {
             PipWindow.frame(PipFrameView(picture: picture, size: size, now: now), size: size, scale: PipWindow.scale, into: pixels, timebase: timebase)
         }
         guard let buffer else { return }
-        renderer.enqueue(buffer)
+        // Marked before enqueueing, so a callback during the enqueue sees
+        // this frame as drawn.
         drawn = key
+        renderer.enqueue(buffer)
+    }
+
+    /// [draw] on the next turn of the main run loop, once however often it's
+    /// asked for before then; never on the stack that asked.
+    private func redrawSoon() {
+        guard !redrawQueued else { return }
+        redrawQueued = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.redrawQueued = false
+            self.draw()
+        }
     }
 
     /// A pixel buffer for a frame of `size` points, from the pool kept for
@@ -355,8 +385,12 @@ extension PipWindow: @preconcurrency AVPictureInPictureSampleBufferPlaybackDeleg
         didTransitionToRenderSize newRenderSize: CMVideoDimensions
     ) {
         // iOS reports pixels; the frames are laid out in points.
-        width = PipShape.width(renderWidth: newRenderSize.width, scale: PipWindow.scale)
-        draw()
+        let new = PipShape.width(renderWidth: newRenderSize.width, scale: PipWindow.scale)
+        // A point or so either way is the frame's own rounding coming back:
+        // drawing again for it would chase the size without end.
+        if let width, abs(new - width) < 2 { return }
+        width = new
+        redrawSoon()
     }
 
     func pictureInPictureController(
