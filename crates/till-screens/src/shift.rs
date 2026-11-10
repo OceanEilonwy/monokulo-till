@@ -173,10 +173,11 @@ pub fn rows(sales: &[TillSale], filter: ShiftFilter) -> Vec<&TillSale> {
 /// The shift's list under its chips (A4): with a live sale under `filter`,
 /// the tray's header, every live sale newest first (only the first
 /// [`FOLD_AFTER`] and the fold row while `folded` and there are more), then
-/// the Earlier header and the rest newest first. With none, [`rows`] as they
-/// always read: no header, no fold, no Earlier. Needs action shows the tray
-/// whole, with no fold, then the sales ended unpaid; Paid has no live sale,
-/// so no header.
+/// the Earlier header and the rest newest first. With none, the Earlier
+/// header still heads [`rows`], so a list of only earlier sales reads as the
+/// same grouped list rather than a bare one (core.md decision 180). Needs
+/// action shows the tray whole, with no fold, then the sales ended unpaid;
+/// Paid has no live sale, so no tray header, only Earlier.
 pub fn sections(sales: &[TillSale], filter: ShiftFilter, folded: bool) -> Vec<ShiftItem<'_>> {
     let live: Vec<&TillSale> = if filter == ShiftFilter::Paid {
         Vec::new()
@@ -194,9 +195,6 @@ pub fn sections(sales: &[TillSale], filter: ShiftFilter, folded: bool) -> Vec<Sh
         .into_iter()
         .filter(|sale| !is_live(sale) && !is_offered(sale))
         .collect();
-    if live.is_empty() && offered.is_empty() {
-        return section(&rest, false);
-    }
     let mut items = Vec::new();
     if !live.is_empty() {
         let folds = filter != ShiftFilter::NeedsAction && live.len() > FOLD_AFTER;
@@ -1754,18 +1752,21 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn with_no_live_sale_the_list_reads_as_it_always_has() {
+    fn with_only_earlier_sales_the_earlier_header_still_shows() {
         let shift = fixture_shift();
         let ended = &shift[1..];
         for filter in ShiftFilter::ALL {
             let items = sections(ended, filter, true);
-            assert!(
-                items
-                    .iter()
-                    .all(|i| matches!(i, ShiftItem::Row { tray: false, .. })),
-                "{filter:?}: no header, fold or Earlier"
-            );
             let rows = rows(ended, filter);
+            if rows.is_empty() {
+                assert!(items.is_empty(), "{filter:?}: no header over nothing");
+                continue;
+            }
+            assert_eq!(
+                items[0],
+                ShiftItem::Earlier,
+                "{filter:?}: the Earlier header heads a list of only earlier sales"
+            );
             let last = rows.len().saturating_sub(1);
             let expected: Vec<ShiftItem> = rows
                 .iter()
@@ -1776,8 +1777,12 @@ pub(crate) mod tests {
                     tray: false,
                 })
                 .collect();
-            assert_eq!(items, expected);
+            assert_eq!(items[1..], expected[..], "{filter:?}");
         }
+        assert_eq!(
+            read(&sections(&busy(0, None), ShiftFilter::All, true)),
+            ["earlier", "paid First", "expired Last"]
+        );
         assert!(sections(&[], ShiftFilter::All, true).is_empty());
     }
 
@@ -1806,10 +1811,10 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn paid_has_no_tray_and_no_headers() {
+    fn paid_has_no_tray_only_earlier() {
         assert_eq!(
             read(&sections(&busy(5, None), ShiftFilter::Paid, true)),
-            ["paid Only"]
+            ["earlier", "paid Only"]
         );
     }
 

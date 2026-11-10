@@ -403,6 +403,9 @@ struct FakeSource {
     refusal: Mutex<Option<String>>,
     /// The refunds the POS lists, when it lists any.
     pos_refunds: Mutex<Option<Vec<ListedRefund>>>,
+    /// The status the POS answers a refund with (Square's "PENDING"), when
+    /// it answers with the refund it made.
+    answers: Mutex<Option<String>>,
     /// Where each listing of refunds began.
     refunds_from: Mutex<Vec<String>>,
     /// How many times an order was read.
@@ -427,6 +430,7 @@ impl FakeSource {
             refunded: Mutex::default(),
             refusal: Mutex::default(),
             pos_refunds: Mutex::default(),
+            answers: Mutex::default(),
             refunds_from: Mutex::default(),
             order_reads: AtomicUsize::new(0),
         })
@@ -486,7 +490,18 @@ impl RefundByTill for FakeSource {
             return Err(PosError::answered(PointOfSale::Square, 503, refusal));
         }
         self.refunded.lock().unwrap().push(sale.id.clone());
-        Ok(None)
+        Ok(self
+            .answers
+            .lock()
+            .unwrap()
+            .clone()
+            .map(|status| ListedRefund {
+                id: "rf_1".into(),
+                payment_id: sale.id.clone(),
+                amount_minor: sale.amount_minor,
+                status,
+                created_at: None,
+            }))
     }
 }
 
@@ -1112,6 +1127,39 @@ async fn an_unpaid_sale_is_refunded_in_the_pos() {
     till.refund("ord_1").await;
     assert_eq!(source.refunded(), ["pay_monero"]);
     assert!(only(&till).refunded());
+}
+
+/// Square answers a refund PENDING and completes it later: the refund this
+/// till asked for and Square accepted refunds the sale there and then, as it
+/// did before the ledger (core.md decision 181). Closed first, as the close
+/// sheet's "No: refund it in Square" does.
+#[tokio::test]
+async fn a_refund_square_answers_pending_refunds_the_sale_at_once() {
+    let f = fixture().await;
+    let source = FakeSource::new(vec![sale()]);
+    *source.answers.lock().unwrap() = Some("PENDING".into());
+    let till = f.till(source.clone());
+    f.enqueue(order());
+    till.check().await;
+    assert!(only(&till).live());
+    till.close("ord_1");
+    till.refund("ord_1").await;
+    assert_eq!(source.refunded(), ["pay_monero"]);
+    let refunded = only(&till);
+    assert!(refunded.refunded(), "{refunded:?}");
+    assert_eq!(refunded.standing(), Standing::Refunded);
+    assert!(refunded.refunded_at.is_some());
+
+    // Square refused it after all: no longer refunded.
+    let failed = FakeSource::new(vec![sale()]);
+    *failed.answers.lock().unwrap() = Some("REJECTED".into());
+    let f = fixture().await;
+    let till = f.till(failed.clone());
+    f.enqueue(order());
+    till.check().await;
+    till.close("ord_1");
+    till.refund("ord_1").await;
+    assert!(!only(&till).refunded(), "a rejected refund isn't one");
 }
 
 fn listed_refund(id: &str, payment: &str, status: &str, at: &str) -> ListedRefund {

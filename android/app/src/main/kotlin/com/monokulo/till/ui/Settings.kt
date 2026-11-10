@@ -155,14 +155,10 @@ fun SettingsScreen(s: SettingsView, a: SettingsActions) = Page(
         Footnote(c.showOthersFootnote)
     }
     s.cash?.let { c ->
-        SectionLabel("Cash in Square")
-        Group(
-            rows = listOf<@Composable () -> Unit>(
-                { ChoiceRow(c.asMonero.label, c.asMonero.selected, { a.send(Action.SetCashAsMonero(true)) }, c.asMonero.detail) },
-                { ChoiceRow(c.offer.label, c.offer.selected, { a.send(Action.SetCashAsMonero(false)) }, c.offer.detail) },
-            ),
-        )
-        c.footnotes.forEach { Footnote(it) }
+        // One switch, on by default (docs/decisions/core.md 182).
+        SectionLabel(c.title)
+        Group(rows = listOf({ SwitchRow(c.label, c.on, { a.send(Action.SetCashAsMonero(it)) }) }))
+        Footnote(c.footnote)
     }
 
     s.shift?.let { shift ->

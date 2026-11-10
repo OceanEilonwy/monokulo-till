@@ -869,8 +869,13 @@ struct ShowSalesPage: View {
     var body: some View {
         StepPage(back: { send(.back) }) {
             PageTop(heading: view.heading, lead: view.lead)
-            ChoiceCard(choices: view.choices.map(\.choice)) { index in
-                send(.chooseShowSales(mode: view.choices[index].mode))
+            Card {
+                ForEach(Array(view.choices.enumerated()), id: \.offset) { index, choice in
+                    if index > 0 {
+                        Hairline()
+                    }
+                    ShowSalesRow(choice: choice, padded: true) { send(.chooseShowSales(mode: choice.mode)) }
+                }
             }
             .padding(.top, 20)
             if let how = view.sideBySide {
@@ -899,6 +904,93 @@ struct ShowSalesPage: View {
             LinkPress(press: view.testAlert) {
                 let sample = view.sample
                 Task { await SaleAlerts.post(sample) }
+            }
+        }
+    }
+}
+
+/// One way a new sale can show up, led by its picture (OnbShow's
+/// skeletons), ticked when chosen: the same row in O4 and in Settings
+/// (core.md decision 182). `padded` on O4's card, where no list pads it.
+struct ShowSalesRow: View {
+    let choice: ShowSalesChoice
+    var padded = false
+    let action: @MainActor () -> Void
+
+    var body: some View {
+        Button {
+            action()
+        } label: {
+            HStack(spacing: 14) {
+                ShowSalesPicture(mode: choice.mode)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(choice.choice.label)
+                        .foregroundStyle(Palette.ink)
+                    if let detail = choice.choice.detail {
+                        Text(detail)
+                            .font(.subheadline)
+                            .foregroundStyle(Palette.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: 8)
+                if choice.choice.selected {
+                    Image(systemName: "checkmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Palette.link)
+                        .accessibilityHidden(true)
+                }
+            }
+            .padding(.horizontal, padded ? 16 : 0)
+            .padding(.vertical, padded ? 12 : 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!choice.choice.enabled)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(choice.choice.selected ? .isSelected : [])
+    }
+}
+
+/// OnbShow's skeleton of a way a sale shows up, on a 56-point tile: an
+/// alert's pill, a floating window in the corner of the point of sale, or
+/// the two side by side. A picture only; the row says it in words.
+struct ShowSalesPicture: View {
+    let mode: ShowSales
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(Palette.ground)
+            .frame(width: 56, height: 56)
+            .overlay { skeleton }
+            .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private var skeleton: some View {
+        switch mode {
+        case .alert:
+            Capsule()
+                .fill(Palette.ink)
+                .frame(width: 36, height: 14)
+        case .floatingWindow:
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Palette.border)
+                .frame(width: 40, height: 30)
+                .overlay(alignment: .bottomTrailing) {
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Palette.ink)
+                        .frame(width: 14, height: 14)
+                        .padding(3)
+                }
+        case .sideBySide:
+            HStack(spacing: 3) {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Palette.border)
+                    .frame(width: 24, height: 30)
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Palette.ink)
+                    .frame(width: 12, height: 30)
             }
         }
     }

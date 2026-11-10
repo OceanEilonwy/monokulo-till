@@ -3,14 +3,23 @@ import TillCore
 import UIKit
 
 /// Settings (D4; a sheet over the till with Done), drawn from the engine's
-/// `SettingsView` as an inset grouped list: the store and its wallet (which
-/// Share hands on), the point of sale, which device's sales alert and
-/// whether other counters' show (C5), cash sales (K4), alerts as a status
-/// row with Open Notification Settings (iOS decides; never a switch that
-/// snaps back), how a new sale shows up (iPad), Wake-ups (its own page,
-/// pushed here, as `Screen` has none), the Dynamic Island on iPhone, the
-/// debug builds' stand-ins, and Disconnect. Section titles and
-/// Disconnect's words are the engine's too (core.md decision 130).
+/// `SettingsView` as an inset grouped list, in the order core.md decision
+/// 182 sets: what the cashier changes most first, the setup under it, the
+/// store, and Disconnect last.
+///
+/// 1. Watch for sales, a switch with no header.
+/// 2. Notifications: iOS's status row and Open Notification Settings (iOS
+///    decides; never a switch that snaps back).
+/// 3. How sales show up (iPad), the rows O4 draws, with their pictures; or
+///    the Dynamic Island (iPhone).
+/// 4. Point of sale, then Alert for and Other counters (C5), then Cash in
+///    Square (K4), one switch.
+/// 5. Wake-ups, a row to its own page (`Screen` has none).
+/// 6. Store, its wallet (which Share hands on) and this device.
+/// 7. The debug builds' stand-ins, then Disconnect.
+///
+/// Section titles and Disconnect's words are the engine's too (core.md
+/// decision 130).
 struct SettingsScreen: View {
     let view: SettingsView
     let wakeUps: WakeUpsView?
@@ -22,8 +31,15 @@ struct SettingsScreen: View {
     var body: some View {
         NavigationStack {
             List {
-                if let store = view.store {
-                    StoreSettings(store: store, title: view.storeTitle, send: send)
+                if let shift = view.shift {
+                    ShiftSettings(section: shift, send: send)
+                }
+                alertsSection
+                if let showSales = view.showSales {
+                    ShowSalesSettings(section: showSales, send: send)
+                }
+                if let island = view.island {
+                    IslandSettings(island: island, send: send)
                 }
                 PosSettings(section: view.pointOfSale, title: view.posTitle, send: send)
                 if let counters = view.counters {
@@ -32,16 +48,9 @@ struct SettingsScreen: View {
                 if let cash = view.cash {
                     CashSettings(section: cash, send: send)
                 }
-                if let shift = view.shift {
-                    ShiftSettings(section: shift, send: send)
-                }
-                alertsSection
-                if let showSales = view.showSales {
-                    ShowSalesSettings(section: showSales, send: send)
-                }
                 wakeUpsSection
-                if let island = view.island {
-                    IslandSettings(island: island, send: send)
+                if let store = view.store {
+                    StoreSettings(store: store, title: view.storeTitle, send: send)
                 }
                 if !view.standIns.isEmpty {
                     Section(view.developerTitle) {
@@ -77,8 +86,8 @@ struct SettingsScreen: View {
         .tint(Palette.link)
     }
 
-    /// Alerts as iOS allows them: the engine's status row, which it gives
-    /// on iOS (`alertsStatus`).
+    /// Notifications as iOS allows them, in a section of their own: the
+    /// engine's status row, which it gives on iOS (`alertsStatus`).
     @ViewBuilder
     private var alertsSection: some View {
         if let status = view.alertsStatus {
@@ -99,11 +108,14 @@ struct SettingsScreen: View {
     private var wakeUpsSection: some View {
         switch view.wakeUps {
         case .row(let row):
-            Section(view.wakeUpsTitle) {
+            // The row names itself ("Wake-ups · Monokulo Bell"), as a
+            // Settings row that opens a page does; no header to repeat it.
+            Section {
                 NavigationLink {
                     WakeUpsScreen(view: wakeUps, title: view.wakeUpsTitle, send: send)
                 } label: {
                     LabeledContent(row.label, value: row.value)
+                        .lineLimit(1)
                 }
             }
         case .inline(let inline):
@@ -175,20 +187,20 @@ struct CountersSettings: View {
     }
 }
 
-/// Settings › Cash in Square (CashSettings, K4): cash sales treated as
-/// Monero, or only offered.
+/// Settings › Cash in Square (CashSettings, K4): one switch, on by
+/// default, cash sales treated as Monero; the footer says what it does as
+/// it stands (core.md decision 182).
 struct CashSettings: View {
     let section: CashSection
     let send: Send
 
     var body: some View {
         Section {
-            ChoiceRow(choice: section.asMonero) { send(.setCashAsMonero(on: true)) }
-            ChoiceRow(choice: section.offer) { send(.setCashAsMonero(on: false)) }
+            SwitchRow(label: section.label, on: section.on) { send(.setCashAsMonero(on: $0)) }
         } header: {
             Text(section.title)
         } footer: {
-            Text(section.footnotes.joined(separator: "\n\n"))
+            Text(section.footnote)
         }
     }
 }
@@ -211,7 +223,8 @@ struct ShiftSettings: View {
 }
 
 /// Settings › How sales show up, on iPad: an alert, a floating window, or
-/// side by side, with how to arrange side by side while it's chosen.
+/// side by side, each led by O4's picture (``ShowSalesRow``), with how to
+/// arrange side by side while it's chosen.
 struct ShowSalesSettings: View {
     let section: ShowSalesSection
     let send: Send
@@ -219,7 +232,7 @@ struct ShowSalesSettings: View {
     var body: some View {
         Section {
             ForEach(Array(section.choices.enumerated()), id: \.offset) { _, choice in
-                ChoiceRow(choice: choice.choice) { send(.chooseShowSales(mode: choice.mode)) }
+                ShowSalesRow(choice: choice) { send(.chooseShowSales(mode: choice.mode)) }
             }
         } header: {
             Text(section.title)
