@@ -215,7 +215,10 @@ async fn only_completed_monero_tenders_are_sales_and_handled_ones_arent_given_ag
         "on one line, trimmed"
     );
     assert!(!sale.cash);
-    assert_eq!(sale.updated_at.as_deref(), Some("2026-10-22T16:07:01.004Z"));
+    assert_eq!(
+        sale.updated_at.as_ref().map(|t| t.as_str()),
+        Some("2026-10-22T16:07:01.004Z")
+    );
     assert_eq!(sale.status.as_ref().map(|s| s.as_str()), Some("COMPLETED"));
     let cash = &sales[1];
     assert!(cash.cash);
@@ -257,7 +260,7 @@ async fn only_completed_monero_tenders_are_sales_and_handled_ones_arent_given_ag
     assert_eq!(
         again
             .iter()
-            .map(|s| (s.id.as_str(), s.updated_at.as_deref()))
+            .map(|s| (s.id.as_str(), s.updated_at.as_ref().map(|t| t.as_str())))
             .collect::<Vec<_>>(),
         [("pay_monero", Some("2026-10-22T16:12:30.250Z"))]
     );
@@ -279,7 +282,7 @@ async fn the_locations_refunds_are_listed_page_by_page() {
             "payment_id":"pay_cash","created_at":"2026-10-22T16:09:00Z"}]}"#,
     ));
     let listed = source
-        .refunds_since("2026-10-22T16:00:00Z")
+        .refunds_since(&"2026-10-22T16:00:00Z".parse().unwrap())
         .await
         .unwrap()
         .expect("Square lists refunds");
@@ -291,14 +294,14 @@ async fn the_locations_refunds_are_listed_page_by_page() {
                 payment_id: "pay_monero".into(),
                 amount_minor: 1388,
                 status: "COMPLETED".into(),
-                created_at: Some("2026-10-22T16:08:00Z".into()),
+                created_at: Some("2026-10-22T16:08:00Z".parse().unwrap()),
             },
             ListedRefund {
                 id: "rf_2".into(),
                 payment_id: "pay_cash".into(),
                 amount_minor: 2450,
                 status: "PENDING".into(),
-                created_at: Some("2026-10-22T16:09:00Z".into()),
+                created_at: Some("2026-10-22T16:09:00Z".parse().unwrap()),
             },
         ]
     );
@@ -504,7 +507,7 @@ async fn a_refund_is_the_whole_sale_once() {
             amount: till_types::Money::new(1388, "USD".parse().unwrap()),
             reference: Some("bP9m".into()),
             order_id: Some("ord_sq_1".into()),
-            created_at: "2026-10-22T16:07:00Z".into(),
+            created_at: "2026-10-22T16:07:00Z".parse().unwrap(),
             updated_at: None,
             status: None,
             device_id: None,
@@ -618,7 +621,7 @@ async fn a_cursor_that_cant_be_read_is_an_error_and_never_saved_over() {
         amount: till_types::Money::new(1388, "USD".parse().unwrap()),
         reference: None,
         order_id: None,
-        created_at: "2026-10-22T16:07:00Z".into(),
+        created_at: "2026-10-22T16:07:00Z".parse().unwrap(),
         updated_at: None,
         status: None,
         device_id: None,

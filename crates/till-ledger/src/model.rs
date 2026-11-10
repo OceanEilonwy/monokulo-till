@@ -651,7 +651,7 @@ impl SharedSale {
     /// When it was rung up, Unix ms, from the POS's payment.
     pub fn rung_at(&self) -> Option<i64> {
         let p = self.pos.payment.as_ref()?;
-        till_pos::time::unix_seconds(&p.created_at).map(|s| s * 1000)
+        Some(p.created_at.as_second() * 1000)
     }
 
     /// Ended: paid, refunded, or ended unpaid with `is_final` (what may be

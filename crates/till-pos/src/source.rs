@@ -6,6 +6,7 @@ use monokulo_client::PointOfSale;
 use serde::{Deserialize, Serialize};
 use till_types::Money;
 
+use crate::time::Rfc3339Instant;
 use crate::{PosError, StoreError};
 
 /// A point of sale the till watches for Monero sales (docs/design.md §1,
@@ -30,13 +31,13 @@ pub trait SaleSource: Send + Sync {
     /// How a sale never paid in Monero is refunded at this point of sale.
     fn refunds(&self) -> Refunds<'_>;
 
-    /// The refunds made at the point of sale at or after `begin_time` (RFC
-    /// 3339), oldest first, whoever made them: the till, or the point of
-    /// sale's own app. `None` from a point of sale whose API lists none
-    /// (Clover), which is the default.
+    /// The refunds made at the point of sale at or after `begin_time`,
+    /// oldest first, whoever made them: the till, or the point of sale's
+    /// own app. `None` from a point of sale whose API lists none (Clover),
+    /// which is the default.
     async fn refunds_since(
         &self,
-        _begin_time: &str,
+        _begin_time: &Rfc3339Instant,
     ) -> Result<Option<Vec<ListedRefund>>, PosError> {
         Ok(None)
     }
@@ -115,8 +116,8 @@ pub struct ListedRefund {
     pub amount_minor: i64,
     /// As the point of sale wrote it (Square's `COMPLETED`).
     pub status: RefundStatus,
-    /// RFC 3339, when the point of sale says.
-    pub created_at: Option<String>,
+    /// When the point of sale says.
+    pub created_at: Option<Rfc3339Instant>,
 }
 
 /// A point of sale the cashier refunds in, which the till asks.
@@ -145,12 +146,11 @@ pub struct FoundSale {
     /// The point of sale's order, for the receipt.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub order_id: Option<String>,
-    /// RFC 3339.
-    pub created_at: String,
-    /// When the point of sale last changed the payment, RFC 3339, when it
-    /// says (Square's `updated_at`; Clover's listing gives none).
+    pub created_at: Rfc3339Instant,
+    /// When the point of sale last changed the payment, when it says
+    /// (Square's `updated_at`; Clover's listing gives none).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub updated_at: Option<String>,
+    pub updated_at: Option<Rfc3339Instant>,
     /// The point of sale's status for the payment (Square's `COMPLETED`),
     /// when it says.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -222,13 +222,76 @@ mod kotlin_name {
 /// that took it for one would start the cursor afresh over the kept one,
 /// and forget the payments already handled.
 pub trait CursorStore: Send + Sync {
-    /// RFC 3339: payments from here on are looked at. `None` before the
-    /// first look.
-    fn since(&self) -> Result<Option<String>, StoreError>;
-    /// The payment ids already handled, oldest first, each once.
-    fn handled(&self) -> Result<Vec<String>, StoreError>;
-    /// Keeps the cursor and the handled ids in place of what was kept.
-    fn save(&self, since: &str, handled: &[String]);
+    /// Payments from here on are looked at. `None` before the first look;
+    /// a kept cursor that isn't a time is an error.
+    fn since(&self) -> Result<Option<Rfc3339Instant>, StoreError>;
+    /// The payments already handled, oldest first, each once.
+    fn handled(&self) -> Result<Vec<HandledMarker>, StoreError>;
+    /// Keeps the cursor and the handled payments in place of what was kept.
+    fn save(&self, since: &Rfc3339Instant, handled: &[HandledMarker]);
+}
+
+/// A payment the till handled, as a [`CursorStore`] remembers it: its id,
+/// and the time the point of sale last changed it when it gave one, so a
+/// payment changed since is given again. Kept as the text `id`, or
+/// `id@updated_at` (decision 154), which [`Display`](std::fmt::Display)
+/// writes and [`FromStr`](std::str::FromStr) reads back unchanged.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HandledMarker {
+    pub payment: String,
+    pub updated_at: Option<Rfc3339Instant>,
+}
+
+impl HandledMarker {
+    /// What `sale` is remembered as once handled.
+    pub fn of(sale: &FoundSale) -> HandledMarker {
+        HandledMarker {
+            payment: sale.id.clone(),
+            updated_at: sale.updated_at.clone(),
+        }
+    }
+
+    /// Whether this is `payment` as it is now (last changed at
+    /// `updated_at`): a bare id matches it however it changed (remembered
+    /// before markers carried the time, or from a point of sale that gives
+    /// none), one with a time only while it's unchanged.
+    pub fn matches(&self, payment: &str, updated_at: Option<&Rfc3339Instant>) -> bool {
+        self.payment == payment
+            && self
+                .updated_at
+                .as_ref()
+                .is_none_or(|at| Some(at) == updated_at)
+    }
+}
+
+impl std::fmt::Display for HandledMarker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.updated_at {
+            Some(at) => write!(f, "{}@{at}", self.payment),
+            None => f.write_str(&self.payment),
+        }
+    }
+}
+
+impl std::str::FromStr for HandledMarker {
+    type Err = std::convert::Infallible;
+
+    /// Any text is a marker: `id@time` when what follows the last `@` is a
+    /// time, else a bare id.
+    fn from_str(text: &str) -> Result<HandledMarker, Self::Err> {
+        if let Some((payment, at)) = text.rsplit_once('@')
+            && let Ok(at) = at.parse::<Rfc3339Instant>()
+        {
+            return Ok(HandledMarker {
+                payment: payment.to_owned(),
+                updated_at: Some(at),
+            });
+        }
+        Ok(HandledMarker {
+            payment: text.to_owned(),
+            updated_at: None,
+        })
+    }
 }
 
 /// Payments made this long before the cursor are looked at again, in case
@@ -240,52 +303,37 @@ pub(crate) const OVERLAP_SECONDS: i64 = 120;
 #[cfg(any(feature = "square", feature = "clover"))]
 const REMEMBERED: usize = 500;
 
-/// What `sale` is remembered as once handled: its id, with `@` and its
-/// `updated_at` after it when the point of sale gives one, so a payment the
-/// point of sale changes since is given again ([`is_handled`]).
+/// Whether `sale` is among `handled` as it is now
+/// ([`HandledMarker::matches`]).
 #[cfg(any(feature = "square", feature = "clover"))]
-pub(crate) fn handled_marker(sale: &FoundSale) -> String {
-    match &sale.updated_at {
-        Some(updated) => format!("{}@{updated}", sale.id),
-        None => sale.id.clone(),
-    }
+pub(crate) fn is_handled(handled: &[HandledMarker], sale: &FoundSale) -> bool {
+    handled
+        .iter()
+        .any(|marker| marker.matches(&sale.id, sale.updated_at.as_ref()))
 }
 
-/// Whether `sale` is among `handled` as it is now: by its marker, or by its
-/// bare id (remembered before markers carried the update time, or from a
-/// point of sale that gives none).
-#[cfg(any(feature = "square", feature = "clover"))]
-pub(crate) fn is_handled(handled: &[String], sale: &FoundSale) -> bool {
-    handled.contains(&sale.id) || handled.contains(&handled_marker(sale))
-}
-
-/// Marks `sale` handled in `cursor`: its marker ([`handled_marker`]) remembered (the newest
-/// [`REMEMBERED`] kept), and the cursor moved up to the sale, never back.
-/// A cursor whose time can't be parsed is replaced by the sale's time; a
-/// sale whose time can't be read leaves the cursor where it was. A cursor
-/// the store couldn't read is left alone: the sale is found again on the
-/// next look, and its order is the same one (its idempotency key).
+/// Marks `sale` handled in `cursor`: its [`HandledMarker`] remembered (the
+/// newest [`REMEMBERED`] kept), and the cursor moved up to the sale, never
+/// back. A cursor the store couldn't read (or that isn't a time) is left
+/// alone: the sale is found again on the next look, and its order is the
+/// same one (its idempotency key).
 #[cfg(any(feature = "square", feature = "clover"))]
 pub(crate) fn mark_handled(cursor: &dyn CursorStore, sale: &FoundSale) {
     let (Ok(mut handled), Ok(saved)) = (cursor.handled(), cursor.since()) else {
         return;
     };
-    let marker = handled_marker(sale);
+    let marker = HandledMarker::of(sale);
     if !handled.contains(&marker) {
         handled.push(marker);
     }
     let excess = handled.len().saturating_sub(REMEMBERED);
     handled.drain(..excess);
-    let since = match (
-        saved.as_deref().and_then(crate::time::parse),
-        crate::time::parse(&sale.created_at),
-    ) {
-        (Some(saved), Some(at)) => crate::time::format(saved.max(at)),
-        (None, Some(at)) => crate::time::format(at),
-        (Some(saved), None) => crate::time::format(saved),
-        (None, None) => saved.unwrap_or_else(|| sale.created_at.clone()),
+    let since = match saved {
+        Some(saved) if saved >= sale.created_at => saved,
+        _ => sale.created_at.clone(),
     };
-    cursor.save(&since, &handled);
+    // Written as `Instant.toString()` writes it, as the cursor always was.
+    cursor.save(&Rfc3339Instant::from(since.timestamp()), &handled);
 }
 
 #[cfg(test)]
@@ -321,13 +369,28 @@ mod tests {
     }
 
     #[test]
+    fn handled_markers_read_and_write_the_kept_text() {
+        for text in ["pay_1", "pay_1@2026-10-22T16:07:01.004Z", "a@b"] {
+            let marker: HandledMarker = text.parse().unwrap();
+            assert_eq!(marker.to_string(), text);
+        }
+        let marker: HandledMarker = "pay_1@2026-10-22T16:07:01.004Z".parse().unwrap();
+        let at = "2026-10-22T16:07:01.004Z".parse().ok();
+        assert!(marker.matches("pay_1", at.as_ref()));
+        assert!(!marker.matches("pay_1", None), "changed since");
+        let bare: HandledMarker = "pay_1".parse().unwrap();
+        assert!(bare.matches("pay_1", at.as_ref()) && bare.matches("pay_1", None));
+        assert!(!bare.matches("pay_2", None));
+    }
+
+    #[test]
     fn a_cash_sale_keeps_its_device_and_that_it_was_cash() {
         let sale = FoundSale {
             id: "pay_2".into(),
             amount: Money::new(2450, till_types::CurrencyCode::USD),
             reference: None,
             order_id: None,
-            created_at: "2026-11-09T16:07:00Z".into(),
+            created_at: "2026-11-09T16:07:00Z".parse().unwrap(),
             updated_at: None,
             status: None,
             device_id: Some("dev_front".into()),

@@ -75,7 +75,7 @@ pub fn receipt(
                 .clone()
                 .unwrap_or_else(|| take_last(&order.id, 8)),
             issue_timestamp: receipt_timestamp(
-                crate::time::from_millis(order.created_time),
+                crate::time::Rfc3339Instant::from_millisecond(order.created_time).timestamp(),
                 merchant.timezone.as_deref(),
             ),
             receipt_type: ReceiptType::Sale,

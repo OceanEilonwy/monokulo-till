@@ -198,15 +198,14 @@ impl CloverAuth {
             .ok_or_else(|| PosError::sign_in(PointOfSale::Clover, 401, "Sign in to Clover."))
     }
 
-    /// Whether `tokens`' access token has more than five minutes left. One
-    /// whose expiry can't be read is due.
+    /// Whether `tokens`' access token has more than five minutes left.
     fn lasts(&self, tokens: &PosTokens) -> bool {
         let due = crate::time::from_seconds(
             self.clock
                 .now()
                 .saturating_add(Self::REFRESH_BEFORE_SECONDS),
         );
-        crate::time::parse(&tokens.expires_at).is_some_and(|expires| expires > due)
+        tokens.expires_at.timestamp() > due
     }
 
     /// Spends `tokens`' refresh token on a new pair, kept before it's
@@ -251,7 +250,7 @@ impl CloverAuth {
             .unwrap_or_else(|| self.clock.now().saturating_add(Self::LIFETIME_SECONDS));
         PosTokens {
             access_token: answer.access_token,
-            expires_at: crate::time::format(crate::time::from_seconds(expires)),
+            expires_at: crate::time::Rfc3339Instant::from_second(expires),
             refresh_token: answer.refresh_token,
             merchant_id: merchant_id.to_owned(),
         }

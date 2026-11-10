@@ -9,6 +9,7 @@ use serde_json::json;
 use super::{SquareAuth, SquareConfig, answered};
 use crate::http;
 use crate::receipts::one_line;
+use crate::time::Rfc3339Instant;
 use crate::{PaymentStatus, PosError, RefundStatus};
 
 /// An amount in a currency's minor unit, as Square writes it. The
@@ -34,11 +35,10 @@ impl Money {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct SquarePayment {
     pub id: String,
-    pub created_at: String,
-    /// When Square last changed the payment (a refund, a status change):
-    /// RFC 3339.
+    pub created_at: Rfc3339Instant,
+    /// When Square last changed the payment (a refund, a status change).
     #[serde(default)]
-    pub updated_at: Option<String>,
+    pub updated_at: Option<Rfc3339Instant>,
     pub status: PaymentStatus,
     #[serde(default)]
     pub source_type: Option<SourceType>,
@@ -103,6 +103,8 @@ pub struct Device {
 pub struct SquareOrder {
     pub id: String,
     pub location_id: String,
+    /// RFC 3339, kept as text: an order whose time can't be read costs the
+    /// sale only its receipt ([`receipt`](super::receipt)), never its read.
     pub created_at: String,
     #[serde(default)]
     pub line_items: Vec<LineItem>,
@@ -231,11 +233,11 @@ pub struct SquareRefund {
     pub status: RefundStatus,
     pub amount_money: Money,
     pub payment_id: String,
-    /// RFC 3339; absent from some answers.
+    /// Absent from some answers.
     #[serde(default)]
-    pub created_at: Option<String>,
+    pub created_at: Option<Rfc3339Instant>,
     #[serde(default)]
-    pub updated_at: Option<String>,
+    pub updated_at: Option<Rfc3339Instant>,
     #[serde(default)]
     pub location_id: Option<String>,
 }
@@ -287,19 +289,19 @@ impl SquareApi {
         SquareApi { http, config, auth }
     }
 
-    /// Payments at `location_id` made at or after `begin_time` (RFC 3339),
-    /// oldest first: page after page until Square gives no cursor.
+    /// Payments at `location_id` made at or after `begin_time`, oldest
+    /// first: page after page until Square gives no cursor.
     pub async fn payments(
         &self,
         location_id: &str,
-        begin_time: &str,
+        begin_time: &Rfc3339Instant,
     ) -> Result<Vec<SquarePayment>, PosError> {
         let mut all = Vec::new();
         let mut cursor: Option<String> = None;
         loop {
             let mut query = vec![
                 ("location_id", location_id),
-                ("begin_time", begin_time),
+                ("begin_time", begin_time.as_str()),
                 ("sort_order", "ASC"),
                 ("limit", "100"),
             ];
@@ -316,21 +318,21 @@ impl SquareApi {
         }
     }
 
-    /// Refunds at `location_id` made at or after `begin_time` (RFC 3339),
-    /// oldest first, whatever took them (the till, Square's own app, the
+    /// Refunds at `location_id` made at or after `begin_time`, oldest
+    /// first, whatever took them (the till, Square's own app, the
     /// Dashboard): page after page until Square gives no cursor. Reading
     /// them needs only `PAYMENTS_READ`.
     pub async fn refunds(
         &self,
         location_id: &str,
-        begin_time: &str,
+        begin_time: &Rfc3339Instant,
     ) -> Result<Vec<SquareRefund>, PosError> {
         let mut all = Vec::new();
         let mut cursor: Option<String> = None;
         loop {
             let mut query = vec![
                 ("location_id", location_id),
-                ("begin_time", begin_time),
+                ("begin_time", begin_time.as_str()),
                 ("sort_order", "ASC"),
                 ("limit", "100"),
             ];

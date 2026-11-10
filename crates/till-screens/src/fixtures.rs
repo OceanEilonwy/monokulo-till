@@ -59,7 +59,7 @@ pub(crate) fn found(
         amount: till_types::Money::new(amount_minor, currency.parse().unwrap()),
         reference: reference.map(Into::into),
         order_id: Some(order_id.into()),
-        created_at: created_at.into(),
+        created_at: created_at.parse().unwrap(),
         updated_at: None,
         status: None,
         device_id: None,

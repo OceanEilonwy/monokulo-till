@@ -279,7 +279,7 @@ fn found(
         amount: till_types::Money::new(amount_minor, currency.parse().unwrap()),
         reference: Some(reference.into()),
         order_id: Some(order_id.into()),
-        created_at: created_at.into(),
+        created_at: created_at.parse().unwrap(),
         updated_at: None,
         status: None,
         device_id: device_id.map(Into::into),
@@ -470,11 +470,14 @@ impl SaleSource for FakeSource {
     fn refunds(&self) -> Refunds<'_> {
         Refunds::ByTill(self)
     }
-    async fn refunds_since(&self, begin_time: &str) -> Result<Option<Vec<ListedRefund>>, PosError> {
+    async fn refunds_since(
+        &self,
+        begin_time: &till_pos::Rfc3339Instant,
+    ) -> Result<Option<Vec<ListedRefund>>, PosError> {
         self.refunds_from
             .lock()
             .unwrap()
-            .push(begin_time.to_owned());
+            .push(begin_time.to_string());
         Ok(self.pos_refunds.lock().unwrap().clone())
     }
     fn handled(&self, sale: &FoundSale) {
@@ -1167,7 +1170,7 @@ fn listed_refund(id: &str, payment: &str, status: &str, at: &str) -> ListedRefun
         payment_id: payment.into(),
         amount_minor: 1388,
         status: status.into(),
-        created_at: Some(at.into()),
+        created_at: Some(at.parse().unwrap()),
     }
 }
 
@@ -1263,7 +1266,7 @@ async fn a_refund_status_the_till_doesnt_know_never_holds_the_cursor() {
 async fn a_payment_square_changed_has_its_order_read_again() {
     let f = fixture().await;
     let first = FoundSale {
-        updated_at: Some("2026-10-22T16:07:01.004Z".into()),
+        updated_at: Some("2026-10-22T16:07:01.004Z".parse().unwrap()),
         status: Some("COMPLETED".into()),
         ..sale()
     };
@@ -1283,7 +1286,7 @@ async fn a_payment_square_changed_has_its_order_read_again() {
     // Square changed it: the order is read again and replaces the first read.
     let changed = FakeSource::with(
         vec![FoundSale {
-            updated_at: Some("2026-10-22T16:12:30.250Z".into()),
+            updated_at: Some("2026-10-22T16:12:30.250Z".parse().unwrap()),
             ..first
         }],
         Some(receipt()),

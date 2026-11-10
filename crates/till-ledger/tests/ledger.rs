@@ -70,7 +70,7 @@ fn payment(id: &str, device: &str, tender: Tender, updated_at: i64) -> Fact {
         receipt_number: Some(format!("#{id}")),
         order_ref: Some(format!("sqo_{id}")),
         title: None,
-        created_at: "2026-11-09T17:00:00Z".into(),
+        created_at: "2026-11-09T17:00:00Z".parse().unwrap(),
         updated_at,
     })
 }
@@ -1138,7 +1138,7 @@ fn compaction_keeps_the_projections() {
         let Fact::PosPaymentSeen(mut p) = payment(id, "front", Tender::Monero, 1) else {
             unreachable!()
         };
-        p.created_at = "2026-11-02T17:00:00Z".into();
+        p.created_at = "2026-11-02T17:00:00Z".parse().unwrap();
         Fact::PosPaymentSeen(p)
     };
     for fact in [
@@ -1205,7 +1205,7 @@ fn the_shift_lists_live_sales_always_and_ended_ones_in_its_window() {
         let Fact::PosPaymentSeen(mut p) = payment(id, "front", tender, 1) else {
             unreachable!()
         };
-        p.created_at = when.into();
+        p.created_at = when.parse().unwrap();
         Fact::PosPaymentSeen(p)
     };
     // Yesterday's live sale and paid sale; today's paid cash sale.

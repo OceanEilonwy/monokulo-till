@@ -10,6 +10,7 @@ use super::{
     PaymentState, receipt,
 };
 use crate::source::{OVERLAP_SECONDS, mark_handled};
+use crate::time::Rfc3339Instant;
 use crate::{
     CursorStore, FoundSale, PosError, RefundInPos, Refunds, SaleOrder, SaleSource, StoreError,
 };
@@ -148,14 +149,11 @@ impl CloverSource {
         let since = match self.cursor.since()? {
             Some(since) => since,
             None => {
-                let now = crate::time::format(crate::time::from_seconds(at));
+                let now = Rfc3339Instant::from_second(at);
                 self.cursor.save(&now, &[]);
                 now
             }
         };
-        let since = crate::time::parse(&since).ok_or_else(|| {
-            PosError::Unreadable(format!("The saved Clover cursor {since:?} isn't a time."))
-        })?;
         let from_ms = (since.as_millisecond() - OVERLAP_SECONDS * 1000).max(
             at.saturating_sub(FURTHEST_BACK_SECONDS)
                 .saturating_mul(1000),
@@ -166,7 +164,7 @@ impl CloverSource {
             .payments(merchant, &tender_id, from_ms)
             .await?
             .into_iter()
-            .filter(|p| is_monero(p, &tender_id) && !handled.contains(&p.id))
+            .filter(|p| is_monero(p, &tender_id) && !handled.iter().any(|m| m.matches(&p.id, None)))
             .collect();
         payments.sort_by_key(|p| p.created_time);
         Ok(payments.into_iter().map(|p| self.found_sale(p)).collect())
@@ -183,7 +181,7 @@ impl CloverSource {
             // Clover prints no receipt number on a payment (acceptance D7).
             reference: None,
             order_id,
-            created_at: crate::time::format(crate::time::from_millis(payment.created_time)),
+            created_at: Rfc3339Instant::from_millisecond(payment.created_time),
             updated_at: None,
             status: None,
             device_id: payment.device.map(|d| d.id),

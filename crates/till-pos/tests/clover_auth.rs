@@ -217,7 +217,10 @@ async fn an_echoed_state_must_be_the_attempts_and_a_redirect_needs_its_merchant_
         )
         .await
         .unwrap();
-    assert_eq!(f.tokens.get().unwrap().expires_at, "2026-10-28T09:30:00Z");
+    assert_eq!(
+        f.tokens.get().unwrap().expires_at.as_str(),
+        "2026-10-28T09:30:00Z"
+    );
 }
 
 #[tokio::test]

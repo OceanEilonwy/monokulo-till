@@ -676,7 +676,7 @@ mod tests {
             amount: till_types::Money::new(840, "USD".parse().unwrap()),
             reference: Some("bP9m".into()),
             order_id: Some("o_1".into()),
-            created_at: "2026-10-22T22:50:00Z".into(),
+            created_at: "2026-10-22T22:50:00Z".parse().unwrap(),
             updated_at: None,
             status: None,
             device_id: None,

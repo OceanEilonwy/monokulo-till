@@ -41,8 +41,9 @@ pub use error::PosError;
 pub use monokulo_client::{Clock, PointOfSale};
 pub use pkce::Pkce;
 pub use source::{
-    CursorStore, FoundSale, ListedRefund, PaymentStatus, RefundByTill, RefundInPos, RefundStatus,
-    Refunds, SaleOrder, SaleSource,
+    CursorStore, FoundSale, HandledMarker, ListedRefund, PaymentStatus, RefundByTill, RefundInPos,
+    RefundStatus, Refunds, SaleOrder, SaleSource,
 };
 pub use till_types::{CurrencyCode, Money};
+pub use time::Rfc3339Instant;
 pub use tokens::{NoTokenLock, PosTokens, StoreError, TokenLock, TokenStore};

@@ -48,8 +48,8 @@ pub struct PaymentSeen {
     /// The name the cashier gave the order (Clover's title).
     #[serde(default)]
     pub title: Option<String>,
-    /// RFC 3339, as the POS gave it.
-    pub created_at: String,
+    /// As the POS gave it (journalled as its text).
+    pub created_at: till_pos::Rfc3339Instant,
     /// Unix ms: the later one wins.
     pub updated_at: i64,
 }
@@ -528,7 +528,7 @@ mod tests {
                 receipt_number: Some("bP9m".into()),
                 order_ref: Some("o1".into()),
                 title: None,
-                created_at: "2026-11-09T10:00:00Z".into(),
+                created_at: "2026-11-09T10:00:00Z".parse().unwrap(),
                 updated_at: 1,
             }),
             Fact::PosOrderRead(OrderRead {

@@ -1624,3 +1624,20 @@ once at the edge, with the stored and sent text unchanged.
      the metals, funds and test codes in none. No receipt the till made
      was in those codes; USD, EUR, GBP and every currency a point of sale
      takes encode exactly as before, and the corpus is unchanged.
+173. **A point of sale's instants are an `Rfc3339Instant` that keeps its
+     text.** Square's payment and refund times, a `FoundSale`'s, a listed
+     refund's, a journalled payment's, a sign-in's expiry, the payment
+     cursor and Square's `begin_time` are `till_pos::Rfc3339Instant`: a
+     `jiff::Timestamp` read from RFC 3339 with any offset. It writes back
+     the text it was read from, so a kept sale, a cursor, a handled
+     marker and a journal body (and so its hash) are byte for byte what
+     they were, even for Square's `.000Z`; one made from a time is written
+     as Java's `Instant.toString()` wrote it, which is what Square and the
+     stores were always given. Two compare by instant alone. A response
+     whose time isn't one now fails to read where it used to be carried as
+     text and dealt with later (Square and Clover write only RFC 3339);
+     a Square order's time stays text, so an unreadable one still costs
+     only the receipt. The payment cursor's handled payments are
+     `HandledMarker`s (`id` or `id@updated_at`, the same text), matched
+     the same way at Square and Clover; a kept cursor that isn't a time is
+     the store's error, as reading it was the source's.

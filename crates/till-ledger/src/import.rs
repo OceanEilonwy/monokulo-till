@@ -123,7 +123,7 @@ pub(crate) fn facts_of_shift(json: &str) -> Result<Vec<ImportedSale>, LedgerErro
         let rung = sale
             .found
             .as_ref()
-            .and_then(|f| till_pos::time::unix_seconds(&f.created_at))
+            .map(|f| f.created_at.as_second())
             .or(Some(sale.created_at).filter(|s| *s > 0))
             .map(|s| s * 1000);
         let mut facts: Vec<(Fact, Option<i64>)> = Vec::new();

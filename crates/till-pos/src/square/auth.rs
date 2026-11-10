@@ -175,12 +175,11 @@ impl SquareAuth {
             .ok_or_else(|| PosError::sign_in(PointOfSale::Square, 401, "Sign in to Square."))
     }
 
-    /// Whether `tokens`' access token has more than a day left. One whose
-    /// expiry can't be read is due.
+    /// Whether `tokens`' access token has more than a day left.
     fn lasts(&self, tokens: &PosTokens) -> bool {
         let due =
             crate::time::from_seconds(self.clock.now().saturating_add(REFRESH_BEFORE_SECONDS));
-        crate::time::parse(&tokens.expires_at).is_some_and(|expires| expires > due)
+        tokens.expires_at.timestamp() > due
     }
 
     async fn token(&self, body: serde_json::Value) -> Result<PosTokens, PosError> {

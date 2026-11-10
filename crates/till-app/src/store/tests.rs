@@ -155,10 +155,16 @@ fn every_key_stores_kt_writes_reads_into_the_model() {
     assert_eq!(clover.load().unwrap().unwrap().refresh_token, None);
     let cursor = PosCursor::new(s.clone(), PointOfSale::Square, log.clone());
     assert_eq!(
-        cursor.since().unwrap().as_deref(),
+        cursor.since().unwrap().as_ref().map(|t| t.as_str()),
         Some("2026-10-22T16:07:00.512Z")
     );
-    assert_eq!(cursor.handled().unwrap(), ["pay_1", "pay_2"]);
+    let handled: Vec<String> = cursor
+        .handled()
+        .unwrap()
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert_eq!(handled, ["pay_1", "pay_2"]);
     assert_eq!(
         Tenders::new(s.clone(), log.clone())
             .tender_id("MID1")

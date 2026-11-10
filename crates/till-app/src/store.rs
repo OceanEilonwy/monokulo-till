@@ -26,7 +26,9 @@ use serde::{Deserialize, Serialize};
 use till_bell::{BellAddress, BellRegistration, WakeUpChoice, WakeUpStore};
 use till_pos::clover::{CloverMerchant, TenderStore};
 use till_pos::square::SquareLocation;
-use till_pos::{CursorStore, Pkce, PosTokens, StoreError, TokenStore};
+use till_pos::{
+    CursorStore, HandledMarker, Pkce, PosTokens, Rfc3339Instant, StoreError, TokenStore,
+};
 use till_sales::{TillSale, shift_json};
 
 use crate::{Platform, SecretError};
@@ -849,17 +851,34 @@ impl PosCursor {
     }
 }
 
+/// Kept as text: the cursor as `Instant.toString()` wrote it, the handled
+/// payments as their markers' text.
 impl CursorStore for PosCursor {
-    fn since(&self) -> Result<Option<String>, StoreError> {
-        self.logged("read", self.store.since(self.pos))
+    fn since(&self) -> Result<Option<Rfc3339Instant>, StoreError> {
+        let since = self.logged("read", self.store.since(self.pos))?;
+        since
+            .map(|text| {
+                text.parse().map_err(|_| {
+                    StoreError(format!(
+                        "The saved {} cursor {text:?} isn't a time.",
+                        self.pos.display_name()
+                    ))
+                })
+            })
+            .transpose()
     }
 
-    fn handled(&self) -> Result<Vec<String>, StoreError> {
-        self.logged("read", self.store.handled(self.pos))
+    fn handled(&self) -> Result<Vec<HandledMarker>, StoreError> {
+        let handled = self.logged("read", self.store.handled(self.pos))?;
+        Ok(handled.iter().map(|text| text.parse().unwrap()).collect())
     }
 
-    fn save(&self, since: &str, handled: &[String]) {
-        let _ = self.logged("keep", self.store.save_cursor(self.pos, since, handled));
+    fn save(&self, since: &Rfc3339Instant, handled: &[HandledMarker]) {
+        let handled: Vec<String> = handled.iter().map(ToString::to_string).collect();
+        let _ = self.logged(
+            "keep",
+            self.store.save_cursor(self.pos, since.as_str(), &handled),
+        );
     }
 }
 

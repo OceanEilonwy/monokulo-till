@@ -7,6 +7,7 @@ use monokulo_client::{Clock, PointOfSale};
 
 use super::{Money, SourceType, SquareApi, SquareConfig, SquareLocation, SquarePayment, receipt};
 use crate::source::{OVERLAP_SECONDS, is_handled, mark_handled};
+use crate::time::Rfc3339Instant;
 use crate::{
     CursorStore, FoundSale, ListedRefund, PaymentStatus, PosError, RefundByTill, Refunds,
     SaleOrder, SaleSource,
@@ -79,19 +80,12 @@ impl SaleSource for SquareSource {
         let since = match self.cursor.since()? {
             Some(since) => since,
             None => {
-                let now = crate::time::format(crate::time::from_seconds(self.clock.now()));
+                let now = Rfc3339Instant::from_second(self.clock.now());
                 self.cursor.save(&now, &[]);
                 now
             }
         };
-        let since = crate::time::parse(&since).ok_or_else(|| {
-            PosError::Unreadable(format!("The saved Square cursor {since:?} isn't a time."))
-        })?;
-        let from = crate::time::format(
-            since
-                .checked_sub(jiff::SignedDuration::from_secs(OVERLAP_SECONDS))
-                .unwrap_or(since),
-        );
+        let from = Rfc3339Instant::from(since.timestamp()).earlier_by(OVERLAP_SECONDS);
         let handled = self.cursor.handled()?;
         let payments = self.api.payments(&self.location.id, &from).await?;
         Ok(payments
@@ -103,7 +97,10 @@ impl SaleSource for SquareSource {
     }
 
     /// The location's refunds from `begin_time`, whoever made them.
-    async fn refunds_since(&self, begin_time: &str) -> Result<Option<Vec<ListedRefund>>, PosError> {
+    async fn refunds_since(
+        &self,
+        begin_time: &Rfc3339Instant,
+    ) -> Result<Option<Vec<ListedRefund>>, PosError> {
         let refunds = self.api.refunds(&self.location.id, begin_time).await?;
         Ok(Some(refunds.into_iter().map(listed_refund).collect()))
     }

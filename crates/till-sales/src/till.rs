@@ -18,7 +18,7 @@ use till_ledger::{
     PaymentId, PaymentSeen, Quote, RefundSeen, RefundStatus, SaleKey, ShiftMark, Tender,
     may_make_order,
 };
-use till_pos::{FoundSale, PosError, RefundInPos, Refunds, SaleSource};
+use till_pos::{FoundSale, PosError, RefundInPos, Refunds, Rfc3339Instant, SaleSource};
 use tokio::sync::watch;
 
 use crate::{Books, TillSale, TillState};
@@ -374,12 +374,15 @@ impl Till {
         else {
             return;
         };
-        let kept = cursor.as_deref().and_then(till_pos::time::unix_seconds);
+        let kept = cursor
+            .as_deref()
+            .and_then(|c| c.parse::<Rfc3339Instant>().ok())
+            .map(|c| c.as_second());
         let from = match kept {
             Some(at) => at.saturating_sub(Till::REFUNDS_OVERLAP_SECONDS),
             None => window.from.div_euclid(1000),
         };
-        let begin = till_pos::time::instant(from);
+        let begin = Rfc3339Instant::from_second(from);
         let Ok(Some(refunds)) = self.source.refunds_since(&begin).await else {
             return;
         };
@@ -387,10 +390,7 @@ impl Till {
         let mut newest: Option<i64> = None;
         for refund in &refunds {
             let key = SaleKey::pos(pos, refund.payment_id.as_str());
-            let at = refund
-                .created_at
-                .as_deref()
-                .and_then(till_pos::time::unix_seconds);
+            let at = refund.created_at.as_ref().map(Rfc3339Instant::as_second);
             let status = RefundStatus::of_pos(&refund.status);
             if let Some(at) = at {
                 newest = newest.max(Some(at));
@@ -417,8 +417,10 @@ impl Till {
         if kept != Some(next) {
             // A hint for listing less, never truth: one not kept lists a
             // little more next time.
-            let next = till_pos::time::instant(next);
-            let _ = self.books.with(|ledger| ledger.set_cursor(name, &next));
+            let next = Rfc3339Instant::from_second(next);
+            let _ = self
+                .books
+                .with(|ledger| ledger.set_cursor(name, next.as_str()));
         }
     }
 
@@ -1067,10 +1069,9 @@ fn payment_seen(sale: &FoundSale) -> PaymentSeen {
         created_at: sale.created_at.clone(),
         updated_at: sale
             .updated_at
-            .as_deref()
-            .and_then(till_pos::time::unix_millis)
-            .or_else(|| till_pos::time::unix_millis(&sale.created_at))
-            .unwrap_or(0),
+            .as_ref()
+            .unwrap_or(&sale.created_at)
+            .as_millisecond(),
     }
 }
 

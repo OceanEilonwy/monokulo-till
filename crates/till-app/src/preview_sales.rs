@@ -161,7 +161,7 @@ impl PreviewSale {
                 amount,
                 reference: Some(reference),
                 order_id: Some("o".into()),
-                created_at: "2026-10-22T22:50:00Z".into(),
+                created_at: "2026-10-22T22:50:00Z".parse().unwrap(),
                 updated_at: None,
                 status: None,
                 device_id: None,

@@ -20,8 +20,8 @@ pub struct StoreError(pub String);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PosTokens {
     pub access_token: String,
-    /// RFC 3339. Clover's Unix-seconds expiry is converted to it at sign-in.
-    pub expires_at: String,
+    /// Clover's Unix-seconds expiry is converted to it at sign-in.
+    pub expires_at: crate::time::Rfc3339Instant,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refresh_token: Option<String>,
     /// The merchant the sign-in is for: Square's token answer says it,

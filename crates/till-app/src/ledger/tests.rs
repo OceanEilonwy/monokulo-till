@@ -105,7 +105,7 @@ fn payment(id: &str) -> Fact {
         receipt_number: Some("bP9m".into()),
         order_ref: None,
         title: None,
-        created_at: "2026-10-22T16:07:00Z".into(),
+        created_at: "2026-10-22T16:07:00Z".parse().unwrap(),
         updated_at: 1_761_149_220_000,
     })
 }
