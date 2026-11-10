@@ -1333,7 +1333,9 @@ impl State {
                     notice: notification::overpaid_notice(&sale, &money),
                     paid: false,
                     timeout_ms: notification::notice_timeout(false),
-                    quiet,
+                    // Money is owed: it posts even with Till in front, and
+                    // tapping it opens the sale's page, which says the rest.
+                    quiet: false,
                 }),
                 AlertKind::Ended => {
                     if sale.found.is_some() {

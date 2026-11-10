@@ -199,21 +199,16 @@ struct FoldedOrderRow: View {
     }
 }
 
-/// The Square mark: a rounded square with a square cut from it and a small
-/// one inside. Drawn from Square's own geometry (the Simple Icons set's
-/// path, whose icons are public domain; the logo itself is Square's trademark,
-/// so swap in Square's official asset before release, docs/ipad-redesign.md).
-struct SquareMark: Shape {
-    func path(in rect: CGRect) -> Path {
-        let u = rect.width / 24
-        func rounded(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat, _ r: CGFloat) -> Path {
-            Path(roundedRect: CGRect(x: rect.minX + x * u, y: rect.minY + y * u, width: w * u, height: h * u), cornerRadius: r * u)
-        }
-        var path = Path()
-        path.addPath(rounded(0, 0, 24, 24, 4.01))
-        path.addPath(rounded(4.37, 4.36, 15.26, 15.28, 1.27))
-        path.addPath(rounded(8.72, 8.71, 6.56, 6.56, 0.73))
-        return path
+/// The Square mark, from Square's own logo (`Square_Logo_2025_Black.svg` of
+/// their brand kit, the mark on its own, in the asset catalog as a template
+/// image): the owner supplied the files. Follow Square's usage rules.
+struct SquareMark: View {
+    var body: some View {
+        Image("SquareMark")
+            .renderingMode(.template)
+            .resizable()
+            .scaledToFit()
+            .accessibilityHidden(true)
     }
 }
 
@@ -231,7 +226,6 @@ struct ReturnToSquareButton: View {
         } label: {
             HStack(spacing: 8) {
                 SquareMark()
-                    .fill(Color.black, style: FillStyle(eoFill: true))
                     .frame(width: 18, height: 18)
                 if !compact {
                     Text(label)

@@ -89,14 +89,30 @@ struct SalePageScreen: View {
         }
     }
 
+    /// The Till logo that leads the page, as the designs have it (Q1 to Q5):
+    /// green with its tick when paid, the idle logo for a sale that ended
+    /// unpaid (expired, closed), the paid logo for an overpaid one (it is
+    /// paid, and owes the customer the extra). Other pages keep the small
+    /// status glyph.
+    private var logoState: TillLogoState? {
+        if paid { return logo }
+        switch (page.icon, page.ground) {
+        case (.clock, _): return .idle
+        case (.warning, .warn): return .paid
+        default: return nil
+        }
+    }
+
     @ViewBuilder
     private var hero: some View {
         VStack(spacing: 14) {
-            if paid {
-                TillWidget(state: logo, size: 160)
+            if let state = logoState {
+                TillWidget(state: state, size: sizeClass == .regular ? 160 : 120)
                 Text("\(page.heading) · \(page.amount)")
                     .display(34, tracking: -0.8)
+                    .foregroundStyle(!paid && (page.headingWarn || page.icon == .clock) ? Palette.expiredInk : Palette.ink)
                     .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.6)
                     .accessibilityAddTraits(.isHeader)
             } else {
                 StatusGlyph(kind: StatusGlyphKind.of(page.icon, step: 4), size: 56)
@@ -119,7 +135,7 @@ struct SalePageScreen: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 20)
-        .padding(.top, paid ? 32 : 12)
+        .padding(.top, logoState != nil ? 32 : 12)
     }
 
     /// What a page button asks of the engine.
