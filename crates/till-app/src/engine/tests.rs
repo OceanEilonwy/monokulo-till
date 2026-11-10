@@ -711,6 +711,29 @@ async fn an_upgraded_till_runs_its_shift_makes_orders_and_tells_the_platform() {
     assert_eq!(platform.get("shift.on").as_deref(), Some("false"));
 }
 
+/// Core.md decision 169: "New shift" opens a new window now, whether or not
+/// the shift was just started.
+#[tokio::test(flavor = "multi_thread")]
+async fn new_shift_starts_a_new_window_now() {
+    let monokulo = monokulo().await;
+    let square = square().await;
+    let platform = signed_in_till(&monokulo);
+    platform.set("shift.started", "1000");
+    let (engine, _rx, _) = start(config(Some(&square)), platform.clone());
+    engine.send(Action::NewShift);
+    let mut started = None;
+    for _ in 0..100 {
+        started = platform
+            .get("shift.started")
+            .and_then(|v| v.parse::<i64>().ok());
+        if started.is_some_and(|at| at > 1000) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(started.is_some_and(|at| at > 1000), "{started:?}");
+}
+
 /// The Live Activity's state as the engine publishes it next.
 fn live_activity(rx: &Receiver<Heard>) -> Option<till_screens::LiveActivityState> {
     wait_for(rx, |heard| match heard {

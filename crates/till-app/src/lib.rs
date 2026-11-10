@@ -468,6 +468,10 @@ pub enum Action {
     StartShift,
     /// Watching turned off: every live code comes down.
     StopShift,
+    /// "New shift" in the shift's header: a new window now (docs/ledger.md
+    /// §9), so the total starts again and only the sales that still need
+    /// the cashier, and the live ones, stay listed (core.md decision 169).
+    NewShift,
     /// The shift's filter chip tapped.
     ChooseFilter {
         filter: ShiftFilter,
@@ -702,6 +706,7 @@ impl Action {
             Action::SignOutOfPos => "SignOutOfPos",
             Action::StartShift => "StartShift",
             Action::StopShift => "StopShift",
+            Action::NewShift => "NewShift",
             Action::ChooseFilter { .. } => "ChooseFilter",
             Action::FoldTray { .. } => "FoldTray",
             Action::OpenShift => "OpenShift",

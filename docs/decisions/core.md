@@ -1806,3 +1806,11 @@ still strings across the till, the ledger, the screens and the bridge.
      overpaid on a till whose alerts it is, and always posts a notice (even
      beside a Live Activity): "Overpaid · Priya · $8.40 / Give back the extra.
      Tap to see how."
+169. **A new shift is one action.** (Owner, 2026-11-10.) `Action::NewShift`
+     opens a new window now, as turning watching on after off does
+     (decisions 64, 86; docs/ledger.md §9): the takings and the paid count
+     start again, and only the sales that still need the cashier, and the
+     live ones, stay listed. The shift's header (`ShiftView::header`,
+     `ShiftHeader`) carries "Since 9:02 AM", the takings, the paid count, the
+     New shift button and its confirmation ("Start a new shift?"), while a
+     shift is on.

@@ -793,6 +793,11 @@ impl State {
                 }
             }
             Action::StopShift => self.set_shift(false),
+            Action::NewShift => {
+                if self.setup_done() {
+                    self.new_shift_window();
+                }
+            }
             Action::ChooseFilter { filter } => self.filter = filter,
             Action::FoldTray { folded } => self.folded = folded,
             Action::OpenShift => {
@@ -1780,6 +1785,23 @@ impl State {
         });
     }
 
+    /// A new window (docs/ledger.md §9): the shift's total starts again and
+    /// the sales that still need the cashier, and the live ones, stay
+    /// listed.
+    fn new_shift_window(&mut self) {
+        let now = self.clock.now();
+        self.keep(|m| m.shift_started_at = Some(now));
+        self.record(Fact::ShiftMarked {
+            mark: ShiftMark::Started,
+            at: now.to_millis(),
+        });
+        if let Some(p) = &self.parts
+            && let Err(e) = p.side.books().with(|l| l.maintain())
+        {
+            self.log(format!("till-core: the ledger's upkeep: {e}"));
+        }
+    }
+
     /// Watching on or off. Off brings every live code down; on after off
     /// starts a new shift, keeping only the sales that still need the
     /// cashier (decisions 64, 86).
@@ -1788,19 +1810,7 @@ impl State {
         let side = p.side.clone();
         let was = side.model().shift_on;
         if on && !was {
-            // A new window (docs/ledger.md §9): the sales that still need
-            // the cashier stay listed.
-            let now = self.clock.now();
-            self.keep(|m| m.shift_started_at = Some(now));
-            self.record(Fact::ShiftMarked {
-                mark: ShiftMark::Started,
-                at: now.to_millis(),
-            });
-            if let Some(p) = &self.parts
-                && let Err(e) = p.side.books().with(|l| l.maintain())
-            {
-                self.log(format!("till-core: the ledger's upkeep: {e}"));
-            }
+            self.new_shift_window();
         }
         if !on
             && was
