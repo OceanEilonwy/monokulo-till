@@ -54,7 +54,7 @@ fn has_order(view: &SaleView) -> bool {
 /// - **Ended**: newly expired, cancelled or reversed while live, this
 ///   till's.
 /// - **Overpaid**: newly paid twice or by more than asked, this till's:
-///   the extra is owed back (core.md decision 168).
+///   the extra is owed back (core.md decision 222).
 pub fn diff(old: Option<&SaleView>, new: &SaleView, cx: &DiffContext<'_>) -> Vec<Effect> {
     let mut effects = Vec::new();
     let effect = |kind| Effect {

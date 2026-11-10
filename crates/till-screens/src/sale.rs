@@ -70,7 +70,7 @@ pub struct SaleView {
     /// The bar's X, which asks whether the customer is paying.
     pub closes: bool,
     /// The code is on screen. From the moment the payment is seen it is
-    /// not (core.md decision 170): nothing is left to show the customer or
+    /// not (core.md decision 224): nothing is left to show the customer or
     /// to share, so it cannot be paid twice.
     #[cfg_attr(feature = "uniffi", uniffi(default = true))]
     pub shows_code: bool,

@@ -233,7 +233,7 @@ pub enum AlertKind {
     /// Its code ran out, it was cancelled or its payment reversed.
     Ended,
     /// Paid more than once or by more than asked: the extra is owed back
-    /// (core.md decision 168).
+    /// (core.md decision 222).
     Overpaid,
 }
 

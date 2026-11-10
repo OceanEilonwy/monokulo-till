@@ -461,7 +461,7 @@ impl Ledger {
 
     /// Every sale's view, newest first. A cash sale this till doesn't take
     /// in Monero (cash as Monero is off) is left out: with the setting off,
-    /// cash sales are ignored altogether, not offered (core.md decision 167).
+    /// cash sales are ignored altogether, not offered (core.md decision 221).
     /// [`Ledger::sale`] still answers for one by its key.
     pub fn sales(&self) -> Result<Vec<SaleView>, LedgerError> {
         let settings = self.view_settings()?;

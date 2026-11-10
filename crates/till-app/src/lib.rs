@@ -470,7 +470,7 @@ pub enum Action {
     StopShift,
     /// "New shift" in the shift's header: a new window now (docs/ledger.md
     /// §9), so the total starts again and only the sales that still need
-    /// the cashier, and the live ones, stay listed (core.md decision 169).
+    /// the cashier, and the live ones, stay listed (core.md decision 223).
     NewShift,
     /// The shift's filter chip tapped.
     ChooseFilter {
@@ -655,7 +655,7 @@ pub enum Action {
         order_id: OrderId,
     },
     /// "Mark as refunded" on an overpaid sale: the extra went back to the
-    /// customer (core.md decision 168).
+    /// customer (core.md decision 222).
     ExtraRefunded {
         order_id: OrderId,
     },

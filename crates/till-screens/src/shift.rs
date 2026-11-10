@@ -342,7 +342,7 @@ fn paid_since(
 
 /// The shift's header on a screen that has room for it (the design's S1):
 /// "This shift", since when, the takings and the paid count, and the
-/// button that starts a new shift (core.md decision 169).
+/// button that starts a new shift (core.md decision 223).
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct ShiftHeader {

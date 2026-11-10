@@ -257,13 +257,13 @@ page ([designs/ipad-redesign/](designs/ipad-redesign/); the first page's
 boards are history). What was built, and where it is in the core's
 decisions:
 
-- **Cash ignored when "Treat cash as Monero" is off** (decision 167), the
+- **Cash ignored when "Treat cash as Monero" is off** (decision 221), the
   setting a single toggle.
-- **Overpaid** (decision 168): a state, an alert and "Mark as refunded".
-- **New shift** and the shift's header (decision 169).
+- **Overpaid** (decision 222): a state, an alert and "Mark as refunded".
+- **New shift** and the shift's header (decision 223).
 - **One vertical sale screen**, Return to Square in the toolbar, no code from
   Seen, a folded order, the capped and tap-to-enlarge code, the smaller
-  floating window (decision 170).
+  floating window (decision 224).
 - **Settings** keep the engine's sections (Monokulo's store first, then the
   point of sale, counters, cash, alerts, how sales show up, the Dynamic
   Island on iPhone only, Wake-ups, Disconnect): the designs' "Monokulo

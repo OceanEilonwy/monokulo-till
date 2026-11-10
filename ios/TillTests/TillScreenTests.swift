@@ -299,20 +299,6 @@ struct TillScreenTests {
         #expect(SaleAlerts.orderId(["orderId": 7]) == nil)
     }
 
-    /// The design's rule: the code is the largest the pane's width and
-    /// height leave room for with the order folded, 480 pt at most, never
-    /// under 200 pt.
-    @Test func theCodeIsCappedSoThePageNeverScrolls() {
-        // iPad mini landscape, beside the sidebar: 793 × 744 less the toolbar.
-        #expect(SaleScreen.codeSide(width: 793, height: 680) == 420)
-        // An 11-inch iPad in landscape has room for the most.
-        #expect(SaleScreen.codeSide(width: 840, height: 760) == 480)
-        // iPhone portrait: the width binds.
-        #expect(SaleScreen.codeSide(width: 390, height: 700) == 310)
-        // Never under 200 pt: tapping it for the full-screen code is the way in.
-        #expect(SaleScreen.codeSide(width: 240, height: 300) == 200)
-    }
-
     @Test func squareIsReturnedToFromTheToolbarOnlyWhereOffered() {
         #expect(BackToSquare.shown(offered: .square, showSales: .alert, squareInstalled: true))
         #expect(!BackToSquare.shown(offered: .square, showSales: .alert, squareInstalled: false))

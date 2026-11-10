@@ -160,7 +160,7 @@ pub struct SaleView {
     /// Paid after the cashier closed it.
     pub paid_after_close: bool,
     /// Paid more than asked (or twice): the extra is owed back to the
-    /// customer (core.md decision 168).
+    /// customer (core.md decision 222).
     pub overpaid: bool,
     /// When the cashier said the extra went back.
     pub extra_refunded_at: Option<UnixSeconds>,
@@ -170,7 +170,7 @@ pub struct SaleView {
 
 impl SaleView {
     /// A cash sale with no order of its own while cash as Monero is off:
-    /// ignored, with no alert, code, row or window (core.md decision 167).
+    /// ignored, with no alert, code, row or window (core.md decision 221).
     pub fn ignored(&self, settings: &ViewSettings) -> bool {
         self.offered && !settings.cash_as_monero
     }

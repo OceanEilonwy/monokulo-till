@@ -188,7 +188,7 @@ pub struct SaleExtras {
     #[serde(default, skip_serializing_if = "is_false")]
     pub renewable: bool,
     /// Paid more than asked (or twice): the extra is owed back to the
-    /// customer (core.md decision 168).
+    /// customer (core.md decision 222).
     #[serde(default, skip_serializing_if = "is_false")]
     pub overpaid: bool,
     /// When the cashier said the extra went back.

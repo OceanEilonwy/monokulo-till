@@ -249,7 +249,7 @@ pub fn unpaid_notice(
 }
 
 /// An overpaid sale's alert: the extra is owed back to the customer (core.md
-/// decision 168).
+/// decision 222).
 pub fn overpaid_notice(sale: &TillSale, money: &dyn MoneyFormat) -> Notice {
     Notice {
         title: format!(

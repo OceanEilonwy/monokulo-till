@@ -605,7 +605,7 @@ fn a_double_spend_stays_unless_monokulo_settles_it_paid() {
     );
 }
 
-/// Core.md decision 168: paying more than asked is an overpayment: it alerts
+/// Core.md decision 222: paying more than asked is an overpayment: it alerts
 /// once, and the cashier saying the extra went back settles it.
 #[test]
 fn an_overpaid_sale_alerts_once_until_the_extra_is_marked_refunded() {
@@ -803,7 +803,7 @@ fn settings_never_enter_the_merge() {
     assert!(may_make_order(&v, &back, false));
 }
 
-/// Core.md decision 167: with cash as Monero off, a cash sale is ignored
+/// Core.md decision 221: with cash as Monero off, a cash sale is ignored
 /// altogether: it is no row in the list, while a Monero sale is.
 #[test]
 fn with_cash_as_monero_off_cash_sales_are_ignored() {

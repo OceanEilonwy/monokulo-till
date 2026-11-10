@@ -15,7 +15,7 @@ pub enum Standing {
     /// closed.
     Live(SalePhase),
     /// Paid, and more than asked (or twice): the extra is owed back to the
-    /// customer until the cashier says it went (core.md decision 168).
+    /// customer until the cashier says it went (core.md decision 222).
     Overpaid,
     /// Paid: `late` after the cashier closed it or its code ran out (which
     /// one, `closed_at` and `ended_at` say), `after_refund` after it was

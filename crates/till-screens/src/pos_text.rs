@@ -391,7 +391,7 @@ pub fn receipt_label(pos: Option<PointOfSale>, receipt_id: &str) -> String {
 }
 
 /// The button that returns to the point-of-sale app on this device, "Return
-/// to Square" (core.md decision 170; "Back to" before).
+/// to Square" (core.md decision 224; "Back to" before).
 pub fn back_to(pos: Option<PointOfSale>) -> String {
     format!(
         "Return to {}",

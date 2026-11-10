@@ -918,7 +918,7 @@ async fn paid_in_cash_closes_a_cash_sale_with_nothing_to_refund() {
     assert!(source.refunded().is_empty());
 }
 
-/// Core.md decision 167: with cash as Monero off, a cash sale is ignored: no
+/// Core.md decision 221: with cash as Monero off, a cash sale is ignored: no
 /// order is made, and it is no row in the till's sales.
 #[tokio::test]
 async fn with_cash_as_monero_off_a_cash_sale_is_ignored() {

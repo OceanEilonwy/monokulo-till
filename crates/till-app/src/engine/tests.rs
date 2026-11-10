@@ -711,7 +711,7 @@ async fn an_upgraded_till_runs_its_shift_makes_orders_and_tells_the_platform() {
     assert_eq!(platform.get("shift.on").as_deref(), Some("false"));
 }
 
-/// Core.md decision 169: "New shift" opens a new window now, whether or not
+/// Core.md decision 223: "New shift" opens a new window now, whether or not
 /// the shift was just started.
 #[tokio::test(flavor = "multi_thread")]
 async fn new_shift_starts_a_new_window_now() {
@@ -1893,7 +1893,7 @@ async fn the_test_sale_names_this_counters_device_and_c4_asks_which_sales_alert(
     screen(&rx, Screen::Ready);
 }
 
-/// Core.md decision 167: with cash as Monero off, a cash sale is ignored:
+/// Core.md decision 221: with cash as Monero off, a cash sale is ignored:
 /// no row, no alert, no code, nothing for the cashier to take.
 #[tokio::test(flavor = "multi_thread")]
 async fn with_cash_as_monero_off_a_cash_sale_is_ignored() {
