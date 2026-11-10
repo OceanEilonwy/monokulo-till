@@ -97,8 +97,8 @@ pub struct OrderFacts {
     pub address: String,
     /// The latest quote's XMR.
     pub xmr: String,
-    pub amount: String,
-    pub currency: String,
+    #[serde(flatten)]
+    pub price: till_types::Price,
     pub reference: Option<String>,
     /// When the latest quote runs out, Unix seconds.
     pub expires_at: i64,
@@ -124,8 +124,7 @@ impl From<&OrderCreated> for OrderFacts {
             payment_uri: o.payment_uri.clone(),
             address: o.address.clone(),
             xmr: o.xmr.clone(),
-            amount: o.amount.clone(),
-            currency: o.currency.clone(),
+            price: o.price.clone(),
             reference: o.reference.clone(),
             expires_at: o.expires_at,
             confirmations_required: o.confirmations_required,

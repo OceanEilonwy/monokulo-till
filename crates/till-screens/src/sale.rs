@@ -181,7 +181,7 @@ mod tests {
 
     fn bp9m() -> TillSale {
         TillSale {
-            amount: "13.88".into(),
+            price: till_types::Price::new("13.88", "USD"),
             xmr: "0.05552".into(),
             expires_at: at() + 892,
             receipt: Some(receipt(

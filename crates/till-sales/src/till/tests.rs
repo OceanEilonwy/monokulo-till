@@ -936,7 +936,7 @@ async fn with_cash_offered_a_cash_sale_waits_quietly_until_its_taken_in_monero()
     assert_eq!(offered.standing(), Standing::CashOffer { kept: false });
     assert!(!offered.live() && !offered.needs_action() && !offered.open());
     assert_eq!(offered.customer_name.as_deref(), Some("Sam"));
-    assert_eq!(offered.amount, "13.88");
+    assert_eq!(offered.price.amount(), "13.88");
     till.keep_as_cash("cash:pay_cash");
     assert_eq!(only(&till).standing(), Standing::CashOffer { kept: true });
 

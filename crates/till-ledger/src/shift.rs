@@ -90,8 +90,7 @@ fn minor(view: &SaleView) -> Option<i64> {
     if let Some(found) = &view.found {
         return Some(found.amount.minor);
     }
-    let exponent = monokulo_client::amounts::exponent(&view.currency).unwrap_or(2);
-    monokulo_client::amounts::minor_units(&view.amount, exponent)
+    view.price.money().map(|money| money.minor)
 }
 
 /// The shift over `views` (any order), within `window`.
@@ -111,12 +110,15 @@ pub fn summarise(mut views: Vec<SaleView>, window: ShiftWindow) -> ShiftSummary 
         if paid && window.contains(UnixSeconds(v.created_at).to_millis()) {
             let amount = minor(v).unwrap_or(0);
             summary.paid_count += 1;
-            *summary.paid_total.entry(v.currency.clone()).or_default() += amount;
+            *summary
+                .paid_total
+                .entry(v.price.currency().to_owned())
+                .or_default() += amount;
             if v.cash {
                 summary.cash_in_monero_count += 1;
                 *summary
                     .cash_in_monero_total
-                    .entry(v.currency.clone())
+                    .entry(v.price.currency().to_owned())
                     .or_default() += amount;
             }
         }

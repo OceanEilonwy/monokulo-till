@@ -14,8 +14,7 @@ use crate::time::DeviceClock;
 pub(crate) fn till_sale(id: &str, amount: &str, currency: &str, xmr: &str) -> TillSale {
     TillSale {
         order_id: id.into(),
-        amount: amount.into(),
-        currency: currency.into(),
+        price: till_types::Price::new(amount, currency),
         reference: None,
         code: PaymentCode::plain("monero:4abc"),
         phase: SalePhase::Waiting,

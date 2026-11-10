@@ -136,8 +136,9 @@ pub fn live_activity(input: &LiveActivityInput, device: Device) -> Option<LiveAc
         phase,
         order_id: shown.map(|sale| sale.order_id.clone()),
         sale: shown.and_then(label),
-        amount: shown.map(|sale| sale.amount.clone()),
-        currency: shown.map(|sale| sale.currency.clone()),
+        // The texts as the order wrote them: the activity's own fields.
+        amount: shown.map(|sale| sale.price.amount().to_owned()),
+        currency: shown.map(|sale| sale.price.currency().to_owned()),
         xmr: shown.map(|sale| sale.xmr.clone()),
         expires_at: shown.map(|sale| sale.expires_at),
         waiting_count,

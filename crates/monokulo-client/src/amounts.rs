@@ -8,7 +8,7 @@
 //! carries ([`written`], core.md decision
 //! 99), so iOS and Android print amounts identically.
 
-use till_types::CurrencyCode;
+use till_types::{CurrencyCode, Price};
 
 /// How the device writes an amount of money: `minor` units of `currency`
 /// (an ISO 4217 code, upper case), so 2450 and "USD" is "$24.50" in the US.
@@ -132,6 +132,21 @@ pub fn fiat(amount: &str, currency: &str, format: &dyn MoneyFormat) -> String {
     match exponent(&code).and_then(|exp| minor_units(amount, exp)) {
         Some(minor) => format.format(minor, &code),
         None => format!("{amount} {code}"),
+    }
+}
+
+/// `price` as `format` writes it, from the money it was read as
+/// ([`Price::money`]): what [`fiat`] writes of its texts, without reading
+/// them again. A currency that isn't ISO 4217's, or a price that isn't
+/// money, is shown as it came, followed by the code in upper case.
+pub fn price(price: &Price, format: &dyn MoneyFormat) -> String {
+    match price.money().filter(|m| m.currency.iso_digits().is_some()) {
+        Some(m) => format.format(m.minor, m.currency.as_str()),
+        None => format!(
+            "{} {}",
+            price.amount(),
+            price.currency().to_ascii_uppercase()
+        ),
     }
 }
 

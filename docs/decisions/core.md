@@ -1727,3 +1727,25 @@ once at the edge, with the stored and sent text unchanged.
      time and the till's shift start are typed; the sales' own times
      (`TillSale`, `SaleView`) and the ledger's facts are still `i64`s of
      their documented unit, to be typed when next touched.
+
+## String typing: sale prices and order ids (2026-11-10)
+
+What the first pass left: a sale's price, and Monokulo's order id, were
+still strings across the till, the ledger, the screens and the bridge.
+
+177. **A sale's price is a `Price` that keeps Monokulo's text.** The
+     price an order was made for (`OrderCreated`, the ledger's order, a
+     `SaleView`, a `TillSale`) is a `till_types::Price`: Monokulo's
+     `amount` and `currency` texts, read once, where the order is
+     recorded, into the `Money` they are. It writes both texts back as
+     they came, flattened into the struct it's in, so a kept shift (still
+     the Kotlin JSON, byte for byte) and a journalled order are
+     unchanged; a price whose text isn't a decimal in a currency code
+     still reads, with no money, and is shown as it came, as
+     `amounts::fiat` showed it. The screens sum and write it from its
+     money (`amounts::price`); a shift's totals sum it in minor units.
+     Not `Money` alone: that would rewrite "24.5" as "24.50" and "usd"
+     as "USD" in kept JSON, and lose what an order in a code ISO 4217
+     doesn't list was priced at. Nothing on the bridge carries it: the
+     views send formatted strings, and the Live Activity's `amount` and
+     `currency` are the price's two texts.

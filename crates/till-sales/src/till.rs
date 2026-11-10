@@ -484,14 +484,16 @@ impl Till {
             payment_uri: order.payment_uri(),
             address: order.address.clone(),
             xmr: payment_uri::xmr(order.piconero),
-            amount: order
-                .amount
-                .clone()
-                .unwrap_or_else(|| sale.amount.decimal()),
-            currency: order
-                .currency
-                .clone()
-                .unwrap_or_else(|| sale.amount.currency.to_string()),
+            price: till_types::Price::new(
+                order
+                    .amount
+                    .clone()
+                    .unwrap_or_else(|| sale.amount.decimal()),
+                order
+                    .currency
+                    .clone()
+                    .unwrap_or_else(|| sale.amount.currency.to_string()),
+            ),
             reference: order.merchant_order_id.clone(),
             expires_at: order.expires_at,
             confirmations_required: order.confirmations_required,
@@ -644,8 +646,7 @@ impl Till {
             payment_uri: o.payment_uri.clone(),
             address: o.address.clone(),
             xmr: o.xmr.clone(),
-            amount: o.amount.clone(),
-            currency: o.currency.clone(),
+            price: o.price.clone(),
             reference: o.reference.clone(),
             expires_at: o.expires_at,
             confirmations_required: Some(required),
@@ -1109,8 +1110,7 @@ fn event_order(event: &SaleEvent) -> OrderCreated {
         payment_uri: payment_uri::build(&event.address, event.piconero),
         address: event.address.clone(),
         xmr: payment_uri::xmr(event.piconero),
-        amount: event.amount.clone(),
-        currency: event.currency.clone(),
+        price: till_types::Price::new(event.amount.as_str(), event.currency.as_str()),
         reference: event.merchant_order_id.clone(),
         expires_at: event.expires_at,
         confirmations_required: None,

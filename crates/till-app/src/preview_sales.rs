@@ -148,8 +148,7 @@ impl PreviewSale {
         );
         TillSale {
             order_id: self.order_id.clone(),
-            amount: self.amount.clone(),
-            currency: self.currency.clone(),
+            price: till_pos::Price::new(self.amount.as_str(), self.currency.as_str()),
             reference: Some(reference.clone()),
             code: PaymentCode::of(&uri, receipt.as_ref()),
             phase: self.phase.unwrap_or(PreviewPhase::Waiting).into(),

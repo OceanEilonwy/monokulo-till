@@ -2271,9 +2271,7 @@ impl State {
                         .sales
                         .iter()
                         .find(|sale| sale.found.is_some())
-                        .map(|sale| {
-                            monokulo_client::amounts::fiat(&sale.amount, &sale.currency, &money)
-                        }),
+                        .map(|sale| monokulo_client::amounts::price(&sale.price, &money)),
                     can_change_location: self.locations.len() > 1,
                     setup: !model.setup_done,
                     confirmed: self.pos_confirmed,
@@ -2285,7 +2283,7 @@ impl State {
                 let money = Money(self.platform.clone());
                 let counters = self.counters();
                 Step::Counter(CounterSetup {
-                    amount: monokulo_client::amounts::fiat(&sale.amount, &sale.currency, &money),
+                    amount: monokulo_client::amounts::price(&sale.price, &money),
                     number: till_screens::sale_text::label(&sale),
                     device: device.name.clone().unwrap_or_else(|| {
                         till_screens::counters::device_name(&device.id, &[], &counters)

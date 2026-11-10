@@ -819,7 +819,7 @@ mod tests {
     #[test]
     fn ios_alerts_a_new_sale_in_its_own_words_on_ipad_and_iphone() {
         let sales = vec![TillSale {
-            amount: "24.50".into(),
+            price: till_types::Price::new("24.50", "USD"),
             ..of(SalePhase::Waiting)
         }];
         let ipad = notification(&input(sales.clone(), Some("o1")), Device::Ipad, &money);

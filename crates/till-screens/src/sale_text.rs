@@ -80,7 +80,7 @@ pub fn place(sale: &TillSale, location: Option<&str>) -> String {
 
 /// The sale's amount, as the device writes money.
 pub fn amount(sale: &TillSale, money: &dyn MoneyFormat) -> String {
-    amounts::fiat(&sale.amount, &sale.currency, money)
+    amounts::price(&sale.price, money)
 }
 
 /// The exact XMR to pay: rounding it would have the customer underpay.

@@ -96,8 +96,9 @@ pub struct SaleView {
     /// Its order's id; `cash:<payment>` for a cash sale
     /// with no order; the sale key for a sale still waiting for its order.
     pub order_id: String,
-    pub amount: String,
-    pub currency: String,
+    /// The deciding order's price, else the POS payment's.
+    #[serde(flatten)]
+    pub price: till_types::Price,
     pub reference: Option<String>,
     pub code: Code,
     pub phase: SalePhase,
@@ -291,13 +292,12 @@ pub fn view(
             (None, Some(p)) if cash => format!("{OFFERED}{}", p.payment),
             (None, _) => sale.text(),
         },
-        amount: order
-            .map(|o| o.amount.clone())
-            .unwrap_or_else(|| payment.map(|p| p.amount.decimal()).unwrap_or_default()),
-        currency: order
-            .map(|o| o.currency.clone())
-            .or_else(|| payment.map(|p| p.amount.currency.to_string()))
-            .unwrap_or_default(),
+        price: order.map(|o| o.price.clone()).unwrap_or_else(|| {
+            payment.map_or_else(
+                || till_types::Price::new("", ""),
+                |p| till_types::Price::of(p.amount),
+            )
+        }),
         reference: order
             .and_then(|o| o.reference.clone())
             .or_else(|| payment.and_then(|p| p.receipt_number.clone())),

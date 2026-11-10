@@ -333,8 +333,10 @@ pub fn summary(
 /// whatever its case ("usd" is USD); text that isn't a code is taken as it
 /// is.
 fn per_currency(paid: &[&TillSale], money: &dyn MoneyFormat) -> Vec<String> {
-    let code = |sale: &TillSale| {
-        CurrencyCode::new(&sale.currency).map_or_else(|_| sale.currency.clone(), |c| c.to_string())
+    let code = |sale: &TillSale| match sale.price.money() {
+        Some(m) => m.currency.to_string(),
+        None => CurrencyCode::new(sale.price.currency())
+            .map_or_else(|_| sale.price.currency().to_owned(), |c| c.to_string()),
     };
     let mut currencies: Vec<String> = Vec::new();
     for sale in paid {
@@ -346,54 +348,61 @@ fn per_currency(paid: &[&TillSale], money: &dyn MoneyFormat) -> Vec<String> {
     currencies
         .into_iter()
         .map(|currency| {
-            let those: Vec<&str> = paid
+            let those: Vec<&TillSale> = paid
                 .iter()
+                .copied()
                 .filter(|sale| code(sale) == currency)
-                .map(|sale| sale.amount.as_str())
                 .collect();
-            total(&those, &currency, money)
+            let iso = CurrencyCode::new(&currency)
+                .ok()
+                .filter(|c| c.iso_digits().is_some());
+            match iso {
+                // Summed from the money each was read as; one that isn't
+                // money counts as nothing.
+                Some(code) => {
+                    let minor = those
+                        .iter()
+                        .filter_map(|sale| sale.price.money())
+                        .map(|m| m.minor)
+                        .sum();
+                    money.format(minor, code.as_str())
+                }
+                None => {
+                    let amounts: Vec<&str> = those.iter().map(|sale| sale.price.amount()).collect();
+                    total(&amounts, &currency)
+                }
+            }
         })
         .collect()
 }
 
-/// `amounts` added up in `currency`, as the device writes money; an amount
-/// that doesn't read counts as nothing.
-fn total(amounts: &[&str], currency: &str, money: &dyn MoneyFormat) -> String {
+/// `amounts` in `currency`, a code ISO 4217 doesn't list, added up to the
+/// most digits any of them has and written with the code after it; an
+/// amount that doesn't read counts as nothing.
+fn total(amounts: &[&str], currency: &str) -> String {
     let code = currency.to_ascii_uppercase();
-    match amounts::exponent(&code) {
-        Some(exponent) => {
-            let minor: i64 = amounts
-                .iter()
-                .filter_map(|amount| amounts::minor_units(amount, exponent))
-                .sum();
-            money.format(minor, &code)
-        }
-        None => {
-            // Not ISO 4217's: summed to the most digits any amount has.
-            let digits = amounts
-                .iter()
-                .map(|amount| amount.split_once('.').map_or(0, |(_, frac)| frac.len()))
-                .max()
-                .unwrap_or(0) as u32;
-            let minor: i64 = amounts
-                .iter()
-                .filter_map(|amount| amounts::minor_units(amount, digits))
-                .sum();
-            let scale = 10i64.pow(digits);
-            let sum = if digits == 0 {
-                minor.to_string()
-            } else {
-                format!(
-                    "{}{}.{:0width$}",
-                    if minor < 0 { "-" } else { "" },
-                    minor.abs() / scale,
-                    minor.abs() % scale,
-                    width = digits as usize
-                )
-            };
-            format!("{sum} {code}")
-        }
-    }
+    let digits = amounts
+        .iter()
+        .map(|amount| amount.split_once('.').map_or(0, |(_, frac)| frac.len()))
+        .max()
+        .unwrap_or(0) as u32;
+    let minor: i64 = amounts
+        .iter()
+        .filter_map(|amount| amounts::minor_units(amount, digits))
+        .sum();
+    let scale = 10i64.pow(digits);
+    let sum = if digits == 0 {
+        minor.to_string()
+    } else {
+        format!(
+            "{}{}.{:0width$}",
+            if minor < 0 { "-" } else { "" },
+            minor.abs() / scale,
+            minor.abs() % scale,
+            width = digits as usize
+        )
+    };
+    format!("{sum} {code}")
 }
 
 /// Where a row goes: a live sale's code, any other sale's page (the

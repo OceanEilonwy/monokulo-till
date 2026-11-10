@@ -133,7 +133,7 @@ impl PartialEq<&str> for CurrencyCode {
 }
 
 /// An amount in a currency's minor unit: 2450 USD is $24.50.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Money {
     pub minor: i64,
     pub currency: CurrencyCode,
@@ -156,6 +156,83 @@ impl Money {
     /// when it isn't a number.
     pub fn from_decimal(amount: &str, currency: CurrencyCode) -> Option<Money> {
         minor_units(amount, currency.minor_digits()).map(|minor| Money { minor, currency })
+    }
+}
+
+/// A price as a service wrote it, a decimal and a currency (Monokulo's
+/// `"amount": "24.50", "currency": "USD"`), read once into the [`Money`] it
+/// is. It keeps both texts and writes them back as they came, so a kept
+/// sale's or a journalled order's JSON doesn't change; a price whose text
+/// isn't a decimal in a currency code still reads, with no money
+/// (`money()` is `None`), and is shown as it came. Serialized as two
+/// fields, `amount` and `currency`, for `#[serde(flatten)]` into the
+/// struct it's in.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(from = "PriceText", into = "PriceText")]
+pub struct Price {
+    amount: String,
+    currency: String,
+    money: Option<Money>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct PriceText {
+    amount: String,
+    currency: String,
+}
+
+impl From<PriceText> for Price {
+    fn from(text: PriceText) -> Price {
+        Price::new(text.amount, text.currency)
+    }
+}
+
+impl From<Price> for PriceText {
+    fn from(price: Price) -> PriceText {
+        PriceText {
+            amount: price.amount,
+            currency: price.currency,
+        }
+    }
+}
+
+impl Price {
+    /// `amount` in `currency`, as written: its money when the amount is a
+    /// decimal ([`Money::from_decimal`]) and the currency a code.
+    pub fn new(amount: impl Into<String>, currency: impl Into<String>) -> Price {
+        let (amount, currency) = (amount.into(), currency.into());
+        let money = CurrencyCode::new(&currency)
+            .ok()
+            .and_then(|code| Money::from_decimal(&amount, code));
+        Price {
+            amount,
+            currency,
+            money,
+        }
+    }
+
+    /// `money`, written in its currency's digits ("24.50", "USD").
+    pub fn of(money: Money) -> Price {
+        Price {
+            amount: money.decimal(),
+            currency: money.currency.to_string(),
+            money: Some(money),
+        }
+    }
+
+    /// The amount as written ("24.50").
+    pub fn amount(&self) -> &str {
+        &self.amount
+    }
+
+    /// The currency as written ("USD").
+    pub fn currency(&self) -> &str {
+        &self.currency
+    }
+
+    /// The money it is, when its texts read as money.
+    pub fn money(&self) -> Option<Money> {
+        self.money
     }
 }
 
@@ -404,6 +481,38 @@ mod tests {
         ] {
             assert_eq!(minor_units(bad, 2), None, "{bad:?}");
         }
+    }
+
+    #[test]
+    fn a_price_keeps_its_text_and_reads_its_money() {
+        #[derive(Serialize, Deserialize, PartialEq, Debug)]
+        #[serde(rename_all = "camelCase")]
+        struct Sale {
+            order_id: String,
+            #[serde(flatten)]
+            price: Price,
+            reference: Option<String>,
+        }
+        for (json, money) in [
+            (
+                r#"{"orderId":"o","amount":"24.5","currency":"usd","reference":null}"#,
+                Some(Money::new(2450, CurrencyCode::USD)),
+            ),
+            (
+                r#"{"orderId":"o","amount":"lots","currency":"USD","reference":null}"#,
+                None,
+            ),
+            (
+                r#"{"orderId":"o","amount":"1","currency":"dollars","reference":null}"#,
+                None,
+            ),
+        ] {
+            let sale: Sale = serde_json::from_str(json).unwrap();
+            assert_eq!(sale.price.money(), money, "{json}");
+            assert_eq!(serde_json::to_string(&sale).unwrap(), json, "as it came");
+        }
+        let price = Price::of(Money::new(1200, code("JPY")));
+        assert_eq!((price.amount(), price.currency()), ("1200", "JPY"));
     }
 
     #[test]

@@ -7,7 +7,7 @@ use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use till_types::Money;
+use till_types::{Money, Price};
 
 use crate::ids::{DeviceId, OrderId, PaymentId, SaleKey};
 use crate::model::{LocalMarks, SharedSale};
@@ -170,8 +170,10 @@ pub struct OrderCreated {
     pub payment_uri: String,
     pub address: String,
     pub xmr: String,
-    pub amount: String,
-    pub currency: String,
+    /// The price it was made for, journalled as `amount` and `currency`
+    /// as Monokulo wrote them.
+    #[serde(flatten)]
+    pub price: Price,
     #[serde(default)]
     pub reference: Option<String>,
     /// Unix seconds.

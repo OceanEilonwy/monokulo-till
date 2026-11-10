@@ -68,8 +68,10 @@ impl PaymentCode {
 #[serde(rename_all = "camelCase")]
 pub struct TillSale {
     pub order_id: String,
-    pub amount: String,
-    pub currency: String,
+    /// Its price, as the order said it: kept as Kotlin kept it, `amount`
+    /// and `currency` as written, and read once as money.
+    #[serde(flatten)]
+    pub price: till_types::Price,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reference: Option<String>,
     /// What to show as the QR code: with the receipt when this till found
@@ -225,8 +227,7 @@ impl TillSale {
         let lapsed = v.clock_lapsed && v.phase != SalePhase::Paid;
         TillSale {
             order_id: v.order_id.clone(),
-            amount: v.amount.clone(),
-            currency: v.currency.clone(),
+            price: v.price.clone(),
             reference: v.reference.clone(),
             code: PaymentCode {
                 uri: v.code.uri.clone(),
