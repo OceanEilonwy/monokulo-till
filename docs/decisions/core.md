@@ -1765,3 +1765,17 @@ still strings across the till, the ledger, the screens and the bridge.
      Picture's sale); carrying `SaleKey` instead would change that text.
      The macro's ids read as their text (`Deref<Target = str>`, comparison
      with text) and are made only through `new` and `From`.
+
+## String typing: the rest of the times (2026-11-10)
+
+179. **Every time in the core has its unit's type.** What decision 176
+     left as `i64`s is typed: the ledger's facts, marks, rows and imported
+     times are `UnixMillis` (an order's expiry, Monokulo's, `UnixSeconds`),
+     and the sales' times (`SaleView`, `TillSale`) are `UnixSeconds`, as
+     are the screens' time words, countdowns and shift start and the Clover
+     source's look-back. Nothing kept changes: both serialize as the bare
+     number and `UnixMillis` binds as an INTEGER. A time leaves the core
+     as an `i64` of seconds where a Swift or Kotlin record carries it (the
+     screens' records, the Live Activity, `DeviceClock`, previews), and is
+     typed again as it comes in (`DeviceClock::time_now`); a custom UniFFI
+     type would have changed the bindings, so they keep `i64`.
