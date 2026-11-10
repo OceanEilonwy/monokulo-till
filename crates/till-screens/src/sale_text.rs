@@ -9,6 +9,7 @@ use monokulo_client::{MoneyFormat, PointOfSale, SalePhase, amounts};
 use orf_codec::LineItem;
 use orf_codec::Receipt;
 use till_sales::{Standing, TillSale};
+use till_types::{CurrencyCode, Money};
 
 use crate::decimal::Decimal;
 use crate::pos_text;
@@ -239,13 +240,42 @@ pub fn quantity(quantity: f64) -> String {
     Decimal::of(quantity).map_or_else(|| quantity.to_string(), |d| d.stripped().plain())
 }
 
+/// A receipt's amount as money: the receipt's JSON number (which orf-codec
+/// keeps as a double, its wire format) read back to the decimal it was
+/// written as, by its shortest digits as `BigDecimal.valueOf` read it, and
+/// rounded half up to the currency's minor unit. Exact for any amount
+/// orf-codec encodes (at most 9 × 10^15 minor units, fewer than 16
+/// digits). `None` for a currency that isn't a code, or a value that isn't
+/// a number or doesn't fit (core.md decision 174).
+pub fn receipt_money(value: f64, currency: &str) -> Option<Money> {
+    let currency = CurrencyCode::new(currency).ok()?;
+    let minor = Decimal::of(value)?
+        .round(currency.minor_digits())?
+        .units()?;
+    Some(Money::new(minor, currency))
+}
+
 /// "9.00": a receipt's amount in the currency's minor digits with no
-/// symbol, as the design's order lists have it.
+/// symbol, as the design's order lists have it ([`receipt_money`]).
 pub fn plain(value: f64, currency: &str) -> String {
-    let digits = amounts::exponent(&currency.to_ascii_uppercase()).unwrap_or(2);
-    Decimal::of(value)
-        .and_then(|d| d.round(digits))
-        .map_or_else(|| format!("{value:.*}", digits as usize), Decimal::plain)
+    receipt_money(value, currency).map_or_else(
+        || {
+            let digits = CurrencyCode::new(currency).map_or(2, |c| c.minor_digits());
+            format!("{value:.*}", digits as usize)
+        },
+        |money| money.decimal(),
+    )
+}
+
+/// `values` added up as money in `currency`, in its minor units; `None`
+/// when any isn't money ([`receipt_money`]) or the sum doesn't fit.
+pub fn sum_money(values: impl IntoIterator<Item = f64>, currency: &str) -> Option<Money> {
+    let mut sum = receipt_money(0.0, currency)?;
+    for value in values {
+        let money = receipt_money(value, currency)?;
+        sum.minor = sum.minor.checked_add(money.minor)?;
+    }
+    Some(sum)
 }
 
 /// The lines a sale's order card lists: every line when there are at most
@@ -266,8 +296,12 @@ pub fn tax(receipt: &Receipt) -> Option<String> {
     if lines.is_empty() {
         return None;
     }
-    let sum: f64 = lines.iter().map(|line| line.tax_amount).sum();
-    Some(format!("Tax {}", plain(sum, &receipt.currency)))
+    let currency = &receipt.currency;
+    let sum = sum_money(lines.iter().map(|line| line.tax_amount), currency).map_or_else(
+        || plain(lines.iter().map(|line| line.tax_amount).sum(), currency),
+        |sum| sum.decimal(),
+    );
+    Some(format!("Tax {sum}"))
 }
 
 /// "13.88 USD": the receipt's total with the currency's code.
@@ -576,6 +610,12 @@ mod tests {
         );
         assert_eq!(plain(9.0, "USD"), "9.00");
         assert_eq!(plain(1125.0, "JPY"), "1125");
+        assert_eq!(plain(0.1234, "CLF"), "0.1234");
+        assert_eq!(
+            sum_money([0.1, 0.2], "usd"),
+            Some(Money::new(30, CurrencyCode::USD)),
+            "exact in minor units, where doubles give 0.30000000000000004"
+        );
         let at = instant("2026-10-22T16:07:00Z");
         assert_eq!(time_of(at, la(0)), "9:07 AM", "the device's own form");
         assert_eq!(time_of(at, uk(0)), "16:07");

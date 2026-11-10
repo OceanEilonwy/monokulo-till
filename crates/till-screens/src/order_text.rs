@@ -6,6 +6,7 @@
 use monokulo_client::PointOfSale;
 use orf_codec::{LineItem, Receipt};
 use till_sales::TillSale;
+use till_types::Money;
 
 use crate::decimal::Decimal;
 use crate::time::{DeviceClock, time};
@@ -34,41 +35,66 @@ pub fn rate(fraction: f64) -> String {
     format!("{percent}%")
 }
 
-/// What the lines come to before tip, discount and tax.
-pub fn subtotal(receipt: &Receipt) -> f64 {
-    let mut sum = Decimal::of(0.0);
-    for item in &receipt.line_items {
-        sum = sum.and_then(|sum| sum.plus(Decimal::of(item.line_total)?));
-    }
-    sum.map_or_else(
-        || receipt.line_items.iter().map(|item| item.line_total).sum(),
-        Decimal::to_f64,
+/// What the lines come to before tip, discount and tax, in the receipt's
+/// minor units; `None` when a line's amount isn't money.
+pub fn subtotal(receipt: &Receipt) -> Option<Money> {
+    sale_text::sum_money(
+        receipt.line_items.iter().map(|item| item.line_total),
+        &receipt.currency,
     )
 }
 
-/// The receipt's tip and discount (its `extensions`, as the till wrote
-/// them), each a name and its amount as the order shows it: "2.00", or
-/// "−1.50" off.
-pub fn extras(receipt: &Receipt) -> Vec<(String, String)> {
-    let Some(extensions) = &receipt.extensions else {
-        return Vec::new();
-    };
-    let amount_of = |key: &str| {
-        extensions
-            .get(key)?
-            .get("amount")?
-            .as_f64()
-            .filter(|&amount| amount > 0.0)
-    };
-    let mut extras = Vec::new();
-    if let Some(tip) = amount_of("tip") {
-        extras.push(("Tip".into(), sale_text::plain(tip, &receipt.currency)));
+/// "72.75": [`subtotal`], else the lines' doubles added up.
+fn subtotal_text(receipt: &Receipt) -> String {
+    subtotal(receipt).map_or_else(
+        || {
+            let sum = receipt.line_items.iter().map(|item| item.line_total).sum();
+            sale_text::plain(sum, &receipt.currency)
+        },
+        |sum| sum.decimal(),
+    )
+}
+
+/// A receipt's tip and discount, as the till writes them in its
+/// `extensions` (`{"tip": {"amount": 2.0}, "discount": {"amount": 1.5}}`):
+/// read from the JSON in this one place, as money.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Extras {
+    pub tip: Option<Money>,
+    pub discount: Option<Money>,
+}
+
+impl Extras {
+    /// The extension keys, each an object with an `amount`.
+    const TIP: &str = "tip";
+    const DISCOUNT: &str = "discount";
+
+    /// `receipt`'s, those above zero only.
+    pub fn of(receipt: &Receipt) -> Extras {
+        let Some(extensions) = &receipt.extensions else {
+            return Extras::default();
+        };
+        let amount_of = |key: &str| {
+            let amount = extensions.get(key)?.get("amount")?.as_f64()?;
+            sale_text::receipt_money(amount, &receipt.currency).filter(|money| money.minor > 0)
+        };
+        Extras {
+            tip: amount_of(Self::TIP),
+            discount: amount_of(Self::DISCOUNT),
+        }
     }
-    if let Some(discount) = amount_of("discount") {
-        extras.push((
-            "Discount".into(),
-            format!("−{}", sale_text::plain(discount, &receipt.currency)),
-        ));
+}
+
+/// The receipt's tip and discount ([`Extras`]), each a name and its amount
+/// as the order shows it: "2.00", or "−1.50" off.
+pub fn extras(receipt: &Receipt) -> Vec<(String, String)> {
+    let found = Extras::of(receipt);
+    let mut extras = Vec::new();
+    if let Some(tip) = found.tip {
+        extras.push(("Tip".into(), tip.decimal()));
+    }
+    if let Some(discount) = found.discount {
+        extras.push(("Discount".into(), format!("−{}", discount.decimal())));
     }
     extras
 }
@@ -203,7 +229,7 @@ pub fn order_page(
     let currency = &receipt.currency;
     let mut sums = vec![OrderSum {
         name: "Subtotal".into(),
-        value: sale_text::plain(subtotal(receipt), currency),
+        value: subtotal_text(receipt),
     }];
     sums.extend(
         extras(receipt)
@@ -320,7 +346,8 @@ mod tests {
     #[test]
     fn the_totals_are_the_receipts() {
         let receipt = design();
-        assert_eq!(sale_text::plain(subtotal(&receipt), "USD"), "72.75");
+        assert_eq!(subtotal(&receipt).unwrap().decimal(), "72.75");
+        assert_eq!(subtotal_text(&receipt), "72.75");
         assert_eq!(total(&receipt), "79.21 USD");
         assert!(extras(&receipt).is_empty());
         let mut tipped = receipt.clone();

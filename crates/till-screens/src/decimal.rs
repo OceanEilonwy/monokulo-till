@@ -89,21 +89,11 @@ impl Decimal {
         }
     }
 
-    /// The sum of `self` and `other`, exactly.
-    pub(crate) fn plus(self, other: Decimal) -> Option<Decimal> {
-        let scale = self.scale.max(other.scale);
-        let (a, b) = (self.round(scale)?, other.round(scale)?);
-        let sum = a.signed().checked_add(b.signed())?;
-        Some(Decimal {
-            negative: sum < 0,
-            digits: sum.abs(),
-            scale,
-        })
-    }
-
-    /// As a double again.
-    pub(crate) fn to_f64(self) -> f64 {
-        self.plain().parse().unwrap_or(0.0)
+    /// The whole number of 10^-`scale` it is: its minor units once
+    /// [rounded](Self::round) to a currency's digits. `None` when that
+    /// doesn't fit.
+    pub(crate) fn units(self) -> Option<i64> {
+        i64::try_from(self.signed()).ok()
     }
 
     /// Written out in full, with `scale` digits after the point (Java's
@@ -145,7 +135,8 @@ mod tests {
         assert_eq!(d(2.0).stripped().plain(), "2");
         assert_eq!(d(0.1).times_ten_to(2).unwrap().plain(), "10");
         assert_eq!(d(0.08875).times_ten_to(2).unwrap().plain(), "8.875");
-        assert_eq!(d(0.5).plus(d(0.63)).unwrap().plain(), "1.13");
+        assert_eq!(d(0.63).round(2).unwrap().units(), Some(63));
+        assert_eq!(d(-1.5).round(2).unwrap().units(), Some(-150));
         assert!(Decimal::of(f64::NAN).is_none());
         assert!(Decimal::of(1e300).is_none());
     }

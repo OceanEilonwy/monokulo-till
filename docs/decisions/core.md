@@ -1641,3 +1641,16 @@ once at the edge, with the stored and sent text unchanged.
      `HandledMarker`s (`id` or `id@updated_at`, the same text), matched
      the same way at Square and Clover; a kept cursor that isn't a time is
      the store's error, as reading it was the source's.
+174. **A receipt's amounts are counted in minor units, read exactly at the
+     edge of the view.** The order card and page no longer add doubles:
+     each receipt amount becomes `Money` once (`sale_text::receipt_money`),
+     and the subtotal, the taxes and the tip and discount (read in one
+     place, `order_text::Extras`) are summed in minor units. The receipt
+     itself stays orf-codec's, with its amounts as doubles: they are ORF's
+     JSON numbers, and reading them exactly would need serde_json's
+     `arbitrary_precision`, which changes every crate's JSON numbers and
+     breaks the flattened and untagged shapes the core reads. So the edge
+     is where a double is read back to the decimal it was written as, by
+     its shortest digits (as the Android app's `BigDecimal.valueOf` did),
+     which is exact for every amount orf-codec can encode (at most 9 ×
+     10^15 minor units). orf-codec's JSON and encoding are unchanged.
