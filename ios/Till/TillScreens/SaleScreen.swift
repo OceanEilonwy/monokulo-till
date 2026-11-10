@@ -33,7 +33,7 @@ struct SaleScreen: View {
         // the column centres in what's left and scrolls only when it must.
         GeometryReader { box in
             ScrollView {
-                content(width: box.size.width)
+                content(width: box.size.width, height: box.size.height)
                     .padding(.horizontal, regular ? SaleLayout.margin : 0)
                     .padding(.vertical, 16)
                     .frame(maxWidth: .infinity, minHeight: box.size.height)
@@ -116,8 +116,8 @@ struct SaleScreen: View {
     /// The code column, and the order beside it where both fit, else under
     /// it; on a phone-width window, one column.
     @ViewBuilder
-    private func content(width: CGFloat) -> some View {
-        let side = SaleLayout.codeSide(width: width, regular: regular)
+    private func content(width: CGFloat, height: CGFloat) -> some View {
+        let side = SaleLayout.codeSide(width: width, height: regular ? height : .infinity, regular: regular)
         if regular {
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .center, spacing: SaleLayout.gap) {
@@ -264,13 +264,19 @@ enum SaleLayout {
     /// The widest the buttons grow once stacked.
     static let stackedButtons: CGFloat = 360
 
+    /// What the code's column needs besides the code itself: the amount,
+    /// the XMR, the card's padding, the progress and its lines, and the
+    /// page's padding above and below.
+    static let besideCode: CGFloat = 240
+
     /// The code's side: the board's 300 pt on iPad and 240 pt on a phone,
     /// smaller where the window is narrower than the code's card (its 14 pt
-    /// padding each side) and the page's margins, never under 160 pt.
-    static func codeSide(width: CGFloat, regular: Bool) -> CGFloat {
+    /// padding each side) and the page's margins, or too short for the
+    /// whole column (a short Stage Manager window), never under 160 pt.
+    static func codeSide(width: CGFloat, height: CGFloat = .infinity, regular: Bool) -> CGFloat {
         let largest: CGFloat = regular ? 300 : 240
         let margins: CGFloat = regular ? margin * 2 : 32
-        return max(160, min(largest, width - margins - 28))
+        return max(160, min(largest, width - margins - 28, height - besideCode))
     }
 }
 

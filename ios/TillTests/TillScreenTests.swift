@@ -146,6 +146,9 @@ struct TillScreenTests {
         // margins fit inside it.
         let narrow: CGFloat = SaleLayout.codeSide(width: 340, regular: true)
         #expect(narrow == 256, "340 less two 28 pt margins and the card's 28 pt")
+        // A short window: the whole column fits its height.
+        let short: CGFloat = SaleLayout.codeSide(width: 700, height: 440, regular: true)
+        #expect(short == 200)
         // Never smaller than can be scanned.
         #expect(SaleLayout.codeSide(width: 100, regular: true) == 160)
     }

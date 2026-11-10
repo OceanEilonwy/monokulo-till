@@ -195,7 +195,9 @@ the target; these settle how it's built.
     ideally the board's 240, so the pair fits beside a 340 pt sidebar on a
     1024 pt screen), else the order under the code (`ViewThatFits`). The
     code is the board's 300 pt (240 on a phone) and shrinks to the column
-    it's given, never under 160 pt, so nothing is cut at any width. The
+    it's given, and on iPad to a short window's height (so the amount, the
+    code and the progress show together in a short Stage Manager window),
+    never under 160 pt, so nothing is cut at any width. The
     group is centred in the space between the header and the buttons, and
     scrolls only when it can't fit. The page is laid out inside the safe
     area rather than by measured content margins, so a floating sidebar or
