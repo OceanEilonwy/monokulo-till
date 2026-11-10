@@ -9,6 +9,7 @@ use monokulo_client::{MoneyFormat, PointOfSale, SalePhase, amounts};
 use orf_codec::LineItem;
 use orf_codec::Receipt;
 use till_sales::{Standing, TillSale};
+use till_types::{CurrencyCode, Money, UnixSeconds};
 
 use crate::decimal::Decimal;
 use crate::pos_text;
@@ -79,7 +80,7 @@ pub fn place(sale: &TillSale, location: Option<&str>) -> String {
 
 /// The sale's amount, as the device writes money.
 pub fn amount(sale: &TillSale, money: &dyn MoneyFormat) -> String {
-    amounts::fiat(&sale.amount, &sale.currency, money)
+    amounts::price(&sale.price, money)
 }
 
 /// The exact XMR to pay: rounding it would have the customer underpay.
@@ -184,8 +185,8 @@ pub fn clock(seconds: i64) -> String {
 }
 
 /// Seconds from the clock's now until `expires_at`; 0 once it's passed.
-pub fn seconds_left(expires_at: i64, now: i64) -> i64 {
-    (expires_at - now).max(0)
+pub fn seconds_left(expires_at: UnixSeconds, now: UnixSeconds) -> i64 {
+    (expires_at.0 - now.0).max(0)
 }
 
 /// "15 items" or "1 item": the receipt's whole quantities added up, and a
@@ -239,13 +240,42 @@ pub fn quantity(quantity: f64) -> String {
     Decimal::of(quantity).map_or_else(|| quantity.to_string(), |d| d.stripped().plain())
 }
 
+/// A receipt's amount as money: the receipt's JSON number (which orf-codec
+/// keeps as a double, its wire format) read back to the decimal it was
+/// written as, by its shortest digits as `BigDecimal.valueOf` read it, and
+/// rounded half up to the currency's minor unit. Exact for any amount
+/// orf-codec encodes (at most 9 × 10^15 minor units, fewer than 16
+/// digits). `None` for a currency that isn't a code, or a value that isn't
+/// a number or doesn't fit (core.md decision 212).
+pub fn receipt_money(value: f64, currency: &str) -> Option<Money> {
+    let currency = CurrencyCode::new(currency).ok()?;
+    let minor = Decimal::of(value)?
+        .round(currency.minor_digits())?
+        .units()?;
+    Some(Money::new(minor, currency))
+}
+
 /// "9.00": a receipt's amount in the currency's minor digits with no
-/// symbol, as the design's order lists have it.
+/// symbol, as the design's order lists have it ([`receipt_money`]).
 pub fn plain(value: f64, currency: &str) -> String {
-    let digits = amounts::exponent(&currency.to_ascii_uppercase()).unwrap_or(2);
-    Decimal::of(value)
-        .and_then(|d| d.round(digits))
-        .map_or_else(|| format!("{value:.*}", digits as usize), Decimal::plain)
+    receipt_money(value, currency).map_or_else(
+        || {
+            let digits = CurrencyCode::new(currency).map_or(2, |c| c.minor_digits());
+            format!("{value:.*}", digits as usize)
+        },
+        |money| money.decimal(),
+    )
+}
+
+/// `values` added up as money in `currency`, in its minor units; `None`
+/// when any isn't money ([`receipt_money`]) or the sum doesn't fit.
+pub fn sum_money(values: impl IntoIterator<Item = f64>, currency: &str) -> Option<Money> {
+    let mut sum = receipt_money(0.0, currency)?;
+    for value in values {
+        let money = receipt_money(value, currency)?;
+        sum.minor = sum.minor.checked_add(money.minor)?;
+    }
+    Some(sum)
 }
 
 /// The lines a sale's order card lists: every line when there are at most
@@ -266,8 +296,12 @@ pub fn tax(receipt: &Receipt) -> Option<String> {
     if lines.is_empty() {
         return None;
     }
-    let sum: f64 = lines.iter().map(|line| line.tax_amount).sum();
-    Some(format!("Tax {}", plain(sum, &receipt.currency)))
+    let currency = &receipt.currency;
+    let sum = sum_money(lines.iter().map(|line| line.tax_amount), currency).map_or_else(
+        || plain(lines.iter().map(|line| line.tax_amount).sum(), currency),
+        |sum| sum.decimal(),
+    );
+    Some(format!("Tax {sum}"))
 }
 
 /// "13.88 USD": the receipt's total with the currency's code.
@@ -291,7 +325,7 @@ pub fn receipt_summary(receipt: &Receipt, pos: Option<PointOfSale>) -> String {
 }
 
 /// "4:07 PM" (or "16:07"): a time of day on the device's clock.
-pub fn time_of(at: i64, clock: DeviceClock) -> String {
+pub fn time_of(at: UnixSeconds, clock: DeviceClock) -> String {
     time(at, clock)
 }
 
@@ -322,8 +356,8 @@ mod tests {
             phase,
             found: mine.then(|| found("p1", 2450, "USD", reference, "ord", "2026-10-23T10:00:00Z")),
             device_name: device.map(Into::into),
-            closed_at,
-            refunded_at,
+            closed_at: closed_at.map(UnixSeconds),
+            refunded_at: refunded_at.map(UnixSeconds),
             ..till_sale("o1", "24.50", "USD", "0.1421")
         }
     }
@@ -473,14 +507,14 @@ mod tests {
         assert_eq!(s(mine(Paid, Some(1), None)), "Paid after you closed it");
         assert_eq!(
             s(TillSale {
-                ended_at: Some(1),
+                ended_at: Some(UnixSeconds(1)),
                 ..phased(Paid)
             }),
             "Paid after the code expired"
         );
         assert_eq!(
             s(TillSale {
-                ended_at: Some(2),
+                ended_at: Some(UnixSeconds(2)),
                 ..mine(Paid, Some(1), None)
             }),
             "Paid after you closed it",
@@ -576,17 +610,33 @@ mod tests {
         );
         assert_eq!(plain(9.0, "USD"), "9.00");
         assert_eq!(plain(1125.0, "JPY"), "1125");
+        assert_eq!(plain(0.1234, "CLF"), "0.1234");
+        assert_eq!(
+            sum_money([0.1, 0.2], "usd"),
+            Some(Money::new(30, CurrencyCode::USD)),
+            "exact in minor units, where doubles give 0.30000000000000004"
+        );
         let at = instant("2026-10-22T16:07:00Z");
-        assert_eq!(time_of(at, la(0)), "9:07 AM", "the device's own form");
-        assert_eq!(time_of(at, uk(0)), "16:07");
+        assert_eq!(
+            time_of(UnixSeconds(at), la(0)),
+            "9:07 AM",
+            "the device's own form"
+        );
+        assert_eq!(time_of(UnixSeconds(at), uk(0)), "16:07");
     }
 
     #[test]
     fn a_countdown_is_the_seconds_from_now_to_the_codes_end_and_never_below_none() {
-        assert_eq!(seconds_left(1_000_552, 1_000_000), 552);
-        assert_eq!(seconds_left(1_000_000, 1_000_000), 0);
         assert_eq!(
-            seconds_left(1_000_000, 1_000_009),
+            seconds_left(UnixSeconds(1_000_552), UnixSeconds(1_000_000)),
+            552
+        );
+        assert_eq!(
+            seconds_left(UnixSeconds(1_000_000), UnixSeconds(1_000_000)),
+            0
+        );
+        assert_eq!(
+            seconds_left(UnixSeconds(1_000_000), UnixSeconds(1_000_009)),
             0,
             "a code past its end shows 0:00, not a negative time"
         );

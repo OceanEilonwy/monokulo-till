@@ -11,8 +11,9 @@ use monokulo_client::PointOfSale;
 use reqwest::StatusCode;
 use reqwest::header::{self, HeaderMap};
 use serde::{Deserialize, Serialize};
+use till_types::Secret;
 
-use crate::{BellAddress, BellInfo, PushSubscription};
+use crate::{BellAddress, BellInfo, PosSignIn, PushSubscription};
 
 /// What `POST /v1/register` answers (monokulo's `docs/bell.md`).
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -27,17 +28,15 @@ pub trait BellClient: Send + Sync {
     /// `GET /v1/info`.
     async fn info(&self, bell: &BellAddress) -> Result<BellInfo, BellError>;
 
-    /// `POST /v1/register` for `point_of_sale` in `environment` (decision
-    /// 305): the one request that carries the point of sale's token (A9.1).
-    /// `location_id` is the Square location, or the Clover merchant (a
-    /// Clover merchant is its own location: acceptance D1).
+    /// `POST /v1/register` for `sign_in`'s point of sale, environment
+    /// (decision 305) and location (the Square location, or the Clover
+    /// merchant, its own location: acceptance D1): the one request that
+    /// carries the point of sale's token (A9.1).
     async fn register(
         &self,
         bell: &BellAddress,
-        point_of_sale: PointOfSale,
-        environment: &str,
-        access_token: &str,
-        location_id: &str,
+        sign_in: &PosSignIn,
+        access_token: &Secret,
         subscription: &PushSubscription,
     ) -> Result<BellRegistered, BellError>;
 
@@ -54,7 +53,7 @@ pub struct BellProblem {
     /// The problem's type: the slug of the section of monokulo's
     /// `docs/bell.md` it links to (`rate-limited`). `None` for an answer
     /// that wasn't a problem.
-    pub slug: Option<String>,
+    pub slug: Option<BellSlug>,
     /// The problem's detail, when it had one that isn't blank.
     pub detail: Option<String>,
     /// How many seconds to wait before asking again: `Retry-After`, else the
@@ -71,6 +70,60 @@ impl BellProblem {
             slug: None,
             detail: None,
             retry_after: None,
+        }
+    }
+}
+
+/// A Bell problem's slug (the section of monokulo's `docs/bell.md` its
+/// type links to), named by point of sale where the Bell names it so
+/// (`square-refused`, `clover-unavailable`, B46); [`BellSlug::Other`] for
+/// any other, kept as it came.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum BellSlug {
+    /// `<pos>-refused`: the point of sale refused the Bell's check.
+    Refused(PointOfSale),
+    /// `<pos>-unavailable`: the Bell couldn't reach the point of sale.
+    Unavailable(PointOfSale),
+    TooManyRegistrations,
+    EndpointRegistered,
+    RateLimited,
+    Internal,
+    Other(String),
+}
+
+impl BellSlug {
+    /// The slug `slug`.
+    pub fn from_slug(slug: &str) -> BellSlug {
+        let by_pos = |suffix: &str| {
+            let pos = slug.strip_suffix(suffix)?;
+            PointOfSale::ALL.into_iter().find(|p| p.wire() == pos)
+        };
+        if let Some(pos) = by_pos("-refused") {
+            return BellSlug::Refused(pos);
+        }
+        if let Some(pos) = by_pos("-unavailable") {
+            return BellSlug::Unavailable(pos);
+        }
+        match slug {
+            "too-many-registrations" => BellSlug::TooManyRegistrations,
+            "endpoint-registered" => BellSlug::EndpointRegistered,
+            "rate-limited" => BellSlug::RateLimited,
+            "internal" => BellSlug::Internal,
+            other => BellSlug::Other(other.to_owned()),
+        }
+    }
+}
+
+impl fmt::Display for BellSlug {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BellSlug::Refused(pos) => write!(f, "{}-refused", pos.wire()),
+            BellSlug::Unavailable(pos) => write!(f, "{}-unavailable", pos.wire()),
+            BellSlug::TooManyRegistrations => f.write_str("too-many-registrations"),
+            BellSlug::EndpointRegistered => f.write_str("endpoint-registered"),
+            BellSlug::RateLimited => f.write_str("rate-limited"),
+            BellSlug::Internal => f.write_str("internal"),
+            BellSlug::Other(slug) => f.write_str(slug),
         }
     }
 }
@@ -188,22 +241,20 @@ impl BellClient for BellApi {
     async fn register(
         &self,
         bell: &BellAddress,
-        point_of_sale: PointOfSale,
-        environment: &str,
-        access_token: &str,
-        location_id: &str,
+        sign_in: &PosSignIn,
+        access_token: &Secret,
         subscription: &PushSubscription,
     ) -> Result<BellRegistered, BellError> {
         let body = RegisterBody {
-            point_of_sale: point_of_sale.wire(),
-            environment,
-            access_token,
-            location_id,
+            point_of_sale: sign_in.point_of_sale().wire(),
+            environment: sign_in.environment.wire(),
+            access_token: access_token.expose_str(),
+            location_id: &sign_in.location_id,
             subscription: RegisterSubscription {
                 endpoint: &subscription.endpoint,
                 keys: RegisterKeys {
-                    p256dh: &subscription.p256dh,
-                    auth: &subscription.auth,
+                    p256dh: subscription.p256dh.as_str(),
+                    auth: subscription.auth.expose_str(),
                 },
             },
         };
@@ -269,8 +320,10 @@ impl Answer {
             // The type is the section's address on the Bell's page: `…/docs/bell.md#rate-limited`.
             slug: problem
                 .r#type
-                .map(|t| t.rsplit('#').next().unwrap_or_default().to_owned())
-                .filter(|slug| !slug.is_empty()),
+                .as_deref()
+                .map(|t| t.rsplit('#').next().unwrap_or_default())
+                .filter(|slug| !slug.is_empty())
+                .map(BellSlug::from_slug),
             detail: problem.detail.filter(|d| !d.trim().is_empty()),
             retry_after,
         })

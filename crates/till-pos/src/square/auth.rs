@@ -4,11 +4,12 @@ use std::sync::Arc;
 
 use monokulo_client::{Clock, PointOfSale};
 use serde_json::json;
+use till_types::Secret;
 
 use super::{SquareConfig, answered};
 use crate::http;
 use crate::tokens::{hold, no_lock};
-use crate::{Pkce, PosError, PosTokens, StoreError, TokenLock, TokenStore};
+use crate::{OAuthRedirect, Pkce, PosError, PosTokens, StoreError, TokenLock, TokenStore};
 
 /// An access token with less than this left is refreshed first: a day
 /// (decision 19).
@@ -87,19 +88,17 @@ impl SquareAuth {
     pub async fn finish(
         &self,
         pkce: &Pkce,
-        state: Option<&str>,
-        code: Option<&str>,
-        error: Option<&str>,
+        redirect: &OAuthRedirect,
     ) -> Result<PosTokens, PosError> {
-        if let Some(error) = error {
+        if let Some(error) = &redirect.error {
             return Err(PosError::answered(
                 PointOfSale::Square,
                 0,
                 format!("Square sign-in was cancelled or refused ({error})."),
             ));
         }
-        let code = match code {
-            Some(code) if !code.is_empty() && state == Some(pkce.state.as_str()) => code,
+        let code = match redirect.code() {
+            Some(code) if redirect.state.as_ref() == Some(&pkce.state) => code,
             _ => {
                 return Err(PosError::answered(
                     PointOfSale::Square,
@@ -112,7 +111,7 @@ impl SquareAuth {
             .token(json!({
                 "client_id": self.config.application_id,
                 "grant_type": "authorization_code",
-                "code": code,
+                "code": code.0,
                 "redirect_uri": self.config.redirect_uri,
                 "code_verifier": pkce.verifier,
             }))
@@ -126,7 +125,7 @@ impl SquareAuth {
     /// An access token good for at least a day, refreshed first when it
     /// isn't. A refresh Square refuses (any `4xx`) forgets the sign-in and
     /// says to sign in again.
-    pub async fn access_token(&self) -> Result<String, PosError> {
+    pub async fn access_token(&self) -> Result<Secret, PosError> {
         let _turn = self.turn.lock().await;
         let tokens = self.signed_in_tokens()?;
         if self.lasts(&tokens) {
@@ -175,12 +174,11 @@ impl SquareAuth {
             .ok_or_else(|| PosError::sign_in(PointOfSale::Square, 401, "Sign in to Square."))
     }
 
-    /// Whether `tokens`' access token has more than a day left. One whose
-    /// expiry can't be read is due.
+    /// Whether `tokens`' access token has more than a day left.
     fn lasts(&self, tokens: &PosTokens) -> bool {
         let due =
-            crate::time::from_seconds(self.clock.now().saturating_add(REFRESH_BEFORE_SECONDS));
-        crate::time::parse(&tokens.expires_at).is_some_and(|expires| expires > due)
+            crate::time::from_seconds(self.clock.now().0.saturating_add(REFRESH_BEFORE_SECONDS));
+        tokens.expires_at.timestamp() > due
     }
 
     async fn token(&self, body: serde_json::Value) -> Result<PosTokens, PosError> {

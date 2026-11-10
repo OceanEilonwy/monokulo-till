@@ -9,24 +9,29 @@ use jiff::civil::Time;
 use jiff::tz::TimeZone;
 use serde::{Deserialize, Serialize};
 
+use crate::UnixMillis;
 use crate::model::PaymentPhase;
 use crate::view::SaleView;
 
 /// Minutes after local midnight when the trading day starts: 04:00.
 pub const DEFAULT_DAY_START_MINUTES: u32 = 4 * 60;
 
-/// The shift's window, Unix ms: `until` is `None` while it runs.
+/// The shift's window: `until` is `None` while it runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShiftWindow {
-    pub from: i64,
-    pub until: Option<i64>,
+    pub from: UnixMillis,
+    pub until: Option<UnixMillis>,
 }
 
 impl ShiftWindow {
     /// The window from the shift's marks: from `started` (or the trading
     /// day's start, if later) until `stopped`, when it was stopped after it
     /// started.
-    pub fn of(started: Option<i64>, stopped: Option<i64>, day_start: i64) -> ShiftWindow {
+    pub fn of(
+        started: Option<UnixMillis>,
+        stopped: Option<UnixMillis>,
+        day_start: UnixMillis,
+    ) -> ShiftWindow {
         let from = started.map_or(day_start, |s| s.max(day_start));
         let until = match (started, stopped) {
             (Some(s), Some(t)) if t >= s && t >= from => Some(t),
@@ -36,15 +41,15 @@ impl ShiftWindow {
         ShiftWindow { from, until }
     }
 
-    pub fn contains(&self, at: i64) -> bool {
+    pub fn contains(&self, at: UnixMillis) -> bool {
         at >= self.from && self.until.is_none_or(|u| at < u)
     }
 }
 
-/// When the trading day that `now_ms` falls in started, Unix ms: the last
+/// When the trading day that `now_ms` falls in started: the last
 /// `day_start_minutes` past local midnight at or before `now_ms`.
-pub fn trading_day_start(now_ms: i64, tz: &TimeZone, day_start_minutes: u32) -> i64 {
-    let Ok(now) = Timestamp::from_millisecond(now_ms) else {
+pub fn trading_day_start(now_ms: UnixMillis, tz: &TimeZone, day_start_minutes: u32) -> UnixMillis {
+    let Ok(now) = Timestamp::from_millisecond(now_ms.0) else {
         return now_ms;
     };
     let zoned = now.to_zoned(tz.clone());
@@ -64,7 +69,7 @@ pub fn trading_day_start(now_ms: i64, tz: &TimeZone, day_start_minutes: u32) -> 
             None => return now_ms,
         },
     };
-    start.timestamp().as_millisecond()
+    UnixMillis(start.timestamp().as_millisecond())
 }
 
 /// The shift as a screen shows it: its sales (live ones always, ended ones
@@ -83,15 +88,14 @@ pub struct ShiftSummary {
 
 fn minor(view: &SaleView) -> Option<i64> {
     if let Some(found) = &view.found {
-        return Some(found.amount_minor);
+        return Some(found.amount.minor);
     }
-    let exponent = monokulo_client::amounts::exponent(&view.currency).unwrap_or(2);
-    monokulo_client::amounts::minor_units(&view.amount, exponent)
+    view.price.money().map(|money| money.minor)
 }
 
 /// The shift over `views` (any order), within `window`.
 pub fn summarise(mut views: Vec<SaleView>, window: ShiftWindow) -> ShiftSummary {
-    views.retain(|v| v.live || window.contains(v.created_at * 1000));
+    views.retain(|v| v.live || window.contains(v.created_at.to_millis()));
     views.sort_by(|a, b| b.created_at.cmp(&a.created_at).then(a.sale.cmp(&b.sale)));
     let mut summary = ShiftSummary {
         window,
@@ -103,15 +107,18 @@ pub fn summarise(mut views: Vec<SaleView>, window: ShiftWindow) -> ShiftSummary 
     };
     for v in &views {
         let paid = v.payment.is_some_and(PaymentPhase::is_paid);
-        if paid && window.contains(v.created_at * 1000) {
+        if paid && window.contains(v.created_at.to_millis()) {
             let amount = minor(v).unwrap_or(0);
             summary.paid_count += 1;
-            *summary.paid_total.entry(v.currency.clone()).or_default() += amount;
+            *summary
+                .paid_total
+                .entry(v.price.currency().to_owned())
+                .or_default() += amount;
             if v.cash {
                 summary.cash_in_monero_count += 1;
                 *summary
                     .cash_in_monero_total
-                    .entry(v.currency.clone())
+                    .entry(v.price.currency().to_owned())
                     .or_default() += amount;
             }
         }
@@ -129,33 +136,45 @@ mod tests {
         let tz = TimeZone::get("America/Los_Angeles").unwrap();
         // 2026-11-09 10:00 in Los Angeles (UTC-8) is 18:00 UTC.
         let now = "2026-11-09T18:00:00Z".parse::<Timestamp>().unwrap();
-        let start = trading_day_start(now.as_millisecond(), &tz, DEFAULT_DAY_START_MINUTES);
+        let start = trading_day_start(
+            UnixMillis(now.as_millisecond()),
+            &tz,
+            DEFAULT_DAY_START_MINUTES,
+        );
         assert_eq!(
-            Timestamp::from_millisecond(start).unwrap().to_string(),
+            Timestamp::from_millisecond(start.0).unwrap().to_string(),
             "2026-11-09T12:00:00Z"
         );
         // 02:00 local belongs to the day before.
         let early = "2026-11-09T10:00:00Z".parse::<Timestamp>().unwrap();
-        let start = trading_day_start(early.as_millisecond(), &tz, DEFAULT_DAY_START_MINUTES);
+        let start = trading_day_start(
+            UnixMillis(early.as_millisecond()),
+            &tz,
+            DEFAULT_DAY_START_MINUTES,
+        );
         assert_eq!(
-            Timestamp::from_millisecond(start).unwrap().to_string(),
+            Timestamp::from_millisecond(start.0).unwrap().to_string(),
             "2026-11-08T12:00:00Z"
         );
     }
 
     #[test]
     fn the_window_starts_at_the_later_of_the_shift_and_the_day() {
-        assert_eq!(ShiftWindow::of(None, None, 100).from, 100);
-        assert_eq!(ShiftWindow::of(Some(50), None, 100).from, 100);
-        assert_eq!(ShiftWindow::of(Some(150), None, 100).from, 150);
+        let ms = UnixMillis;
+        assert_eq!(ShiftWindow::of(None, None, ms(100)).from, ms(100));
+        assert_eq!(ShiftWindow::of(Some(ms(50)), None, ms(100)).from, ms(100));
+        assert_eq!(ShiftWindow::of(Some(ms(150)), None, ms(100)).from, ms(150));
         assert_eq!(
-            ShiftWindow::of(Some(150), Some(200), 100),
+            ShiftWindow::of(Some(ms(150)), Some(ms(200)), ms(100)),
             ShiftWindow {
-                from: 150,
-                until: Some(200)
+                from: ms(150),
+                until: Some(ms(200))
             }
         );
         // Stopped before it was started again: running.
-        assert_eq!(ShiftWindow::of(Some(250), Some(200), 100).until, None);
+        assert_eq!(
+            ShiftWindow::of(Some(ms(250)), Some(ms(200)), ms(100)).until,
+            None
+        );
     }
 }

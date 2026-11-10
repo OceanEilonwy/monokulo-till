@@ -4,23 +4,24 @@
 use std::collections::BTreeMap;
 
 use monokulo_client::SalePhase;
+use monokulo_client::payment_uri::PaymentUri;
 use serde::Deserialize;
 use till_pos::FoundSale;
 
-use crate::LedgerError;
 use crate::facts::{Fact, MarkKind, OrderCreated, OrderObserved, OrderRead, PaymentSeen, Tender};
-use crate::ids::{DeviceId, OrderId, SaleKey};
+use crate::ids::{OrderId, SaleKey};
+use crate::{LedgerError, UnixMillis, UnixSeconds};
 
 /// One kept sale's facts, each with the time it's journalled at (Unix ms;
 /// `None` for now).
 pub(crate) struct ImportedSale {
-    pub facts: Vec<(Fact, Option<i64>)>,
+    pub facts: Vec<(Fact, Option<UnixMillis>)>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct KeptCode {
-    uri: String,
+    uri: PaymentUri,
 }
 
 #[derive(Deserialize)]
@@ -33,7 +34,7 @@ struct Kept {
     reference: Option<String>,
     code: KeptCode,
     phase: SalePhase,
-    expires_at: i64,
+    expires_at: UnixSeconds,
     xmr: String,
     address: String,
     #[serde(default)]
@@ -49,19 +50,19 @@ struct Kept {
     #[serde(default)]
     settled: bool,
     #[serde(default)]
-    created_at: i64,
+    created_at: UnixSeconds,
     #[serde(default)]
-    seen_at: Option<i64>,
+    seen_at: Option<UnixSeconds>,
     #[serde(default)]
-    paid_at: Option<i64>,
+    paid_at: Option<UnixSeconds>,
     #[serde(default)]
-    ended_at: Option<i64>,
+    ended_at: Option<UnixSeconds>,
     #[serde(default)]
-    closed_at: Option<i64>,
+    closed_at: Option<UnixSeconds>,
     #[serde(default)]
-    refunded_at: Option<i64>,
+    refunded_at: Option<UnixSeconds>,
     #[serde(default)]
-    refund_pending_at: Option<i64>,
+    refund_pending_at: Option<UnixSeconds>,
     #[serde(default)]
     confirmations: Option<u32>,
     #[serde(default)]
@@ -69,9 +70,9 @@ struct Kept {
     #[serde(default)]
     offered: bool,
     #[serde(default)]
-    kept_as_cash_at: Option<i64>,
+    kept_as_cash_at: Option<UnixSeconds>,
     #[serde(default)]
-    paid_in_cash_at: Option<i64>,
+    paid_in_cash_at: Option<UnixSeconds>,
 }
 
 /// The receipt as the Kotlin model wrote it: the ORF document with its
@@ -79,7 +80,7 @@ struct Kept {
 fn receipt_of(mut value: serde_json::Value) -> Option<orf_codec::Receipt> {
     let map = value.as_object_mut()?;
     map.entry("orf_version")
-        .or_insert_with(|| serde_json::Value::from("0.1.0"));
+        .or_insert_with(|| serde_json::Value::from(orf_codec::ORF_VERSION));
     if let Some(info) = map.get_mut("receipt").and_then(|r| r.as_object_mut()) {
         info.entry("receipt_type")
             .or_insert_with(|| serde_json::Value::from("sale"));
@@ -87,18 +88,9 @@ fn receipt_of(mut value: serde_json::Value) -> Option<orf_codec::Receipt> {
     serde_json::from_value(value).ok()
 }
 
-/// The plain payment URI in a code that may carry the receipt.
-fn plain_uri(uri: &str) -> String {
-    for marker in ["&orf=", "?orf="] {
-        if let Some(at) = uri.find(marker) {
-            return uri[..at].to_owned();
-        }
-    }
-    uri.to_owned()
-}
-
-fn ms(seconds: Option<i64>) -> Option<i64> {
-    seconds.map(|s| s * 1000)
+/// A kept time as the ledger keeps it, in milliseconds.
+fn ms(seconds: Option<UnixSeconds>) -> Option<UnixMillis> {
+    seconds.map(UnixSeconds::to_millis)
 }
 
 /// The facts of every sale in `json`. Sales with the same order id are one
@@ -132,30 +124,29 @@ pub(crate) fn facts_of_shift(json: &str) -> Result<Vec<ImportedSale>, LedgerErro
         let rung = sale
             .found
             .as_ref()
-            .and_then(|f| till_pos::time::unix_seconds(&f.created_at))
-            .or(Some(sale.created_at).filter(|s| *s > 0))
-            .map(|s| s * 1000);
-        let mut facts: Vec<(Fact, Option<i64>)> = Vec::new();
+            .map(|f| UnixSeconds(f.created_at.as_second()))
+            .or(Some(sale.created_at).filter(|s| s.0 > 0))
+            .map(UnixSeconds::to_millis);
+        let mut facts: Vec<(Fact, Option<UnixMillis>)> = Vec::new();
         if let Some(found) = &sale.found {
             facts.push((
                 Fact::PosPaymentSeen(PaymentSeen {
                     pos: found.point_of_sale,
                     payment: found.id.as_str().into(),
-                    amount_minor: found.amount_minor,
-                    currency: found.currency.clone(),
+                    amount: found.amount,
                     tender: if found.cash {
                         Tender::Cash
                     } else {
                         Tender::Monero
                     },
-                    status: "COMPLETED".into(),
-                    device_id: found.device_id.as_deref().map(DeviceId::from),
+                    status: till_pos::PaymentStatus::Completed,
+                    device_id: found.device_id.clone(),
                     device_name: found.device_name.clone(),
                     receipt_number: found.reference.clone(),
                     order_ref: found.order_id.clone(),
                     title: found.title.clone(),
                     created_at: found.created_at.clone(),
-                    updated_at: rung.unwrap_or(0),
+                    updated_at: rung.unwrap_or_default(),
                 }),
                 rung,
             ));
@@ -164,13 +155,13 @@ pub(crate) fn facts_of_shift(json: &str) -> Result<Vec<ImportedSale>, LedgerErro
                 let read = match &receipt {
                     Some(r) => OrderRead::new(
                         key.clone(),
-                        rung.unwrap_or(0),
+                        rung.unwrap_or_default(),
                         Ok(r),
                         sale.customer_name.clone(),
                     ),
                     None => OrderRead {
                         sale: key.clone(),
-                        updated_at: rung.unwrap_or(0),
+                        updated_at: rung.unwrap_or_default(),
                         receipt: None,
                         why: None,
                         customer_name: sale.customer_name.clone(),
@@ -186,11 +177,10 @@ pub(crate) fn facts_of_shift(json: &str) -> Result<Vec<ImportedSale>, LedgerErro
                     sale: key.clone(),
                     order_id: order_id.clone(),
                     url: sale.url.clone(),
-                    payment_uri: plain_uri(&sale.code.uri),
+                    payment_uri: sale.code.uri.plain().into_string(),
                     address: sale.address.clone(),
                     xmr: sale.xmr.clone(),
-                    amount: sale.amount.clone(),
-                    currency: sale.currency.clone(),
+                    price: till_types::Price::new(sale.amount.as_str(), sale.currency.as_str()),
                     reference: sale.reference.clone(),
                     expires_at: sale.expires_at,
                     confirmations_required: sale.confirmations_required,
@@ -203,7 +193,7 @@ pub(crate) fn facts_of_shift(json: &str) -> Result<Vec<ImportedSale>, LedgerErro
                 }),
                 rung,
             ));
-            let observed = |phase, at: Option<i64>| {
+            let observed = |phase, at: Option<UnixMillis>| {
                 (
                     Fact::OrderObserved(OrderObserved {
                         order_id: order_id.clone(),
@@ -255,4 +245,30 @@ pub(crate) fn facts_of_shift(json: &str) -> Result<Vec<ImportedSale>, LedgerErro
         out.push(ImportedSale { facts });
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The kept code's receipt is taken out and nothing else: a parameter
+    /// after `orf` (`tx_amount`) stays in the order's payment URI.
+    #[test]
+    fn the_receipt_is_taken_out_of_the_kept_code_and_nothing_else() {
+        let shift = r#"[
+ {"orderId":"ord_1","amount":"13.88","currency":"USD",
+  "code":{"uri":"monero:8Bx?orf=abc&tx_amount=0.08","hasReceipt":true},
+  "phase":"Waiting","expiresAt":1794244000,"xmr":"0.08","address":"8Bx","createdAt":1794243600}
+]"#;
+        let sales = facts_of_shift(shift).unwrap();
+        let uri = sales[0]
+            .facts
+            .iter()
+            .find_map(|(fact, _)| match fact {
+                Fact::OrderCreated(created) => Some(created.payment_uri.clone()),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(uri, "monero:8Bx?tx_amount=0.08");
+    }
 }

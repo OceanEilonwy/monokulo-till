@@ -9,7 +9,9 @@ use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex};
 
-use till_pos::{CursorStore, PosTokens, StoreError, TokenLock, TokenStore};
+use till_pos::{
+    CursorStore, HandledMarker, PosTokens, Rfc3339Instant, StoreError, TokenLock, TokenStore,
+};
 use wiremock::matchers::any;
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
@@ -63,7 +65,7 @@ impl TokenStore for MemoryTokens {
 pub fn tokens(access: &str, expires: &str, refresh: &str, merchant: &str) -> PosTokens {
     PosTokens {
         access_token: access.into(),
-        expires_at: expires.into(),
+        expires_at: expires.parse().unwrap(),
         refresh_token: Some(refresh.into()),
         merchant_id: merchant.into(),
     }
@@ -89,17 +91,27 @@ impl MemoryCursor {
     }
 }
 
+/// Kept as the app's store keeps it: the text.
 impl CursorStore for MemoryCursor {
-    fn since(&self) -> Result<Option<String>, StoreError> {
-        Ok(self.since_value())
+    fn since(&self) -> Result<Option<Rfc3339Instant>, StoreError> {
+        self.since_value()
+            .map(|since| since.parse().map_err(|e| StoreError(format!("{e}"))))
+            .transpose()
     }
 
-    fn handled(&self) -> Result<Vec<String>, StoreError> {
-        Ok(self.handled_ids())
+    fn handled(&self) -> Result<Vec<HandledMarker>, StoreError> {
+        Ok(self
+            .handled_ids()
+            .iter()
+            .map(|id| id.parse().unwrap())
+            .collect())
     }
 
-    fn save(&self, since: &str, handled: &[String]) {
-        *self.0.lock().unwrap() = (Some(since.into()), handled.to_vec());
+    fn save(&self, since: &Rfc3339Instant, handled: &[HandledMarker]) {
+        *self.0.lock().unwrap() = (
+            Some(since.to_string()),
+            handled.iter().map(ToString::to_string).collect(),
+        );
     }
 }
 
@@ -120,15 +132,22 @@ impl MemoryTenders {
 
 #[cfg(feature = "clover")]
 impl till_pos::clover::TenderStore for MemoryTenders {
-    fn tender_id(&self, merchant_id: &str) -> Result<Option<String>, StoreError> {
-        Ok(self.id(merchant_id))
+    fn tender_id(
+        &self,
+        merchant_id: &till_pos::clover::CloverMerchantId,
+    ) -> Result<Option<till_pos::clover::CloverTenderId>, StoreError> {
+        Ok(self.id(merchant_id.as_str()).map(Into::into))
     }
 
-    fn save(&self, merchant_id: &str, tender_id: Option<&str>) {
+    fn save(
+        &self,
+        merchant_id: &till_pos::clover::CloverMerchantId,
+        tender_id: Option<&till_pos::clover::CloverTenderId>,
+    ) {
         let mut ids = self.0.lock().unwrap();
         match tender_id {
-            Some(id) => ids.insert(merchant_id.into(), id.into()),
-            None => ids.remove(merchant_id),
+            Some(id) => ids.insert(merchant_id.to_string(), id.to_string()),
+            None => ids.remove(merchant_id.as_str()),
         };
     }
 }
@@ -165,26 +184,33 @@ impl TokenStore for Unreadable {
 }
 
 impl CursorStore for Unreadable {
-    fn since(&self) -> Result<Option<String>, StoreError> {
+    fn since(&self) -> Result<Option<Rfc3339Instant>, StoreError> {
         self.refused()
     }
 
-    fn handled(&self) -> Result<Vec<String>, StoreError> {
+    fn handled(&self) -> Result<Vec<HandledMarker>, StoreError> {
         self.refused()
     }
 
-    fn save(&self, _: &str, _: &[String]) {
+    fn save(&self, _: &Rfc3339Instant, _: &[HandledMarker]) {
         self.saved();
     }
 }
 
 #[cfg(feature = "clover")]
 impl till_pos::clover::TenderStore for Unreadable {
-    fn tender_id(&self, _: &str) -> Result<Option<String>, StoreError> {
+    fn tender_id(
+        &self,
+        _: &till_pos::clover::CloverMerchantId,
+    ) -> Result<Option<till_pos::clover::CloverTenderId>, StoreError> {
         self.refused()
     }
 
-    fn save(&self, _: &str, _: Option<&str>) {
+    fn save(
+        &self,
+        _: &till_pos::clover::CloverMerchantId,
+        _: Option<&till_pos::clover::CloverTenderId>,
+    ) {
         self.saved();
     }
 }

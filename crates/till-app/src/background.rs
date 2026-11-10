@@ -20,7 +20,7 @@ use async_trait::async_trait;
 use futures_util::StreamExt;
 use monokulo_client::{Clock, MonokuloApi, PointOfSale, SystemClock, tor};
 use till_ledger::{ClaimPolicy, Process};
-use till_pos::{FoundSale, ListedRefund, PosError, Refunds, SaleOrder, SaleSource};
+use till_pos::{FoundSale, ListedRefund, PosError, Refunds, Rfc3339Instant, SaleOrder, SaleSource};
 use till_sales::{Till, TillSale};
 use till_screens::notification::{self, NotificationInput, OngoingFace, SaleAlert};
 use till_screens::{Device, pos_text};
@@ -136,7 +136,10 @@ impl SaleSource for TimedSource {
         self.inner.refunds()
     }
 
-    async fn refunds_since(&self, begin_time: &str) -> Result<Option<Vec<ListedRefund>>, PosError> {
+    async fn refunds_since(
+        &self,
+        begin_time: &Rfc3339Instant,
+    ) -> Result<Option<Vec<ListedRefund>>, PosError> {
         self.steps
             .time_async("pos.refunds", self.inner.refunds_since(begin_time))
             .await
@@ -331,17 +334,14 @@ async fn look_kept(
         return BackgroundCheck::nothing();
     }
     let device = config.device;
-    let side = match Side::new(
+    let side = Side::new(
         Arc::new(config),
         kept,
         platform.clone(),
         Process::Extension,
         http.clone(),
         clock.clone(),
-    ) {
-        Ok(side) => side,
-        Err(problem) => return BackgroundCheck::failed(problem),
-    };
+    );
     let Some(source) = side.sale_source() else {
         return BackgroundCheck::nothing();
     };

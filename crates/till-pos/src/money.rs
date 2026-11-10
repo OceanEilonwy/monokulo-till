@@ -1,39 +1,15 @@
-//! Amounts in a currency's minor unit (Android: `Receipts.kt`).
+//! Amounts in a currency's minor unit as a receipt's numbers (Android:
+//! `Receipts.kt`).
 
-/// How many digits `currency`'s minor unit has: 2 for USD, 0 for JPY, 3 for
-/// KWD (ISO 4217). A currency this table doesn't know has 2, as Java's
-/// `Currency` answered for one it didn't know.
+#[cfg(any(feature = "square", feature = "clover"))]
+use till_types::CurrencyCode;
+
+/// How many digits `currency`'s minor unit has, as a receipt counts it:
+/// [`CurrencyCode::minor_digits`] (the one ISO 4217 table), and 2 for text
+/// that isn't a code at all, which orf-codec refuses anyway.
+#[cfg(any(feature = "square", feature = "clover"))]
 pub(crate) fn minor_digits(currency: &str) -> u32 {
-    match currency {
-        // The currencies orf-codec encodes with no minor unit, and the
-        // funds and metals ISO 4217 gives none.
-        "BIF" | "CLP" | "DJF" | "GNF" | "ISK" | "JPY" | "KMF" | "KRW" | "PYG" | "RWF" | "UGX"
-        | "UYI" | "VND" | "VUV" | "XAF" | "XOF" | "XPF" | "XAG" | "XAU" | "XBA" | "XBB" | "XBC"
-        | "XBD" | "XDR" | "XPD" | "XPT" | "XSU" | "XTS" | "XUA" | "XXX" => 0,
-        "BHD" | "IQD" | "JOD" | "KWD" | "LYD" | "OMR" | "TND" => 3,
-        "CLF" | "UYW" => 4,
-        _ => 2,
-    }
-}
-
-/// `minor` units of `currency` as a decimal string in the currency's own
-/// digits: 2450 USD is "24.50", 1200 JPY is "1200", 5 EUR is "0.05". This is
-/// the amount the till asks Monokulo for.
-pub fn decimal_amount(minor: i64, currency: &str) -> String {
-    decimal(minor, minor_digits(currency))
-}
-
-/// `minor` with the decimal point `digits` places from the right.
-pub(crate) fn decimal(minor: i64, digits: u32) -> String {
-    let sign = if minor < 0 { "-" } else { "" };
-    let magnitude = minor.unsigned_abs().to_string();
-    let digits = digits as usize;
-    if digits == 0 {
-        return format!("{sign}{magnitude}");
-    }
-    let padded = format!("{magnitude:0>width$}", width = digits + 1);
-    let (whole, fraction) = padded.split_at(padded.len() - digits);
-    format!("{sign}{whole}.{fraction}")
+    CurrencyCode::new(currency).map_or(2, |code| code.minor_digits())
 }
 
 /// `minor` with the decimal point `digits` places from the right, as the
@@ -57,14 +33,13 @@ pub(crate) fn scaled(units: i128, scale: u32) -> f64 {
 mod tests {
     use super::*;
 
+    #[cfg(any(feature = "square", feature = "clover"))]
     #[test]
-    fn decimals_pad_and_sign() {
-        assert_eq!(decimal(5, 2), "0.05");
-        assert_eq!(decimal(-5, 2), "-0.05");
-        assert_eq!(decimal(123_456, 3), "123.456");
-        assert_eq!(decimal(0, 2), "0.00");
-        assert_eq!(decimal(i64::MIN, 0), "-9223372036854775808");
-        assert_eq!(decimal_amount(1000, "KWD"), "1.000");
+    fn digits_are_the_shared_tables() {
+        assert_eq!(minor_digits("KWD"), 3);
+        assert_eq!(minor_digits("CLF"), 4);
+        assert_eq!(minor_digits("jpy"), 0, "any case");
+        assert_eq!(minor_digits("XMR"), 2);
     }
 
     #[cfg(any(feature = "square", feature = "clover"))]

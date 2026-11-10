@@ -24,10 +24,13 @@ use monokulo_client::{Connection, PointOfSale};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use till_bell::{BellAddress, BellRegistration, WakeUpChoice, WakeUpStore};
-use till_pos::clover::{CloverMerchant, TenderStore};
+use till_pos::clover::{CloverMerchant, CloverMerchantId, CloverTenderId, TenderStore};
 use till_pos::square::SquareLocation;
-use till_pos::{CursorStore, Pkce, PosTokens, StoreError, TokenStore};
+use till_pos::{
+    CursorStore, HandledMarker, OAuthState, Pkce, PosTokens, Rfc3339Instant, StoreError, TokenStore,
+};
 use till_sales::{TillSale, shift_json};
+use till_types::{Secret, UnixSeconds};
 
 use crate::{Platform, SecretError};
 
@@ -161,29 +164,19 @@ pub struct PendingSignIn {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CounterKept {
-    pub id: String,
+    pub id: till_pos::PosDeviceId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// Unix seconds.
     #[serde(default)]
-    pub learned_at: i64,
-}
-
-/// `pos`'s word under [`keys::SHOW_SALES`].
-fn show_sales_wire(mode: crate::ShowSales) -> Option<&'static str> {
-    match mode {
-        crate::ShowSales::Alert => None,
-        crate::ShowSales::FloatingWindow => Some("pip"),
-        crate::ShowSales::SideBySide => Some("side"),
-    }
+    pub learned_at: UnixSeconds,
 }
 
 /// `Stores.kt`'s `PkceState`, as kotlinx wrote it.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PkceState {
-    verifier: String,
-    state: String,
+    verifier: Secret,
+    state: OAuthState,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     application_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -287,12 +280,19 @@ impl Store {
         self.put(keys::SQUARE_SKIPPED, None)
     }
 
-    pub fn shift_started_at(&self) -> Result<Option<i64>, SecretError> {
-        Ok(self.get(keys::SHIFT_STARTED)?.and_then(|s| s.parse().ok()))
+    /// Kept as its Unix seconds' digits.
+    pub fn shift_started_at(&self) -> Result<Option<UnixSeconds>, SecretError> {
+        Ok(self
+            .get(keys::SHIFT_STARTED)?
+            .and_then(|s| s.parse().ok())
+            .map(UnixSeconds))
     }
 
-    pub fn set_shift_started_at(&self, at: Option<i64>) -> Result<(), SecretError> {
-        self.put(keys::SHIFT_STARTED, at.map(|at| at.to_string()).as_deref())
+    pub fn set_shift_started_at(&self, at: Option<UnixSeconds>) -> Result<(), SecretError> {
+        self.put(
+            keys::SHIFT_STARTED,
+            at.map(|at| at.0.to_string()).as_deref(),
+        )
     }
 
     pub fn bubble_y(&self) -> Result<Option<i32>, SecretError> {
@@ -441,11 +441,7 @@ impl Store {
             show_others: self.switch(keys::COUNTER_OTHERS)?,
             clover_devices: self.read(keys::CLOVER_DEVICES)?.unwrap_or_default(),
             cash_as_monero: self.switch(keys::CASH_AS_MONERO)?,
-            show_sales: match self.get(keys::SHOW_SALES)?.as_deref() {
-                Some("pip") => crate::ShowSales::FloatingWindow,
-                Some("side") => crate::ShowSales::SideBySide,
-                _ => crate::ShowSales::Alert,
-            },
+            show_sales: crate::ShowSales::from_wire(self.get(keys::SHOW_SALES)?.as_deref()),
         })
     }
 
@@ -538,7 +534,7 @@ impl Store {
             self.put_switch(keys::CASH_AS_MONERO, new.cash_as_monero)?;
         }
         if old.show_sales != new.show_sales {
-            self.put(keys::SHOW_SALES, show_sales_wire(new.show_sales))?;
+            self.put(keys::SHOW_SALES, new.show_sales.wire())?;
         }
         Ok(())
     }
@@ -572,7 +568,7 @@ impl Store {
             self.forget_cursor(pos)?;
         }
         if let Some(merchant) = &model.clover_merchant {
-            self.set_tender_id(&merchant.id, None)?;
+            self.set_tender_id(merchant.id.as_str(), None)?;
         }
         self.set_shift_sales(&[])?;
         Ok(forgotten)
@@ -596,7 +592,7 @@ pub struct Model {
     /// The till watches for sales: on until the cashier stops it.
     pub shift_on: bool,
     /// When this shift began, Unix seconds.
-    pub shift_started_at: Option<i64>,
+    pub shift_started_at: Option<UnixSeconds>,
     /// The cashier went through setup to the end.
     pub setup_done: bool,
     /// Android's bubble: wanted, which side, how far down.
@@ -629,7 +625,7 @@ pub struct Model {
     pub show_others: bool,
     /// What Clover calls the merchant's devices, by id (core.md decision
     /// 137); forgotten with the store.
-    pub clover_devices: std::collections::BTreeMap<String, String>,
+    pub clover_devices: std::collections::BTreeMap<till_pos::PosDeviceId, String>,
     /// A cash sale is treated as Monero as it's found (on unless turned
     /// off, core.md decision 116).
     pub cash_as_monero: bool,
@@ -682,6 +678,20 @@ impl Model {
             every_device: self.alert_every,
             cash_as_monero: self.cash_as_monero,
         }
+    }
+
+    /// The settings the ledger keeps beside [`Model::till_options`]: whether
+    /// other counters' sales are listed, and how a new sale shows up, in
+    /// the words the platform's store keeps them in (decision 214).
+    pub fn ledger_settings(&self) -> [(&'static str, Option<String>); 2] {
+        use till_ledger::view::setting;
+        [
+            (setting::COUNTER_OTHERS, Some(self.show_others.to_string())),
+            (
+                setting::SHOW_SALES,
+                self.show_sales.wire().map(String::from),
+            ),
+        ]
     }
 
     /// How the till channels sales by device (core.md decision 113).
@@ -849,17 +859,34 @@ impl PosCursor {
     }
 }
 
+/// Kept as text: the cursor as `Instant.toString()` wrote it, the handled
+/// payments as their markers' text.
 impl CursorStore for PosCursor {
-    fn since(&self) -> Result<Option<String>, StoreError> {
-        self.logged("read", self.store.since(self.pos))
+    fn since(&self) -> Result<Option<Rfc3339Instant>, StoreError> {
+        let since = self.logged("read", self.store.since(self.pos))?;
+        since
+            .map(|text| {
+                text.parse().map_err(|_| {
+                    StoreError(format!(
+                        "The saved {} cursor {text:?} isn't a time.",
+                        self.pos.display_name()
+                    ))
+                })
+            })
+            .transpose()
     }
 
-    fn handled(&self) -> Result<Vec<String>, StoreError> {
-        self.logged("read", self.store.handled(self.pos))
+    fn handled(&self) -> Result<Vec<HandledMarker>, StoreError> {
+        let handled = self.logged("read", self.store.handled(self.pos))?;
+        Ok(handled.iter().map(|text| text.parse().unwrap()).collect())
     }
 
-    fn save(&self, since: &str, handled: &[String]) {
-        let _ = self.logged("keep", self.store.save_cursor(self.pos, since, handled));
+    fn save(&self, since: &Rfc3339Instant, handled: &[HandledMarker]) {
+        let handled: Vec<String> = handled.iter().map(ToString::to_string).collect();
+        let _ = self.logged(
+            "keep",
+            self.store.save_cursor(self.pos, since.as_str(), &handled),
+        );
     }
 }
 
@@ -877,19 +904,24 @@ impl Tenders {
 }
 
 impl TenderStore for Tenders {
-    fn tender_id(&self, merchant_id: &str) -> Result<Option<String>, StoreError> {
-        logged(
+    fn tender_id(
+        &self,
+        merchant_id: &CloverMerchantId,
+    ) -> Result<Option<CloverTenderId>, StoreError> {
+        let id = logged(
             &self.log,
             "read the tender id".into(),
-            self.store.tender_id(merchant_id),
-        )
+            self.store.tender_id(merchant_id.as_str()),
+        )?;
+        Ok(id.map(CloverTenderId::from))
     }
 
-    fn save(&self, merchant_id: &str, tender_id: Option<&str>) {
+    fn save(&self, merchant_id: &CloverMerchantId, tender_id: Option<&CloverTenderId>) {
         let _ = logged(
             &self.log,
             "keep the tender id".into(),
-            self.store.set_tender_id(merchant_id, tender_id),
+            self.store
+                .set_tender_id(merchant_id.as_str(), tender_id.map(CloverTenderId::as_str)),
         );
     }
 }

@@ -7,15 +7,16 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use monokulo_client::{Clock, PointOfSale};
+use till_types::Secret;
 use tokio::runtime::Handle;
 use tokio::sync::{Mutex, broadcast, watch};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    BellAddress, BellClient, BellError, BellProblem, BellRegistration, DeviceError, PosSignIn,
-    PushFailure, PushState, PushSubscription, PushSubscriptions, WakeUpChoice, WakeUpStatus,
-    WakeUpStore, pos_words,
+    BellAddress, BellClient, BellError, BellProblem, BellRegistration, BellSlug, DeviceError,
+    PosSignIn, PushFailure, PushState, PushSubscription, PushSubscriptions, WakeUpChoice,
+    WakeUpStatus, WakeUpStore, pos_words,
 };
 
 /// Which distributor would carry the dings (decision 91).
@@ -57,7 +58,7 @@ pub trait PosSide: Send + Sync {
     /// An access token for [`BellClient::register`], refreshed if it needs
     /// to be; `None` when the point of sale wants the cashier to sign in
     /// again. It is shown to the Bell once, to prove the location.
-    async fn access_token(&self) -> Result<Option<String>, DeviceError>;
+    async fn access_token(&self) -> Result<Option<Secret>, DeviceError>;
 }
 
 /// A timer-found sale with no ding this long before it is a missed wake-up
@@ -232,7 +233,7 @@ impl BellWakeUps {
             mem.last_ding_at.max(mem.connected_at)
         };
         let Some(heard) = heard else { return };
-        if inner.clock.now() - heard <= MISSED_AFTER.as_secs() as i64 {
+        if inner.clock.now().0 - heard <= MISSED_AFTER.as_secs() as i64 {
             return;
         }
         inner.set_status(WakeUpStatus::MissingWakeups { last_ding_at });
@@ -310,24 +311,22 @@ pub fn problem_status(
     point_of_sale: Option<PointOfSale>,
     now: i64,
 ) -> WakeUpStatus {
-    let Some(slug) = problem.slug.as_deref() else {
+    let Some(slug) = &problem.slug else {
         return status_only(problem);
     };
-    let refused = point_of_sale.map(|pos| format!("{}-refused", pos.wire()));
-    let unavailable = point_of_sale.map(|pos| format!("{}-unavailable", pos.wire()));
-    match (point_of_sale, slug) {
-        (Some(pos), _) if refused.as_deref() == Some(slug) => {
-            WakeUpStatus::refused(pos_words::refused(pos))
+    match slug {
+        BellSlug::Refused(pos) if point_of_sale == Some(*pos) => {
+            WakeUpStatus::refused(pos_words::refused(*pos))
         }
-        (_, "too-many-registrations") => WakeUpStatus::refused(format!(
+        BellSlug::TooManyRegistrations => WakeUpStatus::refused(format!(
             "this {} already has 32 tills registered",
             pos_words::place(point_of_sale)
         )),
-        (_, "endpoint-registered") => WakeUpStatus::refused(format!(
+        BellSlug::EndpointRegistered => WakeUpStatus::refused(format!(
             "this device is registered under another {}",
             pos_words::account(point_of_sale)
         )),
-        (_, "rate-limited") => {
+        BellSlug::RateLimited => {
             let wait = problem
                 .retry_after
                 .unwrap_or(FIRST_RETRY.as_secs() as i64)
@@ -340,10 +339,10 @@ pub fn problem_status(
                 retry_at: Some(now + wait),
             }
         }
-        (_, "internal") => {
+        BellSlug::Internal => {
             WakeUpStatus::unreachable(unreachable_reason(&BellError::Problem(problem.clone())))
         }
-        _ if unavailable.as_deref() == Some(slug) => {
+        BellSlug::Unavailable(pos) if point_of_sale == Some(*pos) => {
             WakeUpStatus::unreachable(unreachable_reason(&BellError::Problem(problem.clone())))
         }
         _ => status_only(problem),
@@ -634,8 +633,8 @@ impl Inner {
             Err(Stop::Cancelled) => return Err(Cancelled),
             Err(Stop::Failed(BellError::Problem(problem))) => problem_status(
                 &problem,
-                signed_in.map(|s| s.point_of_sale),
-                self.clock.now(),
+                signed_in.as_ref().map(PosSignIn::point_of_sale),
+                self.clock.now().0,
             ),
             Err(Stop::Failed(e)) => WakeUpStatus::unreachable(unreachable_reason(&e)),
         };
@@ -659,17 +658,16 @@ impl Inner {
             self.release().await;
             return Ok(WakeUpStatus::NoPos);
         };
-        let point_of_sale = signed_in.point_of_sale;
+        let point_of_sale = signed_in.point_of_sale();
         let Some(environments) = info.get(point_of_sale) else {
             self.release().await;
             return Ok(WakeUpStatus::refused(pos_words::not_rung(point_of_sale)));
         };
         // Environments other than the till's, ones this build doesn't know included, are never read.
-        let Some(application_id) = environments.get(&signed_in.environment) else {
+        let Some(application_id) = environments.get(signed_in.environment.wire()) else {
             self.release().await;
             return Ok(WakeUpStatus::refused(pos_words::not_rung_in(
-                point_of_sale,
-                &signed_in.environment,
+                signed_in.environment,
             )));
         };
         if *application_id != signed_in.application_id {
@@ -725,14 +723,7 @@ impl Inner {
         // Once the Bell has the request, its answer is kept whatever happens to the pass: not a wait to cancel at.
         let answer = self
             .bells
-            .register(
-                bell,
-                point_of_sale,
-                &signed_in.environment,
-                &token,
-                &signed_in.location_id,
-                &subscription,
-            )
+            .register(bell, signed_in, &token, &subscription)
             .await?;
         self.store.set_registration(Some(BellRegistration {
             bell: bell.clone(),
@@ -741,7 +732,7 @@ impl Inner {
             subscription,
             distributor: through,
             point_of_sale: Some(point_of_sale.wire().to_owned()),
-            environment: Some(signed_in.environment.clone()),
+            environment: Some(signed_in.environment.wire().to_owned()),
         }));
         let last_ding_at = self.mem().last_ding_at;
         Ok(match self.status_now() {
@@ -837,7 +828,7 @@ impl Inner {
     /// The pass is over: `outcome` shown, and a retry set for the statuses
     /// that retry by themselves (D5).
     fn settle(self: &Arc<Self>, outcome: WakeUpStatus) {
-        let now = self.clock.now();
+        let now = self.clock.now().0;
         if matches!(outcome, WakeUpStatus::Connected { .. })
             && !matches!(self.status_now(), WakeUpStatus::Connected { .. })
         {
@@ -873,7 +864,7 @@ impl Inner {
     }
 
     fn ding(&self) {
-        let at = self.clock.now();
+        let at = self.clock.now().0;
         self.mem().last_ding_at = Some(at);
         self.update_status(|status| match status {
             WakeUpStatus::Connected { .. } | WakeUpStatus::MissingWakeups { .. } => {

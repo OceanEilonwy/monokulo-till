@@ -21,20 +21,19 @@ fn config(data_dir: &str) -> EngineConfig {
         device: Device::Ipad,
         device_name: "iPad".into(),
         app_version: "0.1.0".into(),
-        platform: "ios".into(),
         debug: false,
         utc_offset: 0,
         hours_24: false,
         square: SquareSetup {
             application_id: "sq0idp-till".into(),
-            sandbox: false,
+            environment: crate::SquareEnvironment::Production,
             redirect_uri: "https://till.monokulo.com/square".into(),
             base_url: None,
             return_uri: None,
         },
         clover: CloverSetup {
             application_id: "clv-till".into(),
-            environment: "sandbox".into(),
+            environment: crate::CloverEnvironment::Sandbox,
             redirect_uri: "https://till.monokulo.com/clover".into(),
             base_url: None,
             return_uri: None,
@@ -75,8 +74,7 @@ fn side(
         process,
         reqwest::Client::new(),
         Arc::new(FixedClock::at(1_761_149_280)),
-    )
-    .unwrap();
+    );
     let claimed = Arc::new(Mutex::new(Vec::new()));
     let into = claimed.clone();
     side.ledger()
@@ -97,8 +95,7 @@ fn payment(id: &str) -> Fact {
     Fact::PosPaymentSeen(PaymentSeen {
         pos: PointOfSale::Square,
         payment: PaymentId::new(id),
-        amount_minor: 1388,
-        currency: "USD".into(),
+        amount: till_pos::Money::new(1388, till_pos::CurrencyCode::USD),
         tender: Tender::Monero,
         status: "COMPLETED".into(),
         device_id: None,
@@ -106,8 +103,8 @@ fn payment(id: &str) -> Fact {
         receipt_number: Some("bP9m".into()),
         order_ref: None,
         title: None,
-        created_at: "2026-10-22T16:07:00Z".into(),
-        updated_at: 1_761_149_220_000,
+        created_at: "2026-10-22T16:07:00Z".parse().unwrap(),
+        updated_at: till_types::UnixMillis(1_761_149_220_000),
     })
 }
 
@@ -119,10 +116,9 @@ fn order(payment: &str, order: &str) -> Fact {
         payment_uri: "monero:8Bx?tx_amount=0.08".into(),
         address: "8Bx".into(),
         xmr: "0.08".into(),
-        amount: "13.88".into(),
-        currency: "USD".into(),
+        price: till_pos::Price::new("13.88", "USD"),
         reference: Some("bP9m".into()),
-        expires_at: 1_893_456_000,
+        expires_at: till_types::UnixSeconds(1_893_456_000),
         confirmations_required: None,
         device_name: None,
         renew: None,
@@ -243,6 +239,50 @@ fn another_point_of_sale_account_deletes_the_old_scopes_sales() {
     );
 }
 
+/// Decision 214: how a new sale shows up is kept in the ledger as the
+/// platform's store keeps it, and a ledger that was given the variant's
+/// name before has it replaced.
+#[test]
+fn show_sales_is_kept_in_the_ledger_as_its_wire_word() {
+    let platform = platform();
+    let dir = tempfile::tempdir().unwrap();
+    let (app, _) = side(&platform, &dir, Process::App);
+    let settings = || app.books().with(|ledger| ledger.settings()).unwrap();
+    // As the engine kept it before.
+    app.books().keep_settings(
+        &[("sales.show", Some("FloatingWindow".to_owned()))],
+        till_types::UnixMillis(1_000),
+    );
+    app.kept
+        .update(|m| m.show_sales = crate::ShowSales::FloatingWindow)
+        .unwrap();
+    app.books().keep_settings(
+        &app.kept.model().ledger_settings(),
+        till_types::UnixMillis(2_000),
+    );
+    assert_eq!(
+        settings().get("sales.show").map(String::as_str),
+        Some("pip")
+    );
+    assert_eq!(
+        crate::ShowSales::from_wire(Some("FloatingWindow")),
+        crate::ShowSales::FloatingWindow,
+        "the old word reads as the same choice"
+    );
+    app.kept
+        .update(|m| m.show_sales = crate::ShowSales::Alert)
+        .unwrap();
+    app.books().keep_settings(
+        &app.kept.model().ledger_settings(),
+        till_types::UnixMillis(3_000),
+    );
+    assert_eq!(settings().get("sales.show"), None);
+    assert_eq!(
+        settings().get("counter.others").map(String::as_str),
+        Some("true")
+    );
+}
+
 /// A scope that changed while the app wasn't running (another location
 /// chosen, say) has its old rows deleted as the app next opens the ledger,
 /// keeping only the current scope's; the extension leaves that to the app.
@@ -318,4 +358,25 @@ fn the_kept_shift_is_imported_once_by_whichever_process_opens_first() {
     // A later look at the same sale tells no one anything.
     app.books().record(order("pay_monero", "ord_1"));
     assert!(claimed.lock().unwrap().is_empty(), "{:?}", claimed.lock());
+}
+
+/// Decision 216: the scope is the kept API address's text, as it was
+/// before the address had a type, so no kept ledger's rows are deleted as
+/// changed (decision 166).
+#[test]
+fn the_scope_of_a_kept_connection_is_as_it_was() {
+    let platform = platform();
+    let kept = Kept::load(Store::new(platform), Arc::new(|_| {})).unwrap();
+    let model = kept.model();
+    assert_eq!(
+        crate::ledger::scope_of(&model),
+        till_ledger::Scope::of(
+            "https://pay.example/api/v1",
+            Some((PointOfSale::Square, "L1"))
+        )
+    );
+    assert_eq!(
+        crate::ledger::scope_of(&model).as_str(),
+        "38d75479b20222a134f0839f65bd110a"
+    );
 }

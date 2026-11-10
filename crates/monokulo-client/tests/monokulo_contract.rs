@@ -21,6 +21,7 @@ use monokulo_client::{
 };
 use reqwest::Url;
 use serde_json::Value;
+use till_types::{CurrencyCode, Money};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate, matchers::any};
 
 const ETAG: &str = "\"entry-1\"";
@@ -130,7 +131,7 @@ impl Contract {
     fn code(&self) -> ConnectCode {
         ConnectCode {
             connect_url: self.url("/apps/connect"),
-            token: format!("ct_{}1", "0".repeat(63)),
+            token: format!("ct_{}1", "0".repeat(63)).into(),
         }
     }
 
@@ -371,8 +372,8 @@ async fn connecting_sends_what_the_handshake_takes_and_keeps_the_key_and_the_ent
         return;
     };
     let connection = stand.api.connect(&stand.code()).await.unwrap();
-    assert!(connection.app_key.starts_with("ak_"));
-    assert_eq!(connection.api, stand.url("/api/v1"));
+    assert!(connection.app_key.expose_str().starts_with("ak_"));
+    assert_eq!(connection.api.as_str(), stand.url("/api/v1"));
     assert_eq!(
         connection.onion_api, None,
         "a Monokulo without an onion address names none"
@@ -387,8 +388,8 @@ async fn connecting_to_a_monokulo_with_an_onion_address_keeps_its_onion_entry_to
     };
     stand.set_onion();
     let connection = stand.api.connect(&stand.code()).await.unwrap();
-    assert!(connection.app_key.starts_with("ak_"));
-    assert_eq!(connection.api, stand.url("/api/v1"));
+    assert!(connection.app_key.expose_str().starts_with("ak_"));
+    assert_eq!(connection.api.as_str(), stand.url("/api/v1"));
     let onion = connection
         .onion_api
         .expect("Monokulo recorded the handshake with an onion address");
@@ -455,7 +456,12 @@ async fn an_order_is_made_with_the_create_order_form_read_as_monokulo_writes_it_
     };
     let order = stand
         .api
-        .create_order(&stand.connection(), "24.50", "USD", Some("#1042"), "sq:abc")
+        .create_order(
+            &stand.connection(),
+            &Money::new(2450, CurrencyCode::USD),
+            Some("#1042"),
+            "sq:abc",
+        )
         .await
         .unwrap();
     assert!(!order.address.is_empty() && order.piconero > 0 && order.expires_at > 0);
@@ -487,7 +493,12 @@ async fn an_order_says_how_many_confirmations_its_payment_has_of_the_stores_thre
     };
     let made = stand
         .api
-        .create_order(&stand.connection(), "24.50", "USD", Some("#1042"), "sq:abc")
+        .create_order(
+            &stand.connection(),
+            &Money::new(2450, CurrencyCode::USD),
+            Some("#1042"),
+            "sq:abc",
+        )
         .await
         .unwrap();
     let read = stand
@@ -515,7 +526,12 @@ async fn an_order_is_renewed_with_its_renew_order_form_as_monokulo_records_it() 
     };
     let made = stand
         .api
-        .create_order(&stand.connection(), "24.50", "USD", Some("#1042"), "sq:abc")
+        .create_order(
+            &stand.connection(),
+            &Money::new(2450, CurrencyCode::USD),
+            Some("#1042"),
+            "sq:abc",
+        )
         .await
         .unwrap();
     let renew = made
@@ -558,7 +574,12 @@ async fn making_an_order_hears_its_recorded_problems_by_name_with_their_detail()
         stand.answer_with("POST /api/v1/orders", name);
         let e = stand
             .api
-            .create_order(&stand.connection(), "24.50", "USD", Some("#1042"), "sq:abc")
+            .create_order(
+                &stand.connection(),
+                &Money::new(2450, CurrencyCode::USD),
+                Some("#1042"),
+                "sq:abc",
+            )
             .await
             .unwrap_err();
         assert_eq!(e.status(), status, "{name}");
@@ -606,7 +627,12 @@ impl Route {
             Route::App => api.app(&connection).await.map(drop),
             Route::Disconnect => api.disconnect(&connection).await,
             Route::CreateOrder => api
-                .create_order(&connection, "24.50", "USD", Some("#1042"), "sq:abc")
+                .create_order(
+                    &connection,
+                    &Money::new(2450, CurrencyCode::USD),
+                    Some("#1042"),
+                    "sq:abc",
+                )
                 .await
                 .map(drop),
             Route::Order => api
@@ -717,7 +743,12 @@ async fn every_sale_event_monokulo_sends_has_its_phase_and_links_its_order() {
     );
     let made = stand
         .api
-        .create_order(&stand.connection(), "24.50", "USD", Some("#1042"), "sq:abc")
+        .create_order(
+            &stand.connection(),
+            &Money::new(2450, CurrencyCode::USD),
+            Some("#1042"),
+            "sq:abc",
+        )
         .await
         .unwrap();
     assert_eq!(made.order_id, order.order_id, "and the one an app made");

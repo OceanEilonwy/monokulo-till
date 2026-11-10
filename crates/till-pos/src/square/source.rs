@@ -5,10 +5,15 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use monokulo_client::{Clock, PointOfSale};
 
-use super::{Money, SquareApi, SquareConfig, SquareLocation, SquarePayment, receipt};
+use super::{
+    Money, SourceType, SquareApi, SquareConfig, SquareLocation, SquareOrderId, SquarePayment,
+    SquarePaymentId, receipt,
+};
 use crate::source::{OVERLAP_SECONDS, is_handled, mark_handled};
+use crate::time::Rfc3339Instant;
 use crate::{
-    CursorStore, FoundSale, ListedRefund, PosError, RefundByTill, Refunds, SaleOrder, SaleSource,
+    CursorStore, FoundSale, ListedRefund, PaymentStatus, PosDeviceId, PosError, RefundByTill,
+    RefundKey, Refunds, SaleOrder, SaleSource,
 };
 
 /// Square as a [`SaleSource`]: the till's location's payments since it
@@ -49,8 +54,8 @@ impl SquareSource {
     /// Whether `payment` is a completed Monero tender: `EXTERNAL`, its
     /// source the tender's name (trimmed, any case).
     fn is_monero(&self, payment: &SquarePayment) -> bool {
-        payment.status == "COMPLETED"
-            && payment.source_type.as_deref() == Some("EXTERNAL")
+        payment.status == PaymentStatus::Completed
+            && payment.source_type == Some(SourceType::External)
             && payment.external_details.as_ref().is_some_and(|e| {
                 e.source.trim().to_lowercase() == self.config.tender_name.trim().to_lowercase()
             })
@@ -61,7 +66,7 @@ impl SquareSource {
 /// the till offers it in Monero, or treats it as Monero, as the cashier
 /// chose.
 fn is_cash(payment: &SquarePayment) -> bool {
-    payment.status == "COMPLETED" && payment.source_type.as_deref() == Some("CASH")
+    payment.status == PaymentStatus::Completed && payment.source_type == Some(SourceType::Cash)
 }
 
 #[async_trait]
@@ -78,31 +83,27 @@ impl SaleSource for SquareSource {
         let since = match self.cursor.since()? {
             Some(since) => since,
             None => {
-                let now = crate::time::format(crate::time::from_seconds(self.clock.now()));
+                let now = Rfc3339Instant::from_second(self.clock.now().0);
                 self.cursor.save(&now, &[]);
                 now
             }
         };
-        let since = crate::time::parse(&since).ok_or_else(|| {
-            PosError::Unreadable(format!("The saved Square cursor {since:?} isn't a time."))
-        })?;
-        let from = crate::time::format(
-            since
-                .checked_sub(jiff::SignedDuration::from_secs(OVERLAP_SECONDS))
-                .unwrap_or(since),
-        );
+        let from = Rfc3339Instant::from(since.timestamp()).earlier_by(OVERLAP_SECONDS);
         let handled = self.cursor.handled()?;
         let payments = self.api.payments(&self.location.id, &from).await?;
         Ok(payments
             .into_iter()
             .filter(|p| self.is_monero(p) || is_cash(p))
-            .map(found_sale)
+            .filter_map(found_sale)
             .filter(|sale| !is_handled(&handled, sale))
             .collect())
     }
 
     /// The location's refunds from `begin_time`, whoever made them.
-    async fn refunds_since(&self, begin_time: &str) -> Result<Option<Vec<ListedRefund>>, PosError> {
+    async fn refunds_since(
+        &self,
+        begin_time: &Rfc3339Instant,
+    ) -> Result<Option<Vec<ListedRefund>>, PosError> {
         let refunds = self.api.refunds(&self.location.id, begin_time).await?;
         Ok(Some(refunds.into_iter().map(listed_refund).collect()))
     }
@@ -114,7 +115,10 @@ impl SaleSource for SquareSource {
         let Some(order_id) = &sale.order_id else {
             return Ok(SaleOrder::default());
         };
-        let order = self.api.order(order_id).await?;
+        let order = self
+            .api
+            .order(&SquareOrderId::new(order_id.as_str()))
+            .await?;
         Ok(SaleOrder {
             receipt: receipt(&order, &self.location, sale),
             customer_name: order.customer_name(),
@@ -135,17 +139,16 @@ impl RefundByTill for SquareSource {
     /// A full refund through Square's API, once whatever the retries: the
     /// idempotency key is `till-refund-<payment id>` (decision 21).
     async fn refund(&self, sale: &FoundSale) -> Result<Option<ListedRefund>, PosError> {
-        let key: String = format!("till-refund-{}", sale.id)
-            .chars()
-            .take(45)
-            .collect();
-        let amount = Money {
-            amount: sale.amount_minor,
-            currency: sale.currency.clone(),
-        };
+        let key = RefundKey::for_payment(&sale.id);
+        let amount = Money::of(sale.amount);
         Ok(self
             .api
-            .refund(&sale.id, &amount, &key, "Not paid in Monero")
+            .refund(
+                &SquarePaymentId::new(sale.id.as_str()),
+                &amount,
+                &key,
+                "Not paid in Monero",
+            )
             .await?
             .map(listed_refund))
     }
@@ -153,36 +156,38 @@ impl RefundByTill for SquareSource {
 
 fn listed_refund(refund: super::SquareRefund) -> ListedRefund {
     ListedRefund {
-        id: refund.id,
-        payment_id: refund.payment_id,
+        id: refund.id.0,
+        payment_id: refund.payment_id.0,
         amount_minor: refund.amount_money.amount,
         status: refund.status,
         created_at: refund.created_at,
     }
 }
 
-fn found_sale(payment: SquarePayment) -> FoundSale {
+/// The sale `payment` is; `None` for one whose currency isn't a currency
+/// code, which no order could be priced in.
+fn found_sale(payment: SquarePayment) -> Option<FoundSale> {
     let cash = is_cash(&payment);
     let money = payment.total_money.unwrap_or(payment.amount_money);
+    let amount = till_types::Money::new(money.amount, money.currency.parse().ok()?);
     let device = payment.device_details;
     let device_name = device
         .as_ref()
         .and_then(|d| d.device_name.as_deref())
         .map(crate::receipts::one_line)
         .filter(|name| !name.is_empty());
-    FoundSale {
-        id: payment.id,
-        amount_minor: money.amount,
-        currency: money.currency,
+    Some(FoundSale {
+        id: payment.id.0,
+        amount,
         reference: payment.receipt_number,
-        order_id: payment.order_id,
+        order_id: payment.order_id.map(|id| id.0),
         created_at: payment.created_at,
         updated_at: payment.updated_at,
         status: Some(payment.status),
-        device_id: device.and_then(|d| d.device_id),
+        device_id: device.and_then(|d| d.device_id).map(PosDeviceId::from),
         device_name,
         cash,
         title: None,
         point_of_sale: PointOfSale::Square,
-    }
+    })
 }

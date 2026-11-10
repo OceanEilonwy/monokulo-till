@@ -3,7 +3,9 @@
 //! their on-device tests of how a screen is drawn and moves, which need real
 //! records without a store, a point of sale or a clock that runs.
 
+use monokulo_client::OrderId;
 use std::sync::Arc;
+use till_types::UnixSeconds;
 
 use till_sales::{TillSale, shift_json};
 use till_screens::bubble::{self, PanelInput, PanelView};
@@ -75,7 +77,7 @@ impl TillPreview {
         shift_json::decode(&self.sales_json).ok()
     }
 
-    fn sale(&self, order_id: &str) -> Option<TillSale> {
+    fn sale(&self, order_id: &OrderId) -> Option<TillSale> {
         self.sales()?.into_iter().find(|s| s.order_id == order_id)
     }
 
@@ -106,7 +108,7 @@ pub fn preview_shift(preview: TillPreview, platform: Arc<dyn Platform>) -> Optio
         disconnected: preview.disconnected,
         problem: preview.problem.clone(),
         sign_in_again: preview.sign_in_again,
-        started_at: preview.started_at,
+        started_at: preview.started_at.map(UnixSeconds),
         filter: preview.filter.unwrap_or(ShiftFilter::All),
         folded: preview.folded,
         counters: Default::default(),
@@ -128,7 +130,7 @@ pub fn preview_shift(preview: TillPreview, platform: Arc<dyn Platform>) -> Optio
 #[cfg_attr(feature = "uniffi", uniffi::export)]
 pub fn preview_sale(
     preview: TillPreview,
-    order_id: String,
+    order_id: OrderId,
     platform: Arc<dyn Platform>,
 ) -> Option<Update> {
     let sale = preview.sale(&order_id)?;
@@ -179,7 +181,7 @@ pub fn preview_sale(
 #[cfg_attr(feature = "uniffi", uniffi::export)]
 pub fn preview_close(
     preview: TillPreview,
-    order_id: String,
+    order_id: OrderId,
     platform: Arc<dyn Platform>,
 ) -> Option<CloseView> {
     let sale = preview.sale(&order_id)?;
@@ -200,7 +202,7 @@ pub fn preview_close(
 #[cfg_attr(feature = "uniffi", uniffi::export)]
 pub fn preview_panel(
     preview: TillPreview,
-    order_id: String,
+    order_id: OrderId,
     platform: Arc<dyn Platform>,
 ) -> Option<PanelView> {
     let sale = preview.sale(&order_id)?;

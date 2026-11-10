@@ -17,6 +17,11 @@ use tokio::time::Instant;
 use super::*;
 use crate::{BellInfo, BellRegistered};
 
+/// `point_of_sale`'s environment `wire` names, which these tests always know.
+fn environment(point_of_sale: PointOfSale, wire: &str) -> till_pos::PosEnvironment {
+    till_pos::PosEnvironment::from_wire(point_of_sale, wire).expect("a known environment")
+}
+
 /// A till signed in to one point of sale, as the scenarios run for it.
 #[derive(Clone, Copy)]
 struct TestTill {
@@ -126,15 +131,16 @@ impl BellClient for FakeBell {
     async fn register(
         &self,
         bell: &BellAddress,
-        point_of_sale: PointOfSale,
-        environment: &str,
-        access_token: &str,
-        location_id: &str,
+        sign_in: &PosSignIn,
+        access_token: &Secret,
         subscription: &PushSubscription,
     ) -> Result<BellRegistered, BellError> {
+        let (point_of_sale, location_id) = (sign_in.point_of_sale(), &sign_in.location_id);
+        let environment = sign_in.environment.wire();
         self.calls.lock().unwrap().push(format!(
-            "POST {} {access_token} {location_id} {}",
+            "POST {} {} {location_id} {}",
             bell.display(),
+            access_token.expose_str(),
             subscription.endpoint
         ));
         self.registered_for.lock().unwrap().push(point_of_sale);
@@ -339,15 +345,14 @@ impl PosSide for FakePos {
             .unwrap()
             .clone()
             .map(|application_id| PosSignIn {
-                point_of_sale: self.point_of_sale,
                 application_id,
-                environment: self.environment.lock().unwrap().clone(),
+                environment: environment(self.point_of_sale, &self.environment.lock().unwrap()),
                 location_id: self.location_id.clone(),
             }))
     }
 
-    async fn access_token(&self) -> Result<Option<String>, DeviceError> {
-        Ok(self.token.lock().unwrap().clone())
+    async fn access_token(&self) -> Result<Option<Secret>, DeviceError> {
+        Ok(self.token.lock().unwrap().clone().map(Secret::new))
     }
 }
 
@@ -355,8 +360,8 @@ impl PosSide for FakePos {
 struct PausedClock(Instant);
 
 impl Clock for PausedClock {
-    fn now(&self) -> i64 {
-        self.0.elapsed().as_secs() as i64
+    fn now_ms(&self) -> monokulo_client::UnixMillis {
+        monokulo_client::UnixMillis(self.0.elapsed().as_millis() as i64)
     }
 }
 
@@ -441,7 +446,7 @@ impl Scenario {
     }
 
     fn now(&self) -> i64 {
-        self.clock.now()
+        self.clock.now().0
     }
 
     fn wake_ups(&self) -> BellWakeUps {
@@ -560,7 +565,7 @@ fn subscription(endpoint: &str, p256dh: &str, auth: &str) -> PushSubscription {
 fn problem(status: u16, slug: Option<&str>) -> BellError {
     BellError::Problem(BellProblem {
         status,
-        slug: slug.map(str::to_owned),
+        slug: slug.map(BellSlug::from_slug),
         detail: None,
         retry_after: None,
     })
@@ -800,10 +805,10 @@ async fn a_bell_without_the_tills_environment_is_refused_for_good_in_words_namin
     assert_eq!(status(&wake_ups), refused(till.not_rung_here));
     assert_eq!(
         status(&wake_ups),
-        refused(&pos_words::not_rung_in(
+        refused(&pos_words::not_rung_in(environment(
             till.point_of_sale,
             till.environment
-        ))
+        )))
     );
     wait(minutes(60)).await;
     assert_eq!(
@@ -839,10 +844,10 @@ async fn a_till_signed_in_elsewhere_is_refused_by_a_bell_for_this_environment_al
     run_current().await;
     assert_eq!(
         status(&wake_ups),
-        refused(&pos_words::not_rung_in(
+        refused(&pos_words::not_rung_in(environment(
             till.point_of_sale,
             till.other_environment
-        ))
+        )))
     );
 }
 
@@ -1055,10 +1060,10 @@ async fn an_environment_this_build_doesnt_know_is_passed_over_beside_the_tills_o
     run_current().await;
     assert_eq!(
         status(&wake_ups),
-        refused(&pos_words::not_rung_in(
+        refused(&pos_words::not_rung_in(environment(
             till.point_of_sale,
             till.environment
-        ))
+        )))
     );
 }
 
@@ -1238,7 +1243,7 @@ async fn each_problem_type_is_its_refusal_and_only_rate_limited_retries_by_itsel
     ) -> WakeUpStatus {
         let problem = BellProblem {
             status,
-            slug: slug.map(str::to_owned),
+            slug: slug.map(BellSlug::from_slug),
             detail: detail.map(str::to_owned),
             retry_after,
         };
@@ -1367,7 +1372,7 @@ async fn a_refusal_waits_for_a_re_pick_a_sign_in_or_a_start_but_rate_limited_com
     s.bell.set_register(|| {
         Err(BellError::Problem(BellProblem {
             status: 429,
-            slug: Some("rate-limited".into()),
+            slug: Some(BellSlug::RateLimited),
             detail: None,
             retry_after: Some(30),
         }))

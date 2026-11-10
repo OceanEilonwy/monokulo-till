@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 
-use crate::LedgerError;
+use crate::{LedgerError, UnixMillis};
 
 /// The schema this build writes. A database with a larger one is refused.
 pub const SCHEMA_VERSION: i64 = 1;
@@ -218,11 +218,11 @@ pub(crate) fn files(path: &Path) -> [PathBuf; 3] {
 
 /// Moves a database that can't be opened aside (`till.db.lost-<ms>`), so a
 /// new one starts in its place and the old one is kept for inspection.
-pub(crate) fn move_aside(path: &Path, now_ms: i64) -> Result<(), LedgerError> {
+pub(crate) fn move_aside(path: &Path, now_ms: UnixMillis) -> Result<(), LedgerError> {
     for file in files(path) {
         if file.exists() {
             let mut lost = file.as_os_str().to_owned();
-            lost.push(format!(".lost-{now_ms}"));
+            lost.push(format!(".lost-{}", now_ms.0));
             std::fs::rename(&file, PathBuf::from(lost))?;
         }
     }

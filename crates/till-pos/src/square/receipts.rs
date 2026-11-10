@@ -82,12 +82,12 @@ pub fn receipt(
     }
     let created = crate::time::parse(&order.created_at)?;
     Some(Receipt {
-        orf_version: "0.1.0".into(),
+        orf_version: orf_codec::ORF_VERSION.into(),
         receipt: ReceiptInfo {
             receipt_id: sale
                 .reference
                 .clone()
-                .unwrap_or_else(|| take_last(&order.id, 8)),
+                .unwrap_or_else(|| take_last(order.id.as_str(), 8)),
             issue_timestamp: receipt_timestamp(created, location.timezone.as_deref()),
             receipt_type: ReceiptType::Sale,
             status: None,

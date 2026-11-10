@@ -18,7 +18,7 @@ pub enum MonokuloError {
         detail: String,
         /// The problem's name, the end of its `type` (`invalid-connect-code`),
         /// when it was one.
-        problem: Option<String>,
+        problem: Option<crate::problems::MonokuloProblem>,
         /// Seconds to wait before asking again, for `rate-limited`: the
         /// problem's `retry_after`, else the `Retry-After` header.
         retry_after: Option<u64>,
@@ -62,8 +62,13 @@ impl MonokuloError {
 
     /// The problem's name (`rate-limited`), when Monokulo answered with one.
     pub fn problem(&self) -> Option<&str> {
+        self.problem_kind().map(|p| p.as_str())
+    }
+
+    /// The problem, when Monokulo answered with one.
+    pub fn problem_kind(&self) -> Option<&crate::problems::MonokuloProblem> {
         match self {
-            MonokuloError::Refused { problem, .. } => problem.as_deref(),
+            MonokuloError::Refused { problem, .. } => problem.as_ref(),
             _ => None,
         }
     }
@@ -105,7 +110,7 @@ mod tests {
         let refused = MonokuloError::Refused {
             status: 422,
             detail: "That code has expired.".into(),
-            problem: Some("invalid-connect-code".into()),
+            problem: Some(crate::problems::MonokuloProblem::InvalidConnectCode),
             retry_after: None,
         };
         assert!(refused.answered());

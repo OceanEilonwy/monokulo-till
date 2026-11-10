@@ -28,7 +28,7 @@ use std::sync::atomic::{AtomicI64, Ordering};
 pub use db::{KEY_SECRET, KeyMaterial, SecretStore};
 pub use effects::{DiffContext, Effect, diff};
 pub use facts::{
-    Action, AlertKind, Fact, MarkKind, OrderCreated, OrderObserved, OrderRead, Outcome,
+    Action, AlertKind, AlertState, Fact, MarkKind, OrderCreated, OrderObserved, OrderRead, Outcome,
     PaymentSeen, Process, Quote, RefundSeen, RefundStatus, ShiftMark, Tender,
 };
 pub use ids::{DeviceId, OrderId, OrderKey, PaymentId, SaleKey, Scope};
@@ -73,25 +73,12 @@ pub enum LedgerError {
     Import(String),
 }
 
-/// The time, Unix ms, as the ledger reads it.
-pub trait Clock: Send + Sync {
-    fn now_ms(&self) -> i64;
-}
+/// The core's one clock (decision 217): the ledger reads it in
+/// milliseconds.
+pub use monokulo_client::{Clock, SystemClock, UnixMillis, UnixSeconds};
 
-/// The device's clock.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct SystemClock;
-
-impl Clock for SystemClock {
-    fn now_ms(&self) -> i64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0)
-    }
-}
-
-/// A clock for tests: it says what it was set to. Clones share the time.
+/// A clock for tests, in milliseconds: it says what it was set to. Clones
+/// share the time.
 #[derive(Clone, Debug, Default)]
 pub struct TestClock(Arc<AtomicI64>);
 
@@ -110,7 +97,7 @@ impl TestClock {
 }
 
 impl Clock for TestClock {
-    fn now_ms(&self) -> i64 {
-        self.0.load(Ordering::SeqCst)
+    fn now_ms(&self) -> UnixMillis {
+        UnixMillis(self.0.load(Ordering::SeqCst))
     }
 }

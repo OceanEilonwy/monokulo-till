@@ -1574,3 +1574,208 @@ window's, in another change.)
      when the push isn't a ding for this till, else the look.
      `is_relayed_ding` and `background_check` stay, for the app and
      Android.
+
+## String typing: wire, money and POS types (2026-11-10)
+
+The words, amounts, times and ids the points of sale, Monokulo and the
+Bell send were `String`s compared with literals, three ISO 4217 tables
+disagreed, and two payment-URI strippers did. Each is now a type, read
+once at the edge, with the stored and sent text unchanged.
+
+208. **A status this build doesn't know is kept, and never holds a
+     cursor.** The words a service writes (Square's payment, refund,
+     source and location statuses; Clover's payment result and order
+     payment state; Monokulo's order status) are enums made with
+     `till_types::wire_enum!`, which keeps any other text as
+     `Other(String)` and writes it back as it came, so a saved
+     `FoundSale` or a journalled `PaymentSeen` is unchanged. Only the
+     known words act: only `COMPLETED` makes a Square sale, `SUCCESS` a
+     Clover one, `REFUNDED` a Clover refund. A Square refund status the
+     till doesn't know is recorded as pending (not done: the sale isn't
+     refunded by it), but unlike `PENDING` it doesn't hold the refunds
+     cursor (decision 163) back: a status Square adds may never turn into
+     one the till knows, and the cursor would stay there for good. A
+     Monokulo order status the till doesn't know leaves the sale waiting,
+     as `pending` does.
+209. **One `CurrencyCode` and one ISO 4217 table, in till-types.** A
+     currency is a `till_types::CurrencyCode`: three ASCII letters, read
+     trimmed and upper-cased (`"usd"` is USD), written as its letters, so
+     stored JSON is unchanged. Its `iso_digits()` come from the one table
+     (monokulo-client's, the fullest: CLF and UYW in four, the metals,
+     funds and test codes in none), which till-pos, monokulo-client and
+     orf-codec now all read; their own tables are gone. It lives in
+     till-types rather than orf-codec because monokulo-client doesn't
+     depend on orf-codec's zstd, and till-types stays serde-only; orf-codec
+     takes it as a path dependency. A `Money { minor, currency }` carries
+     an amount with its currency where they travelled apart: a
+     `FoundSale` and a journalled `PaymentSeen` (flattened, so their JSON
+     keeps `amountMinor`/`amount_minor` and `currency`), Square's refund
+     amount, and Monokulo's create-order, which takes the price as one
+     `&Money`. A shift's summary sums per currency whatever its case.
+210. **A code ISO 4217 doesn't list counts in two digits, everywhere it's
+     counted.** Where an amount is counted in minor units (a sale's
+     price, a receipt's numbers, orf-codec's encoding) a code that isn't on
+     the list ("XMR") has 2, as Java's `Currency` answered and till-pos and
+     orf-codec already did; only the screen's `amounts::fiat` writes a
+     decimal in such a code as it came ("4.5 XMR") rather than as money.
+     orf-codec's encoding changes for the codes its table had wrong: a
+     CLF or UYW receipt is encoded in four digits (one with four-digit
+     amounts, which Square and Clover sales give, was refused before), and
+     the metals, funds and test codes in none. No receipt the till made
+     was in those codes; USD, EUR, GBP and every currency a point of sale
+     takes encode exactly as before, and the corpus is unchanged.
+211. **A point of sale's instants are an `Rfc3339Instant` that keeps its
+     text.** Square's payment and refund times, a `FoundSale`'s, a listed
+     refund's, a journalled payment's, a sign-in's expiry, the payment
+     cursor and Square's `begin_time` are `till_pos::Rfc3339Instant`: a
+     `jiff::Timestamp` read from RFC 3339 with any offset. It writes back
+     the text it was read from, so a kept sale, a cursor, a handled
+     marker and a journal body (and so its hash) are byte for byte what
+     they were, even for Square's `.000Z`; one made from a time is written
+     as Java's `Instant.toString()` wrote it, which is what Square and the
+     stores were always given. Two compare by instant alone. A response
+     whose time isn't one now fails to read where it used to be carried as
+     text and dealt with later (Square and Clover write only RFC 3339);
+     a Square order's time stays text, so an unreadable one still costs
+     only the receipt. The payment cursor's handled payments are
+     `HandledMarker`s (`id` or `id@updated_at`, the same text), matched
+     the same way at Square and Clover; a kept cursor that isn't a time is
+     the store's error, as reading it was the source's.
+212. **A receipt's amounts are counted in minor units, read exactly at the
+     edge of the view.** The order card and page no longer add doubles:
+     each receipt amount becomes `Money` once (`sale_text::receipt_money`),
+     and the subtotal, the taxes and the tip and discount (read in one
+     place, `order_text::Extras`) are summed in minor units. The receipt
+     itself stays orf-codec's, with its amounts as doubles: they are ORF's
+     JSON numbers, and reading them exactly would need serde_json's
+     `arbitrary_precision`, which changes every crate's JSON numbers and
+     breaks the flattened and untagged shapes the core reads. So the edge
+     is where a double is read back to the decimal it was written as, by
+     its shortest digits (as the Android app's `BigDecimal.valueOf` did),
+     which is exact for every amount orf-codec can encode (at most 9 ×
+     10^15 minor units). orf-codec's JSON and encoding are unchanged.
+
+## String typing: app, time and secrets (2026-11-10)
+
+213. **A log line names an action, never prints it.** The engine's two
+     log lines about an action (the one a handler's panic leaves, and the
+     one for an action that waits while nothing kept can be read) say only
+     its name, from a hand-written `Action::name`, where they printed its
+     `Debug`. An action can carry a sign-in's redirect with its code and
+     state, a push subscription's auth secret, the APNs token, a connect
+     link or pasted text, and before the first unlock on iOS every action
+     waits, so each of them reached the system log. Inside the core the
+     credentials themselves are `till_types::Secret`, whose `Debug` is
+     `Secret(..)`: a point of sale's access and refresh tokens, the PKCE
+     verifier, the store's app key, a connect code's token, a push
+     subscription's auth secret (beside its public key, a `P256dh`, so the
+     two can't be swapped) and the APNs token. They serialize as the bare
+     string, so nothing kept changes. The action's fields stay `String`s:
+     they cross to Swift and Kotlin as named fields, and the log no longer
+     prints them. The Monokulo client keys its kept entries by the app key
+     and entry as a pair, no longer formatted into one string.
+214. **How a new sale shows up is kept as `pip` or `side`, in both
+     stores.** The engine gave the ledger's `sales.show` setting the
+     variant's `Debug` (`FloatingWindow`) while the platform's store kept
+     the same choice as `pip`, so a rename would have changed what the
+     ledger holds and anything reading it had to know both spellings.
+     `ShowSales::wire` and `ShowSales::from_wire`, beside the enum, are now
+     the one spelling: `pip`, `side`, or nothing for the default alert, as
+     the platform's store already kept it. `from_wire` also reads
+     `FloatingWindow`, `SideBySide` and `Alert` as their choices, and the
+     engine keeps its settings whenever they differ from the ledger's, so a
+     ledger holding the old word has it replaced at the next keep. The two
+     settings' names are constants in the ledger's `setting` module. A
+     typed `Setting` enum for every ledger setting was left: the ledger
+     can't name `ShowSales`, which is till-screens'.
+215. **A build names its points of sale's environments as enums.**
+     `CloverSetup.environment` was a string the engine read at start, and a
+     build that misspelt it had an engine that refused every action, Square
+     tills included; `SquareSetup.sandbox` was a bool. Both are now enums
+     crossing to Swift and Kotlin (`CloverEnvironment`,
+     `SquareEnvironment`, till-app's mirrors of till-pos's, since the leaf
+     crates never take UniFFI). Each app reads its build setting into the
+     enum as it starts and stops there on a name that isn't one. Inside the
+     core a `PosEnvironment` (a Square or a Clover environment) is what a
+     sign-in registers with a Bell under, spelt as the Bell spells it, so
+     `BellClient::register` takes the typed sign-in and the token as a
+     `Secret` instead of four adjacent strings.
+216. **The ledger's store key is the kept API address, spelt as kept.**
+     A connection's `api` is now an `ApiUrl`, written once from the URL the
+     connect resolved and read back verbatim; the scope hashes its text, or
+     nothing with no store, as before. It isn't normalised for the key: a
+     scope that changes has its rows deleted at the next open (decision
+     166), and a connection the Android app kept may be spelt differently
+     from how a parsed URL would print it (a default port, say), so a
+     normalised key could delete a till's sales. The one way a store's
+     address gets written is from a parsed URL at connect, so one store
+     can't come to have two spellings without a new connection, which is a
+     new scope anyway.
+217. **One clock, and a time's unit in its type.** The core had two clock
+     traits, monokulo-client's in seconds and the ledger's in
+     milliseconds, bridged by hand-written `* 1000` and `div_euclid(1000)`
+     at a dozen places. There is now one `Clock`, monokulo-client's, which
+     the ledger re-exports: `now_ms` gives a `UnixMillis`, `now` (from it)
+     a `UnixSeconds`, both till-types' and both serialized as the bare
+     number, so nothing kept changes. The rule: the ledger keeps
+     milliseconds (its facts, its columns, its shift window, which is now
+     typed, `UnixMillis` an SQLite INTEGER); Monokulo, the points of sale,
+     the sales and the screens keep seconds; a time crosses from one to the
+     other only through `UnixSeconds::to_millis` or
+     `UnixMillis::to_seconds` (rounded down), and reaches Swift and Kotlin
+     as seconds in an `i64`. The kept shift start, the counter's learned
+     time and the till's shift start are typed; the sales' own times
+     (`TillSale`, `SaleView`) and the ledger's facts are still `i64`s of
+     their documented unit, to be typed when next touched.
+
+## String typing: sale prices and order ids (2026-11-10)
+
+What the first pass left: a sale's price, and Monokulo's order id, were
+still strings across the till, the ledger, the screens and the bridge.
+
+218. **A sale's price is a `Price` that keeps Monokulo's text.** The
+     price an order was made for (`OrderCreated`, the ledger's order, a
+     `SaleView`, a `TillSale`) is a `till_types::Price`: Monokulo's
+     `amount` and `currency` texts, read once, where the order is
+     recorded, into the `Money` they are. It writes both texts back as
+     they came, flattened into the struct it's in, so a kept shift (still
+     the Kotlin JSON, byte for byte) and a journalled order are
+     unchanged; a price whose text isn't a decimal in a currency code
+     still reads, with no money, and is shown as it came, as
+     `amounts::fiat` showed it. The screens sum and write it from its
+     money (`amounts::price`); a shift's totals sum it in minor units.
+     Not `Money` alone: that would rewrite "24.5" as "24.50" and "usd"
+     as "USD" in kept JSON, and lose what an order in a code ISO 4217
+     doesn't list was priced at. Nothing on the bridge carries it: the
+     views send formatted strings, and the Live Activity's `amount` and
+     `currency` are the price's two texts.
+219. **One `OrderId`, from Monokulo's answer to the platform's tap.**
+     monokulo-client's `OrderId` (`till_types::text_id!`) is the order id
+     of an `Order` and a sale event, the ledger's `OrderId` (re-exported,
+     the same type), a `TillSale`'s and a `SaleView`'s, every `Till`,
+     `TillRunner` and `Books` method's, the engine's sets and choices,
+     and the `order_id` of every `Action`, `Screen`, `Update`, `Effect`
+     and view record. It crosses UniFFI as a custom type over `String`,
+     declared once in till-screens and used from till-app with
+     `use_remote_type!`, so Swift and Kotlin see `OrderId` as an alias of
+     `String` and their code is unchanged. It's still the handle a screen
+     uses for a sale, so a cash sale with no order is `cash:<payment>`
+     and a sale waiting for its order its sale key, as before: those are
+     what the platforms already keep (notification ids, Picture in
+     Picture's sale); carrying `SaleKey` instead would change that text.
+     The macro's ids read as their text (`Deref<Target = str>`, comparison
+     with text) and are made only through `new` and `From`.
+
+## String typing: the rest of the times (2026-11-10)
+
+220. **Every time in the core has its unit's type.** What decision 217
+     left as `i64`s is typed: the ledger's facts, marks, rows and imported
+     times are `UnixMillis` (an order's expiry, Monokulo's, `UnixSeconds`),
+     and the sales' times (`SaleView`, `TillSale`) are `UnixSeconds`, as
+     are the screens' time words, countdowns and shift start and the Clover
+     source's look-back. Nothing kept changes: both serialize as the bare
+     number and `UnixMillis` binds as an INTEGER. A time leaves the core
+     as an `i64` of seconds where a Swift or Kotlin record carries it (the
+     screens' records, the Live Activity, `DeviceClock`, previews), and is
+     typed again as it comes in (`DeviceClock::time_now`); a custom UniFFI
+     type would have changed the bindings, so they keep `i64`.

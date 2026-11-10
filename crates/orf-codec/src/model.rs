@@ -42,6 +42,16 @@ pub struct ReceiptInfo {
     pub status: Option<Status>,
 }
 
+impl ReceiptInfo {
+    /// When it was issued, read as the codec reads it (RFC 3339 with any
+    /// offset, any fraction of a second dropped); `None` when it isn't a
+    /// timestamp.
+    pub fn issued(&self) -> Option<jiff::Timestamp> {
+        let (secs, _) = crate::codec::parse_timestamp(&self.issue_timestamp)?;
+        jiff::Timestamp::from_second(secs).ok()
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ReceiptType {

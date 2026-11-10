@@ -16,8 +16,9 @@ use till_pos::clover::{
     CloverApi, CloverAuth, CloverConfig, CloverEnvironment, CloverMerchant, CloverSource,
 };
 use till_pos::square::{SquareApi, SquareAuth, SquareConfig, SquareSource};
-use till_pos::{SaleSource, TokenLock, TokenStore};
+use till_pos::{PosEnvironment, SaleSource, TokenLock, TokenStore};
 use till_sales::{Books, LiveStore, PosSwitchSide, RunnerSide};
+use till_types::Secret;
 
 use crate::ledger::AppLedger;
 use crate::store::{Kept, Model, PosCursor, PosTokenStore, Store, Tenders};
@@ -30,7 +31,6 @@ pub(crate) struct Side {
     pub http: reqwest::Client,
     pub clock: Arc<dyn Clock>,
     lock: Arc<dyn TokenLock>,
-    clover_environment: CloverEnvironment,
     ledger: Arc<AppLedger>,
     books: Arc<Books>,
     live: OnceLock<Weak<LiveStore>>,
@@ -38,9 +38,7 @@ pub(crate) struct Side {
 }
 
 impl Side {
-    /// The parts over `kept`, with the ledger as `process` opens it; a
-    /// build whose Clover environment isn't one is refused, as the Android
-    /// build was.
+    /// The parts over `kept`, with the ledger as `process` opens it.
     pub fn new(
         config: Arc<EngineConfig>,
         kept: Arc<Kept>,
@@ -48,14 +46,7 @@ impl Side {
         process: Process,
         http: reqwest::Client,
         clock: Arc<dyn Clock>,
-    ) -> Result<Side, String> {
-        let clover_environment = CloverEnvironment::from_wire(&config.clover.environment)
-            .ok_or_else(|| {
-                format!(
-                    "The build's Clover environment isn't one: {}",
-                    config.clover.environment
-                )
-            })?;
+    ) -> Side {
         let ledger = Arc::new(AppLedger::new(
             &config.data_dir,
             platform,
@@ -67,7 +58,7 @@ impl Side {
         let claims = (process == Process::App).then_some(ClaimPolicy::All);
         let books = Arc::new(Books::new(ledger.clone(), claims));
         books.set_clock(clock.clone());
-        Ok(Side {
+        Side {
             lock: Arc::new(FileLock::new(
                 PathBuf::from(&config.data_dir).join("sign-in.lock"),
             )),
@@ -77,10 +68,14 @@ impl Side {
             kept,
             http,
             clock,
-            clover_environment,
             live: OnceLock::new(),
             wake_ups: OnceLock::new(),
-        })
+        }
+    }
+
+    /// The build's Clover.
+    fn clover_environment(&self) -> CloverEnvironment {
+        self.config.clover.environment.into()
     }
 
     /// Hands the side the parts made after it.
@@ -124,7 +119,7 @@ impl Side {
             slug: "till".into(),
             name: "Monokulo Till".into(),
             version: self.config.app_version.clone(),
-            platform: self.config.platform.clone(),
+            platform: self.config.platform().to_owned(),
             device_name: self.config.device_name.chars().take(40).collect(),
         }
     }
@@ -168,7 +163,11 @@ impl Side {
             .map(str::to_owned)
             .or(model.square_application_id)
             .unwrap_or_else(|| setup.application_id.clone());
-        let mut config = SquareConfig::new(application_id, setup.sandbox, &setup.redirect_uri);
+        let mut config = SquareConfig::new(
+            application_id,
+            setup.environment == crate::SquareEnvironment::Sandbox,
+            &setup.redirect_uri,
+        );
         config.base_url = self.base_url(model.square_base_url, &setup.base_url);
         config
     }
@@ -180,8 +179,11 @@ impl Side {
             .map(str::to_owned)
             .or(model.clover_application_id)
             .unwrap_or_else(|| setup.application_id.clone());
-        let mut config =
-            CloverConfig::new(application_id, self.clover_environment, &setup.redirect_uri);
+        let mut config = CloverConfig::new(
+            application_id,
+            self.clover_environment(),
+            &setup.redirect_uri,
+        );
         config.user_agent = format!("Till/{}", self.config.app_version);
         config.base_url = self.base_url(model.clover_base_url, &setup.base_url);
         config
@@ -289,7 +291,7 @@ impl Side {
             }),
             PointOfSale::Clover => {
                 if let Some(merchant) = self.model().clover_merchant
-                    && let Err(e) = self.store().set_tender_id(&merchant.id, None)
+                    && let Err(e) = self.store().set_tender_id(merchant.id.as_str(), None)
                 {
                     self.log(format!("till-core: couldn't forget the tender id: {e}"));
                 }
@@ -396,10 +398,9 @@ impl PosSide for Side {
                         // The environment is the application's (decision 305).
                         let config = self.square_config(None);
                         Some(PosSignIn {
-                            point_of_sale: PointOfSale::Square,
-                            environment: config.environment().to_owned(),
+                            environment: PosEnvironment::Square(config.environment()),
                             application_id: config.application_id,
-                            location_id: location.id,
+                            location_id: location.id.0,
                         })
                     }
                     _ => None,
@@ -414,10 +415,9 @@ impl PosSide for Side {
                     .is_some();
                 match model.clover_merchant {
                     Some(merchant) if signed_in => Some(PosSignIn {
-                        point_of_sale: PointOfSale::Clover,
                         application_id: self.clover_config(None).application_id,
-                        environment: self.clover_environment.wire().to_owned(),
-                        location_id: merchant.id,
+                        environment: PosEnvironment::Clover(self.clover_environment()),
+                        location_id: merchant.id.into(),
                     }),
                     _ => None,
                 }
@@ -426,7 +426,7 @@ impl PosSide for Side {
         })
     }
 
-    async fn access_token(&self) -> Result<Option<String>, DeviceError> {
+    async fn access_token(&self) -> Result<Option<Secret>, DeviceError> {
         let token = match self.model().point_of_sale {
             Some(PointOfSale::Square) => self.square_auth(None).access_token().await,
             Some(PointOfSale::Clover) => self.clover_auth(None).access_token().await,

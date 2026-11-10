@@ -5,7 +5,10 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use futures_util::StreamExt;
-use monokulo_client::{Clock, Connection, MonokuloApi, PointOfSale, StreamEvent, problems};
+use monokulo_client::OrderId;
+use monokulo_client::{
+    Clock, Connection, MonokuloApi, PointOfSale, StreamEvent, SystemClock, problems,
+};
 use till_pos::{FoundSale, PosError, RefundByTill, Refunds, SaleOrder, SaleSource};
 use tokio::runtime::Handle;
 use tokio::sync::watch;
@@ -248,7 +251,7 @@ impl TillRunner {
                 tokio::join!(
                     shift.run(),
                     inner.follow(&till),
-                    till.lapse_on_time(wall_ms),
+                    till.lapse_on_time(|| SystemClock.now_ms()),
                     till.follow_confirmations(),
                 );
             })
@@ -322,7 +325,7 @@ impl TillRunner {
     /// Refunds the sale's POS sale ([`Till::refund`]), closing it first when
     /// `close` says (the close sheet's "No"). The task ends when the POS
     /// has answered; `None` with no till.
-    pub fn refund(&self, order_id: &str, close: bool) -> Option<JoinHandle<()>> {
+    pub fn refund(&self, order_id: &OrderId, close: bool) -> Option<JoinHandle<()>> {
         let till = self.till()?;
         let order_id = order_id.to_owned();
         Some(self.inner.runtime.spawn(async move {
@@ -335,7 +338,7 @@ impl TillRunner {
 
     /// Where `order_id` stands in the till itself, ahead of the runner's
     /// copy.
-    pub fn standing(&self, order_id: &str) -> Option<Standing> {
+    pub fn standing(&self, order_id: &OrderId) -> Option<Standing> {
         self.till()?
             .state()
             .sale(order_id)
@@ -344,7 +347,7 @@ impl TillRunner {
 
     /// The refund sheet's "I've refunded it": whether the point of sale now
     /// shows the sale refunded (decision 130).
-    pub async fn confirm_refund(&self, order_id: &str) -> bool {
+    pub async fn confirm_refund(&self, order_id: &OrderId) -> bool {
         match self.till() {
             Some(till) => till.confirm_refund(order_id).await,
             None => false,
@@ -353,28 +356,28 @@ impl TillRunner {
 
     /// Closes the sale for now (the close sheet's "Not sure"): its code
     /// comes down, it stays in the shift.
-    pub fn close(&self, order_id: &str) {
+    pub fn close(&self, order_id: &OrderId) {
         if let Some(till) = self.till() {
             till.close(order_id);
         }
     }
 
     /// "Show the code again" on a closed sale.
-    pub fn reopen(&self, order_id: &str) {
+    pub fn reopen(&self, order_id: &OrderId) {
         if let Some(till) = self.till() {
             till.reopen(order_id);
         }
     }
 
     /// "Keep as cash" on an offered cash sale.
-    pub fn keep_as_cash(&self, order_id: &str) {
+    pub fn keep_as_cash(&self, order_id: &OrderId) {
         if let Some(till) = self.till() {
             till.keep_as_cash(order_id);
         }
     }
 
     /// "Paid in cash" on a cash sale with a code.
-    pub fn paid_in_cash(&self, order_id: &str) {
+    pub fn paid_in_cash(&self, order_id: &OrderId) {
         if let Some(till) = self.till() {
             till.paid_in_cash(order_id);
         }
@@ -508,20 +511,11 @@ impl Inner {
     }
 }
 
-/// The device's wall clock in Unix milliseconds: what a code's end is
-/// waited for by.
-fn wall_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use monokulo_client::{AppIdentity, FixedClock};
+    use monokulo_client::{AppIdentity, FixedClock, UnixSeconds};
 
     use till_ledger::{Fact, OrderCreated, OrderId, SaleKey};
 
@@ -576,10 +570,9 @@ mod tests {
             payment_uri: "monero:8Cy?tx_amount=0.03".into(),
             address: "8Cy".into(),
             xmr: "0.03".into(),
-            amount: "5.00".into(),
-            currency: "USD".into(),
+            price: till_types::Price::new("5.00", "USD"),
             reference: None,
-            expires_at: 0,
+            expires_at: UnixSeconds(0),
             confirmations_required: None,
             device_name: None,
             renew: None,
@@ -648,22 +641,25 @@ mod tests {
         assert_eq!(side.reads.load(Ordering::SeqCst), 1, "one shift at a time");
         until(&runner, |s| s.till.sales.len() == 1).await;
         assert_eq!(
-            runner.standing("ord_2"),
+            runner.standing(&"ord_2".into()),
             Some(Standing::Live(monokulo_client::SalePhase::Waiting))
         );
         runner.close_live();
-        until(&runner, |s| s.till.sales[0].closed_at == Some(70)).await;
+        until(&runner, |s| {
+            s.till.sales[0].closed_at == Some(UnixSeconds(70))
+        })
+        .await;
         assert_eq!(
             side.books
                 .view(&SaleKey::Order(OrderId::new("ord_2")))
                 .unwrap()
                 .closed_at,
-            Some(70),
+            Some(UnixSeconds(70)),
             "and kept"
         );
         runner.stop();
         assert!(!runner.state().running);
-        runner.reopen("ord_2");
+        runner.reopen(&"ord_2".into());
         until(&runner, |s| s.till.sales[0].closed_at.is_none()).await;
     }
 
@@ -673,11 +669,10 @@ mod tests {
     async fn a_square_sales_refund_fails_with_nothing_sent_so_the_till_never_marks_it_refunded() {
         let sale = FoundSale {
             id: "p_1".into(),
-            amount_minor: 840,
-            currency: "USD".into(),
+            amount: till_types::Money::new(840, "USD".parse().unwrap()),
             reference: Some("bP9m".into()),
             order_id: Some("o_1".into()),
-            created_at: "2026-10-22T22:50:00Z".into(),
+            created_at: "2026-10-22T22:50:00Z".parse().unwrap(),
             updated_at: None,
             status: None,
             device_id: None,

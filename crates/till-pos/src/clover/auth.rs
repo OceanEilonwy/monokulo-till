@@ -5,21 +5,22 @@ use std::sync::Arc;
 use monokulo_client::{Clock, PointOfSale};
 use serde::Deserialize;
 use serde_json::json;
+use till_types::Secret;
 
-use super::{CloverConfig, clover_error, retry_after};
+use super::{CloverConfig, CloverMerchantId, clover_error, retry_after};
 use crate::http;
 use crate::tokens::{hold, no_lock};
-use crate::{Pkce, PosError, PosTokens, StoreError, TokenLock, TokenStore};
+use crate::{OAuthRedirect, Pkce, PosError, PosTokens, StoreError, TokenLock, TokenStore};
 
 /// Clover's token answer: the expirations are Unix seconds, where the rest
 /// of Clover is milliseconds.
 #[derive(Deserialize)]
 struct TokenAnswer {
-    access_token: String,
+    access_token: Secret,
     #[serde(default)]
     access_token_expiration: Option<i64>,
     #[serde(default)]
-    refresh_token: Option<String>,
+    refresh_token: Option<Secret>,
 }
 
 /// Clover's v2 OAuth for a low-trust app: the authorization code with
@@ -87,7 +88,7 @@ impl CloverAuth {
                 ("redirect_uri", &self.config.redirect_uri),
                 ("code_challenge", &challenge),
                 ("code_challenge_method", "S256"),
-                ("state", &pkce.state),
+                ("state", pkce.state.as_str()),
             ],
         )
     }
@@ -105,43 +106,45 @@ impl CloverAuth {
     pub async fn finish(
         &self,
         pkce: &Pkce,
-        merchant_id: Option<&str>,
-        code: Option<&str>,
-        state: Option<&str>,
-        error: Option<&str>,
+        redirect: &OAuthRedirect,
     ) -> Result<PosTokens, PosError> {
         let refused = |message: String| PosError::answered(PointOfSale::Clover, 0, message);
-        if let Some(error) = error {
+        if let Some(error) = &redirect.error {
             return Err(refused(format!(
                 "Clover sign-in was cancelled or refused ({error})."
             )));
         }
-        if state.is_some_and(|state| state != pkce.state) {
+        if redirect
+            .state
+            .as_ref()
+            .is_some_and(|state| *state != pkce.state)
+        {
             return Err(refused(
                 "That sign-in wasn't the one this app started. Try again.".into(),
             ));
         }
-        let (Some(code), Some(merchant_id)) = (code.filter(|c| !c.is_empty()), merchant_id) else {
+        let (Some(code), Some(merchant_id)) = (redirect.code(), redirect.merchant_id.as_deref())
+        else {
             return Err(refused(
                 "Clover didn't say which merchant signed in. Try again.".into(),
             ));
         };
-        if !is_merchant_id(merchant_id) {
+        let Some(merchant_id) = CloverMerchantId::new(merchant_id) else {
             return Err(refused(
                 "Clover didn't say which merchant signed in. Try again.".into(),
             ));
-        }
+        };
         let answer = self
             .token(
                 "oauth/v2/token",
                 json!({
                     "client_id": self.config.application_id,
-                    "code": code,
+                    "code": code.0,
                     "code_verifier": pkce.verifier,
                 }),
             )
             .await?;
-        let tokens = self.tokens(answer, merchant_id);
+        let tokens = self.tokens(answer, merchant_id.as_str());
         let _turn = self.turn.lock().await;
         let _held = hold(&self.lock).await?;
         self.store.save(Some(tokens.clone()));
@@ -153,7 +156,7 @@ impl CloverAuth {
     /// refreshed first when it hasn't. A refresh Clover refuses (a `4xx`
     /// other than `429`) signs out and says to sign in again; a busy or
     /// unreachable Clover leaves the sign-in as it was, for the next try.
-    pub async fn access_token(&self) -> Result<String, PosError> {
+    pub async fn access_token(&self) -> Result<Secret, PosError> {
         let _turn = self.turn.lock().await;
         let tokens = self.signed_in_tokens()?;
         if self.lasts(&tokens) {
@@ -173,15 +176,15 @@ impl CloverAuth {
     /// merchant's tokens were reset): a new one, refreshed now, unless
     /// another request (or process) already did. The same rules as
     /// [`access_token`](Self::access_token) (decision 139).
-    pub async fn refresh_after_refusal(&self, refused: &str) -> Result<String, PosError> {
+    pub async fn refresh_after_refusal(&self, refused: &Secret) -> Result<Secret, PosError> {
         let _turn = self.turn.lock().await;
         let tokens = self.signed_in_tokens()?;
-        if tokens.access_token != refused {
+        if tokens.access_token != *refused {
             return Ok(tokens.access_token);
         }
         let _held = hold(&self.lock).await?;
         let tokens = self.signed_in_tokens()?;
-        if tokens.access_token != refused {
+        if tokens.access_token != *refused {
             return Ok(tokens.access_token);
         }
         self.refresh(tokens).await
@@ -198,20 +201,20 @@ impl CloverAuth {
             .ok_or_else(|| PosError::sign_in(PointOfSale::Clover, 401, "Sign in to Clover."))
     }
 
-    /// Whether `tokens`' access token has more than five minutes left. One
-    /// whose expiry can't be read is due.
+    /// Whether `tokens`' access token has more than five minutes left.
     fn lasts(&self, tokens: &PosTokens) -> bool {
         let due = crate::time::from_seconds(
             self.clock
                 .now()
+                .0
                 .saturating_add(Self::REFRESH_BEFORE_SECONDS),
         );
-        crate::time::parse(&tokens.expires_at).is_some_and(|expires| expires > due)
+        tokens.expires_at.timestamp() > due
     }
 
     /// Spends `tokens`' refresh token on a new pair, kept before it's
     /// answered. Called with the lock held.
-    async fn refresh(&self, tokens: PosTokens) -> Result<String, PosError> {
+    async fn refresh(&self, tokens: PosTokens) -> Result<Secret, PosError> {
         let Some(refresh) = tokens.refresh_token else {
             return Err(self.signed_out(401));
         };
@@ -248,10 +251,10 @@ impl CloverAuth {
     fn tokens(&self, answer: TokenAnswer, merchant_id: &str) -> PosTokens {
         let expires = answer
             .access_token_expiration
-            .unwrap_or_else(|| self.clock.now().saturating_add(Self::LIFETIME_SECONDS));
+            .unwrap_or_else(|| self.clock.now().0.saturating_add(Self::LIFETIME_SECONDS));
         PosTokens {
             access_token: answer.access_token,
-            expires_at: crate::time::format(crate::time::from_seconds(expires)),
+            expires_at: crate::time::Rfc3339Instant::from_second(expires),
             refresh_token: answer.refresh_token,
             merchant_id: merchant_id.to_owned(),
         }
@@ -283,10 +286,4 @@ impl CloverAuth {
             )
         })
     }
-}
-
-/// A Clover merchant id: 13 letters and digits in practice, and at most 64
-/// here. It goes into every `/v3` path.
-pub(crate) fn is_merchant_id(id: &str) -> bool {
-    (1..=64).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_alphanumeric())
 }

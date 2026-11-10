@@ -3,9 +3,11 @@
 //! versioned JSON body (`"v"`).
 
 use monokulo_client::{PointOfSale, SalePhase};
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use till_types::{Money, Price, UnixMillis, UnixSeconds};
 
 use crate::ids::{DeviceId, OrderId, PaymentId, SaleKey};
 use crate::model::{LocalMarks, SharedSale};
@@ -28,11 +30,12 @@ pub enum Tender {
 pub struct PaymentSeen {
     pub pos: PointOfSale,
     pub payment: PaymentId,
-    pub amount_minor: i64,
-    pub currency: String,
+    /// Journalled as `amount_minor` and `currency`.
+    #[serde(flatten, with = "till_types::money::snake")]
+    pub amount: Money,
     pub tender: Tender,
-    /// The POS's status for it (Square's `COMPLETED`).
-    pub status: String,
+    /// The POS's status for it (Square's `COMPLETED`), as its text.
+    pub status: till_pos::PaymentStatus,
     #[serde(default)]
     pub device_id: Option<DeviceId>,
     #[serde(default)]
@@ -46,10 +49,10 @@ pub struct PaymentSeen {
     /// The name the cashier gave the order (Clover's title).
     #[serde(default)]
     pub title: Option<String>,
-    /// RFC 3339, as the POS gave it.
-    pub created_at: String,
-    /// Unix ms: the later one wins.
-    pub updated_at: i64,
+    /// As the POS gave it (journalled as its text).
+    pub created_at: till_pos::Rfc3339Instant,
+    /// The later one wins.
+    pub updated_at: UnixMillis,
 }
 
 impl PaymentSeen {
@@ -60,7 +63,7 @@ impl PaymentSeen {
     /// The order two listings of one payment are joined by: the later
     /// `updated_at`, then (for the join not to depend on arrival order) the
     /// content.
-    pub(crate) fn rank(&self) -> (i64, String) {
+    pub(crate) fn rank(&self) -> (UnixMillis, String) {
         (
             self.updated_at,
             serde_json::to_string(self).expect("a payment always serialises"),
@@ -73,9 +76,9 @@ impl PaymentSeen {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct OrderRead {
     pub sale: SaleKey,
-    /// The payment's `updated_at` (Unix ms) when its order was read: a read
-    /// for a later one replaces an earlier one.
-    pub updated_at: i64,
+    /// The payment's `updated_at` when its order was read: a read for a
+    /// later one replaces an earlier one.
+    pub updated_at: UnixMillis,
     /// The receipt as `orf_codec::encode_text` writes it.
     #[serde(default)]
     pub receipt: Option<String>,
@@ -90,7 +93,7 @@ impl OrderRead {
     /// `receipt` encoded for the journal, with why when it can't be.
     pub fn new(
         sale: SaleKey,
-        updated_at: i64,
+        updated_at: UnixMillis,
         receipt: Result<&orf_codec::Receipt, String>,
         customer_name: Option<String>,
     ) -> OrderRead {
@@ -119,13 +122,16 @@ pub enum RefundStatus {
 }
 
 impl RefundStatus {
-    /// Square's status text; anything else is pending.
-    pub fn of_square(status: &str) -> RefundStatus {
+    /// The point of sale's status, as the ledger keeps it. One this build
+    /// doesn't know is kept as pending, not done (core.md decision 208).
+    pub fn of_pos(status: &till_pos::RefundStatus) -> RefundStatus {
         match status {
-            "COMPLETED" => RefundStatus::Completed,
-            "FAILED" => RefundStatus::Failed,
-            "REJECTED" => RefundStatus::Rejected,
-            _ => RefundStatus::Pending,
+            till_pos::RefundStatus::Completed => RefundStatus::Completed,
+            till_pos::RefundStatus::Failed => RefundStatus::Failed,
+            till_pos::RefundStatus::Rejected => RefundStatus::Rejected,
+            till_pos::RefundStatus::Pending | till_pos::RefundStatus::Other(_) => {
+                RefundStatus::Pending
+            }
         }
     }
 
@@ -164,12 +170,13 @@ pub struct OrderCreated {
     pub payment_uri: String,
     pub address: String,
     pub xmr: String,
-    pub amount: String,
-    pub currency: String,
+    /// The price it was made for, journalled as `amount` and `currency`
+    /// as Monokulo wrote them.
+    #[serde(flatten)]
+    pub price: Price,
     #[serde(default)]
     pub reference: Option<String>,
-    /// Unix seconds.
-    pub expires_at: i64,
+    pub expires_at: UnixSeconds,
     #[serde(default)]
     pub confirmations_required: Option<u32>,
     /// The device that made it, as Monokulo names it (an event's
@@ -186,8 +193,7 @@ pub struct OrderCreated {
 /// it: a renewal gives the order a new one (core.md decision 169).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Quote {
-    /// Unix seconds.
-    pub expires_at: i64,
+    pub expires_at: UnixSeconds,
     pub piconero: u64,
 }
 
@@ -264,6 +270,93 @@ impl Process {
             Process::Extension => "extension",
         }
     }
+
+    pub fn from_wire(text: &str) -> Option<Process> {
+        [Process::App, Process::Extension]
+            .into_iter()
+            .find(|p| p.wire() == text)
+    }
+}
+
+/// `alerts.by`, and a snapshot's: the process's wire name, as the column
+/// holds it. (Its own serde, in facts' bodies, is the variant's name.)
+impl ToSql for Process {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::from(self.wire()))
+    }
+}
+
+impl FromSql for Process {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Process> {
+        let text = value.as_str()?;
+        Process::from_wire(text).ok_or_else(|| FromSqlError::Other(unknown("process", text)))
+    }
+}
+
+/// Where an alert stands (`alerts.state`, §6): left for a process to claim,
+/// claimed and not yet delivered, or delivered. Kept as `due`, `pending`
+/// and `posted`, in the column and in a snapshot's alerts alike.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AlertState {
+    Due,
+    Pending,
+    Posted,
+}
+
+impl AlertState {
+    pub const ALL: [AlertState; 3] = [AlertState::Due, AlertState::Pending, AlertState::Posted];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AlertState::Due => "due",
+            AlertState::Pending => "pending",
+            AlertState::Posted => "posted",
+        }
+    }
+
+    pub fn from_wire(text: &str) -> Option<AlertState> {
+        AlertState::ALL.into_iter().find(|s| s.as_str() == text)
+    }
+}
+
+impl ToSql for AlertState {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::from(self.as_str()))
+    }
+}
+
+impl FromSql for AlertState {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<AlertState> {
+        let text = value.as_str()?;
+        AlertState::from_wire(text).ok_or_else(|| FromSqlError::Other(unknown("alert state", text)))
+    }
+}
+
+fn unknown(what: &str, text: &str) -> Box<dyn std::error::Error + Send + Sync> {
+    format!("not an {what}: {text:?}").into()
+}
+
+/// A snapshot alert's `by`, as `alerts.by` holds it (`app`, `extension`).
+/// A name this build doesn't know reads as no process: it only says who
+/// claimed it.
+mod process_wire {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    use super::Process;
+
+    pub fn serialize<S: Serializer>(by: &Option<Process>, s: S) -> Result<S::Ok, S::Error> {
+        match by {
+            Some(process) => s.serialize_some(process.wire()),
+            None => s.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Process>, D::Error> {
+        Ok(Option::<String>::deserialize(d)?
+            .as_deref()
+            .and_then(Process::from_wire))
+    }
 }
 
 /// Something the cashier asked this till to do about a sale (§7).
@@ -317,7 +410,7 @@ pub enum Fact {
         kind: AlertKind,
         notification_id: String,
         by: Process,
-        at: i64,
+        at: UnixMillis,
     },
     AlertPosted {
         sale: SaleKey,
@@ -326,32 +419,32 @@ pub enum Fact {
     ActionAsked {
         sale: SaleKey,
         action: Action,
-        at: i64,
+        at: UnixMillis,
     },
     ActionDone {
         sale: SaleKey,
         action: Action,
         outcome: Outcome,
-        at: i64,
+        at: UnixMillis,
     },
     Mark {
         sale: SaleKey,
         mark: MarkKind,
-        at: i64,
+        at: UnixMillis,
     },
     /// `None` removes the setting.
     SettingChanged {
         name: String,
         value: Option<String>,
-        at: i64,
+        at: UnixMillis,
     },
     ShiftMarked {
         mark: ShiftMark,
-        at: i64,
+        at: UnixMillis,
     },
-    /// The app is in front until `until` (Unix ms).
+    /// The app is in front until `until`.
     Foreground {
-        until: i64,
+        until: UnixMillis,
     },
     Imported {
         from: String,
@@ -367,7 +460,7 @@ pub struct SnapshotState {
     pub sale: SaleKey,
     pub shared: SharedSale,
     pub marks: LocalMarks,
-    pub rung_at: i64,
+    pub rung_at: UnixMillis,
     /// The journal's last seq it stands for.
     pub applied_seq: i64,
     #[serde(default)]
@@ -378,9 +471,10 @@ pub struct SnapshotState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SnapshotAlert {
     pub kind: AlertKind,
-    pub state: String,
-    pub claimed_at: Option<i64>,
-    pub by: Option<String>,
+    pub state: AlertState,
+    pub claimed_at: Option<UnixMillis>,
+    #[serde(default, with = "process_wire")]
+    pub by: Option<Process>,
 }
 
 /// Which sale a fact is about.
@@ -509,14 +603,52 @@ impl Fact {
 mod tests {
     use super::*;
 
+    /// The alerts table's text and a snapshot's alerts are as they were
+    /// before the states had a type.
+    #[test]
+    fn alert_states_and_processes_keep_their_text() {
+        for (state, text) in [
+            (AlertState::Due, "due"),
+            (AlertState::Pending, "pending"),
+            (AlertState::Posted, "posted"),
+        ] {
+            assert_eq!(state.as_str(), text);
+            assert_eq!(AlertState::from_wire(text), Some(state));
+            assert_eq!(serde_json::to_value(state).unwrap(), text);
+        }
+        let kept = r#"{"kind":"NewSale","state":"pending","claimed_at":5,"by":"extension"}"#;
+        let alert: SnapshotAlert = serde_json::from_str(kept).unwrap();
+        assert_eq!(alert.state, AlertState::Pending);
+        assert_eq!(alert.by, Some(Process::Extension));
+        assert_eq!(serde_json::to_string(&alert).unwrap(), kept);
+        let unclaimed: SnapshotAlert =
+            serde_json::from_str(r#"{"kind":"Paid","state":"posted","claimed_at":null,"by":null}"#)
+                .unwrap();
+        assert_eq!(unclaimed.by, None);
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let (state, by): (String, String) = conn
+            .query_row(
+                "SELECT ?1, ?2",
+                rusqlite::params![AlertState::Posted, Process::App],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((state.as_str(), by.as_str()), ("posted", "app"));
+        let read: AlertState = conn.query_row("SELECT 'due'", [], |r| r.get(0)).unwrap();
+        assert_eq!(read, AlertState::Due);
+        assert!(
+            conn.query_row("SELECT 'post'", [], |r| r.get::<_, AlertState>(0))
+                .is_err()
+        );
+    }
+
     pub(crate) fn every_kind() -> Vec<Fact> {
         let sale = SaleKey::pos(PointOfSale::Square, "p1");
         vec![
             Fact::PosPaymentSeen(PaymentSeen {
                 pos: PointOfSale::Square,
                 payment: "p1".into(),
-                amount_minor: 1388,
-                currency: "USD".into(),
+                amount: Money::new(1388, till_types::CurrencyCode::USD),
                 tender: Tender::Monero,
                 status: "COMPLETED".into(),
                 device_id: Some("dev".into()),
@@ -524,12 +656,12 @@ mod tests {
                 receipt_number: Some("bP9m".into()),
                 order_ref: Some("o1".into()),
                 title: None,
-                created_at: "2026-11-09T10:00:00Z".into(),
-                updated_at: 1,
+                created_at: "2026-11-09T10:00:00Z".parse().unwrap(),
+                updated_at: UnixMillis(1),
             }),
             Fact::PosOrderRead(OrderRead {
                 sale: sale.clone(),
-                updated_at: 1,
+                updated_at: UnixMillis(1),
                 receipt: None,
                 why: Some("no order".into()),
                 customer_name: Some("Sam".into()),
@@ -548,7 +680,7 @@ mod tests {
                 received: None,
                 overpaid: false,
                 quote: Some(Quote {
-                    expires_at: 900,
+                    expires_at: crate::UnixSeconds(900),
                     piconero: 150_000_000_000,
                 }),
                 renew: Some("https://shop.example/api/v1/orders/ord".into()),
@@ -556,14 +688,16 @@ mod tests {
             Fact::Mark {
                 sale: sale.clone(),
                 mark: MarkKind::Closed,
-                at: 5,
+                at: UnixMillis(5),
             },
             Fact::SettingChanged {
                 name: "cash.monero".into(),
                 value: Some("false".into()),
-                at: 4,
+                at: UnixMillis(4),
             },
-            Fact::Foreground { until: 10 },
+            Fact::Foreground {
+                until: UnixMillis(10),
+            },
             Fact::Imported {
                 from: "shift".into(),
                 count: 2,
@@ -573,7 +707,7 @@ mod tests {
                 kind: AlertKind::NewSale,
                 notification_id: "n".into(),
                 by: Process::Extension,
-                at: 3,
+                at: UnixMillis(3),
             },
         ]
     }
@@ -588,10 +722,22 @@ mod tests {
         }
     }
 
+    /// A journalled payment keeps its body (and so its hash): the amount
+    /// as `amount_minor` and `currency`, the status as its text.
+    #[test]
+    fn a_payments_body_is_as_journalled_before() {
+        let body = r#"{"v":1,"amount_minor":1388,"created_at":"2026-11-09T10:00:00Z","currency":"USD","device_id":"dev","device_name":"Front iPad","order_ref":"o1","payment":"p1","pos":"square","receipt_number":"bP9m","status":"COMPLETED","tender":"Monero","title":null,"updated_at":1}"#;
+        let fact = Fact::decode("PosPaymentSeen", body.as_bytes()).unwrap();
+        assert_eq!(fact, every_kind()[0]);
+        assert_eq!(String::from_utf8(fact.body()).unwrap(), body);
+    }
+
     #[test]
     fn unknown_kinds_and_newer_versions_are_skipped() {
         assert_eq!(Fact::decode("SomethingNew", br#"{"v":1}"#), None);
-        let fact = Fact::Foreground { until: 10 };
+        let fact = Fact::Foreground {
+            until: UnixMillis(10),
+        };
         assert_eq!(Fact::decode("Foreground", br#"{"v":2,"until":10}"#), None);
         assert_eq!(
             Fact::decode("Foreground", br#"{"v":1,"until":10,"extra":true}"#),
@@ -623,9 +769,17 @@ mod tests {
 
     #[test]
     fn the_hash_covers_kind_sale_and_body() {
-        let a = Fact::Foreground { until: 10 };
+        let a = Fact::Foreground {
+            until: UnixMillis(10),
+        };
         assert_eq!(a.hash(None), a.hash(None));
         assert_ne!(a.hash(None), a.hash(Some("sq:1")));
-        assert_ne!(a.hash(None), Fact::Foreground { until: 11 }.hash(None));
+        assert_ne!(
+            a.hash(None),
+            Fact::Foreground {
+                until: UnixMillis(11)
+            }
+            .hash(None)
+        );
     }
 }

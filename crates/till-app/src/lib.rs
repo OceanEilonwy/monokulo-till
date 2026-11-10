@@ -21,6 +21,10 @@
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
 
+// An order id crosses as till-screens' custom type over String.
+#[cfg(feature = "uniffi")]
+uniffi::use_remote_type!(till_screens::OrderId);
+
 mod background;
 mod engine;
 mod ledger;
@@ -36,6 +40,7 @@ pub mod store;
 mod testing;
 mod web_push;
 
+use monokulo_client::OrderId;
 use std::sync::{Arc, OnceLock};
 
 use tokio::sync::mpsc::UnboundedSender;
@@ -185,12 +190,53 @@ pub trait EngineListener: Send + Sync {
     fn on_log(&self, message: String);
 }
 
+/// Which Square the build is for: production's or the sandbox's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum SquareEnvironment {
+    Sandbox,
+    Production,
+}
+
+impl From<SquareEnvironment> for till_pos::SquareEnvironment {
+    fn from(environment: SquareEnvironment) -> till_pos::SquareEnvironment {
+        match environment {
+            SquareEnvironment::Sandbox => till_pos::SquareEnvironment::Sandbox,
+            SquareEnvironment::Production => till_pos::SquareEnvironment::Production,
+        }
+    }
+}
+
+/// Which of Clover's platforms the build is for (decision 127 in
+/// docs/decisions/android.md): a name a build gets wrong is a compile
+/// error in Swift and Kotlin, not an engine that won't start.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum CloverEnvironment {
+    Sandbox,
+    NorthAmerica,
+    Europe,
+    LatinAmerica,
+}
+
+impl From<CloverEnvironment> for till_pos::CloverEnvironment {
+    fn from(environment: CloverEnvironment) -> till_pos::CloverEnvironment {
+        match environment {
+            CloverEnvironment::Sandbox => till_pos::CloverEnvironment::Sandbox,
+            CloverEnvironment::NorthAmerica => till_pos::CloverEnvironment::NorthAmerica,
+            CloverEnvironment::Europe => till_pos::CloverEnvironment::Europe,
+            CloverEnvironment::LatinAmerica => till_pos::CloverEnvironment::LatinAmerica,
+        }
+    }
+}
+
 /// Which Square, as the build names it (Android's `BuildConfig`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct SquareSetup {
     pub application_id: String,
-    pub sandbox: bool,
+    /// Where Square's sign-in and API are: production's or the sandbox's.
+    pub environment: SquareEnvironment,
     /// Where Square sends the sign-in back: an App Link into the app. The
     /// token exchange names it, as Square requires.
     pub redirect_uri: String,
@@ -209,8 +255,7 @@ pub struct SquareSetup {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct CloverSetup {
     pub application_id: String,
-    /// `sandbox`, `north_america`, `europe` or `latin_america`.
-    pub environment: String,
+    pub environment: CloverEnvironment,
     pub redirect_uri: String,
     pub base_url: Option<String>,
     /// As [`SquareSetup::return_uri`].
@@ -230,8 +275,6 @@ pub struct EngineConfig {
     /// This device, for when the merchant didn't name it ("Pixel 8").
     pub device_name: String,
     pub app_version: String,
-    /// `android` or `ios`, as Monokulo's apps list shows it.
-    pub platform: String,
     /// A debug build: cleartext connect links, stand-ins, http Bells.
     pub debug: bool,
     /// The device's clock: its offset from UTC now, in seconds, and whether
@@ -250,6 +293,17 @@ pub struct EngineConfig {
     /// whose [`PushPlatform`] is UnifiedPush.
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub relay_url: Option<String>,
+}
+
+impl EngineConfig {
+    /// `android` or `ios`, as Monokulo's apps list shows it: the device's.
+    pub fn platform(&self) -> &'static str {
+        if self.device.is_ios() {
+            "ios"
+        } else {
+            "android"
+        }
+    }
 }
 
 /// A point of sale, as the platform names one to the engine.
@@ -319,15 +373,15 @@ pub enum Screen {
     Till,
     /// One sale: its code while it's live, else its page.
     Sale {
-        order_id: String,
+        order_id: OrderId,
     },
     /// A live sale's code enlarged.
     Code {
-        order_id: String,
+        order_id: OrderId,
     },
     /// Every line of a live sale's order.
     Order {
-        order_id: String,
+        order_id: OrderId,
     },
     Settings,
 }
@@ -448,42 +502,42 @@ pub enum Action {
     /// A sale's X or a row's swipe: the close sheet, while the sale has
     /// answers.
     AskClose {
-        order_id: String,
+        order_id: OrderId,
     },
     /// The close sheet went without an answer.
     DismissClose,
     OpenSale {
-        order_id: String,
+        order_id: OrderId,
     },
     Enlarge {
-        order_id: String,
+        order_id: OrderId,
     },
     ShowOrder {
-        order_id: String,
+        order_id: OrderId,
     },
     Close {
-        order_id: String,
+        order_id: OrderId,
         choice: CloseChoice,
     },
     Refund {
-        order_id: String,
+        order_id: OrderId,
     },
     /// The refund sheet's "I've refunded it".
     ConfirmRefund {
-        order_id: String,
+        order_id: OrderId,
     },
     /// "Not yet", Back or the scrim.
     DismissRefund,
     /// "Show the code again" on a closed sale.
     Reopen {
-        order_id: String,
+        order_id: OrderId,
     },
     CopyAddress {
-        order_id: String,
+        order_id: OrderId,
     },
     /// The XMR amount tapped: it is copied.
     CopyAmount {
-        order_id: String,
+        order_id: OrderId,
     },
     /// Settings' "Copy wallet address": the store's whole wallet address
     /// is copied (core.md decision 105).
@@ -586,20 +640,20 @@ pub enum Action {
     /// "Take it in Monero" on an offered cash sale: its order and code are
     /// made, and the sale opens on its code.
     TakeInMonero {
-        order_id: String,
+        order_id: OrderId,
     },
     /// "Keep as cash" on an offered cash sale.
     KeepAsCash {
-        order_id: String,
+        order_id: OrderId,
     },
     /// "Paid in cash" on a cash sale: closed, nothing refunded.
     PaidInCash {
-        order_id: String,
+        order_id: OrderId,
     },
     /// "New code" on a sale whose code ran out unpaid (docs/ledger.md §7):
     /// its next order is made, and the sale opens on its code.
     NewCode {
-        order_id: String,
+        order_id: OrderId,
     },
     /// iOS's APNs device token, the bytes in hex, each time iOS gives one
     /// (every launch, from `registerForRemoteNotifications`); `None` when
@@ -611,6 +665,89 @@ pub enum Action {
     PushToken {
         token: Option<String>,
     },
+}
+
+impl Action {
+    /// The action's name, and nothing it carries: what a log line may say of
+    /// it. Its fields can hold a sign-in's redirect (with its code), a push
+    /// subscription's auth secret, an APNs token or a connect link, none of
+    /// which may reach the system log, so the log never prints an action's
+    /// `Debug` (decision 213).
+    pub fn name(&self) -> &'static str {
+        match self {
+            Action::Opened => "Opened",
+            Action::Backgrounded => "Backgrounded",
+            Action::ClockChanged { .. } => "ClockChanged",
+            Action::Permissions { .. } => "Permissions",
+            Action::Back => "Back",
+            Action::Next => "Next",
+            Action::Skip => "Skip",
+            Action::ConnectLink { .. } => "ConnectLink",
+            Action::PasteConnectLink { .. } => "PasteConnectLink",
+            Action::SharedText { .. } => "SharedText",
+            Action::ScanConnectCode { .. } => "ScanConnectCode",
+            Action::Connect => "Connect",
+            Action::ChoosePointOfSale { .. } => "ChoosePointOfSale",
+            Action::SignIn { .. } => "SignIn",
+            Action::SignInReturned { .. } => "SignInReturned",
+            Action::ChooseLocation { .. } => "ChooseLocation",
+            Action::ChangeLocation => "ChangeLocation",
+            Action::LookAgain => "LookAgain",
+            Action::WithoutPos => "WithoutPos",
+            Action::SignOutOfPos => "SignOutOfPos",
+            Action::StartShift => "StartShift",
+            Action::StopShift => "StopShift",
+            Action::ChooseFilter { .. } => "ChooseFilter",
+            Action::FoldTray { .. } => "FoldTray",
+            Action::OpenShift => "OpenShift",
+            Action::PanelShown { .. } => "PanelShown",
+            Action::MoveBubble { .. } => "MoveBubble",
+            Action::Landed { .. } => "Landed",
+            Action::AskClose { .. } => "AskClose",
+            Action::DismissClose => "DismissClose",
+            Action::OpenSale { .. } => "OpenSale",
+            Action::Enlarge { .. } => "Enlarge",
+            Action::ShowOrder { .. } => "ShowOrder",
+            Action::Close { .. } => "Close",
+            Action::Refund { .. } => "Refund",
+            Action::ConfirmRefund { .. } => "ConfirmRefund",
+            Action::DismissRefund => "DismissRefund",
+            Action::Reopen { .. } => "Reopen",
+            Action::CopyAddress { .. } => "CopyAddress",
+            Action::CopyAmount { .. } => "CopyAmount",
+            Action::CopyWalletAddress => "CopyWalletAddress",
+            Action::OpenSettings => "OpenSettings",
+            Action::OpenPointOfSale => "OpenPointOfSale",
+            Action::ReadStore => "ReadStore",
+            Action::SetBaseUrl { .. } => "SetBaseUrl",
+            Action::SetBubble { .. } => "SetBubble",
+            Action::SetTor { .. } => "SetTor",
+            Action::SetLiveActivity { .. } => "SetLiveActivity",
+            Action::SetCodeInIsland { .. } => "SetCodeInIsland",
+            Action::TorProbed { .. } => "TorProbed",
+            Action::Disconnect => "Disconnect",
+            Action::Forget => "Forget",
+            Action::ChooseWakeUps { .. } => "ChooseWakeUps",
+            Action::EditOwnBell { .. } => "EditOwnBell",
+            Action::ChooseDistributor { .. } => "ChooseDistributor",
+            Action::PushEndpoint { .. } => "PushEndpoint",
+            Action::PushFailed { .. } => "PushFailed",
+            Action::PushUnregistered => "PushUnregistered",
+            Action::PushReceived { .. } => "PushReceived",
+            Action::DistributorsChanged => "DistributorsChanged",
+            Action::SetAlertFor { .. } => "SetAlertFor",
+            Action::FindDevice => "FindDevice",
+            Action::SetShowOtherCounters { .. } => "SetShowOtherCounters",
+            Action::ChooseCounter { .. } => "ChooseCounter",
+            Action::SetCashAsMonero { .. } => "SetCashAsMonero",
+            Action::ChooseShowSales { .. } => "ChooseShowSales",
+            Action::TakeInMonero { .. } => "TakeInMonero",
+            Action::KeepAsCash { .. } => "KeepAsCash",
+            Action::PaidInCash { .. } => "PaidInCash",
+            Action::NewCode { .. } => "NewCode",
+            Action::PushToken { .. } => "PushToken",
+        }
+    }
 }
 
 /// A slice of what the screens show, sent only when it changed. Each
@@ -669,7 +806,7 @@ pub enum Update {
     /// screen, its page, its enlarged code, and its whole order while the
     /// till has its receipt.
     Sale {
-        order_id: String,
+        order_id: OrderId,
         view: SaleView,
         page: SalePageView,
         code: CodeView,
@@ -677,7 +814,7 @@ pub enum Update {
     },
     /// The close sheet over a sale, while one is asked.
     CloseSheet {
-        order_id: Option<String>,
+        order_id: Option<OrderId>,
         view: Option<CloseView>,
     },
     /// The refund sheet over a sale the cashier refunds at the point of sale.
@@ -701,7 +838,7 @@ pub enum Update {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct RefundSheetView {
-    pub order_id: String,
+    pub order_id: OrderId,
     /// "Refund in Clover".
     pub title: String,
     /// What to refund, and where.
@@ -738,7 +875,7 @@ pub struct BubbleView {
     /// collapse at its end until the panel has gone (decision 95).
     pub look: BubbleLook,
     /// The sale the bubble and its panel are about.
-    pub order_id: Option<String>,
+    pub order_id: Option<OrderId>,
     /// What a screen reader says for the bubble.
     pub label: String,
     /// What a tap does with the panel down, and with it up.
@@ -779,7 +916,7 @@ pub enum Effect {
     /// `quiet` posts it without sound or banner, the app being on screen.
     /// With two or more showing, their summary is [`ended_summary`]'s.
     Notify {
-        order_id: String,
+        order_id: OrderId,
         notice: Notice,
         paid: bool,
         timeout_ms: Option<u64>,

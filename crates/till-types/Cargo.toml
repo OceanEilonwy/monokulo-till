@@ -1,0 +1,18 @@
+[package]
+name = "till-types"
+version = "0.1.0"
+description = "Small shared types for the till's Rust core: a redacting Secret, id and wire-word macros, currencies and money"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# UnixMillis as an SQLite INTEGER, for the ledger.
+rusqlite = ["dep:rusqlite"]
+
+[dependencies]
+serde.workspace = true
+rusqlite = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true

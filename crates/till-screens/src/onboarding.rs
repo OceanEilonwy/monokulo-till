@@ -614,7 +614,7 @@ pub fn onboarding(
                 locations: locations
                     .iter()
                     .map(|l| LocationRow {
-                        id: l.id.clone(),
+                        id: l.id.to_string(),
                         name: l.name.clone(),
                         currency: l.currency.clone(),
                         choose: format!("Choose {}", l.name),

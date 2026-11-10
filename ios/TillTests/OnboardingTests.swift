@@ -71,11 +71,11 @@ struct OnboardingTests {
     @Test func aSandboxSignInEndsAtTheDebugPageAndComesBackThroughTheScheme() throws {
         let host = "till.monokulo.com"
         let square = TillShared.squareRedirect(sandbox: true, host: host)
-        let clover = TillShared.cloverRedirect(environment: "sandbox", host: host)
+        let clover = TillShared.cloverRedirect(environment: .sandbox, host: host)
         #expect(square == "https://till.monokulo.com/square/debug/")
         #expect(clover == "https://till.monokulo.com/clover/debug/")
         #expect(TillShared.squareRedirect(sandbox: false, host: host) == self.square)
-        #expect(TillShared.cloverRedirect(environment: "europe", host: host) == self.clover)
+        #expect(TillShared.cloverRedirect(environment: .europe, host: host) == self.clover)
         // Without one, the build's (a test build's is project.yml's placeholder).
         #expect(TillShared.squareRedirect(sandbox: false) == "https://\(Build.linkHost)/square")
         #expect(Build.linkHost == "till.invalid")

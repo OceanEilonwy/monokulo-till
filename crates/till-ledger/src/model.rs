@@ -22,6 +22,7 @@ use crate::facts::{
     RefundSeen, RefundStatus,
 };
 use crate::ids::OrderId;
+use crate::{UnixMillis, UnixSeconds};
 
 /// What the sources said about one sale.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -96,11 +97,11 @@ pub struct OrderFacts {
     pub address: String,
     /// The latest quote's XMR.
     pub xmr: String,
-    pub amount: String,
-    pub currency: String,
+    #[serde(flatten)]
+    pub price: till_types::Price,
     pub reference: Option<String>,
     /// When the latest quote runs out, Unix seconds.
-    pub expires_at: i64,
+    pub expires_at: UnixSeconds,
     pub confirmations_required: Option<u32>,
     pub device_name: Option<String>,
     /// Where its `renew-order` form goes: New code, when Monokulo offers it
@@ -112,7 +113,7 @@ pub struct OrderFacts {
     /// to it (decision 170). 0 in a body written before then, read as
     /// `expires_at`.
     #[serde(default)]
-    pub first_expires_at: i64,
+    pub first_expires_at: UnixSeconds,
 }
 
 impl From<&OrderCreated> for OrderFacts {
@@ -123,8 +124,7 @@ impl From<&OrderCreated> for OrderFacts {
             payment_uri: o.payment_uri.clone(),
             address: o.address.clone(),
             xmr: o.xmr.clone(),
-            amount: o.amount.clone(),
-            currency: o.currency.clone(),
+            price: o.price.clone(),
             reference: o.reference.clone(),
             expires_at: o.expires_at,
             confirmations_required: o.confirmations_required,
@@ -151,8 +151,8 @@ fn larger<T: Ord + Clone>(mine: &mut T, theirs: &T) {
 
 impl OrderFacts {
     /// The first quote's expiry.
-    pub fn first_expiry(&self) -> i64 {
-        if self.first_expires_at == 0 {
+    pub fn first_expiry(&self) -> UnixSeconds {
+        if self.first_expires_at == UnixSeconds(0) {
             self.expires_at
         } else {
             self.first_expires_at.min(self.expires_at)
@@ -160,12 +160,12 @@ impl OrderFacts {
     }
 
     /// Its quote: the expiry first, so the latest wins.
-    fn quote(&self) -> (i64, &str, &str) {
+    fn quote(&self) -> (UnixSeconds, &str, &str) {
         (self.expires_at, &self.xmr, &self.payment_uri)
     }
 
     /// Takes a quote, if it's later than the one it has.
-    fn take_quote(&mut self, expires_at: i64, xmr: String, payment_uri: String) {
+    fn take_quote(&mut self, expires_at: UnixSeconds, xmr: String, payment_uri: String) {
         if (expires_at, xmr.as_str(), payment_uri.as_str()) > self.quote() {
             self.expires_at = expires_at;
             self.xmr = xmr;
@@ -201,8 +201,9 @@ impl OrderFacts {
         self.renew = max_opt(self.renew.take(), other.renew.clone());
         self.reference = max_opt(self.reference.take(), other.reference.clone());
         larger(&mut self.address, &other.address);
-        larger(&mut self.amount, &other.amount);
-        larger(&mut self.currency, &other.currency);
+        // One order's two accounts carry one price; a known one beats an
+        // empty one, as above.
+        larger(&mut self.price, &other.price);
     }
 
     /// Which of two orders made for one sale stands, as `Ordering`: only a
@@ -318,7 +319,7 @@ pub struct EndedSeen {
     /// The expiry of the quote it was seen under; `None` for one observed
     /// before quotes were recorded, which belongs to the first.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub quote: Option<i64>,
+    pub quote: Option<UnixSeconds>,
 }
 
 impl EndedSeen {
@@ -435,7 +436,7 @@ impl Observations {
     ///   so a later Seen, Confirming or Partial still shows.
     /// - Otherwise the further phase: Seen < Confirming (more
     ///   confirmations) < Partial (more received).
-    pub fn phase(&self, expires_at: i64, first: i64) -> PaymentPhase {
+    pub fn phase(&self, expires_at: UnixSeconds, first: UnixSeconds) -> PaymentPhase {
         if let Some(paid) = self.paid
             && (paid.is_final || !self.double_spend)
         {
@@ -649,9 +650,9 @@ impl SharedSale {
     }
 
     /// When it was rung up, Unix ms, from the POS's payment.
-    pub fn rung_at(&self) -> Option<i64> {
+    pub fn rung_at(&self) -> Option<UnixMillis> {
         let p = self.pos.payment.as_ref()?;
-        till_pos::time::unix_seconds(&p.created_at).map(|s| s * 1000)
+        Some(UnixSeconds(p.created_at.as_second()).to_millis())
     }
 
     /// Ended: paid, refunded, or ended unpaid with `is_final` (what may be
@@ -680,7 +681,7 @@ impl SharedSale {
 /// A local time, with the journal's seq to order two in the same ms.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Stamp {
-    pub at: i64,
+    pub at: UnixMillis,
     pub seq: i64,
 }
 
@@ -694,15 +695,15 @@ pub struct CloseMark {
 /// they confirmed it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RefundMark {
-    pub pending_at: Option<i64>,
-    pub confirmed_at: Option<i64>,
+    pub pending_at: Option<UnixMillis>,
+    pub confirmed_at: Option<UnixMillis>,
 }
 
 /// An action this till took on the sale, and how it ended.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ActionMark {
-    pub asked_at: Option<i64>,
-    pub done_at: Option<i64>,
+    pub asked_at: Option<UnixMillis>,
+    pub done_at: Option<UnixMillis>,
     pub outcome: Option<Outcome>,
 }
 
@@ -715,30 +716,32 @@ pub struct LocalMarks {
     /// ([`LocalMarks::closed_at`]).
     pub closed: Option<CloseMark>,
     pub reopened: Option<Stamp>,
-    pub kept_as_cash: Option<i64>,
-    pub paid_in_cash: Option<i64>,
+    pub kept_as_cash: Option<UnixMillis>,
+    pub paid_in_cash: Option<UnixMillis>,
     pub refund: Option<RefundMark>,
     /// When this device's clock last said a code ran out; it counts only
     /// for a quote that ran out before it ([`crate::view`]).
-    pub clock_lapsed: Option<i64>,
+    pub clock_lapsed: Option<UnixMillis>,
     /// When this device first knew the sale.
-    pub first_at: Option<i64>,
-    pub seen_at: Option<i64>,
-    pub paid_at: Option<i64>,
-    pub ended_at: Option<i64>,
+    pub first_at: Option<UnixMillis>,
+    pub seen_at: Option<UnixMillis>,
+    pub paid_at: Option<UnixMillis>,
+    pub ended_at: Option<UnixMillis>,
     /// When this device first saw the POS's refund completed.
-    pub refunded_at: Option<i64>,
-    #[serde(default)]
-    pub actions: BTreeMap<String, ActionMark>,
+    pub refunded_at: Option<UnixMillis>,
+    /// Kept under each action's snake-case name (`make_order`), as when
+    /// the keys were strings ([`action_keys`]).
+    #[serde(default, with = "action_keys")]
+    pub actions: BTreeMap<Action, ActionMark>,
 }
 
-fn min_opt(a: Option<i64>, b: i64) -> Option<i64> {
+fn min_opt(a: Option<UnixMillis>, b: UnixMillis) -> Option<UnixMillis> {
     Some(a.map_or(b, |a| a.min(b)))
 }
 
 impl LocalMarks {
     /// Folds in a mark made at `at` (journal seq `seq`).
-    pub fn mark(&mut self, mark: MarkKind, at: i64, seq: i64) {
+    pub fn mark(&mut self, mark: MarkKind, at: UnixMillis, seq: i64) {
         let stamp = Stamp { at, seq };
         match mark {
             MarkKind::Closed => {
@@ -767,8 +770,8 @@ impl LocalMarks {
         }
     }
 
-    pub fn action(&mut self, action: Action, outcome: Option<&Outcome>, at: i64) {
-        let entry = self.actions.entry(action_name(action)).or_default();
+    pub fn action(&mut self, action: Action, outcome: Option<&Outcome>, at: UnixMillis) {
+        let entry = self.actions.entry(action).or_default();
         match outcome {
             None => {
                 entry.asked_at = Some(at);
@@ -797,7 +800,7 @@ impl LocalMarks {
         {
             self.reopened = Some(r);
         }
-        let earliest = |mine: &mut Option<i64>, theirs: Option<i64>| {
+        let earliest = |mine: &mut Option<UnixMillis>, theirs: Option<UnixMillis>| {
             if let Some(t) = theirs {
                 *mine = min_opt(*mine, t);
             }
@@ -816,14 +819,12 @@ impl LocalMarks {
             earliest(&mut mine.confirmed_at, theirs.confirmed_at);
         }
         for (name, action) in &other.actions {
-            self.actions
-                .entry(name.clone())
-                .or_insert_with(|| action.clone());
+            self.actions.entry(*name).or_insert_with(|| action.clone());
         }
     }
 
     /// When the cashier closed it, unless they reopened it since.
-    pub fn closed_at(&self) -> Option<i64> {
+    pub fn closed_at(&self) -> Option<UnixMillis> {
         let closed = self.closed?;
         match self.reopened {
             Some(r) if r > closed.at => None,
@@ -833,7 +834,7 @@ impl LocalMarks {
 
     /// Notes when this device first saw the sale, first saw it reach its
     /// phase, and first saw its refund completed.
-    pub fn saw(&mut self, shared: &SharedSale, at: i64) {
+    pub fn saw(&mut self, shared: &SharedSale, at: UnixMillis) {
         self.first_at = min_opt(self.first_at, at);
         if shared
             .refund
@@ -866,20 +867,80 @@ impl LocalMarks {
     }
 }
 
-/// The key an action is kept under in [`LocalMarks::actions`].
-pub fn action_name(action: Action) -> String {
+/// The name an action is kept under in [`LocalMarks::actions`]' JSON.
+fn action_name(action: Action) -> &'static str {
     match action {
         Action::MakeOrder => "make_order",
         Action::TakeInMonero => "take_in_monero",
         Action::NewCode => "new_code",
         Action::Refund => "refund",
     }
-    .to_owned()
+}
+
+/// [`LocalMarks::actions`] as a JSON object keyed by [`action_name`]. A key
+/// that names no action (from a newer build) is skipped rather than
+/// failing the whole sale's marks.
+mod action_keys {
+    use std::collections::BTreeMap;
+
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    use super::{ActionMark, action_name};
+    use crate::facts::Action;
+
+    const ALL: [Action; 4] = [
+        Action::MakeOrder,
+        Action::TakeInMonero,
+        Action::NewCode,
+        Action::Refund,
+    ];
+
+    pub fn serialize<S: Serializer>(
+        actions: &BTreeMap<Action, ActionMark>,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        s.collect_map(actions.iter().map(|(a, mark)| (action_name(*a), mark)))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        d: D,
+    ) -> Result<BTreeMap<Action, ActionMark>, D::Error> {
+        let named = BTreeMap::<String, ActionMark>::deserialize(d)?;
+        Ok(named
+            .into_iter()
+            .filter_map(|(name, mark)| {
+                let action = ALL.into_iter().find(|a| action_name(*a) == name)?;
+                Some((action, mark))
+            })
+            .collect())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The actions keep the JSON keys they had as strings, and marks kept
+    /// before still read, a key naming no action skipped.
+    #[test]
+    fn local_marks_keep_their_action_keys() {
+        let old = r#"{"closed":null,"reopened":null,"kept_as_cash":null,"paid_in_cash":null,"refund":null,"clock_lapsed":null,"first_at":null,"seen_at":null,"paid_at":null,"ended_at":null,"refunded_at":null,"actions":{"make_order":{"asked_at":5,"done_at":6,"outcome":"Done"},"refund":{"asked_at":7,"done_at":null,"outcome":null},"teleport":{"asked_at":1,"done_at":null,"outcome":null}}}"#;
+        let marks: LocalMarks = serde_json::from_str(old).unwrap();
+        assert_eq!(marks.actions.len(), 2);
+        assert_eq!(
+            marks.actions[&Action::MakeOrder].done_at,
+            Some(UnixMillis(6))
+        );
+        assert_eq!(marks.actions[&Action::Refund].asked_at, Some(UnixMillis(7)));
+        let json = serde_json::to_string(&marks).unwrap();
+        assert!(
+            json.contains(
+                r#""actions":{"make_order":{"asked_at":5,"done_at":6,"outcome":"Done"},"refund":"#
+            ),
+            "{json}"
+        );
+        assert_eq!(serde_json::from_str::<LocalMarks>(&json).unwrap(), marks);
+    }
 
     fn obs(phase: SalePhase, is_final: bool) -> OrderObserved {
         OrderObserved {
@@ -899,7 +960,7 @@ mod tests {
         for x in list {
             o.observe(x);
         }
-        o.phase(0, 0)
+        o.phase(UnixSeconds(0), UnixSeconds(0))
     }
 
     #[test]
@@ -967,10 +1028,9 @@ mod tests {
             payment_uri: format!("monero:8a?tx_amount={xmr}"),
             address: "8a".into(),
             xmr: xmr.into(),
-            amount: "24.50".into(),
-            currency: "USD".into(),
+            price: till_types::Price::new("24.50", "USD"),
             reference: None,
-            expires_at,
+            expires_at: UnixSeconds(expires_at),
             confirmations_required: None,
             device_name: None,
             renew: None,
@@ -980,7 +1040,7 @@ mod tests {
     fn under(phase: SalePhase, expires_at: i64, piconero: u64) -> OrderObserved {
         OrderObserved {
             quote: Some(Quote {
-                expires_at,
+                expires_at: UnixSeconds(expires_at),
                 piconero,
             }),
             ..obs(phase, false)
@@ -1035,10 +1095,10 @@ mod tests {
         assert_eq!(order.payment, PaymentPhase::Waiting);
         assert_eq!(
             (order.order.expires_at, order.order.xmr.as_str()),
-            (1_000, "0.16")
+            (UnixSeconds(1_000), "0.16")
         );
         assert_eq!(order.order.payment_uri, "monero:8a?tx_amount=0.16");
-        assert_eq!(order.order.first_expiry(), 100);
+        assert_eq!(order.order.first_expiry(), UnixSeconds(100));
 
         let mut ended = first.clone();
         ended.observe(&under(Expired, 1_000, 160_000_000_000));
@@ -1104,11 +1164,11 @@ mod tests {
     #[test]
     fn a_reopen_after_a_close_undoes_it_and_a_later_close_counts_again() {
         let mut m = LocalMarks::default();
-        m.mark(MarkKind::Closed, 10, 1);
-        assert_eq!(m.closed_at(), Some(10));
-        m.mark(MarkKind::Reopened, 10, 2);
+        m.mark(MarkKind::Closed, UnixMillis(10), 1);
+        assert_eq!(m.closed_at(), Some(UnixMillis(10)));
+        m.mark(MarkKind::Reopened, UnixMillis(10), 2);
         assert_eq!(m.closed_at(), None);
-        m.mark(MarkKind::Closed, 20, 3);
-        assert_eq!(m.closed_at(), Some(20));
+        m.mark(MarkKind::Closed, UnixMillis(20), 3);
+        assert_eq!(m.closed_at(), Some(UnixMillis(20)));
     }
 }

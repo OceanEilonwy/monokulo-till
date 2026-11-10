@@ -13,12 +13,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::db::{self, KeyMaterial, SecretStore, meta_delete, meta_get, meta_set};
 use crate::effects::{DiffContext, Effect, diff, notification_id};
-use crate::facts::{About, AlertKind, Fact, Process, SnapshotAlert, SnapshotState};
+use crate::facts::{About, AlertKind, AlertState, Fact, Process, SnapshotAlert, SnapshotState};
 use crate::ids::{OrderId, SaleKey, Scope};
 use crate::model::{LocalMarks, SharedSale};
 use crate::shift::{self, ShiftSummary, ShiftWindow};
 use crate::view::{SaleView, ViewSettings, setting, view};
-use crate::{Clock, LedgerError};
+use crate::{Clock, LedgerError, UnixMillis};
 
 /// A claim stuck in `pending` this long (its process died) is delivered
 /// again by whichever process looks next.
@@ -72,12 +72,12 @@ pub struct SaleRow {
     pub sale: SaleKey,
     pub shared: SharedSale,
     pub marks: LocalMarks,
-    pub rung_at: i64,
+    pub rung_at: UnixMillis,
     pub applied_seq: i64,
 }
 
 impl SaleRow {
-    fn new(sale: SaleKey, at: i64) -> SaleRow {
+    fn new(sale: SaleKey, at: UnixMillis) -> SaleRow {
         SaleRow {
             sale,
             shared: SharedSale::default(),
@@ -330,15 +330,23 @@ impl Ledger {
         {
             let mut stmt = tx.prepare(
                 "SELECT sale_key, kind, state FROM alerts WHERE scope = ?1
-                 AND (state = 'due' OR (state = 'pending' AND claimed_at <= ?2))",
+                 AND (state = ?3 OR (state = ?4 AND claimed_at <= ?2))",
             )?;
-            let rows = stmt.query_map(params![self.scope.0, now - REDELIVER_AFTER_MS], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, String>(2)?,
-                ))
-            })?;
+            let rows = stmt.query_map(
+                params![
+                    self.scope.0,
+                    now.plus(-REDELIVER_AFTER_MS),
+                    AlertState::Due,
+                    AlertState::Pending
+                ],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, AlertState>(2)?,
+                    ))
+                },
+            )?;
             for row in rows {
                 let (key, kind, state) = row?;
                 let (Some(key), Some(kind)) = (SaleKey::parse(&key), AlertKind::from_wire(&kind))
@@ -346,7 +354,7 @@ impl Ledger {
                     continue;
                 };
                 if let Some(sale) = load_row(&tx, &self.scope, &key)? {
-                    found.push((sale, kind, state == "pending"));
+                    found.push((sale, kind, state == AlertState::Pending));
                 }
             }
         }
@@ -465,8 +473,12 @@ impl Ledger {
             .and_then(|m| m.parse().ok())
             .unwrap_or(shift::DEFAULT_DAY_START_MINUTES);
         let day = shift::trading_day_start(now, &self.time_zone, minutes);
-        let started = meta_get(&self.conn, "shift.started")?.and_then(|v| v.parse().ok());
-        let stopped = meta_get(&self.conn, "shift.stopped")?.and_then(|v| v.parse().ok());
+        let mark = |name| -> Result<Option<UnixMillis>, LedgerError> {
+            Ok(meta_get(&self.conn, name)?
+                .and_then(|v| v.parse().ok())
+                .map(UnixMillis))
+        };
+        let (started, stopped) = (mark("shift.started")?, mark("shift.stopped")?);
         Ok(ShiftWindow::of(started, stopped, day))
     }
 
@@ -553,9 +565,10 @@ impl Ledger {
     /// keeping the newest. Returns how many sales were compacted.
     pub fn compact(&mut self, force: bool) -> Result<usize, LedgerError> {
         let now = self.clock.now_ms();
-        let last: Option<i64> =
-            meta_get(&self.conn, "last_compacted")?.and_then(|v| v.parse().ok());
-        if !force && last.is_some_and(|l| now - l < COMPACT_EVERY_MS && now >= l) {
+        let last: Option<UnixMillis> = meta_get(&self.conn, "last_compacted")?
+            .and_then(|v| v.parse().ok())
+            .map(UnixMillis);
+        if !force && last.is_some_and(|l| now < l.plus(COMPACT_EVERY_MS) && now >= l) {
             return Ok(0);
         }
         let window = self.shift_window()?;
@@ -617,7 +630,7 @@ impl Ledger {
              AND seq < (SELECT max(seq) FROM journal WHERE kind = 'Foreground')",
             [],
         )?;
-        meta_set(&tx, "last_compacted", &now.to_string())?;
+        meta_set(&tx, "last_compacted", &now.0.to_string())?;
         tx.commit()?;
         Ok(compacted)
     }
@@ -633,7 +646,7 @@ impl Ledger {
             .and_then(|d| d.parse::<i64>().ok())
             .filter(|d| *d > 0)
             .unwrap_or(DEFAULT_RETENTION_DAYS);
-        let cutoff = now - days * 24 * 60 * 60 * 1000;
+        let cutoff = now.plus(-days * 24 * 60 * 60 * 1000);
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -753,15 +766,7 @@ impl Ledger {
     /// The `alerts` row for one sale and kind: its state (`due`, `pending`,
     /// `posted`), when it was claimed and by whom.
     pub fn alert(&self, sale: &SaleKey, kind: AlertKind) -> Result<Option<AlertRow>, LedgerError> {
-        Ok(
-            get_alert(&self.conn, &self.scope, sale, kind)?.map(|(state, claimed_at, by)| {
-                AlertRow {
-                    state,
-                    claimed_at,
-                    by,
-                }
-            }),
-        )
+        get_alert(&self.conn, &self.scope, sale, kind)
     }
 
     /// Every projection's rows, as text, for comparing two databases (a
@@ -769,6 +774,10 @@ impl Ledger {
     /// journalled and are left out.
     pub fn dump_projections(&self) -> Result<Vec<String>, LedgerError> {
         let mut out = Vec::new();
+        let alerts = format!(
+            "SELECT scope, sale_key, kind, state, claimed_at, by FROM alerts WHERE state != '{}' ORDER BY scope, sale_key, kind",
+            AlertState::Due.as_str()
+        );
         for (name, sql) in [
             (
                 "sales",
@@ -782,10 +791,7 @@ impl Ledger {
                 "pending",
                 "SELECT scope, order_id, seq FROM pending_events ORDER BY scope, order_id, seq",
             ),
-            (
-                "alerts",
-                "SELECT scope, sale_key, kind, state, claimed_at, by FROM alerts WHERE state != 'due' ORDER BY scope, sale_key, kind",
-            ),
+            ("alerts", alerts.as_str()),
             ("settings", "SELECT name, value FROM settings ORDER BY name"),
             (
                 "meta",
@@ -814,9 +820,9 @@ impl Ledger {
 /// was claimed and by which process.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AlertRow {
-    pub state: String,
-    pub claimed_at: Option<i64>,
-    pub by: Option<String>,
+    pub state: AlertState,
+    pub claimed_at: Option<UnixMillis>,
+    pub by: Option<Process>,
 }
 
 /// One journal row, as [`Ledger::journal`] lists it.
@@ -824,7 +830,7 @@ pub struct AlertRow {
 pub struct JournalRow {
     pub seq: i64,
     pub scope: String,
-    pub at: i64,
+    pub at: UnixMillis,
     pub sale_key: Option<String>,
     pub kind: String,
     pub body: Vec<u8>,
@@ -839,11 +845,14 @@ impl JournalRow {
 
 fn rebuild_in(conn: &Connection) -> Result<(), LedgerError> {
     conn.execute_batch(
-        "DELETE FROM sales; DELETE FROM orders; DELETE FROM pending_events;
-         DELETE FROM alerts WHERE state != 'due'; DELETE FROM settings;
+        "DELETE FROM sales; DELETE FROM orders; DELETE FROM pending_events; DELETE FROM settings;
          DELETE FROM meta WHERE name IN ('foreground_until', 'shift.started', 'shift.stopped', 'imported_from');",
     )?;
-    let rows: Vec<(i64, String, i64, String, Vec<u8>)> = {
+    conn.execute(
+        "DELETE FROM alerts WHERE state != ?1",
+        params![AlertState::Due],
+    )?;
+    let rows: Vec<(i64, String, UnixMillis, String, Vec<u8>)> = {
         let mut stmt =
             conn.prepare("SELECT seq, scope, at, kind, body FROM journal ORDER BY seq")?;
         let rows = stmt.query_map([], |r| {
@@ -960,7 +969,7 @@ fn insert_journal(
     conn: &Connection,
     scope: &Scope,
     seq: i64,
-    at: i64,
+    at: UnixMillis,
     sale_key: Option<&str>,
     fact: &Fact,
 ) -> Result<bool, LedgerError> {
@@ -983,7 +992,7 @@ fn insert_journal(
 fn journal_alert_fact(
     conn: &Connection,
     scope: &Scope,
-    at: i64,
+    at: UnixMillis,
     fact: &Fact,
 ) -> Result<(), LedgerError> {
     let sale = match fact.about() {
@@ -1005,25 +1014,31 @@ fn read_view_settings(conn: &Connection) -> Result<ViewSettings, LedgerError> {
     Ok(ViewSettings::from_table(&read_settings(conn)?))
 }
 
-fn read_foreground(conn: &Connection) -> Result<i64, LedgerError> {
-    Ok(meta_get(conn, "foreground_until")?
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(0))
+fn read_foreground(conn: &Connection) -> Result<UnixMillis, LedgerError> {
+    Ok(UnixMillis(
+        meta_get(conn, "foreground_until")?
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0),
+    ))
 }
-
-type AlertTuple = (String, Option<i64>, Option<String>);
 
 fn get_alert(
     conn: &Connection,
     scope: &Scope,
     sale: &SaleKey,
     kind: AlertKind,
-) -> Result<Option<AlertTuple>, LedgerError> {
+) -> Result<Option<AlertRow>, LedgerError> {
     Ok(conn
         .query_row(
             "SELECT state, claimed_at, by FROM alerts WHERE scope = ?1 AND sale_key = ?2 AND kind = ?3",
             params![scope.0, sale.text(), kind.wire()],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            |r| {
+                Ok(AlertRow {
+                    state: r.get(0)?,
+                    claimed_at: r.get(1)?,
+                    by: r.get(2)?,
+                })
+            },
         )
         .optional()?)
 }
@@ -1033,9 +1048,9 @@ fn set_alert(
     scope: &Scope,
     sale: &SaleKey,
     kind: AlertKind,
-    state: &str,
-    claimed_at: Option<i64>,
-    by: Option<&str>,
+    state: AlertState,
+    claimed_at: Option<UnixMillis>,
+    by: Option<Process>,
 ) -> Result<(), LedgerError> {
     conn.execute(
         "INSERT INTO alerts(scope, sale_key, kind, state, claimed_at, by)
@@ -1055,14 +1070,14 @@ fn read_alerts(
 ) -> Result<Vec<SnapshotAlert>, LedgerError> {
     let mut stmt = conn.prepare(
         "SELECT kind, state, claimed_at, by FROM alerts
-         WHERE scope = ?1 AND sale_key = ?2 AND state != 'due' ORDER BY kind",
+         WHERE scope = ?1 AND sale_key = ?2 AND state != ?3 ORDER BY kind",
     )?;
-    let rows = stmt.query_map([&scope.0, &sale.text()], |r| {
+    let rows = stmt.query_map(params![scope.0, sale.text(), AlertState::Due], |r| {
         Ok((
             r.get::<_, String>(0)?,
-            r.get::<_, String>(1)?,
-            r.get::<_, Option<i64>>(2)?,
-            r.get::<_, Option<String>>(3)?,
+            r.get::<_, AlertState>(1)?,
+            r.get::<_, Option<UnixMillis>>(2)?,
+            r.get::<_, Option<Process>>(3)?,
         ))
     })?;
     let mut out = Vec::new();
@@ -1086,9 +1101,9 @@ fn post_silently(
     scope: &Scope,
     sale: &SaleKey,
     kind: AlertKind,
-    at: i64,
+    at: UnixMillis,
 ) -> Result<(), LedgerError> {
-    set_alert(conn, scope, sale, kind, "posted", None, None)?;
+    set_alert(conn, scope, sale, kind, AlertState::Posted, None, None)?;
     journal_alert_fact(
         conn,
         scope,
@@ -1107,7 +1122,7 @@ fn claim(
     process: Process,
     row: &SaleRow,
     kind: AlertKind,
-    now: i64,
+    now: UnixMillis,
     settings: &ViewSettings,
 ) -> Result<Claim, LedgerError> {
     let id = notification_id(&row.sale, kind);
@@ -1116,9 +1131,9 @@ fn claim(
         scope,
         &row.sale,
         kind,
-        "pending",
+        AlertState::Pending,
         Some(now),
-        Some(process.wire()),
+        Some(process),
     )?;
     journal_alert_fact(
         conn,
@@ -1147,7 +1162,7 @@ fn apply(
     conn: &Connection,
     scope: &Scope,
     fact: &Fact,
-    at: i64,
+    at: UnixMillis,
     mode: Mode<'_>,
 ) -> Result<Applied, LedgerError> {
     let (seq, journal) = match mode {
@@ -1197,12 +1212,14 @@ fn apply(
             ..
         } => {
             let old = get_alert(conn, scope, &sale, *kind)?;
-            let new = (
-                "pending".to_owned(),
-                Some(*claimed_at),
-                Some(by.wire().to_owned()),
-            );
-            if old.as_ref() == Some(&new) || old.as_ref().is_some_and(|o| o.0 == "posted") {
+            let new = AlertRow {
+                state: AlertState::Pending,
+                claimed_at: Some(*claimed_at),
+                by: Some(*by),
+            };
+            if old.as_ref() == Some(&new)
+                || old.as_ref().is_some_and(|o| o.state == AlertState::Posted)
+            {
                 return unchanged;
             }
             if journal && !insert_journal(conn, scope, seq, at, Some(&sale.text()), fact)? {
@@ -1213,9 +1230,9 @@ fn apply(
                 scope,
                 &sale,
                 *kind,
-                "pending",
+                AlertState::Pending,
                 Some(*claimed_at),
-                Some(by.wire()),
+                Some(*by),
             )?;
             return Ok(Applied {
                 changed: true,
@@ -1224,13 +1241,13 @@ fn apply(
         }
         Fact::AlertPosted { kind, .. } => {
             let old = get_alert(conn, scope, &sale, *kind)?;
-            if old.as_ref().is_some_and(|o| o.0 == "posted") {
+            if old.as_ref().is_some_and(|o| o.state == AlertState::Posted) {
                 return unchanged;
             }
             if journal && !insert_journal(conn, scope, seq, at, Some(&sale.text()), fact)? {
                 return unchanged;
             }
-            set_alert(conn, scope, &sale, *kind, "posted", None, None)?;
+            set_alert(conn, scope, &sale, *kind, AlertState::Posted, None, None)?;
             return Ok(Applied {
                 changed: true,
                 ..Applied::default()
@@ -1296,9 +1313,9 @@ fn apply(
                     scope,
                     &sale,
                     alert.kind,
-                    &alert.state,
+                    alert.state,
                     alert.claimed_at,
-                    alert.by.as_deref(),
+                    alert.by,
                 )?;
             }
         }
@@ -1380,7 +1397,7 @@ fn apply(
                 // The extension leaves it for `claim_due`: the newest one is
                 // what its notification shows; the app's next look takes
                 // the rest.
-                set_alert(conn, scope, &sale, effect.kind, "due", None, None)?;
+                set_alert(conn, scope, &sale, effect.kind, AlertState::Due, None, None)?;
             }
         }
     }
@@ -1422,7 +1439,7 @@ fn fold_kept(
     sale: &SaleKey,
     order: &OrderId,
     row: &mut SaleRow,
-    at: i64,
+    at: UnixMillis,
 ) -> Result<Option<SaleRow>, LedgerError> {
     if !matches!(sale, SaleKey::Pos { .. }) {
         return Ok(None);
@@ -1437,7 +1454,7 @@ fn fold_kept(
         row.marks.join(&kept.marks);
         row.marks.saw(&row.shared, at);
     }
-    let alerts: Vec<(String, String, Option<i64>, Option<String>)> = {
+    let alerts: Vec<(String, AlertState, Option<UnixMillis>, Option<Process>)> = {
         let mut stmt = conn.prepare(
             "SELECT kind, state, claimed_at, by FROM alerts WHERE scope = ?1 AND sale_key = ?2",
         )?;
@@ -1451,9 +1468,9 @@ fn fold_kept(
             continue;
         };
         match get_alert(conn, scope, sale, kind)? {
-            None => set_alert(conn, scope, sale, kind, &state, claimed_at, by.as_deref())?,
-            Some((mine, _, _)) if mine != "posted" && state == "posted" => {
-                set_alert(conn, scope, sale, kind, "posted", None, None)?;
+            None => set_alert(conn, scope, sale, kind, state, claimed_at, by)?,
+            Some(mine) if mine.state != AlertState::Posted && state == AlertState::Posted => {
+                set_alert(conn, scope, sale, kind, AlertState::Posted, None, None)?;
             }
             Some(_) => {}
         }
@@ -1508,9 +1525,9 @@ fn apply_global(conn: &Connection, fact: &Fact) -> Result<bool, LedgerError> {
                 crate::facts::ShiftMark::Started => "shift.started",
                 crate::facts::ShiftMark::Stopped => "shift.stopped",
             },
-            at.to_string(),
+            at.0.to_string(),
         ),
-        Fact::Foreground { until } => set_meta("foreground_until", until.to_string()),
+        Fact::Foreground { until } => set_meta("foreground_until", until.0.to_string()),
         Fact::Imported { from, count } => set_meta("imported_from", format!("{from}:{count}")),
         _ => Ok(false),
     }

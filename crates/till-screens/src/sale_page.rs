@@ -6,6 +6,7 @@
 
 use monokulo_client::{MoneyFormat, PointOfSale, SalePhase};
 use till_sales::{Standing, TillSale};
+use till_types::UnixSeconds;
 
 use crate::order_text::{OrderCard, order_card};
 use crate::shift::StateIcon;
@@ -116,9 +117,9 @@ pub fn page(
     let name = pos_text::name(pos);
     let status = sale_text::status(sale, pos);
     let has_it = pos_text::has_it_as_monero(pos);
-    let at = |t: i64| time(t, clock);
-    let fact = |label: &str, t: Option<i64>| {
-        t.filter(|&t| t > 0)
+    let at = |t: UnixSeconds| time(t, clock);
+    let fact = |label: &str, t: Option<UnixSeconds>| {
+        t.filter(|t| t.0 > 0)
             .map(|t| Fact::new(label, time(t, clock)))
     };
     let xmr = sale_text::xmr(sale);
@@ -214,7 +215,7 @@ pub fn page(
         Standing::Closed => {
             let then = if sale.settled {
                 "Monokulo has stopped watching it.".to_owned()
-            } else if sale.expires_at > clock.now {
+            } else if sale.expires_at > UnixSeconds(clock.now) {
                 format!(
                     "The code is still live until {}, and Monokulo keeps watching for a late payment after that: if one arrives, this sale turns paid.",
                     at(sale.expires_at)
@@ -509,11 +510,11 @@ pub fn cash_buttons(sale: &TillSale, busy: bool) -> Vec<CashButton> {
 
 /// "15 minutes ", "1 minute ", "under a minute " from `from` to `to`: how
 /// late a payment came. Empty when either time isn't known.
-pub fn after(from: Option<i64>, to: Option<i64>) -> String {
+pub fn after(from: Option<UnixSeconds>, to: Option<UnixSeconds>) -> String {
     let (Some(from), Some(to)) = (from, to) else {
         return String::new();
     };
-    match (to - from).max(0) / 60 {
+    match (to.0 - from.0).max(0) / 60 {
         0 => "under a minute ".into(),
         1 => "1 minute ".into(),
         minutes => format!("{minutes} minutes "),
@@ -604,7 +605,7 @@ pub fn sale_page(
     let model = page(sale, header.pos, clock, header.elsewhere);
     // The time before the place, so a narrow bar's ellipsis takes "this
     // till" first, not the time.
-    let subtitle = if sale.created_at > 0 {
+    let subtitle = if sale.created_at > UnixSeconds(0) {
         format!("{} · {}", time(sale.created_at, clock), header.place)
     } else {
         header.place.clone()
@@ -739,7 +740,7 @@ mod tests {
                 "Clover order T5XWHYQG"
             );
             let closed = TillSale {
-                closed_at: Some(at()),
+                closed_at: Some(UnixSeconds(at())),
                 ..shown.clone()
             };
             let model = page(&closed, h.pos, la(at()), h.elsewhere);
@@ -809,7 +810,7 @@ mod tests {
             "This sale was rung up in Clover before this till changed its point of sale. If the customer isn't paying, refund it in Clover."
         );
         let told = TillSale {
-            refund_pending_at: Some(at),
+            refund_pending_at: Some(UnixSeconds(at)),
             ..sale_of("t").phase(SalePhase::Expired).ended_at(at).build()
         };
         let pending_there = page(&told, CLOVER, la(at), true);
@@ -834,10 +835,22 @@ mod tests {
 
     #[test]
     fn a_late_payment_says_how_late_in_words() {
-        assert_eq!(after(Some(100), Some(159)), "under a minute ");
-        assert_eq!(after(Some(100), Some(160)), "1 minute ");
-        assert_eq!(after(Some(100), Some(100 + 15 * 60 + 30)), "15 minutes ");
-        assert_eq!(after(None, Some(100)), "");
+        assert_eq!(
+            after(Some(UnixSeconds(100)), Some(UnixSeconds(159))),
+            "under a minute "
+        );
+        assert_eq!(
+            after(Some(UnixSeconds(100)), Some(UnixSeconds(160))),
+            "1 minute "
+        );
+        assert_eq!(
+            after(
+                Some(UnixSeconds(100)),
+                Some(UnixSeconds(100 + 15 * 60 + 30))
+            ),
+            "15 minutes "
+        );
+        assert_eq!(after(None, Some(UnixSeconds(100))), "");
         let late = page(&one(&fixture_shift(), "latePaid"), SQUARE, la(at()), false);
         assert_eq!(
             note(&late),
@@ -895,7 +908,7 @@ mod tests {
         );
         let still_live = page(
             &TillSale {
-                expires_at: at + 1440,
+                expires_at: UnixSeconds(at + 1440),
                 ..sale_of("c").closed_at(at).build()
             },
             SQUARE,
@@ -1164,7 +1177,7 @@ mod tests {
             (CashAction::TakeInMonero, "Making the code…".into(), false)
         );
         let kept = TillSale {
-            kept_as_cash_at: Some(at()),
+            kept_as_cash_at: Some(UnixSeconds(at())),
             ..offered
         };
         assert_eq!(
@@ -1190,7 +1203,7 @@ mod tests {
                 .starts_with("Square has it as cash.")
         );
         let paid_in_cash = TillSale {
-            paid_in_cash_at: Some(at()),
+            paid_in_cash_at: Some(UnixSeconds(at())),
             ..closed
         };
         let view = sale_page(&input(paid_in_cash), la(at()), &money);

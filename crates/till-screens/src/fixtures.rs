@@ -6,6 +6,7 @@ use orf_codec::Receipt;
 use serde_json::json;
 use till_pos::FoundSale;
 use till_sales::{PaymentCode, TillSale};
+use till_types::UnixSeconds;
 
 use crate::time::DeviceClock;
 
@@ -14,12 +15,11 @@ use crate::time::DeviceClock;
 pub(crate) fn till_sale(id: &str, amount: &str, currency: &str, xmr: &str) -> TillSale {
     TillSale {
         order_id: id.into(),
-        amount: amount.into(),
-        currency: currency.into(),
+        price: till_types::Price::new(amount, currency),
         reference: None,
         code: PaymentCode::plain("monero:4abc"),
         phase: SalePhase::Waiting,
-        expires_at: 0,
+        expires_at: UnixSeconds(0),
         xmr: xmr.into(),
         address: "4abc".into(),
         found: None,
@@ -28,7 +28,7 @@ pub(crate) fn till_sale(id: &str, amount: &str, currency: &str, xmr: &str) -> Ti
         device_name: None,
         url: None,
         settled: false,
-        created_at: 0,
+        created_at: UnixSeconds(0),
         seen_at: None,
         paid_at: None,
         ended_at: None,
@@ -56,11 +56,10 @@ pub(crate) fn found(
 ) -> FoundSale {
     FoundSale {
         id: id.into(),
-        amount_minor,
-        currency: currency.into(),
+        amount: till_types::Money::new(amount_minor, currency.parse().unwrap()),
         reference: reference.map(Into::into),
         order_id: Some(order_id.into()),
-        created_at: created_at.into(),
+        created_at: created_at.parse().unwrap(),
         updated_at: None,
         status: None,
         device_id: None,

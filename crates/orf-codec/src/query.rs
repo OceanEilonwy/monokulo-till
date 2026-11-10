@@ -52,6 +52,36 @@ pub fn find(uri: &str) -> Option<&str> {
         })
 }
 
+/// `uri` without its receipt: every `orf` parameter taken out of its
+/// query, and the rest of the URI (other parameters, the `#fragment`) kept
+/// as it was. The inverse of [`append`]: `remove(&append(uri, r)?) == uri`
+/// for a `uri` whose query doesn't end in `&`.
+pub fn remove(uri: &str) -> String {
+    let (head, fragment) = match uri.split_once('#') {
+        Some((head, fragment)) => (head, Some(fragment)),
+        None => (uri, None),
+    };
+    let mut plain = match head.split_once('?') {
+        Some((path, query)) => {
+            let kept: Vec<&str> = query
+                .split('&')
+                .filter(|pair| pair.split_once('=').map_or(*pair, |(name, _)| name) != PARAM)
+                .collect();
+            if kept.is_empty() {
+                path.to_owned()
+            } else {
+                format!("{path}?{}", kept.join("&"))
+            }
+        }
+        None => head.to_owned(),
+    };
+    if let Some(fragment) = fragment {
+        plain.push('#');
+        plain.push_str(fragment);
+    }
+    plain
+}
+
 /// The receipt in `uri`'s `orf` parameter: `None` when there isn't one, an
 /// error when there is one that doesn't decode.
 pub fn from_uri(uri: &str) -> Result<Option<Receipt>, DecodeError> {
@@ -113,6 +143,31 @@ mod tests {
         assert_eq!(find("pay:abc?xorf=1&orf_=2"), None);
         assert_eq!(find("pay:abc#orf=1"), None);
         assert_eq!(find("pay:abc"), None);
+    }
+
+    #[test]
+    fn removes_only_the_receipt() {
+        for (uri, want) in [
+            (
+                "monero:4abc?tx_amount=1&orf=0123",
+                "monero:4abc?tx_amount=1",
+            ),
+            (
+                "monero:4abc?orf=0123&tx_amount=1",
+                "monero:4abc?tx_amount=1",
+            ),
+            ("monero:4abc?orf=0123", "monero:4abc"),
+            ("monero:4abc?orf=0123#x", "monero:4abc#x"),
+            ("pay:abc?xorf=1&orf_=2&orf", "pay:abc?xorf=1&orf_=2"),
+            ("pay:abc#orf=1", "pay:abc#orf=1"),
+            ("pay:abc", "pay:abc"),
+        ] {
+            assert_eq!(remove(uri), want, "{uri}");
+        }
+        let r = receipt();
+        for uri in ["pay:abc", "pay:abc?amount=1", "https://x.test/p?a=1#top"] {
+            assert_eq!(remove(&append(uri, &r).unwrap()), uri);
+        }
     }
 
     #[test]

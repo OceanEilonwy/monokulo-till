@@ -3,8 +3,10 @@
 //! `SaleText.kt`'s `Bubble` and `PaidBuzz`, `overlay/Faces.kt`'s `Panel`
 //! words).
 
+use monokulo_client::OrderId;
 use monokulo_client::{MoneyFormat, PointOfSale, SalePhase};
 use till_sales::{Standing, TillSale};
+use till_types::UnixSeconds;
 
 use crate::order_text::{OrderPageView, order_page};
 use crate::sale::{SaleInput, SaleView};
@@ -49,7 +51,7 @@ pub fn look(sales: &[TillSale], just_paid: bool) -> BubbleLook {
 /// Which sale the bubble and its panel are about: the one just paid, while
 /// it shows as paid; else the newest whose code is up; else the last one
 /// they showed.
-pub fn focus(sales: &[TillSale], previous: Option<&str>, just_paid: bool) -> Option<String> {
+pub fn focus(sales: &[TillSale], previous: Option<&str>, just_paid: bool) -> Option<OrderId> {
     let shown = sales
         .iter()
         .find(|sale| Some(sale.order_id.as_str()) == previous);
@@ -403,7 +405,7 @@ pub struct PanelInput {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct PanelView {
-    pub order_id: String,
+    pub order_id: OrderId,
     /// The sale, as its live screen shows it.
     pub sale: SaleView,
     /// The header's second line: the till's location, or who took it.
@@ -457,14 +459,14 @@ pub fn panel(
         money,
     );
     let ended = !s.live() && s.phase != SalePhase::Paid;
-    let seconds = sale_text::seconds_left(s.expires_at, clock.now);
+    let seconds = sale_text::seconds_left(s.expires_at, UnixSeconds(clock.now));
     let hero = hero(s);
     let face = face(hero, ended);
     let time_left = s.live().then(|| code::left(s, seconds)).flatten();
     PanelView {
         order_id: s.order_id.clone(),
         where_from: panel_where(s, input.location.as_deref()),
-        created: (s.created_at > 0).then(|| sale_text::time_of(s.created_at, clock)),
+        created: (s.created_at > UnixSeconds(0)).then(|| sale_text::time_of(s.created_at, clock)),
         status_left: time_left
             .as_ref()
             .filter(|_| face == PanelFace::Code)
@@ -502,7 +504,7 @@ mod tests {
                 "ord",
                 "2026-10-23T10:00:00Z",
             )),
-            closed_at,
+            closed_at: closed_at.map(UnixSeconds),
             ..till_sale(id, "24.50", "USD", "0.1421")
         }
     }
@@ -687,7 +689,7 @@ mod panel_tests {
 
     fn refunded(phase: SalePhase) -> TillSale {
         TillSale {
-            refunded_at: Some(9),
+            refunded_at: Some(UnixSeconds(9)),
             ..of(phase)
         }
     }
@@ -892,7 +894,7 @@ mod panel_tests {
         assert_eq!(hero(&of(Cancelled)), PanelHero::Expired);
         assert_eq!(
             hero(&TillSale {
-                closed_at: Some(1),
+                closed_at: Some(UnixSeconds(1)),
                 ..of(Waiting)
             }),
             PanelHero::Expired,
@@ -937,8 +939,8 @@ mod panel_tests {
             "USD",
         );
         let waiting = TillSale {
-            expires_at: at() + 892,
-            created_at: instant("2026-10-22T23:07:00Z"),
+            expires_at: UnixSeconds(at() + 892),
+            created_at: UnixSeconds(instant("2026-10-22T23:07:00Z")),
             receipt: Some(order),
             ..of(SalePhase::Waiting)
         };
@@ -984,7 +986,7 @@ mod panel_tests {
 
         let expired = TillSale {
             phase: SalePhase::Expired,
-            created_at: 0,
+            created_at: UnixSeconds(0),
             ..waiting
         };
         let view = panel(&input(expired), Device::Android, la(at()), &money);
@@ -1011,7 +1013,7 @@ mod panel_tests {
             panel(
                 &PanelInput {
                     sale: TillSale {
-                        expires_at: at() + 892,
+                        expires_at: UnixSeconds(at() + 892),
                         ..sale
                     },
                     till: SQUARE,
@@ -1055,7 +1057,7 @@ mod panel_tests {
         assert_eq!(confirming.status_left, None, "a payment on its way");
 
         let paid = draw(TillSale {
-            paid_at: Some(at()),
+            paid_at: Some(UnixSeconds(at())),
             ..of(Paid)
         });
         assert_eq!(paid.face, PanelFace::Paid);

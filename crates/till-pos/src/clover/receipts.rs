@@ -41,8 +41,11 @@ pub fn receipt(
     if order.line_items.elements.len() >= EXPANDED_MAX {
         return None;
     }
-    let currency = order.currency.as_ref().unwrap_or(&merchant.currency);
-    let digits = minor_digits(currency);
+    let currency = order
+        .currency
+        .clone()
+        .unwrap_or_else(|| merchant.currency.to_string());
+    let digits = minor_digits(&currency);
     let lines = lines(&order.line_items.elements);
     let sum: i64 = lines.iter().map(|l| l.total_minor).sum();
     let rest = order.total - sum;
@@ -65,14 +68,14 @@ pub fn receipt(
         extensions
     });
     Some(Receipt {
-        orf_version: "0.1.0".into(),
+        orf_version: orf_codec::ORF_VERSION.into(),
         receipt: ReceiptInfo {
             receipt_id: sale
                 .reference
                 .clone()
-                .unwrap_or_else(|| take_last(&order.id, 8)),
+                .unwrap_or_else(|| take_last(order.id.as_str(), 8)),
             issue_timestamp: receipt_timestamp(
-                crate::time::from_millis(order.created_time),
+                crate::time::Rfc3339Instant::from_millisecond(order.created_time).timestamp(),
                 merchant.timezone.as_deref(),
             ),
             receipt_type: ReceiptType::Sale,
@@ -104,7 +107,7 @@ pub fn receipt(
             authorization_code: None,
         }),
         total: major(order.total, digits),
-        currency: currency.clone(),
+        currency,
         trust: None,
         extensions: discount,
     })

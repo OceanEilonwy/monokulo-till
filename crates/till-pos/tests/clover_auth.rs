@@ -12,7 +12,7 @@ use std::time::Duration;
 use common::*;
 use monokulo_client::FixedClock;
 use till_pos::clover::{CloverAuth, CloverConfig, CloverEnvironment};
-use till_pos::{Pkce, PointOfSale, PosTokens};
+use till_pos::{AuthCode, OAuthRedirect, OAuthState, Pkce, PointOfSale, PosTokens};
 
 struct Fixture {
     stand: Stand,
@@ -110,7 +110,7 @@ async fn the_sign_in_page_gets_the_pkce_challenge_the_redirect_and_a_state_and_n
     );
     assert_eq!(param("code_challenge"), Some(pkce.challenge()));
     assert_eq!(param("code_challenge_method").as_deref(), Some("S256"));
-    assert_eq!(param("state"), Some(pkce.state.clone()));
+    assert_eq!(param("state"), Some(pkce.state.0.clone()));
     assert_eq!(
         url.query_pairs()
             .map(|(n, _)| n.into_owned())
@@ -136,7 +136,10 @@ async fn finishing_posts_exactly_the_code_and_verifier_and_keeps_the_tokens_with
     f.stand.enqueue(token_answer("acc1", "ref1", 1761600000));
     let signed_in = f
         .auth
-        .finish(&pkce, Some("MCLOVER00001"), Some("code1"), None, None)
+        .finish(
+            &pkce,
+            &redirect(Some("MCLOVER00001"), Some("code1"), None, None),
+        )
         .await
         .unwrap();
     assert_eq!(
@@ -158,7 +161,7 @@ async fn finishing_posts_exactly_the_code_and_verifier_and_keeps_the_tokens_with
         BTreeSet::from(["client_id", "code", "code_verifier"]),
         "no secret, no grant type Clover doesn't ask for"
     );
-    assert_eq!(body["code_verifier"], pkce.verifier.as_str());
+    assert_eq!(body["code_verifier"], pkce.verifier.expose_str());
     assert_eq!(body["code"], "code1");
 }
 
@@ -170,10 +173,7 @@ async fn an_echoed_state_must_be_the_attempts_and_a_redirect_needs_its_merchant_
         .auth
         .finish(
             &pkce,
-            Some("MCLOVER00001"),
-            Some("code"),
-            Some("other"),
-            None,
+            &redirect(Some("MCLOVER00001"), Some("code"), Some("other"), None),
         )
         .await
         .unwrap_err();
@@ -189,14 +189,14 @@ async fn an_echoed_state_must_be_the_attempts_and_a_redirect_needs_its_merchant_
     ] {
         let e = f
             .auth
-            .finish(&pkce, merchant, code, None, None)
+            .finish(&pkce, &redirect(merchant, code, None, None))
             .await
             .unwrap_err();
         assert_eq!(e.pos(), Some(PointOfSale::Clover), "{merchant:?} {code:?}");
     }
     let refused = f
         .auth
-        .finish(&pkce, None, None, None, Some("access_denied"))
+        .finish(&pkce, &redirect(None, None, None, Some("access_denied")))
         .await
         .unwrap_err();
     assert_eq!(
@@ -210,14 +210,19 @@ async fn an_echoed_state_must_be_the_attempts_and_a_redirect_needs_its_merchant_
     f.auth
         .finish(
             &pkce,
-            Some("MCLOVER00001"),
-            Some("code"),
-            Some(&pkce.state),
-            None,
+            &redirect(
+                Some("MCLOVER00001"),
+                Some("code"),
+                Some(pkce.state.as_str()),
+                None,
+            ),
         )
         .await
         .unwrap();
-    assert_eq!(f.tokens.get().unwrap().expires_at, "2026-10-28T09:30:00Z");
+    assert_eq!(
+        f.tokens.get().unwrap().expires_at.as_str(),
+        "2026-10-28T09:30:00Z"
+    );
 }
 
 #[tokio::test]
@@ -230,7 +235,7 @@ async fn a_token_with_under_five_minutes_left_is_refreshed_first_and_the_new_pai
         "MCLOVER00001",
     )));
     f.stand.enqueue(token_answer("new", "ref2", 1793179800));
-    assert_eq!(f.auth.access_token().await.unwrap(), "new");
+    assert_eq!(f.auth.access_token().await.unwrap().expose_str(), "new");
     assert_eq!(
         f.tokens.get(),
         Some(tokens(
@@ -250,7 +255,7 @@ async fn a_token_with_under_five_minutes_left_is_refreshed_first_and_the_new_pai
     assert_eq!(body["refresh_token"], "ref1");
     // 25 minutes left now: no request.
     f.clock.advance(60);
-    assert_eq!(f.auth.access_token().await.unwrap(), "new");
+    assert_eq!(f.auth.access_token().await.unwrap().expose_str(), "new");
     assert_eq!(f.stand.request_count().await, 1);
 }
 
@@ -336,12 +341,31 @@ async fn two_refreshes_after_one_refusal_sharing_a_lock_make_one_refresh_request
     };
     let (app, extension) = (sign_in(), sign_in());
     // Both had acc1 refused at once.
+    let refused = "acc1".into();
     let (a, b) = tokio::join!(
-        app.refresh_after_refusal("acc1"),
-        extension.refresh_after_refusal("acc1")
+        app.refresh_after_refusal(&refused),
+        extension.refresh_after_refusal(&refused)
     );
     assert_eq!((a.unwrap(), b.unwrap()), ("acc2".into(), "acc2".into()));
     assert_eq!(f.stand.request_count().await, 1, "ref1 spent once");
     let kept: PosTokens = f.tokens.get().unwrap();
-    assert_eq!(kept.refresh_token.as_deref(), Some("ref2"));
+    assert_eq!(
+        kept.refresh_token.as_ref().map(|t| t.expose_str()),
+        Some("ref2")
+    );
+}
+
+/// A Clover redirect saying `merchant_id`, `code`, `state` and `error`.
+fn redirect(
+    merchant_id: Option<&str>,
+    code: Option<&str>,
+    state: Option<&str>,
+    error: Option<&str>,
+) -> OAuthRedirect {
+    OAuthRedirect {
+        state: state.map(OAuthState::new),
+        code: code.map(AuthCode::new),
+        error: error.map(String::from),
+        merchant_id: merchant_id.map(String::from),
+    }
 }

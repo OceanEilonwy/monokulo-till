@@ -13,9 +13,10 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 
+use till_ledger::OrderId;
 use till_ledger::{
     Claim, ClaimPolicy, Fact, Ledger, LedgerError, Opened, Recorded, SaleKey, SaleRow, SaleView,
-    Scope, ViewSettings, view::setting,
+    Scope, UnixMillis, ViewSettings, view::setting,
 };
 use tokio::sync::watch;
 
@@ -168,7 +169,7 @@ impl Books {
                 continue;
             }
             let sale = TillSale::of_view(&view);
-            let in_window = window.contains(view.created_at.saturating_mul(1000));
+            let in_window = window.contains(view.created_at.to_millis());
             // Another counter's cash sale waits for its own till's order,
             // which this till never hears of: it's listed with the shift it
             // was rung up in, not for ever.
@@ -183,11 +184,11 @@ impl Books {
         }
         sales.truncate(crate::Till::MAX_SALES);
         shown.truncate(crate::Till::MAX_SALES);
-        let refund_problems: BTreeMap<String, String> = shown
+        let refund_problems: BTreeMap<OrderId, String> = shown
             .iter()
             .filter_map(|v| Some((v.order_id.clone(), v.refund_problem.clone()?)))
             .collect();
-        let from = Some(window.from.div_euclid(1000));
+        let from = Some(window.from.to_seconds());
         self.state.send_if_modified(|s| {
             let changed = s.sales != sales
                 || s.views != shown
@@ -243,7 +244,7 @@ impl Books {
 
     /// The sale a screen calls `order_id`: its deciding order's id, one of
     /// an offered cash sale's `cash:` id, or its key.
-    pub fn sale_key(&self, order_id: &str) -> Option<SaleKey> {
+    pub fn sale_key(&self, order_id: &OrderId) -> Option<SaleKey> {
         let state = self.state.borrow();
         state
             .views
@@ -324,9 +325,12 @@ impl Books {
 
     /// Keeps `options` as the ledger's settings (`Fact::SettingChanged`),
     /// those that changed only.
-    pub fn keep_options(&self, options: &TillOptions, at_ms: i64) {
+    pub fn keep_options(&self, options: &TillOptions, at_ms: UnixMillis) {
         let wanted = [
-            (setting::DEVICE, options.device_id.clone()),
+            (
+                setting::DEVICE,
+                options.device_id.as_ref().map(|d| d.to_string()),
+            ),
             (
                 setting::EVERY_DEVICE,
                 Some(options.every_device.to_string()),
@@ -341,7 +345,7 @@ impl Books {
 
     /// Keeps each `(name, value)` as a setting, recording only those that
     /// differ from the ledger's.
-    pub fn keep_settings(&self, wanted: &[(&str, Option<String>)], at_ms: i64) {
+    pub fn keep_settings(&self, wanted: &[(&str, Option<String>)], at_ms: UnixMillis) {
         let kept = match self.with(|ledger| ledger.settings()) {
             Ok(kept) => kept,
             Err(e) => {
@@ -387,18 +391,14 @@ impl Books {
     }
 }
 
-/// The ledger's clock: the till's own (Unix seconds), which
-/// [`Books::set_clock`] changes for both.
+/// The ledger's clock: the till's own, which [`Books::set_clock`] changes
+/// for both.
 #[derive(Clone)]
 struct TillClock(Arc<RwLock<Arc<dyn monokulo_client::Clock>>>);
 
-impl till_ledger::Clock for TillClock {
-    fn now_ms(&self) -> i64 {
-        self.0
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .now()
-            .saturating_mul(1000)
+impl monokulo_client::Clock for TillClock {
+    fn now_ms(&self) -> UnixMillis {
+        self.0.read().unwrap_or_else(|e| e.into_inner()).now_ms()
     }
 }
 

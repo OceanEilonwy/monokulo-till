@@ -6,9 +6,10 @@ use monokulo_client::{PointOfSale, SalePhase};
 use proptest::prelude::*;
 use till_ledger::view::setting;
 use till_ledger::{
-    AlertKind, ClaimPolicy, Fact, Imported, KeyMaterial, Ledger, LedgerError, MarkKind,
+    AlertKind, AlertState, ClaimPolicy, Fact, Imported, KeyMaterial, Ledger, LedgerError, MarkKind,
     OrderCreated, OrderObserved, OrderRead, PaymentPhase, PaymentSeen, Process, Quote, RefundSeen,
-    RefundStatus, SaleKey, Scope, SecretStore, Tender, TestClock, ViewSettings, may_make_order,
+    RefundStatus, SaleKey, Scope, SecretStore, Tender, TestClock, UnixMillis, UnixSeconds,
+    ViewSettings, may_make_order,
 };
 
 /// 2026-11-09 18:00 UTC.
@@ -62,8 +63,7 @@ fn payment(id: &str, device: &str, tender: Tender, updated_at: i64) -> Fact {
     Fact::PosPaymentSeen(PaymentSeen {
         pos: PointOfSale::Square,
         payment: id.into(),
-        amount_minor: 2450,
-        currency: "USD".into(),
+        amount: till_types::Money::new(2450, "USD".parse().unwrap()),
         tender,
         status: "COMPLETED".into(),
         device_id: Some(device.into()),
@@ -71,8 +71,8 @@ fn payment(id: &str, device: &str, tender: Tender, updated_at: i64) -> Fact {
         receipt_number: Some(format!("#{id}")),
         order_ref: Some(format!("sqo_{id}")),
         title: None,
-        created_at: "2026-11-09T17:00:00Z".into(),
-        updated_at,
+        created_at: "2026-11-09T17:00:00Z".parse().unwrap(),
+        updated_at: UnixMillis(updated_at),
     })
 }
 
@@ -84,10 +84,9 @@ fn created(id: &str, order: &str) -> Fact {
         payment_uri: format!("monero:8{order}?tx_amount=0.15"),
         address: format!("8{order}"),
         xmr: "0.15".into(),
-        amount: "24.50".into(),
-        currency: "USD".into(),
+        price: till_types::Price::new("24.50", "USD"),
         reference: Some(format!("#{id}")),
-        expires_at: NOW / 1000 + 900,
+        expires_at: UnixMillis(NOW).to_seconds().plus(900),
         confirmations_required: Some(10),
         device_name: None,
         renew: Some(format!("https://shop.example/api/v1/orders/{order}")),
@@ -122,7 +121,7 @@ fn quoted(order: &str, phase: SalePhase, expires_at: i64, piconero: u64) -> Fact
     };
     Fact::OrderObserved(OrderObserved {
         quote: Some(Quote {
-            expires_at,
+            expires_at: UnixSeconds(expires_at),
             piconero,
         }),
         ..o
@@ -132,7 +131,7 @@ fn quoted(order: &str, phase: SalePhase, expires_at: i64, piconero: u64) -> Fact
 fn read(id: &str, name: &str) -> Fact {
     Fact::PosOrderRead(OrderRead {
         sale: sale(id),
-        updated_at: 1,
+        updated_at: UnixMillis(1),
         receipt: None,
         why: Some("The order has no items.".into()),
         customer_name: Some(name.into()),
@@ -143,7 +142,7 @@ fn set(name: &str, value: &str, at: i64) -> Fact {
     Fact::SettingChanged {
         name: name.into(),
         value: Some(value.into()),
-        at,
+        at: UnixMillis(at),
     }
 }
 
@@ -161,7 +160,7 @@ fn pool() -> Vec<Fact> {
         read("p1", "Sam"),
         Fact::PosOrderRead(OrderRead {
             sale: sale("p1"),
-            updated_at: 2,
+            updated_at: UnixMillis(2),
             receipt: None,
             why: None,
             customer_name: Some("Sam B".into()),
@@ -359,7 +358,7 @@ fn a_stale_extension_round_moves_nothing_backwards() {
     let r = app.record(created("p2", "o2")).unwrap();
     app.posted(&r.effects_claimed[0]).unwrap();
     app.record(Fact::Foreground {
-        until: NOW + 60_000,
+        until: UnixMillis(NOW + 60_000),
     })
     .unwrap();
     let paid = app.record(observed("o1", SalePhase::Paid, true)).unwrap();
@@ -465,7 +464,7 @@ fn one_alert_per_sale_and_a_dead_claim_is_redelivered_once() {
             .unwrap()
             .unwrap()
             .state,
-        "posted"
+        AlertState::Posted
     );
 }
 
@@ -507,7 +506,7 @@ fn a_new_sale_paid_before_anyone_showed_it_is_not_shown() {
             .unwrap()
             .unwrap()
             .state,
-        "posted"
+        AlertState::Posted
     );
 }
 
@@ -548,7 +547,7 @@ fn a_late_payment_always_shows_and_alerts() {
                 l.record(Fact::Mark {
                     sale: sale("p1"),
                     mark: MarkKind::Closed,
-                    at: NOW,
+                    at: UnixMillis(NOW),
                 })
                 .unwrap();
             },
@@ -636,7 +635,12 @@ fn a_new_code_renews_the_one_order_with_a_new_quote() {
     let v = l.sale(&sale("p1")).unwrap().unwrap();
     assert_eq!(
         (v.order_id.as_str(), v.payment, v.live, v.expires_at),
-        ("o1", Some(PaymentPhase::Waiting), true, renewed)
+        (
+            "o1",
+            Some(PaymentPhase::Waiting),
+            true,
+            UnixSeconds(renewed)
+        )
     );
     assert_eq!(v.xmr, "0.16");
     assert_eq!(v.code.uri, "monero:8o1?tx_amount=0.16");
@@ -694,7 +698,7 @@ fn a_clock_lapse_belongs_to_the_quote_it_lapsed() {
     l.record(Fact::Mark {
         sale: sale("p1"),
         mark: MarkKind::ClockLapsed,
-        at: (FIRST_EXPIRY + 1) * 1000,
+        at: UnixSeconds(FIRST_EXPIRY + 1).to_millis(),
     })
     .unwrap();
     assert!(l.sale(&sale("p1")).unwrap().unwrap().clock_lapsed);
@@ -706,7 +710,7 @@ fn a_clock_lapse_belongs_to_the_quote_it_lapsed() {
     l.record(Fact::Mark {
         sale: sale("p1"),
         mark: MarkKind::ClockLapsed,
-        at: (renewed + 1) * 1000,
+        at: UnixSeconds(renewed + 1).to_millis(),
     })
     .unwrap();
     assert!(l.sale(&sale("p1")).unwrap().unwrap().clock_lapsed);
@@ -753,7 +757,7 @@ fn settings_never_enter_the_merge() {
         &l.row(&sale("p1")).unwrap().unwrap().shared,
         &Default::default(),
         &back,
-        0,
+        UnixMillis(0),
     );
     assert!(may_make_order(&v, &back, false));
 }
@@ -806,29 +810,33 @@ fn the_kept_shift_is_imported_once() {
 
     let one = app.sale(&sale("pay_1")).unwrap().unwrap();
     assert_eq!(one.phase, SalePhase::Expired);
-    assert_eq!(one.closed_at, Some(1794244100));
-    assert_eq!(one.refund_pending_at, Some(1794244200));
+    assert_eq!(one.closed_at, Some(UnixSeconds(1794244100)));
+    assert_eq!(one.refund_pending_at, Some(UnixSeconds(1794244200)));
     assert_eq!(one.customer_name.as_deref(), Some("Sam"));
     assert!(one.receipt.is_some() && one.code.has_receipt);
-    assert_eq!(one.created_at, 1794243600);
+    assert_eq!(one.created_at, UnixSeconds(1794243600));
     let two = app.sale(&sale("pay_2")).unwrap().unwrap();
     assert_eq!(
         (two.phase, two.paid_at, two.seen_at),
-        (SalePhase::Paid, Some(1794245520), Some(1794245460))
+        (
+            SalePhase::Paid,
+            Some(UnixSeconds(1794245520)),
+            Some(UnixSeconds(1794245460))
+        )
     );
     assert!(two.settled && two.cash);
     let nine = app.sale(&SaleKey::order("ord_9")).unwrap().unwrap();
     assert_eq!(nine.device_name.as_deref(), Some("Back iPad"));
     assert!(nine.code.why.is_some());
     let three = app.sale(&sale("pay_3")).unwrap().unwrap();
-    assert_eq!(three.kept_as_cash_at, Some(1794246400));
+    assert_eq!(three.kept_as_cash_at, Some(UnixSeconds(1794246400)));
     assert_eq!(three.order_id, "cash:pay_3");
     assert_eq!(
         app.alert(&sale("pay_1"), AlertKind::NewSale)
             .unwrap()
             .unwrap()
             .state,
-        "posted"
+        AlertState::Posted
     );
     assert!(
         app.alert(&SaleKey::order("ord_9"), AlertKind::NewSale)
@@ -936,7 +944,7 @@ fn the_key_states() {
             .unwrap()
             .unwrap()
             .state,
-        "posted"
+        AlertState::Posted
     );
     let lost = std::fs::read_dir(fx.dir.path())
         .unwrap()
@@ -1075,7 +1083,11 @@ fn a_sale_kept_from_monokulo_alone_is_folded_into_the_pos_sale_that_finds_it() {
         "the Monokulo-only rows are gone"
     );
     let seven = l.sale(&sale("p7")).unwrap().unwrap();
-    assert_eq!(seven.closed_at, Some(1794244100), "its close kept");
+    assert_eq!(
+        seven.closed_at,
+        Some(UnixSeconds(1794244100)),
+        "its close kept"
+    );
     assert!(!seven.live);
     assert_eq!(seven.order_id, "ord_7");
     assert_eq!(
@@ -1083,12 +1095,12 @@ fn a_sale_kept_from_monokulo_alone_is_folded_into_the_pos_sale_that_finds_it() {
             .unwrap()
             .unwrap()
             .state,
-        "posted"
+        AlertState::Posted
     );
     assert!(l.alert(&kept7, AlertKind::NewSale).unwrap().is_none());
     let eight = l.sale(&sale("p8")).unwrap().unwrap();
     assert_eq!(eight.phase, SalePhase::Paid, "what Monokulo said, kept");
-    assert_eq!(eight.paid_at, Some(1794243800));
+    assert_eq!(eight.paid_at, Some(UnixSeconds(1794243800)));
     assert!(eight.settled);
     assert_eq!(
         l.order(&"ord_7".into()).unwrap(),
@@ -1139,7 +1151,7 @@ fn compaction_keeps_the_projections() {
         let Fact::PosPaymentSeen(mut p) = payment(id, "front", Tender::Monero, 1) else {
             unreachable!()
         };
-        p.created_at = "2026-11-02T17:00:00Z".into();
+        p.created_at = "2026-11-02T17:00:00Z".parse().unwrap();
         Fact::PosPaymentSeen(p)
     };
     for fact in [
@@ -1159,8 +1171,14 @@ fn compaction_keeps_the_projections() {
             l.posted(&c).unwrap();
         }
     }
-    l.record(Fact::Foreground { until: NOW + 1 }).unwrap();
-    l.record(Fact::Foreground { until: NOW + 2 }).unwrap();
+    l.record(Fact::Foreground {
+        until: UnixMillis(NOW + 1),
+    })
+    .unwrap();
+    l.record(Fact::Foreground {
+        until: UnixMillis(NOW + 2),
+    })
+    .unwrap();
     let before = l.dump_projections().unwrap();
     assert_eq!(l.compact(true).unwrap(), 1, "p1 alone: ended and old");
     assert_eq!(l.compact(false).unwrap(), 0, "at most hourly");
@@ -1206,7 +1224,7 @@ fn the_shift_lists_live_sales_always_and_ended_ones_in_its_window() {
         let Fact::PosPaymentSeen(mut p) = payment(id, "front", tender, 1) else {
             unreachable!()
         };
-        p.created_at = when.into();
+        p.created_at = when.parse().unwrap();
         Fact::PosPaymentSeen(p)
     };
     // Yesterday's live sale and paid sale; today's paid cash sale.
@@ -1232,7 +1250,7 @@ fn the_shift_lists_live_sales_always_and_ended_ones_in_its_window() {
     // Started after today's sale: it leaves the window, the live one stays.
     l.record(Fact::ShiftMarked {
         mark: till_ledger::ShiftMark::Started,
-        at: NOW - 1000,
+        at: UnixMillis(NOW - 1000),
     })
     .unwrap();
     let shift = l.shift().unwrap();

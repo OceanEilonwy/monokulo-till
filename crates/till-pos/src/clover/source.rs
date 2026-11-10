@@ -3,10 +3,14 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use monokulo_client::{Clock, PointOfSale};
+use monokulo_client::{Clock, PointOfSale, UnixMillis, UnixSeconds};
 
-use super::{CloverApi, CloverConfig, CloverMerchant, CloverPayment, CloverTender, receipt};
+use super::{
+    CloverApi, CloverConfig, CloverMerchant, CloverMerchantId, CloverOrderId, CloverPayment,
+    CloverPaymentId, CloverTender, CloverTenderId, PaymentResult, PaymentState, receipt,
+};
 use crate::source::{OVERLAP_SECONDS, mark_handled};
+use crate::time::Rfc3339Instant;
 use crate::{
     CursorStore, FoundSale, PosError, RefundInPos, Refunds, SaleOrder, SaleSource, StoreError,
 };
@@ -17,9 +21,12 @@ pub trait TenderStore: Send + Sync {
     /// The tender's id at `merchant_id`, if one is remembered. A store that
     /// can't tell says so: taking that for "none" would look the tender up
     /// again, and could make a second one in Clover.
-    fn tender_id(&self, merchant_id: &str) -> Result<Option<String>, StoreError>;
+    fn tender_id(
+        &self,
+        merchant_id: &CloverMerchantId,
+    ) -> Result<Option<CloverTenderId>, StoreError>;
     /// Remembers `tender_id` at `merchant_id`; `None` forgets it.
-    fn save(&self, merchant_id: &str, tender_id: Option<&str>);
+    fn save(&self, merchant_id: &CloverMerchantId, tender_id: Option<&CloverTenderId>);
 }
 
 /// What the Monero tender is at the merchant, as the sign-in card shows it.
@@ -54,7 +61,7 @@ pub struct CloverSource {
     clock: Arc<dyn Clock>,
     /// Clover asked the till to slow down: no looks before this (Unix
     /// seconds).
-    hold_until: Mutex<Option<i64>>,
+    hold_until: Mutex<Option<UnixSeconds>>,
 }
 
 impl CloverSource {
@@ -128,7 +135,7 @@ impl CloverSource {
             .copied()
     }
 
-    async fn look(&self, at: i64) -> Result<Vec<FoundSale>, PosError> {
+    async fn look(&self, at: UnixSeconds) -> Result<Vec<FoundSale>, PosError> {
         let merchant = &self.merchant.id;
         // Not made yet (the card asks the cashier to): found by its label,
         // never made from here.
@@ -145,25 +152,23 @@ impl CloverSource {
         let since = match self.cursor.since()? {
             Some(since) => since,
             None => {
-                let now = crate::time::format(crate::time::from_seconds(at));
+                let now = Rfc3339Instant::from_second(at.0);
                 self.cursor.save(&now, &[]);
                 now
             }
         };
-        let since = crate::time::parse(&since).ok_or_else(|| {
-            PosError::Unreadable(format!("The saved Clover cursor {since:?} isn't a time."))
-        })?;
-        let from_ms = (since.as_millisecond() - OVERLAP_SECONDS * 1000).max(
-            at.saturating_sub(FURTHEST_BACK_SECONDS)
-                .saturating_mul(1000),
-        );
+        let from = UnixMillis(since.as_millisecond())
+            .plus(-OVERLAP_SECONDS * 1000)
+            .max(at.plus(-FURTHEST_BACK_SECONDS).to_millis());
         let handled = self.cursor.handled()?;
         let mut payments: Vec<CloverPayment> = self
             .api
-            .payments(merchant, &tender_id, from_ms)
+            .payments(merchant, &tender_id, from)
             .await?
             .into_iter()
-            .filter(|p| is_monero(p, &tender_id) && !handled.contains(&p.id))
+            .filter(|p| {
+                is_monero(p, &tender_id) && !handled.iter().any(|m| m.matches(p.id.as_str(), None))
+            })
             .collect();
         payments.sort_by_key(|p| p.created_time);
         Ok(payments.into_iter().map(|p| self.found_sale(p)).collect())
@@ -171,20 +176,22 @@ impl CloverSource {
 
     fn found_sale(&self, payment: CloverPayment) -> FoundSale {
         let (order_id, title) = match payment.order {
-            Some(order) => (Some(order.id), order.title.filter(|t| !t.trim().is_empty())),
+            Some(order) => (
+                Some(order.id.0),
+                order.title.filter(|t| !t.trim().is_empty()),
+            ),
             None => (None, None),
         };
         FoundSale {
-            id: payment.id,
-            amount_minor: payment.amount,
-            currency: self.merchant.currency.clone(),
+            id: payment.id.0,
+            amount: till_types::Money::new(payment.amount, self.merchant.currency),
             // Clover prints no receipt number on a payment (acceptance D7).
             reference: None,
             order_id,
-            created_at: crate::time::format(crate::time::from_millis(payment.created_time)),
+            created_at: Rfc3339Instant::from_millisecond(payment.created_time),
             updated_at: None,
             status: None,
-            device_id: payment.device.map(|d| d.id),
+            device_id: payment.device.map(|d| d.id.into()),
             device_name: None,
             cash: false,
             title,
@@ -195,10 +202,13 @@ impl CloverSource {
 
 /// Whether `payment` is a Monero sale: it succeeded with the Monero tender,
 /// and wasn't voided, nor refunded by a refund that wasn't voided.
-fn is_monero(payment: &CloverPayment, tender_id: &str) -> bool {
-    payment.result == "SUCCESS"
+fn is_monero(payment: &CloverPayment, tender_id: &CloverTenderId) -> bool {
+    payment.result == PaymentResult::Success
         && !payment.voided
-        && payment.tender.as_ref().is_some_and(|t| t.id == tender_id)
+        && payment
+            .tender
+            .as_ref()
+            .is_some_and(|t| t.id == tender_id.as_str())
         && payment.refunds.elements.iter().all(|r| r.voided)
 }
 
@@ -227,7 +237,7 @@ impl SaleSource for CloverSource {
         {
             let wait = e.retry_after_seconds().unwrap_or(1);
             *self.hold_until.lock().unwrap() =
-                Some(at.saturating_add(i64::try_from(wait).unwrap_or(i64::MAX)));
+                Some(at.plus(i64::try_from(wait).unwrap_or(i64::MAX)));
         }
         looked
     }
@@ -242,7 +252,10 @@ impl SaleSource for CloverSource {
         if self.merchant.country.is_none() {
             return Ok(SaleOrder::default());
         }
-        let order = self.api.order(&self.merchant.id, order_id).await?;
+        let order = self
+            .api
+            .order(&self.merchant.id, &CloverOrderId::new(order_id.as_str()))
+            .await?;
         Ok(SaleOrder {
             receipt: receipt(&order, &self.merchant, sale),
             customer_name: None,
@@ -264,8 +277,11 @@ impl RefundInPos for CloverSource {
     /// payment was voided, or its order reads `REFUNDED`. A part refund
     /// isn't enough.
     async fn refunded(&self, sale: &FoundSale) -> Result<bool, PosError> {
-        let payment = self.api.payment(&self.merchant.id, &sale.id).await?;
-        if payment.voided || payment.result == "VOIDED" {
+        let payment = self
+            .api
+            .payment(&self.merchant.id, &CloverPaymentId::new(sale.id.as_str()))
+            .await?;
+        if payment.voided || payment.result == PaymentResult::Voided {
             return Ok(true);
         }
         let refunded: i64 = payment
@@ -275,17 +291,18 @@ impl RefundInPos for CloverSource {
             .filter(|r| !r.voided)
             .map(|r| r.amount)
             .sum();
-        if refunded >= sale.amount_minor {
+        if refunded >= sale.amount.minor {
             return Ok(true);
         }
         let Some(order_id) = sale
             .order_id
             .clone()
+            .map(CloverOrderId::new)
             .or_else(|| payment.order.map(|o| o.id))
         else {
             return Ok(false);
         };
         let order = self.api.order(&self.merchant.id, &order_id).await?;
-        Ok(order.payment_state.as_deref() == Some("REFUNDED"))
+        Ok(order.payment_state == Some(PaymentState::Refunded))
     }
 }

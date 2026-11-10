@@ -10,7 +10,11 @@ repository.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
+# A currency's minor-unit digits, from the one ISO 4217 table the till's
+# crates share.
+till-types = { path = "../till-types" }
+# The issue timestamp's instant and offset.
+jiff = "0.2.16"
 # Magicless frames need the experimental API.
 zstd = { version = "0.13", features = ["experimental"] }
 

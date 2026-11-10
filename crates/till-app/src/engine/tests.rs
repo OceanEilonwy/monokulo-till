@@ -41,20 +41,19 @@ fn config(square: Option<&MockServer>) -> EngineConfig {
         device: Device::Iphone,
         device_name: "iPhone 17".into(),
         app_version: "0.1.0".into(),
-        platform: "ios".into(),
         debug: true,
         utc_offset: 0,
         hours_24: false,
         square: SquareSetup {
             application_id: "sq0idp-till".into(),
-            sandbox: false,
+            environment: crate::SquareEnvironment::Production,
             redirect_uri: "https://till.monokulo.com/square".into(),
             base_url: square.map(MockServer::uri),
             return_uri: None,
         },
         clover: CloverSetup {
             application_id: "clv-till".into(),
-            environment: "sandbox".into(),
+            environment: crate::CloverEnvironment::Sandbox,
             redirect_uri: "https://till.monokulo.com/clover".into(),
             base_url: None,
             return_uri: None,
@@ -62,6 +61,22 @@ fn config(square: Option<&MockServer>) -> EngineConfig {
         bell_url: "https://bell.monokulo.com".into(),
         relay_url: None,
     }
+}
+
+/// The platform Monokulo's apps list shows is the device's.
+#[test]
+fn the_platform_is_the_devices() {
+    assert_eq!(config(None).platform(), "ios");
+    let ipad = EngineConfig {
+        device: Device::Ipad,
+        ..config(None)
+    };
+    assert_eq!(ipad.platform(), "ios");
+    let android = EngineConfig {
+        device: Device::Android,
+        ..config(None)
+    };
+    assert_eq!(android.platform(), "android");
 }
 
 /// A client that keeps no idle connections (decision 32).
@@ -251,6 +266,55 @@ fn a_store_that_cant_answer_says_so_and_is_read_again_when_opened() {
             .iter()
             .any(|l| l.contains("waits"))
     );
+}
+
+/// Decision 213: an action that waits is logged by its name alone, never
+/// with the redirect, auth secret, token or link it carries.
+#[test]
+fn a_waiting_action_is_logged_without_what_it_carries() {
+    let platform = Arc::new(FakePlatform::default());
+    platform.fail(true);
+    let (engine, rx, recorder) = start(config(None), platform.clone());
+    assert!(problem(&rx).starts_with("Couldn't read what this till keeps"));
+    engine.send(Action::SignInReturned {
+        url: "https://till.example/square?code=sq0cgp-SECRETCODE&state=STATE1".into(),
+    });
+    engine.send(Action::PushEndpoint {
+        url: "https://push.example/1".into(),
+        p256dh: Some("BKey".into()),
+        auth: Some("AUTHSECRET".into()),
+    });
+    engine.send(Action::PushToken {
+        token: Some("APNSTOKEN".into()),
+    });
+    engine.send(Action::SharedText {
+        text: "https://pay.example/apps/connect#token=ct_SHARED".into(),
+    });
+    platform.fail(false);
+    engine.send(Action::Opened);
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Work { problem: None, .. }) => Some(()),
+        _ => None,
+    });
+    let logs = recorder.1.lock().unwrap().clone();
+    for name in ["SignInReturned", "PushEndpoint", "SharedText"] {
+        assert!(
+            logs.iter().any(|l| l.contains(&format!("so {name} waits"))),
+            "{name}: {logs:?}"
+        );
+    }
+    for secret in [
+        "SECRETCODE",
+        "STATE1",
+        "AUTHSECRET",
+        "APNSTOKEN",
+        "ct_SHARED",
+    ] {
+        assert!(
+            !logs.iter().any(|l| l.contains(secret)),
+            "{secret}: {logs:?}"
+        );
+    }
 }
 
 /// Decision 109: a problem no screen's view carries (a refused write from
@@ -848,7 +912,7 @@ async fn the_bubbles_paid_moment_holds_green_through_the_collapse_it_asks_for() 
     // no collapse.
     engine.poke(|s| s.just_paid("ord_1".into()));
     assert_eq!(engine.peek(|s| s.paid_moment), PaidMoment::Held);
-    engine.poke(|s| s.paid_dwell_ended("ord_1"));
+    engine.poke(|s| s.paid_dwell_ended(&"ord_1".into()));
     assert_eq!(engine.peek(|s| s.paid_moment), PaidMoment::None);
 
     // Nothing waiting: the dwell's end collapses the panel.
@@ -865,7 +929,7 @@ async fn the_bubbles_paid_moment_holds_green_through_the_collapse_it_asks_for() 
         Heard::Update(Update::Bubble { view }) if view.look == BubbleLook::Paid => Some(()),
         _ => None,
     });
-    engine.poke(|s| s.paid_dwell_ended("ord_1"));
+    engine.poke(|s| s.paid_dwell_ended(&"ord_1".into()));
     wait_for(&rx, |heard| match heard {
         Heard::Effect(Effect::LowerPanel) => Some(()),
         Heard::Update(Update::Bubble { view }) => {

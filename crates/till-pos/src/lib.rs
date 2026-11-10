@@ -24,6 +24,7 @@
 
 #[cfg(feature = "clover")]
 pub mod clover;
+mod environment;
 mod error;
 #[cfg(any(feature = "square", feature = "clover"))]
 mod http;
@@ -31,17 +32,22 @@ mod money;
 mod pkce;
 #[cfg(any(feature = "square", feature = "clover"))]
 mod receipts;
+mod redirect;
 mod source;
 #[cfg(feature = "square")]
 pub mod square;
 pub mod time;
 mod tokens;
 
+pub use environment::{CloverEnvironment, PosEnvironment, SquareEnvironment};
 pub use error::PosError;
-pub use money::decimal_amount;
 pub use monokulo_client::{Clock, PointOfSale};
 pub use pkce::Pkce;
+pub use redirect::{AuthCode, OAuthRedirect, OAuthState};
 pub use source::{
-    CursorStore, FoundSale, ListedRefund, RefundByTill, RefundInPos, Refunds, SaleOrder, SaleSource,
+    CursorStore, FoundSale, HandledMarker, ListedRefund, PaymentStatus, PosDeviceId, RefundByTill,
+    RefundInPos, RefundKey, RefundStatus, Refunds, SaleOrder, SaleSource,
 };
+pub use till_types::{CurrencyCode, Money, Price};
+pub use time::Rfc3339Instant;
 pub use tokens::{NoTokenLock, PosTokens, StoreError, TokenLock, TokenStore};

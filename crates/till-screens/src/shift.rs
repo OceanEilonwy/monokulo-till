@@ -6,8 +6,10 @@
 //! Where the platforms differ: the idle hint names the bubble only on
 //! Android, which has one.
 
+use monokulo_client::OrderId;
 use monokulo_client::{MoneyFormat, PointOfSale, SalePhase, amounts};
 use till_sales::{Standing, TillSale};
+use till_types::{CurrencyCode, UnixSeconds};
 
 use crate::close;
 use crate::counters::{CounterChoice, CounterMenu, Counters};
@@ -303,7 +305,7 @@ pub fn needs_action(sales: &[TillSale]) -> usize {
 /// takings.
 pub fn summary(
     sales: &[TillSale],
-    started_at: Option<i64>,
+    started_at: Option<UnixSeconds>,
     clock: DeviceClock,
     money: &dyn MoneyFormat,
 ) -> String {
@@ -317,21 +319,8 @@ pub fn summary(
     let mut parts = if paid.is_empty() {
         vec!["Nothing paid yet".to_owned()]
     } else {
-        let mut currencies: Vec<&str> = Vec::new();
-        for sale in &paid {
-            if !currencies.contains(&sale.currency.as_str()) {
-                currencies.push(&sale.currency);
-            }
-        }
         let mut parts = vec![format!("{} paid", paid.len())];
-        parts.extend(currencies.into_iter().map(|currency| {
-            let those: Vec<&str> = paid
-                .iter()
-                .filter(|sale| sale.currency == currency)
-                .map(|sale| sale.amount.as_str())
-                .collect();
-            total(&those, currency, money)
-        }));
+        parts.extend(per_currency(&paid, money));
         parts
     };
     if let Some(start) = started_at {
@@ -340,44 +329,81 @@ pub fn summary(
     parts.join(" · ")
 }
 
-/// `amounts` added up in `currency`, as the device writes money; an amount
-/// that doesn't read counts as nothing.
-fn total(amounts: &[&str], currency: &str, money: &dyn MoneyFormat) -> String {
-    let code = currency.to_ascii_uppercase();
-    match amounts::exponent(&code) {
-        Some(exponent) => {
-            let minor: i64 = amounts
-                .iter()
-                .filter_map(|amount| amounts::minor_units(amount, exponent))
-                .sum();
-            money.format(minor, &code)
-        }
-        None => {
-            // Not ISO 4217's: summed to the most digits any amount has.
-            let digits = amounts
-                .iter()
-                .map(|amount| amount.split_once('.').map_or(0, |(_, frac)| frac.len()))
-                .max()
-                .unwrap_or(0) as u32;
-            let minor: i64 = amounts
-                .iter()
-                .filter_map(|amount| amounts::minor_units(amount, digits))
-                .sum();
-            let scale = 10i64.pow(digits);
-            let sum = if digits == 0 {
-                minor.to_string()
-            } else {
-                format!(
-                    "{}{}.{:0width$}",
-                    if minor < 0 { "-" } else { "" },
-                    minor.abs() / scale,
-                    minor.abs() % scale,
-                    width = digits as usize
-                )
-            };
-            format!("{sum} {code}")
+/// `paid` summed per currency, in the order the currencies first appear:
+/// one total each, as the device writes money. A currency is its code
+/// whatever its case ("usd" is USD); text that isn't a code is taken as it
+/// is.
+fn per_currency(paid: &[&TillSale], money: &dyn MoneyFormat) -> Vec<String> {
+    let code = |sale: &TillSale| match sale.price.money() {
+        Some(m) => m.currency.to_string(),
+        None => CurrencyCode::new(sale.price.currency())
+            .map_or_else(|_| sale.price.currency().to_owned(), |c| c.to_string()),
+    };
+    let mut currencies: Vec<String> = Vec::new();
+    for sale in paid {
+        let currency = code(sale);
+        if !currencies.contains(&currency) {
+            currencies.push(currency);
         }
     }
+    currencies
+        .into_iter()
+        .map(|currency| {
+            let those: Vec<&TillSale> = paid
+                .iter()
+                .copied()
+                .filter(|sale| code(sale) == currency)
+                .collect();
+            let iso = CurrencyCode::new(&currency)
+                .ok()
+                .filter(|c| c.iso_digits().is_some());
+            match iso {
+                // Summed from the money each was read as; one that isn't
+                // money counts as nothing.
+                Some(code) => {
+                    let minor = those
+                        .iter()
+                        .filter_map(|sale| sale.price.money())
+                        .map(|m| m.minor)
+                        .sum();
+                    money.format(minor, code.as_str())
+                }
+                None => {
+                    let amounts: Vec<&str> = those.iter().map(|sale| sale.price.amount()).collect();
+                    total(&amounts, &currency)
+                }
+            }
+        })
+        .collect()
+}
+
+/// `amounts` in `currency`, a code ISO 4217 doesn't list, added up to the
+/// most digits any of them has and written with the code after it; an
+/// amount that doesn't read counts as nothing.
+fn total(amounts: &[&str], currency: &str) -> String {
+    let code = currency.to_ascii_uppercase();
+    let digits = amounts
+        .iter()
+        .map(|amount| amount.split_once('.').map_or(0, |(_, frac)| frac.len()))
+        .max()
+        .unwrap_or(0) as u32;
+    let minor: i64 = amounts
+        .iter()
+        .filter_map(|amount| amounts::minor_units(amount, digits))
+        .sum();
+    let scale = 10i64.pow(digits);
+    let sum = if digits == 0 {
+        minor.to_string()
+    } else {
+        format!(
+            "{}{}.{:0width$}",
+            if minor < 0 { "-" } else { "" },
+            minor.abs() / scale,
+            minor.abs() % scale,
+            width = digits as usize
+        )
+    };
+    format!("{sum} {code}")
 }
 
 /// Where a row goes: a live sale's code, any other sale's page (the
@@ -400,7 +426,7 @@ pub fn row(
     clock: DeviceClock,
     money: &dyn MoneyFormat,
 ) -> ShiftRow {
-    let at = |when: Option<i64>| {
+    let at = |when: Option<UnixSeconds>| {
         when.map(|t| format!(" · {}", time(t, clock)))
             .unwrap_or_default()
     };
@@ -422,7 +448,8 @@ pub fn row(
             StateIcon::Tick,
         ),
         Standing::CashOffer { kept: false } => (
-            sale_text::status(sale, till) + &at(Some(sale.created_at).filter(|&t| t > 0)),
+            sale_text::status(sale, till)
+                + &at(Some(sale.created_at).filter(|&t| t > UnixSeconds(0))),
             Tone::Link,
             StateIcon::Cash,
         ),
@@ -583,8 +610,8 @@ pub fn ready_line(
 }
 
 /// "just now", "4 minutes ago" within the hour, then "at 9:41 AM".
-fn ago(at: i64, clock: DeviceClock) -> String {
-    let minutes = (clock.now - at).max(0) / 60;
+fn ago(at: UnixSeconds, clock: DeviceClock) -> String {
+    let minutes = (clock.now - at.0).max(0) / 60;
     match minutes {
         0 => "just now".into(),
         1 => "a minute ago".into(),
@@ -668,7 +695,7 @@ pub struct ShiftReady {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct OfferedCash {
-    pub order_id: String,
+    pub order_id: OrderId,
     /// "Sam · $9.00".
     pub title: String,
     /// "Cash · paying in Monero?".
@@ -720,7 +747,7 @@ pub struct ShiftInput {
     /// The point of sale's sign-in has ended.
     pub sign_in_again: bool,
     /// When this shift began, if it's known.
-    pub started_at: Option<i64>,
+    pub started_at: Option<UnixSeconds>,
     /// The chip chosen.
     pub filter: ShiftFilter,
     /// The tray folded (its default).
@@ -789,7 +816,7 @@ pub enum ShiftEntry {
         count: u32,
     },
     Row {
-        order_id: String,
+        order_id: OrderId,
         row: ShiftRow,
         ends: RowEnds,
         tray: bool,
@@ -869,25 +896,12 @@ pub fn cash_in_monero(sales: &[TillSale], money: &dyn MoneyFormat) -> Option<Str
     if paid.is_empty() {
         return None;
     }
-    let mut currencies: Vec<&str> = Vec::new();
-    for sale in &paid {
-        if !currencies.contains(&sale.currency.as_str()) {
-            currencies.push(&sale.currency);
-        }
-    }
     let mut parts = vec![format!(
         "{} cash {} paid in Monero",
         paid.len(),
         sales_word(paid.len())
     )];
-    parts.extend(currencies.into_iter().map(|currency| {
-        let those: Vec<&str> = paid
-            .iter()
-            .filter(|sale| sale.currency == currency)
-            .map(|sale| sale.amount.as_str())
-            .collect();
-        total(&those, currency, money)
-    }));
+    parts.extend(per_currency(&paid, money));
     Some(parts.join(" · "))
 }
 
@@ -1022,7 +1036,7 @@ pub fn shift(
                 let live = sale.live();
                 ticks |= live && sale.phase.counts_down();
                 let seconds = if live {
-                    sale_text::seconds_left(sale.expires_at, clock.now)
+                    sale_text::seconds_left(sale.expires_at, UnixSeconds(clock.now))
                 } else {
                     0
                 };
@@ -1177,11 +1191,11 @@ pub(crate) mod tests {
                     )
                 }),
                 device_name: if self.mine { None } else { self.device.clone() },
-                created_at: at() - 600,
-                paid_at: self.paid_at,
-                ended_at: self.ended_at,
-                closed_at: self.closed_at,
-                refunded_at: self.refunded_at,
+                created_at: UnixSeconds(at() - 600),
+                paid_at: self.paid_at.map(UnixSeconds),
+                ended_at: self.ended_at.map(UnixSeconds),
+                closed_at: self.closed_at.map(UnixSeconds),
+                refunded_at: self.refunded_at.map(UnixSeconds),
                 ..till_sale(id, &self.amount, &self.currency, "0.0336")
             }
         }
@@ -1287,11 +1301,16 @@ pub(crate) mod tests {
         let started = instant("2026-10-22T16:02:00Z");
         let clock = la(at());
         assert_eq!(
-            summary(&shift, Some(started), clock, &money),
+            summary(&shift, Some(UnixSeconds(started)), clock, &money),
             "3 paid · $41.50 · since 9:02 AM"
         );
         assert_eq!(
-            summary(&[sale_of("w").build()], Some(started), clock, &money),
+            summary(
+                &[sale_of("w").build()],
+                Some(UnixSeconds(started)),
+                clock,
+                &money
+            ),
             "Nothing paid yet · since 9:02 AM"
         );
         assert_eq!(summary(&[], None, clock, &money), "Nothing paid yet");
@@ -1308,6 +1327,16 @@ pub(crate) mod tests {
             summary(&mixed, None, clock, &money),
             "3 paid · $4.00 · ¥500"
         );
+        // One currency whatever its case.
+        let cased = [
+            sale_of("a").phase(Paid).amount("1.25").build(),
+            sale_of("b")
+                .phase(Paid)
+                .amount("2.75")
+                .currency("usd")
+                .build(),
+        ];
+        assert_eq!(summary(&cased, None, clock, &money), "2 paid · $4.00");
         // A sale the last shift carried over, paid after its refund, isn't
         // this shift's takings.
         let carried = sale_of("paidAfterRefund")
@@ -1323,7 +1352,7 @@ pub(crate) mod tests {
             .paid_at(at())
             .build();
         assert_eq!(
-            summary(&[carried, paid], Some(started), clock, &money),
+            summary(&[carried, paid], Some(UnixSeconds(started)), clock, &money),
             "1 paid · $24.50 · since 9:02 AM"
         );
     }
@@ -1511,7 +1540,7 @@ pub(crate) mod tests {
             "Refunded in Clover · 3:58 PM"
         );
         let pending = TillSale {
-            refund_pending_at: Some(at),
+            refund_pending_at: Some(UnixSeconds(at)),
             ..sale_of("p").phase(Expired).ended_at(at - 60).build()
         };
         assert_eq!(
@@ -1877,7 +1906,7 @@ pub(crate) mod tests {
             disconnected: false,
             problem: None,
             sign_in_again: false,
-            started_at: Some(instant("2026-10-22T16:02:00Z")),
+            started_at: Some(UnixSeconds(instant("2026-10-22T16:02:00Z"))),
             filter: ShiftFilter::All,
             folded: true,
             counters: Counters::default(),
@@ -1909,7 +1938,7 @@ pub(crate) mod tests {
     #[test]
     fn the_shift_draws_its_top_row_summary_chips_and_rows() {
         let waiting = TillSale {
-            expires_at: at() + 552,
+            expires_at: UnixSeconds(at() + 552),
             ..sale_of("waiting").build()
         };
         let mut sales = fixture_shift();
@@ -2093,14 +2122,14 @@ pub(crate) mod tests {
         let offered = |id: &str, device: &str| {
             let mut sale = TillSale {
                 offered: true,
-                order_id: format!("cash:{id}"),
+                order_id: format!("cash:{id}").into(),
                 ..cash(sale_of(id).build())
             };
             sale.found.as_mut().unwrap().device_id = Some(device.into());
             sale
         };
         let kept = TillSale {
-            kept_as_cash_at: Some(at()),
+            kept_as_cash_at: Some(UnixSeconds(at())),
             ..offered("k", "dev_front")
         };
         let sales = vec![
@@ -2221,7 +2250,7 @@ pub(crate) mod tests {
     fn ready_says_when_the_last_sale_was_paid() {
         let paid = |id: &str, ago: i64| TillSale {
             phase: SalePhase::Paid,
-            paid_at: Some(at() - ago),
+            paid_at: Some(UnixSeconds(at() - ago)),
             ..sale_of(id).build()
         };
         let ready = |sales: Vec<TillSale>| shift(&input(sales), Device::Ipad, la(at()), &money);
@@ -2293,11 +2322,11 @@ pub(crate) mod tests {
             ..cash(sale_of("q8Lw").build())
         };
         let kept = TillSale {
-            kept_as_cash_at: Some(at()),
+            kept_as_cash_at: Some(UnixSeconds(at())),
             ..offered.clone()
         };
         let paid = TillSale {
-            paid_at: Some(at()),
+            paid_at: Some(UnixSeconds(at())),
             phase: SalePhase::Paid,
             ..cash(sale_of("j1Qx").build())
         };

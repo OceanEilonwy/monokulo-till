@@ -34,14 +34,16 @@ impl SecretStore for PlatformSecrets {
 }
 
 /// The scope of the till's rows (docs/ledger.md §4): the store it's
-/// connected to, by its API's address, and the point of sale's account
-/// (the Square location, the Clover merchant) when it has one.
+/// connected to, by its API's address as the connection keeps it (never
+/// spelt again: a scope that changes has its rows deleted, decisions 166
+/// and 216), or none, and the point of sale's account (the Square
+/// location, the Clover merchant) when it has one.
 pub(crate) fn scope_of(model: &Model) -> Scope {
+    const NO_STORE: &str = "";
     let store = model
         .connection
         .as_ref()
-        .map(|c| c.api.as_str())
-        .unwrap_or("");
+        .map_or(NO_STORE, |c| c.api.as_str());
     let account = match model.point_of_sale {
         Some(PointOfSale::Square) => model
             .location

@@ -1,6 +1,8 @@
 use std::collections::BTreeSet;
 
+use monokulo_client::PointOfSale;
 use serde_json::Value;
+use till_pos::{CloverEnvironment, PosEnvironment, SquareEnvironment};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
@@ -68,10 +70,12 @@ impl StandIn {
         self.api
             .register(
                 &self.bell,
-                PointOfSale::Square,
-                "sandbox",
-                "EAAAtoken",
-                "L1",
+                &PosSignIn {
+                    application_id: "sandbox-sq0idb-till".into(),
+                    environment: PosEnvironment::Square(SquareEnvironment::Sandbox),
+                    location_id: "L1".into(),
+                },
+                &"EAAAtoken".into(),
                 &subscription(),
             )
             .await
@@ -242,10 +246,12 @@ async fn a_clover_till_registers_its_merchant_as_the_location_and_its_region_as_
         .api
         .register(
             &bell.bell,
-            PointOfSale::Clover,
-            "europe",
-            "clv-token",
-            "MCLOVERDEV001",
+            &PosSignIn {
+                application_id: "MONOKULARBELL".into(),
+                environment: PosEnvironment::Clover(CloverEnvironment::Europe),
+                location_id: "MCLOVERDEV001".into(),
+            },
+            &"clv-token".into(),
             &subscription(),
         )
         .await;
@@ -342,7 +348,7 @@ async fn a_problem_is_read_by_its_types_slug_its_detail_and_retry_after() {
         panic!("a problem")
     };
     assert_eq!(e.status, 429);
-    assert_eq!(e.slug.as_deref(), Some("rate-limited"));
+    assert_eq!(e.slug, Some(BellSlug::RateLimited));
     assert_eq!(e.detail.as_deref(), Some("slow down"));
     assert_eq!(e.retry_after, Some(42));
 }
@@ -457,4 +463,24 @@ async fn a_bell_that_isnt_there_is_an_io_exception() {
         matches!(e, BellError::Connection(_)),
         "no answer at all: {e:?}"
     );
+}
+
+#[test]
+fn a_slug_reads_and_writes_as_the_bell_names_it() {
+    for (slug, want) in [
+        ("square-refused", BellSlug::Refused(PointOfSale::Square)),
+        (
+            "clover-unavailable",
+            BellSlug::Unavailable(PointOfSale::Clover),
+        ),
+        ("too-many-registrations", BellSlug::TooManyRegistrations),
+        ("endpoint-registered", BellSlug::EndpointRegistered),
+        ("rate-limited", BellSlug::RateLimited),
+        ("internal", BellSlug::Internal),
+        ("toast-refused", BellSlug::Other("toast-refused".into())),
+    ] {
+        let read = BellSlug::from_slug(slug);
+        assert_eq!(read, want, "{slug}");
+        assert_eq!(read.to_string(), slug);
+    }
 }

@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use serde::Deserialize;
+use till_types::Secret;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -40,9 +41,16 @@ pub(crate) enum DeviceToken {
     NotYet,
     /// iOS couldn't register for remote notifications.
     Failed,
-    /// The token's bytes in hex.
-    Have(String),
+    /// The token's bytes in hex: as good as an address for pushes to this
+    /// device, so never logged.
+    Have(Secret),
 }
+
+till_types::text_id!(
+    /// A Bell's VAPID public key (base64url), as the relay registers a
+    /// token under it: never a token's place.
+    VapidKey
+);
 
 /// The relay's answer to a registration.
 #[derive(Deserialize)]
@@ -65,7 +73,7 @@ pub(crate) struct RelayPush {
 struct Inner {
     token: DeviceToken,
     /// The Bell's VAPID key while subscribed for it.
-    vapid: Option<String>,
+    vapid: Option<VapidKey>,
     /// Bumped by every subscription, unsubscription and token, so a
     /// registration's answer that something later replaced is dropped.
     asked: u64,
@@ -149,8 +157,8 @@ async fn registration(
     relay: &str,
     platform: Arc<dyn Platform>,
     http: &reqwest::Client,
-    token: &str,
-    vapid: &str,
+    token: &Secret,
+    vapid: &VapidKey,
 ) -> Action {
     let failed = |failure| Action::PushFailed { failure };
     let keys = match PushKeys::load_or_make(&Store::new(platform)) {
@@ -162,7 +170,7 @@ async fn registration(
     };
     let body = serde_json::json!({
         "platform": "apns",
-        "token": token,
+        "token": token.expose_str(),
         "app": APP,
         "vapid_public_key": vapid,
     });
@@ -202,7 +210,7 @@ async fn registration(
 impl PushPlatform for RelayPush {
     fn subscribe(&self, vapid_public_key: String) {
         let mut inner = self.inner.lock().unwrap();
-        inner.vapid = Some(vapid_public_key);
+        inner.vapid = Some(VapidKey(vapid_public_key));
         self.register(&mut inner);
     }
 

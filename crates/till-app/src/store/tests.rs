@@ -107,14 +107,17 @@ fn every_key_stores_kt_writes_reads_into_the_model() {
     assert_eq!(model.point_of_sale, Some(PointOfSale::Clover));
     assert!(model.without_pos);
     assert!(!model.shift_on);
-    assert_eq!(model.shift_started_at, Some(1_761_300_000));
+    assert_eq!(
+        model.shift_started_at,
+        Some(till_types::UnixSeconds(1_761_300_000))
+    );
     assert!(model.setup_done);
     assert!(!model.bubble_on && model.bubble_left);
     assert_eq!(model.bubble_y, Some(412));
     let pending = model.pending_sign_in.as_ref().unwrap();
     assert_eq!(pending.point_of_sale, PointOfSale::Clover);
-    assert_eq!(pending.pkce.verifier, "v-86");
-    assert_eq!(pending.pkce.state, "s-43");
+    assert_eq!(pending.pkce.verifier.expose_str(), "v-86");
+    assert_eq!(pending.pkce.state.as_str(), "s-43");
     assert_eq!(pending.application_id.as_deref(), Some("clv-bell"));
     assert_eq!(model.square_application_id.as_deref(), Some("sq0idp-bell"));
     assert_eq!(model.clover_application_id.as_deref(), Some("clv-bell"));
@@ -141,29 +144,42 @@ fn every_key_stores_kt_writes_reads_into_the_model() {
         model.clover_base_url.as_deref(),
         Some("http://10.0.2.2:8082")
     );
-    assert_eq!(model.clover_merchant.as_ref().unwrap().id, "MID1");
+    assert_eq!(model.clover_merchant.as_ref().unwrap().id.as_str(), "MID1");
     assert_eq!(model.place_name().as_deref(), Some("Lumen"));
 
     let log = quiet();
     let s = store(&platform);
     let square = PosTokenStore::new(s.clone(), PointOfSale::Square, log.clone());
     assert_eq!(
-        square.load().unwrap().unwrap().refresh_token.as_deref(),
+        square
+            .load()
+            .unwrap()
+            .unwrap()
+            .refresh_token
+            .as_ref()
+            .map(|t| t.expose_str()),
         Some("r1")
     );
     let clover = PosTokenStore::new(s.clone(), PointOfSale::Clover, log.clone());
     assert_eq!(clover.load().unwrap().unwrap().refresh_token, None);
     let cursor = PosCursor::new(s.clone(), PointOfSale::Square, log.clone());
     assert_eq!(
-        cursor.since().unwrap().as_deref(),
+        cursor.since().unwrap().as_ref().map(|t| t.as_str()),
         Some("2026-10-22T16:07:00.512Z")
     );
-    assert_eq!(cursor.handled().unwrap(), ["pay_1", "pay_2"]);
+    let handled: Vec<String> = cursor
+        .handled()
+        .unwrap()
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert_eq!(handled, ["pay_1", "pay_2"]);
     assert_eq!(
         Tenders::new(s.clone(), log.clone())
-            .tender_id("MID1")
+            .tender_id(&mid1())
             .unwrap()
-            .as_deref(),
+            .as_ref()
+            .map(|t| t.as_str()),
         Some("TND1")
     );
     let shift = s.shift_sales().unwrap();
@@ -191,7 +207,7 @@ fn the_model_writes_every_key_back_as_stores_kt_wrote_it() {
         PosCursor::new(write.clone(), pos, log.clone())
             .save(&from.since().unwrap().unwrap(), &from.handled().unwrap());
     }
-    Tenders::new(write.clone(), log.clone()).save("MID1", Some("TND1"));
+    Tenders::new(write.clone(), log.clone()).save(&mid1(), Some(&"TND1".into()));
     write.set_shift_sales(&read.shift_sales().unwrap()).unwrap();
 
     assert_eq!(rust.all(), kotlin.all(), "byte for byte, and no key more");
@@ -310,7 +326,7 @@ fn counters_cash_and_how_sales_show_up_are_kept_and_the_device_goes_with_the_sto
         counter_device: Some(CounterKept {
             id: "dev_front".into(),
             name: Some("Front iPad".into()),
-            learned_at: 1_762_700_000,
+            learned_at: till_types::UnixSeconds(1_762_700_000),
         }),
         alert_every: true,
         show_others: false,
@@ -442,11 +458,14 @@ fn what_is_read_through_says_when_it_couldnt_be_read() {
     assert!(s.shift_sales().is_err());
     assert!(cursor.since().is_err());
     assert!(cursor.handled().is_err());
-    assert!(tenders.tender_id("MID1").is_err());
+    assert!(tenders.tender_id(&mid1()).is_err());
     assert_eq!(lines.lock().unwrap().len(), 3, "each logged");
     platform.fail(false);
     assert_eq!(s.shift_sales().unwrap().len(), 1, "and all still there");
-    assert_eq!(tenders.tender_id("MID1").unwrap().as_deref(), Some("TND1"));
+    assert_eq!(
+        tenders.tender_id(&mid1()).unwrap().map(|t| t.0),
+        Some("TND1".to_owned())
+    );
 }
 
 #[test]
@@ -481,4 +500,8 @@ fn a_sign_in_that_cant_be_read_is_an_error_never_signed_out() {
         tokens.load().unwrap().is_some(),
         "and nothing was saved over it"
     );
+}
+
+fn mid1() -> till_pos::clover::CloverMerchantId {
+    till_pos::clover::CloverMerchantId::new("MID1").unwrap()
 }

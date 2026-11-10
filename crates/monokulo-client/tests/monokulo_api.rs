@@ -13,6 +13,7 @@ use monokulo_client::{
     StreamEvent, proof,
 };
 use sha2::{Digest, Sha256};
+use till_types::{CurrencyCode, Money};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate, matchers::any};
 
@@ -172,7 +173,7 @@ impl Stand {
     fn code(&self) -> ConnectCode {
         ConnectCode {
             connect_url: format!("{}/apps/connect", self.base()),
-            token: Stand::token(),
+            token: Stand::token().into(),
         }
     }
 }
@@ -262,11 +263,19 @@ async fn a_monokulo_under_a_path_is_connected_and_used_under_it() {
     )
     .unwrap();
     let connection = stand.api.connect(&code).await.unwrap();
-    assert_eq!(connection.api, format!("{}/monokulo/api/v1", stand.base()));
+    assert_eq!(
+        connection.api.as_str(),
+        format!("{}/monokulo/api/v1", stand.base())
+    );
     stand.api.store(&connection).await.unwrap();
     let order = stand
         .api
-        .create_order(&connection, "24.50", "USD", None, "sq:abc")
+        .create_order(
+            &connection,
+            &Money::new(2450, CurrencyCode::USD),
+            None,
+            "sq:abc",
+        )
         .await
         .unwrap();
     assert_eq!(
@@ -348,7 +357,13 @@ async fn a_challenge_is_solved_and_the_request_sent_again_with_its_proof() {
         }
     });
     assert_eq!(
-        stand.api.connect(&stand.code()).await.unwrap().app_key,
+        stand
+            .api
+            .connect(&stand.code())
+            .await
+            .unwrap()
+            .app_key
+            .expose_str(),
         "ak_x"
     );
     let seen = stand.seen();
@@ -509,7 +524,12 @@ async fn orders_are_made_with_the_create_order_form_with_no_description() {
     });
     let order = stand
         .api
-        .create_order(&stand.connection(), "24.50", "USD", Some("#1042"), "sq:abc")
+        .create_order(
+            &stand.connection(),
+            &Money::new(2450, CurrencyCode::USD),
+            Some("#1042"),
+            "sq:abc",
+        )
         .await
         .unwrap();
     assert_eq!(order.payment_uri(), "monero:8Bx?tx_amount=0.5");
@@ -670,7 +690,12 @@ async fn a_form_the_key_may_not_use_isnt_tried() {
     });
     let e = stand
         .api
-        .create_order(&stand.connection(), "1", "USD", None, "k")
+        .create_order(
+            &stand.connection(),
+            &Money::new(100, CurrencyCode::USD),
+            None,
+            "k",
+        )
         .await
         .unwrap_err();
     assert_eq!(e.status(), 403);

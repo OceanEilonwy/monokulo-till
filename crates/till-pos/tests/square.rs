@@ -13,7 +13,10 @@ use monokulo_client::FixedClock;
 use till_pos::square::{
     SquareApi, SquareAuth, SquareConfig, SquareLocation, SquareOrder, SquareSource,
 };
-use till_pos::{FoundSale, ListedRefund, Pkce, PointOfSale, Refunds, SaleSource, decimal_amount};
+use till_pos::{
+    AuthCode, FoundSale, ListedRefund, OAuthRedirect, OAuthState, Pkce, PointOfSale, Refunds,
+    SaleSource, SquareEnvironment,
+};
 
 const NOW: &str = "2026-10-22T16:10:00Z";
 
@@ -79,15 +82,15 @@ impl Fixture {
 #[tokio::test]
 async fn the_environment_is_the_applications_as_a_bell_names_it() {
     let f = Fixture::start().await;
-    assert_eq!(f.config.environment(), "production");
+    assert_eq!(f.config.environment(), SquareEnvironment::Production);
     let sandbox = SquareConfig {
         application_id: "sandbox-sq0idb-dev".into(),
         ..f.config.clone()
     };
-    assert_eq!(sandbox.environment(), "sandbox");
+    assert_eq!(sandbox.environment(), SquareEnvironment::Sandbox);
     assert_eq!(
-        SquareConfig::environment_of("sq0idp-sandbox-lookalike"),
-        "production"
+        SquareEnvironment::of_application("sq0idp-sandbox-lookalike"),
+        SquareEnvironment::Production
     );
 }
 
@@ -126,7 +129,7 @@ async fn signing_in_asks_for_the_tills_scopes_and_keeps_the_tokens() {
     // Another attempt's state is refused before Square is asked.
     let refused = f
         .auth
-        .finish(&pkce, Some("other"), Some("code"), None)
+        .finish(&pkce, &redirect(Some("other"), Some("code"), None))
         .await
         .unwrap_err();
     assert_eq!(refused.pos(), Some(PointOfSale::Square));
@@ -134,14 +137,19 @@ async fn signing_in_asks_for_the_tills_scopes_and_keeps_the_tokens() {
         r#"{"access_token":"EAAA1","expires_at":"2026-11-21T16:10:00Z","refresh_token":"r1","merchant_id":"M1"}"#,
     ));
     f.auth
-        .finish(&pkce, Some(&pkce.state), Some("code1"), None)
+        .finish(
+            &pkce,
+            &redirect(Some(pkce.state.as_str()), Some("code1"), None),
+        )
         .await
         .unwrap();
-    assert_eq!(f.tokens.get().unwrap().access_token, "EAAA1");
+    assert_eq!(f.tokens.get().unwrap().access_token.expose_str(), "EAAA1");
     let sent = body_text(&f.stand.take_request().await);
     assert!(
-        sent.contains(&format!(r#""code_verifier":"{}""#, pkce.verifier))
-            && !sent.contains("secret"),
+        sent.contains(&format!(
+            r#""code_verifier":"{}""#,
+            pkce.verifier.expose_str()
+        )) && !sent.contains("secret"),
         "{sent}"
     );
 }
@@ -171,11 +179,19 @@ async fn a_token_about_to_expire_is_refreshed_and_the_new_refresh_token_kept() {
     f.stand.enqueue(json(
         r#"{"access_token":"new","expires_at":"2026-11-21T16:10:00Z","refresh_token":"r2","merchant_id":"M1"}"#,
     ));
-    assert_eq!(f.auth.access_token().await.unwrap(), "new");
-    assert_eq!(f.tokens.get().unwrap().refresh_token.as_deref(), Some("r2"));
+    assert_eq!(f.auth.access_token().await.unwrap().expose_str(), "new");
+    assert_eq!(
+        f.tokens
+            .get()
+            .unwrap()
+            .refresh_token
+            .as_ref()
+            .map(|t| t.expose_str()),
+        Some("r2")
+    );
     assert!(body_text(&f.stand.take_request().await).contains(r#""refresh_token":"r1""#));
     // Good for a while now: no request.
-    assert_eq!(f.auth.access_token().await.unwrap(), "new");
+    assert_eq!(f.auth.access_token().await.unwrap().expose_str(), "new");
     assert_eq!(f.stand.request_count().await, 1);
 }
 
@@ -206,21 +222,27 @@ async fn only_completed_monero_tenders_are_sales_and_handled_ones_arent_given_ag
         "Monero and completed cash, not card, other tenders or open payments"
     );
     let sale = &sales[0];
-    assert_eq!(sale.amount_minor, 1388);
+    assert_eq!(sale.amount.minor, 1388);
     assert_eq!(sale.reference.as_deref(), Some("bP9m"));
-    assert_eq!(sale.device_id.as_deref(), Some("dev_front"));
+    assert_eq!(
+        sale.device_id.as_ref().map(|d| d.as_str()),
+        Some("dev_front")
+    );
     assert_eq!(
         sale.device_name.as_deref(),
         Some("Front iPad"),
         "on one line, trimmed"
     );
     assert!(!sale.cash);
-    assert_eq!(sale.updated_at.as_deref(), Some("2026-10-22T16:07:01.004Z"));
-    assert_eq!(sale.status.as_deref(), Some("COMPLETED"));
+    assert_eq!(
+        sale.updated_at.as_ref().map(|t| t.as_str()),
+        Some("2026-10-22T16:07:01.004Z")
+    );
+    assert_eq!(sale.status.as_ref().map(|s| s.as_str()), Some("COMPLETED"));
     let cash = &sales[1];
     assert!(cash.cash);
-    assert_eq!(cash.amount_minor, 2450);
-    assert_eq!(cash.device_id.as_deref(), Some("dev_bar"));
+    assert_eq!(cash.amount.minor, 2450);
+    assert_eq!(cash.device_id.as_ref().map(|d| d.as_str()), Some("dev_bar"));
     assert_eq!(cash.device_name.as_deref(), Some("Bar iPad"));
     let request = f.stand.take_request().await;
     assert_eq!(query(&request, "location_id").as_deref(), Some("L1"));
@@ -257,7 +279,7 @@ async fn only_completed_monero_tenders_are_sales_and_handled_ones_arent_given_ag
     assert_eq!(
         again
             .iter()
-            .map(|s| (s.id.as_str(), s.updated_at.as_deref()))
+            .map(|s| (s.id.as_str(), s.updated_at.as_ref().map(|t| t.as_str())))
             .collect::<Vec<_>>(),
         [("pay_monero", Some("2026-10-22T16:12:30.250Z"))]
     );
@@ -279,7 +301,7 @@ async fn the_locations_refunds_are_listed_page_by_page() {
             "payment_id":"pay_cash","created_at":"2026-10-22T16:09:00Z"}]}"#,
     ));
     let listed = source
-        .refunds_since("2026-10-22T16:00:00Z")
+        .refunds_since(&"2026-10-22T16:00:00Z".parse().unwrap())
         .await
         .unwrap()
         .expect("Square lists refunds");
@@ -291,14 +313,14 @@ async fn the_locations_refunds_are_listed_page_by_page() {
                 payment_id: "pay_monero".into(),
                 amount_minor: 1388,
                 status: "COMPLETED".into(),
-                created_at: Some("2026-10-22T16:08:00Z".into()),
+                created_at: Some("2026-10-22T16:08:00Z".parse().unwrap()),
             },
             ListedRefund {
                 id: "rf_2".into(),
                 payment_id: "pay_cash".into(),
                 amount_minor: 2450,
                 status: "PENDING".into(),
-                created_at: Some("2026-10-22T16:09:00Z".into()),
+                created_at: Some("2026-10-22T16:09:00Z".parse().unwrap()),
             },
         ]
     );
@@ -501,11 +523,10 @@ async fn a_refund_is_the_whole_sale_once() {
     let made = refunds
         .refund(&FoundSale {
             id: "pay_monero".into(),
-            amount_minor: 1388,
-            currency: "USD".into(),
+            amount: till_types::Money::new(1388, "USD".parse().unwrap()),
             reference: Some("bP9m".into()),
             order_id: Some("ord_sq_1".into()),
-            created_at: "2026-10-22T16:07:00Z".into(),
+            created_at: "2026-10-22T16:07:00Z".parse().unwrap(),
             updated_at: None,
             status: None,
             device_id: None,
@@ -531,9 +552,11 @@ async fn a_refund_is_the_whole_sale_once() {
 
 #[test]
 fn amounts_are_decimals_in_the_currencys_own_digits() {
-    assert_eq!(decimal_amount(2450, "USD"), "24.50");
-    assert_eq!(decimal_amount(1200, "JPY"), "1200");
-    assert_eq!(decimal_amount(5, "EUR"), "0.05");
+    let decimal =
+        |minor, currency: &str| till_types::Money::new(minor, currency.parse().unwrap()).decimal();
+    assert_eq!(decimal(2450, "USD"), "24.50");
+    assert_eq!(decimal(1200, "JPY"), "1200");
+    assert_eq!(decimal(5, "EUR"), "0.05");
 }
 
 // Not in SquareTest.kt: the lock docs/ios-plan.md §5 asks for.
@@ -562,7 +585,15 @@ async fn two_refreshes_at_once_sharing_a_lock_make_one_refresh_request() {
     let (a, b) = tokio::join!(app.access_token(), extension.access_token());
     assert_eq!((a.unwrap(), b.unwrap()), ("new".into(), "new".into()));
     assert_eq!(f.stand.request_count().await, 1, "r1 spent once");
-    assert_eq!(f.tokens.get().unwrap().refresh_token.as_deref(), Some("r2"));
+    assert_eq!(
+        f.tokens
+            .get()
+            .unwrap()
+            .refresh_token
+            .as_ref()
+            .map(|t| t.expose_str()),
+        Some("r2")
+    );
 }
 
 /// Decision 17: a sign-in the store couldn't read is an error, never
@@ -614,11 +645,10 @@ async fn a_cursor_that_cant_be_read_is_an_error_and_never_saved_over() {
     assert!(matches!(e, till_pos::PosError::Store(_)), "{e:?}");
     source.handled(&FoundSale {
         id: "pay_1".into(),
-        amount_minor: 1388,
-        currency: "USD".into(),
+        amount: till_types::Money::new(1388, "USD".parse().unwrap()),
         reference: None,
         order_id: None,
-        created_at: "2026-10-22T16:07:00Z".into(),
+        created_at: "2026-10-22T16:07:00Z".parse().unwrap(),
         updated_at: None,
         status: None,
         device_id: None,
@@ -629,4 +659,14 @@ async fn a_cursor_that_cant_be_read_is_an_error_and_never_saved_over() {
     });
     assert_eq!(cursor.saves(), 0);
     assert_eq!(f.stand.request_count().await, 0);
+}
+
+/// A Square redirect saying `state`, `code` and `error`.
+fn redirect(state: Option<&str>, code: Option<&str>, error: Option<&str>) -> OAuthRedirect {
+    OAuthRedirect {
+        state: state.map(OAuthState::new),
+        code: code.map(AuthCode::new),
+        error: error.map(String::from),
+        merchant_id: None,
+    }
 }

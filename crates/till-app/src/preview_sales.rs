@@ -8,6 +8,7 @@ use monokulo_client::{PointOfSale, SalePhase};
 use serde_json::json;
 use till_pos::FoundSale;
 use till_sales::{PaymentCode, TillSale, shift_json};
+use till_types::UnixSeconds;
 
 use crate::Pos;
 
@@ -137,31 +138,30 @@ impl PreviewSale {
             .reference
             .clone()
             .unwrap_or_else(|| self.order_id.clone());
-        let minor = monokulo_client::amounts::exponent(&self.currency)
-            .and_then(|exp| monokulo_client::amounts::minor_units(&self.amount, exp))
-            .unwrap_or(0);
+        let currency: till_pos::CurrencyCode =
+            self.currency.parse().unwrap_or(till_pos::CurrencyCode::USD);
+        let amount = till_pos::Money::from_decimal(&self.amount, currency)
+            .unwrap_or(till_pos::Money::new(0, currency));
         let receipt = self.receipt.then(sample_receipt);
         let uri = format!(
             "monero:{}?tx_amount={}&tx_description={}",
             self.address, self.xmr, self.order_id
         );
         TillSale {
-            order_id: self.order_id.clone(),
-            amount: self.amount.clone(),
-            currency: self.currency.clone(),
+            order_id: self.order_id.as_str().into(),
+            price: till_pos::Price::new(self.amount.as_str(), self.currency.as_str()),
             reference: Some(reference.clone()),
             code: PaymentCode::of(&uri, receipt.as_ref()),
             phase: self.phase.unwrap_or(PreviewPhase::Waiting).into(),
-            expires_at: self.expires_at.unwrap_or(i64::MAX / 2),
+            expires_at: UnixSeconds(self.expires_at.unwrap_or(i64::MAX / 2)),
             xmr: self.xmr.clone(),
             address: self.address.clone(),
             found: self.found.then(|| FoundSale {
                 id: format!("p_{}", self.order_id),
-                amount_minor: minor,
-                currency: self.currency.clone(),
+                amount,
                 reference: Some(reference),
                 order_id: Some("o".into()),
-                created_at: "2026-10-22T22:50:00Z".into(),
+                created_at: "2026-10-22T22:50:00Z".parse().unwrap(),
                 updated_at: None,
                 status: None,
                 device_id: None,
@@ -175,13 +175,13 @@ impl PreviewSale {
             device_name: self.device_name.clone(),
             url: None,
             settled: self.settled,
-            created_at: self.created_at,
-            seen_at: self.seen_at,
-            paid_at: self.paid_at,
-            ended_at: self.ended_at,
-            closed_at: self.closed_at,
-            refunded_at: self.refunded_at,
-            refund_pending_at: self.refund_pending_at,
+            created_at: UnixSeconds(self.created_at),
+            seen_at: self.seen_at.map(UnixSeconds),
+            paid_at: self.paid_at.map(UnixSeconds),
+            ended_at: self.ended_at.map(UnixSeconds),
+            closed_at: self.closed_at.map(UnixSeconds),
+            refunded_at: self.refunded_at.map(UnixSeconds),
+            refund_pending_at: self.refund_pending_at.map(UnixSeconds),
             confirmations: self.confirmations,
             confirmations_required: self.confirmations_required,
             offered: false,
@@ -259,7 +259,7 @@ mod tests {
         assert_eq!(sales.len(), 2);
         let waiting = &sales[0];
         assert_eq!(waiting.reference.as_deref(), Some("a1"));
-        assert_eq!(waiting.found.as_ref().unwrap().amount_minor, 840);
+        assert_eq!(waiting.found.as_ref().unwrap().amount.minor, 840);
         assert!(waiting.live() && preview_sale_live(PreviewSale::new("a1")));
         let read = &sales[1];
         assert_eq!(read.phase, SalePhase::Paid);

@@ -5,6 +5,7 @@
 //! forgotten (the generation), and after each batch of messages every
 //! [`Update`] slice is published if it changed.
 
+use monokulo_client::OrderId;
 use std::collections::BTreeSet;
 use std::future::Future;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -15,11 +16,13 @@ use monokulo_client::connect_code;
 use monokulo_client::{
     Clock, ConnectCode, Connection, MonokuloApi, PointOfSale, SystemClock, problems, tor,
 };
-use till_bell::{BellAddress, BellApi, BellWakeUps, WakeUpChoice, WakeUpStatus, is_ding};
-use till_ledger::{AlertKind, Claim, ClaimPolicy, Fact, Process, Scope, ShiftMark};
+use till_bell::{
+    BellAddress, BellApi, BellWakeUps, SubscriptionKeys, WakeUpChoice, WakeUpStatus, is_ding,
+};
+use till_ledger::{AlertKind, Claim, ClaimPolicy, Fact, Process, Scope, ShiftMark, UnixMillis};
 use till_pos::clover::TenderState;
 use till_pos::square::SquareLocation;
-use till_pos::{Pkce, PosError};
+use till_pos::{OAuthRedirect, Pkce, PosError};
 use till_sales::{Books, LiveStore, PosSwitch, Standing, TillRunner, TillSale};
 use till_screens::bubble::PaidMoment;
 use till_screens::close::{self, CloseThen};
@@ -142,7 +145,7 @@ pub(crate) fn spawn(
 /// through (decision 130 of android.md).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RefundSheet {
-    pub order_id: String,
+    pub order_id: OrderId,
     pub pos: PointOfSale,
     /// The point of sale can be asked whether it's refunded yet.
     pub asks: bool,
@@ -189,7 +192,7 @@ struct Published {
     nav: Option<NavSlice>,
     shift: Option<till_screens::ShiftView>,
     sale: Option<Update>,
-    close: Option<(Option<String>, Option<till_screens::CloseView>)>,
+    close: Option<(Option<OrderId>, Option<till_screens::CloseView>)>,
     refund: Option<Option<crate::RefundSheetView>>,
     bubble: Option<crate::BubbleView>,
     notification: Option<till_screens::NotificationView>,
@@ -226,20 +229,20 @@ pub(crate) struct State {
     from_settings: bool,
     /// Clover's Monero payment type; `None` while not known.
     tender: Option<TenderState>,
-    left: BTreeSet<String>,
-    refunding: BTreeSet<String>,
+    left: BTreeSet<OrderId>,
+    refunding: BTreeSet<OrderId>,
     /// Offered cash sales whose order is being made ("Take it in Monero").
-    taking: BTreeSet<String>,
+    taking: BTreeSet<OrderId>,
     /// Whose sales the shift's list shows, once the cashier chose
     /// (core.md decision 114).
     counter: Option<CounterChoice>,
     /// Step 4 is past choosing the point of sale (O1), on to signing in.
     pos_confirmed: bool,
     /// "Find this device again" waits for a sale that isn't one of these.
-    finding: Option<BTreeSet<String>>,
+    finding: Option<BTreeSet<OrderId>>,
     /// The Clover devices whose names were asked for since the till
     /// started, named or not (core.md decision 142): each is asked once.
-    devices_asked: BTreeSet<String>,
+    devices_asked: BTreeSet<till_pos::PosDeviceId>,
     refund_sheet: Option<RefundSheet>,
     visible: bool,
     alerts_allowed: bool,
@@ -254,9 +257,9 @@ pub(crate) struct State {
     filter: ShiftFilter,
     folded: bool,
     /// The sale whose close sheet is up.
-    close_sheet: Option<String>,
+    close_sheet: Option<OrderId>,
     /// The sales that were live at the last look.
-    live_before: BTreeSet<String>,
+    live_before: BTreeSet<OrderId>,
     /// The screen the platform's stage rests on; `None` while it moves.
     resting_on: Option<Screen>,
     /// The screen up was put there by the sales, not the cashier.
@@ -264,19 +267,19 @@ pub(crate) struct State {
     /// Bumped to call off a paid sale's step back.
     step_back: u64,
     /// The sale just paid, for [`till::PAID_DWELL`].
-    just_paid: Option<String>,
+    just_paid: Option<OrderId>,
     just_paid_token: u64,
     /// The till's own sale whose code just ran out or was reversed, for
     /// [`till::ENDED_DWELL`]: the Live Activity shows it as expired.
-    just_ended: Option<String>,
+    just_ended: Option<OrderId>,
     just_ended_token: u64,
     /// The sale that arrived while the app wasn't in front, alerted in the
     /// next notification update only.
-    alert_for: Option<String>,
+    alert_for: Option<OrderId>,
     /// Where the bubble's paid moment is (decision 95).
     paid_moment: PaidMoment,
     /// The sale the bubble showed last.
-    bubble_focus: Option<String>,
+    bubble_focus: Option<OrderId>,
     /// Android's bubble panel is up, as the platform last said.
     panel_up: bool,
     /// A redraw is due in a second.
@@ -285,7 +288,7 @@ pub(crate) struct State {
     hours_24: bool,
     /// The sales listed at the last look: one gone from the list has its
     /// notification cleared.
-    listed: Option<BTreeSet<String>>,
+    listed: Option<BTreeSet<OrderId>>,
     /// The ledger's scope as last seen: when the store or the point of
     /// sale's account changes, the old scope's rows go (docs/ledger.md §4).
     scope: Option<Scope>,
@@ -386,7 +389,7 @@ impl State {
     fn message(&mut self, msg: Msg) {
         match msg {
             Msg::Action(action) => {
-                let label = format!("{action:?}");
+                let label = action.name();
                 if catch_unwind(AssertUnwindSafe(|| self.handle(action))).is_err() {
                     self.log(format!("till-core: panicked handling {label}"));
                 }
@@ -504,7 +507,7 @@ impl State {
             Process::App,
             http.clone(),
             self.clock.clone(),
-        )?);
+        ));
         {
             let tx = self.tx.clone();
             side.ledger().deliver_to(Arc::new(move |claims| {
@@ -739,7 +742,8 @@ impl State {
             Action::PanelShown { up } => self.panel_shown(up),
             action if self.parts.is_none() => {
                 self.log(format!(
-                    "till-core: nothing kept could be read, so {action:?} waits"
+                    "till-core: nothing kept could be read, so {} waits",
+                    action.name()
                 ));
             }
             Action::Back => self.back(),
@@ -767,7 +771,11 @@ impl State {
             Action::SignIn { application_id } => self.sign_in(application_id),
             Action::SignInReturned { url } => self.sign_in_returned(&url),
             Action::ChooseLocation { location_id } => {
-                if let Some(location) = self.locations.iter().find(|l| l.id == location_id).cloned()
+                if let Some(location) = self
+                    .locations
+                    .iter()
+                    .find(|l| l.id.as_str() == location_id)
+                    .cloned()
                 {
                     self.choose_location(location);
                 }
@@ -922,7 +930,7 @@ impl State {
                 if let Some(p) = &self.parts {
                     p.push
                         .feed
-                        .endpoint(&url, p256dh.as_deref(), auth.as_deref());
+                        .endpoint(&url, SubscriptionKeys::new(p256dh, auth));
                 }
             }
             Action::PushFailed { failure } => {
@@ -938,7 +946,7 @@ impl State {
             Action::PushReceived { content, decrypted } => self.push_received(&content, decrypted),
             Action::PushToken { token } => {
                 self.push_token = match token {
-                    Some(token) => DeviceToken::Have(token),
+                    Some(token) => DeviceToken::Have(token.into()),
                     None => DeviceToken::Failed,
                 };
                 if let Some(relay) = self.parts.as_ref().and_then(|p| p.relay.as_ref()) {
@@ -987,7 +995,7 @@ impl State {
                     p.runner.paid_in_cash(&order_id);
                 }
                 // Its code is down: the sale's page shows how it ended.
-                if till::order_id(&self.screen) == Some(order_id.as_str())
+                if till::order_id(&self.screen) == Some(&order_id)
                     && self.screen
                         != (Screen::Sale {
                             order_id: order_id.clone(),
@@ -1007,7 +1015,7 @@ impl State {
 
     /// The sales that stay quiet here: another counter's, while alerts are
     /// for this device alone (core.md decision 113).
-    pub(crate) fn quiet_ids(&self) -> BTreeSet<String> {
+    pub(crate) fn quiet_ids(&self) -> BTreeSet<OrderId> {
         let counters = self.counters();
         self.parts
             .as_ref()
@@ -1064,7 +1072,7 @@ impl State {
             return;
         };
         let sales = p.runner.state().till.sales;
-        let unnamed: BTreeSet<String> = sales
+        let unnamed: BTreeSet<till_pos::PosDeviceId> = sales
             .iter()
             .filter_map(|sale| sale.pos_device().map(|(id, _)| id.to_owned()))
             .chain(model.counter_device.iter().map(|d| d.id.clone()))
@@ -1079,9 +1087,9 @@ impl State {
             let devices = api.devices(&merchant.id).await;
             apply(move |s| match devices {
                 Ok(devices) => {
-                    let named: Vec<(String, String)> = devices
+                    let named: Vec<(till_pos::PosDeviceId, String)> = devices
                         .iter()
-                        .filter_map(|d| d.label().map(|label| (d.id.clone(), label)))
+                        .filter_map(|d| d.label().map(|label| (d.id.as_str().into(), label)))
                         .collect();
                     let _ = s.keep(|m| m.clover_devices.extend(named));
                 }
@@ -1092,7 +1100,7 @@ impl State {
 
     /// Keeps `id` as this counter's device, and starts the till again
     /// with it.
-    fn learn_device(&mut self, id: String, name: Option<String>) {
+    fn learn_device(&mut self, id: till_pos::PosDeviceId, name: Option<String>) {
         let learned_at = self.clock.now();
         if self.keep(|m| {
             m.counter_device = Some(crate::store::CounterKept {
@@ -1123,7 +1131,7 @@ impl State {
 
     /// "Take it in Monero": the offered cash sale's order is made, and the
     /// sale opens on its code.
-    fn take_in_monero(&mut self, order_id: String) {
+    fn take_in_monero(&mut self, order_id: OrderId) {
         if self.taking.contains(&order_id) {
             return;
         }
@@ -1144,7 +1152,7 @@ impl State {
 
     /// "New code": the expired sale's next order is made, and the sale opens
     /// on its code.
-    fn new_code(&mut self, order_id: String) {
+    fn new_code(&mut self, order_id: OrderId) {
         if self.taking.contains(&order_id) {
             return;
         }
@@ -1220,7 +1228,7 @@ impl State {
         if !self.visible || token != self.heartbeat {
             return;
         }
-        let until = self.now_ms() + FOREGROUND_FOR.as_millis() as i64;
+        let until = self.now_ms().plus(FOREGROUND_FOR.as_millis() as i64);
         self.record(Fact::Foreground { until });
         self.task(async move {
             tokio::time::sleep(HEARTBEAT).await;
@@ -1228,8 +1236,9 @@ impl State {
         });
     }
 
-    fn now_ms(&self) -> i64 {
-        self.clock.now().saturating_mul(1000)
+    /// Now, as the ledger's facts keep a time (Unix ms).
+    fn now_ms(&self) -> UnixMillis {
+        self.clock.now_ms()
     }
 
     /// Records `fact` in the engine's books.
@@ -1247,13 +1256,7 @@ impl State {
         let model = p.side.model();
         let at = self.now_ms();
         p.side.books().keep_options(&model.till_options(), at);
-        p.side.books().keep_settings(
-            &[
-                ("counter.others", Some(model.show_others.to_string())),
-                ("sales.show", Some(format!("{:?}", model.show_sales))),
-            ],
-            at,
-        );
+        p.side.books().keep_settings(&model.ledger_settings(), at);
     }
 
     /// The store or the point of sale's account changed: the old scope's
@@ -1609,23 +1612,16 @@ impl State {
         let Ok(parsed) = reqwest::Url::parse(url) else {
             return;
         };
-        let without_query = url.split(['?', '#']).next().unwrap_or(url);
-        // Back on the redirect itself, or on the build's return link to the
-        // app (decision 57): either way the exchange names the redirect.
-        let returns_to = |redirect: &str, back: &Option<String>| {
-            without_query == redirect_base(redirect)
-                || back
-                    .as_deref()
-                    .is_some_and(|back| without_query == redirect_base(back))
-        };
+        let returned = ReturnLink::new(url);
         let (square, clover) = (&self.config.square, &self.config.clover);
-        let pos = if returns_to(&square.redirect_uri, &square.return_uri) {
+        let pos = if returned.is_for(&square.redirect_uri, square.return_uri.as_deref()) {
             PointOfSale::Square
-        } else if returns_to(&clover.redirect_uri, &clover.return_uri) {
+        } else if returned.is_for(&clover.redirect_uri, clover.return_uri.as_deref()) {
             PointOfSale::Clover
         } else {
             self.log(format!(
-                "till-core: a redirect to no sign-in: {without_query}"
+                "till-core: a redirect to no sign-in: {}",
+                returned.as_str()
             ));
             return;
         };
@@ -1640,26 +1636,15 @@ impl State {
             ));
             return;
         };
-        let query = |name: &str| {
-            parsed
-                .query_pairs()
-                .find(|(key, _)| key == name)
-                .map(|(_, value)| value.into_owned())
-        };
-        let (state, code, error, merchant) = (
-            query("state"),
-            query("code"),
-            query("error"),
-            query("merchant_id"),
-        );
+        let redirect = OAuthRedirect::parse(&parsed);
         let setup_done = side.model().setup_done;
         self.work(async move {
             let through = pending.application_id.is_some();
             let finished = match pos {
-                PointOfSale::Square => finish_square(&side, &pending, state, code, error)
+                PointOfSale::Square => finish_square(&side, &pending, &redirect)
                     .await
                     .map(Finished::Square),
-                PointOfSale::Clover => finish_clover(&side, &pending, state, code, error, merchant)
+                PointOfSale::Clover => finish_clover(&side, &pending, &redirect)
                     .await
                     .map(Finished::Clover),
             };
@@ -1796,7 +1781,7 @@ impl State {
             self.keep(|m| m.shift_started_at = Some(now));
             self.record(Fact::ShiftMarked {
                 mark: ShiftMark::Started,
-                at: now.saturating_mul(1000),
+                at: now.to_millis(),
             });
             if let Some(p) = &self.parts
                 && let Err(e) = p.side.books().with(|l| l.maintain())
@@ -1823,7 +1808,7 @@ impl State {
         }
     }
 
-    fn sale(&self, order_id: &str) -> Option<TillSale> {
+    fn sale(&self, order_id: &OrderId) -> Option<TillSale> {
         self.parts
             .as_ref()?
             .runner
@@ -1834,7 +1819,7 @@ impl State {
     }
 
     /// Shows a sale full screen.
-    fn open(&mut self, order_id: String) {
+    fn open(&mut self, order_id: OrderId) {
         self.left.remove(&order_id);
         self.step_back += 1;
         if self.setup_done() {
@@ -1843,7 +1828,7 @@ impl State {
     }
 
     /// The cashier left a sale's full screen for the shift.
-    fn leave(&mut self, order_id: String) {
+    fn leave(&mut self, order_id: OrderId) {
         // Left by the cashier during a paid moment, the step back has nothing left to do.
         self.step_back += 1;
         let on_it = matches!(
@@ -1860,7 +1845,7 @@ impl State {
     /// The close sheet's answer, while the sale's code is still up: what it
     /// does ([`close::outcome`]), and where the cashier lands, from the sale
     /// or from the shift's row alike (decision 96).
-    fn close(&mut self, order_id: String, choice: CloseChoice) {
+    fn close(&mut self, order_id: OrderId, choice: CloseChoice) {
         if !close::applies(self.sale(&order_id).as_ref()) {
             return;
         }
@@ -1884,7 +1869,7 @@ impl State {
     /// Refunds a sale's point-of-sale sale (closing it first: the close
     /// sheet's "No"). A sale the till leaves to the cashier opens the
     /// refund sheet once it stands so.
-    fn refund(&mut self, order_id: String, close: bool) {
+    fn refund(&mut self, order_id: OrderId, close: bool) {
         if self.refunding.contains(&order_id) {
             return;
         }
@@ -1922,7 +1907,7 @@ impl State {
         });
     }
 
-    fn confirm_refund(&mut self, order_id: String) {
+    fn confirm_refund(&mut self, order_id: OrderId) {
         let Some(sheet) = self
             .refund_sheet
             .as_mut()
@@ -2098,7 +2083,7 @@ impl State {
         let books = p.side.books().clone();
         let open = till::order_id(&self.screen).and_then(|id| books.sale_key(id));
         books.set_open_sale(open);
-        let now: BTreeSet<String> = p
+        let now: BTreeSet<OrderId> = p
             .runner
             .state()
             .till
@@ -2108,14 +2093,16 @@ impl State {
             .collect();
         if let Some(before) = self.listed.replace(now.clone()) {
             for gone in before.difference(&now) {
-                self.effect(Effect::ClearNotification { id: gone.clone() });
+                self.effect(Effect::ClearNotification {
+                    id: gone.to_string(),
+                });
             }
         }
     }
 
     fn device_clock(&self) -> DeviceClock {
         DeviceClock {
-            now: self.clock.now(),
+            now: self.clock.now().0,
             utc_offset: self.utc_offset,
             hours_24: self.hours_24,
         }
@@ -2219,7 +2206,7 @@ impl State {
         }
         SaleChoices {
             devices,
-            learned_at: model.counter_device.as_ref().map(|d| d.learned_at),
+            learned_at: model.counter_device.as_ref().map(|d| d.learned_at.0),
             finding_device: self.finding.is_some(),
             cash_as_monero: model.cash_as_monero,
             show_sales: model.show_sales,
@@ -2287,9 +2274,7 @@ impl State {
                         .sales
                         .iter()
                         .find(|sale| sale.found.is_some())
-                        .map(|sale| {
-                            monokulo_client::amounts::fiat(&sale.amount, &sale.currency, &money)
-                        }),
+                        .map(|sale| monokulo_client::amounts::price(&sale.price, &money)),
                     can_change_location: self.locations.len() > 1,
                     setup: !model.setup_done,
                     confirmed: self.pos_confirmed,
@@ -2301,7 +2286,7 @@ impl State {
                 let money = Money(self.platform.clone());
                 let counters = self.counters();
                 Step::Counter(CounterSetup {
-                    amount: monokulo_client::amounts::fiat(&sale.amount, &sale.currency, &money),
+                    amount: monokulo_client::amounts::price(&sale.price, &money),
                     number: till_screens::sale_text::label(&sale),
                     device: device.name.clone().unwrap_or_else(|| {
                         till_screens::counters::device_name(&device.id, &[], &counters)
@@ -2523,8 +2508,25 @@ fn keep_onion_api(side: &Side, onion: Option<&str>) {
     });
 }
 
-fn redirect_base(uri: &str) -> &str {
-    uri.split(['?', '#']).next().unwrap_or(uri)
+/// A link a sign-in came back on, without its query and fragment: what is
+/// compared with the setups' redirects.
+struct ReturnLink<'a>(&'a str);
+
+impl<'a> ReturnLink<'a> {
+    fn new(url: &'a str) -> ReturnLink<'a> {
+        ReturnLink(url.split(['?', '#']).next().unwrap_or(url))
+    }
+
+    fn as_str(&self) -> &'a str {
+        self.0
+    }
+
+    /// Back on `redirect` itself, or on the build's return link to the app,
+    /// `back` (decision 57): either way the exchange names the redirect.
+    fn is_for(&self, redirect: &str, back: Option<&str>) -> bool {
+        let matches = |uri: &str| ReturnLink::new(uri).0 == self.0;
+        matches(redirect) || back.is_some_and(matches)
+    }
 }
 
 /// What a finished sign-in leaves to choose.
@@ -2538,17 +2540,10 @@ enum Finished {
 async fn finish_square(
     side: &Side,
     pending: &PendingSignIn,
-    state: Option<String>,
-    code: Option<String>,
-    error: Option<String>,
+    redirect: &OAuthRedirect,
 ) -> Result<Vec<SquareLocation>, PosError> {
     side.square_auth(pending.application_id.as_deref())
-        .finish(
-            &pending.pkce,
-            state.as_deref(),
-            code.as_deref(),
-            error.as_deref(),
-        )
+        .finish(&pending.pkce, redirect)
         .await?;
     let build = side.config.square.application_id.clone();
     side.update(|m| {
@@ -2567,20 +2562,11 @@ async fn finish_square(
 async fn finish_clover(
     side: &Side,
     pending: &PendingSignIn,
-    state: Option<String>,
-    code: Option<String>,
-    error: Option<String>,
-    merchant_id: Option<String>,
+    redirect: &OAuthRedirect,
 ) -> Result<TenderState, PosError> {
     let tokens = side
         .clover_auth(pending.application_id.as_deref())
-        .finish(
-            &pending.pkce,
-            merchant_id.as_deref(),
-            code.as_deref(),
-            state.as_deref(),
-            error.as_deref(),
-        )
+        .finish(&pending.pkce, redirect)
         .await?;
     let build = side.config.clover.application_id.clone();
     side.update(|m| {
@@ -2589,7 +2575,16 @@ async fn finish_clover(
             m.clover_application_id = Some(through.clone()).filter(|id| *id != build);
         }
     });
-    let merchant = side.clover_api().merchant(&tokens.merchant_id).await?;
+    // The sign-in checked it: the merchant's id as `finish` read it.
+    let merchant_id =
+        till_pos::clover::CloverMerchantId::new(&tokens.merchant_id).ok_or_else(|| {
+            PosError::answered(
+                PointOfSale::Clover,
+                0,
+                "Clover didn't say which merchant signed in. Try again.",
+            )
+        })?;
+    let merchant = side.clover_api().merchant(&merchant_id).await?;
     side.update(|m| {
         m.clover_merchant = Some(merchant.clone());
         m.point_of_sale = Some(PointOfSale::Clover);
@@ -2603,7 +2598,7 @@ async fn finish_clover(
 pub(crate) mod tests;
 
 /// Every sale the till shows.
-fn till_sales_ids(s: &State) -> Vec<String> {
+fn till_sales_ids(s: &State) -> Vec<OrderId> {
     s.parts
         .as_ref()
         .map(|p| {

@@ -11,8 +11,9 @@ use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Method, Response, StatusCode, Url};
 use serde::Serialize;
 use serde_json::Value;
+use till_types::{Money, Secret};
 
-use crate::clock::Clock;
+use crate::clock::{Clock, UnixSeconds};
 use crate::connect_code::ConnectCode;
 use crate::connection::Connection;
 use crate::error::MonokuloError;
@@ -114,7 +115,7 @@ struct Entry {
 struct Kept {
     entry: Entry,
     etag: Option<String>,
-    fresh_until: i64,
+    fresh_until: UnixSeconds,
 }
 
 /// A request, kept so it can be sent again with a proof of work.
@@ -125,13 +126,16 @@ struct Call {
     body: Option<Vec<u8>>,
 }
 
+/// A connection's key and the entry it reads.
+type EntryKey = (Secret, String);
+
 struct Inner {
     http: reqwest::Client,
     identity: AppIdentity,
     clock: Arc<dyn Clock>,
     /// Each key's entry, kept as its `Cache-Control` says, by key and where
     /// it was read.
-    entries: Mutex<HashMap<String, Kept>>,
+    entries: Mutex<HashMap<EntryKey, Kept>>,
 }
 
 /// A store's Monokulo, as a connected app uses it: `POST /apps/connect`,
@@ -183,14 +187,14 @@ impl MonokuloApi {
         }
         #[derive(serde::Deserialize)]
         struct Redeemed {
-            app_key: String,
+            app_key: Secret,
             api: String,
             #[serde(default)]
             onion_api: Option<String>,
         }
         let identity = &self.inner.identity;
         let body = serde_json::to_vec(&Redeem {
-            token: &code.token,
+            token: code.token.expose_str(),
             slug: &identity.slug,
             name: &identity.name,
             device_name: &identity.device_name,
@@ -251,15 +255,15 @@ impl MonokuloApi {
         Ok(self.entry(connection).await?.onion_api.map(Into::into))
     }
 
-    /// Makes an order with the `create-order` form. `idempotency_key` makes
+    /// Makes an order with the `create-order` form for `price` (its amount
+    /// as a decimal in the currency's digits). `idempotency_key` makes
     /// a retry, or a second till finding the same sale, get the same order.
     /// Never a description: it would carry what was bought
     /// (docs/design.md §4).
     pub async fn create_order(
         &self,
         connection: &Connection,
-        amount: &str,
-        currency: &str,
+        price: &Money,
         merchant_order_id: Option<&str>,
         idempotency_key: &str,
     ) -> Result<Order> {
@@ -271,9 +275,10 @@ impl MonokuloApi {
             merchant_order_id: Option<&'a str>,
             idempotency_key: &'a str,
         }
+        let amount = price.decimal();
         let body = serde_json::to_vec(&NewOrder {
-            amount,
-            currency,
+            amount: &amount,
+            currency: price.currency.as_str(),
             merchant_order_id,
             idempotency_key,
         })?;
@@ -364,19 +369,21 @@ impl MonokuloApi {
         Box::pin(futures_util::stream::unfold(state, Streaming::next))
     }
 
-    fn key_of(connection: &Connection) -> String {
-        format!("{} {}", connection.app_key, connection.entry())
+    /// Where `connection`'s entry is kept: its key and entry, as a pair, so
+    /// the key is never formatted into text.
+    fn key_of(connection: &Connection) -> EntryKey {
+        (connection.app_key.clone(), connection.entry().to_owned())
     }
 
     fn forget(&self, connection: &Connection) {
         self.entries().remove(&MonokuloApi::key_of(connection));
     }
 
-    fn entries(&self) -> std::sync::MutexGuard<'_, HashMap<String, Kept>> {
+    fn entries(&self) -> std::sync::MutexGuard<'_, HashMap<EntryKey, Kept>> {
         self.inner.entries.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    fn now(&self) -> i64 {
+    fn now(&self) -> UnixSeconds {
         self.inner.clock.now()
     }
 
@@ -400,7 +407,7 @@ impl MonokuloApi {
         if response.status() == StatusCode::NOT_MODIFIED
             && let Some(kept) = kept
         {
-            let fresh_until = self.now() + max_age(response.headers());
+            let fresh_until = self.now().plus(max_age(response.headers()));
             self.entries().insert(
                 key,
                 Kept {
@@ -421,7 +428,7 @@ impl MonokuloApi {
             .map(String::from);
         let age = max_age(response.headers());
         let entry = read_entry(&response.text().await?, &used)?;
-        let fresh_until = self.now() + age;
+        let fresh_until = self.now().plus(age);
         self.entries().insert(
             key,
             Kept {
@@ -437,7 +444,7 @@ impl MonokuloApi {
         let mut headers = HeaderMap::new();
         headers.insert(
             "Authorization",
-            header(&format!("Bearer {}", connection.app_key)),
+            header(&format!("Bearer {}", connection.app_key.expose_str())),
         );
         headers.insert("Monokulo-Client", header(&self.inner.identity.client()));
         Call {
@@ -709,7 +716,8 @@ fn problem(status: u16, headers: &HeaderMap, body: &[u8]) -> MonokuloError {
     let detail = text("detail")
         .or_else(|| text("title"))
         .unwrap_or_else(|| format!("HTTP {status}"));
-    let problem = text("type").map(|t| t.rsplit('/').next().unwrap_or(&t).to_owned());
+    let problem = text("type")
+        .map(|t| crate::problems::MonokuloProblem::from_slug(t.rsplit('/').next().unwrap_or(&t)));
     let retry_after = body
         .as_ref()
         .and_then(|b| b.get("retry_after"))

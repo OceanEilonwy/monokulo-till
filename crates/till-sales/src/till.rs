@@ -11,14 +11,14 @@ use std::time::Duration;
 
 use monokulo_client::{
     Clock, Connection, MonokuloApi, MonokuloError, Order, SaleEvent, SalePhase, SystemClock,
-    payment_uri, problems,
+    UnixMillis, UnixSeconds, payment_uri, problems,
 };
 use till_ledger::{
     Action, Fact, MarkKind, OrderCreated, OrderId, OrderKey, OrderObserved, OrderRead, Outcome,
     PaymentId, PaymentSeen, Quote, RefundSeen, RefundStatus, SaleKey, ShiftMark, Tender,
     may_make_order,
 };
-use till_pos::{FoundSale, PosError, RefundInPos, Refunds, SaleSource, decimal_amount};
+use till_pos::{FoundSale, PosError, RefundInPos, Refunds, Rfc3339Instant, SaleSource};
 use tokio::sync::watch;
 
 use crate::{Books, TillSale, TillState};
@@ -32,7 +32,7 @@ mod tests;
 /// it's found. Kept as the ledger's settings ([`Books::keep_options`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TillOptions {
-    pub device_id: Option<String>,
+    pub device_id: Option<till_pos::PosDeviceId>,
     pub every_device: bool,
     pub cash_as_monero: bool,
 }
@@ -196,7 +196,7 @@ impl Till {
 
     /// The same till, at the counter whose point-of-sale device is
     /// `device_id` (core.md decision 113), cash treated as Monero.
-    pub fn with_device_id(self, device_id: impl Into<String>) -> Till {
+    pub fn with_device_id(self, device_id: impl Into<till_pos::PosDeviceId>) -> Till {
         self.with_options(&TillOptions {
             device_id: Some(device_id.into()),
             ..TillOptions::default()
@@ -244,19 +244,19 @@ impl Till {
         OrderKey::new(PaymentId::new(sale.id.as_str())).key()
     }
 
-    /// When the next live code runs out, Unix seconds; `None` with none
-    /// live.
-    pub fn next_lapse(state: &TillState) -> Option<i64> {
+    /// When the next live code runs out; `None` with none live.
+    pub fn next_lapse(state: &TillState) -> Option<UnixSeconds> {
         state
             .sales
             .iter()
-            .filter(|sale| sale.live() && sale.expires_at > 0)
+            .filter(|sale| sale.live() && sale.expires_at > UnixSeconds(0))
             .map(|sale| sale.expires_at)
             .min()
     }
 
-    fn now_ms(&self) -> i64 {
-        self.clock.now().saturating_mul(1000)
+    /// Now, as the ledger's facts keep a time.
+    fn now_ms(&self) -> UnixMillis {
+        self.clock.now_ms()
     }
 
     fn record(&self, fact: Fact) -> bool {
@@ -272,7 +272,7 @@ impl Till {
     }
 
     /// The sale for `order_id` as the shift shows it, with its key.
-    fn sale(&self, order_id: &str) -> Option<(SaleKey, TillSale)> {
+    fn sale(&self, order_id: &OrderId) -> Option<(SaleKey, TillSale)> {
         let state = self.books.state();
         let at = state
             .views
@@ -374,12 +374,15 @@ impl Till {
         else {
             return;
         };
-        let kept = cursor.as_deref().and_then(till_pos::time::unix_seconds);
+        let kept = cursor
+            .as_deref()
+            .and_then(|c| c.parse::<Rfc3339Instant>().ok())
+            .map(|c| c.as_second());
         let from = match kept {
             Some(at) => at.saturating_sub(Till::REFUNDS_OVERLAP_SECONDS),
-            None => window.from.div_euclid(1000),
+            None => window.from.to_seconds().0,
         };
-        let begin = till_pos::time::instant(from);
+        let begin = Rfc3339Instant::from_second(from);
         let Ok(Some(refunds)) = self.source.refunds_since(&begin).await else {
             return;
         };
@@ -387,14 +390,15 @@ impl Till {
         let mut newest: Option<i64> = None;
         for refund in &refunds {
             let key = SaleKey::pos(pos, refund.payment_id.as_str());
-            let at = refund
-                .created_at
-                .as_deref()
-                .and_then(till_pos::time::unix_seconds);
-            let status = RefundStatus::of_square(&refund.status);
+            let at = refund.created_at.as_ref().map(Rfc3339Instant::as_second);
+            let status = RefundStatus::of_pos(&refund.status);
             if let Some(at) = at {
                 newest = newest.max(Some(at));
-                if status == RefundStatus::Pending {
+                // Only a refund Square says is pending holds the cursor: one
+                // whose status this build doesn't know may never change to
+                // one it does, and would hold it there for good (core.md
+                // decision 208).
+                if refund.status == till_pos::RefundStatus::Pending {
                     pending = Some(pending.map_or(at, |p| p.min(at)));
                 }
             }
@@ -413,8 +417,10 @@ impl Till {
         if kept != Some(next) {
             // A hint for listing less, never truth: one not kept lists a
             // little more next time.
-            let next = till_pos::time::instant(next);
-            let _ = self.books.with(|ledger| ledger.set_cursor(name, &next));
+            let next = Rfc3339Instant::from_second(next);
+            let _ = self
+                .books
+                .with(|ledger| ledger.set_cursor(name, next.as_str()));
         }
     }
 
@@ -477,16 +483,18 @@ impl Till {
             payment_uri: order.payment_uri(),
             address: order.address.clone(),
             xmr: payment_uri::xmr(order.piconero),
-            amount: order
-                .amount
-                .clone()
-                .unwrap_or_else(|| decimal_amount(sale.amount_minor, &sale.currency)),
-            currency: order
-                .currency
-                .clone()
-                .unwrap_or_else(|| sale.currency.clone()),
+            price: till_types::Price::new(
+                order
+                    .amount
+                    .clone()
+                    .unwrap_or_else(|| sale.amount.decimal()),
+                order
+                    .currency
+                    .clone()
+                    .unwrap_or_else(|| sale.amount.currency.to_string()),
+            ),
             reference: order.merchant_order_id.clone(),
-            expires_at: order.expires_at,
+            expires_at: UnixSeconds(order.expires_at),
             confirmations_required: order.confirmations_required,
             device_name: None,
             renew: order.renew.clone(),
@@ -523,7 +531,7 @@ impl Till {
         if pending.is_empty() {
             return;
         }
-        let at = self.clock.now();
+        let at = self.clock.now().0;
         if checking
             .last_refund_look_at
             .is_some_and(|last| at - last < Till::REFUND_LOOK_SECONDS)
@@ -567,7 +575,7 @@ impl Till {
             // The quote the order had then: a renewal's `sale.waiting`
             // carries its new one (core.md decision 169).
             quote: Some(Quote {
-                expires_at: event.expires_at,
+                expires_at: UnixSeconds(event.expires_at),
                 piconero: event.piconero,
             }),
             renew: None,
@@ -577,9 +585,9 @@ impl Till {
     /// What a read of an order said about its sale (after the stream
     /// reconnects, say): its phase, whether it's [`TillSale::settled`], and
     /// its confirmations when Monokulo said.
-    pub fn on_status(&self, order_id: &str, status: OrderStatus) {
+    pub fn on_status(&self, order_id: &OrderId, status: OrderStatus) {
         self.record(Fact::OrderObserved(OrderObserved {
-            order_id: OrderId::new(order_id),
+            order_id: order_id.clone(),
             phase: status.phase,
             confirmations: status.confirmations.or(stepped(status.phase)),
             is_final: status.settled,
@@ -604,9 +612,9 @@ impl Till {
             confirmations: order.confirmations.or(stepped(order.phase())),
             is_final: order.is_final,
             received: None,
-            overpaid: order.status == "overpaid",
+            overpaid: order.status.overpaid(),
             quote: Some(Quote {
-                expires_at: order.expires_at,
+                expires_at: UnixSeconds(order.expires_at),
                 piconero: order.piconero,
             }),
             renew: order.renew.clone(),
@@ -637,8 +645,7 @@ impl Till {
             payment_uri: o.payment_uri.clone(),
             address: o.address.clone(),
             xmr: o.xmr.clone(),
-            amount: o.amount.clone(),
-            currency: o.currency.clone(),
+            price: o.price.clone(),
             reference: o.reference.clone(),
             expires_at: o.expires_at,
             confirmations_required: Some(required),
@@ -686,7 +693,7 @@ impl Till {
     /// to the shift, where Monokulo's late payment still reaches it and the
     /// cashier can refund it. Nothing is said to Monokulo (docs/ledger.md
     /// §7: a close stays on this till).
-    pub fn close(&self, order_id: &str) {
+    pub fn close(&self, order_id: &OrderId) {
         if let Some((key, _)) = self.sale(order_id) {
             self.mark(&key, MarkKind::Closed);
         }
@@ -718,7 +725,7 @@ impl Till {
         let at = self.clock.now();
         let state = self.books.state();
         for (view, sale) in state.views.iter().zip(&state.sales) {
-            if sale.live() && (1..=at).contains(&sale.expires_at) {
+            if sale.live() && (UnixSeconds(1)..=at).contains(&sale.expires_at) {
                 self.mark(&view.sale, MarkKind::ClockLapsed);
             }
         }
@@ -732,7 +739,7 @@ impl Till {
     /// tries again [`Till::LAPSE_RETRY`] later until the code is ended, so a
     /// dead code never stays up waiting for some other change. Runs until
     /// dropped.
-    pub async fn lapse_on_time(&self, now_ms: impl Fn() -> i64) {
+    pub async fn lapse_on_time(&self, now_ms: impl Fn() -> UnixMillis) {
         let mut rx = self.books.subscribe();
         let mut next = Till::next_lapse(&rx.borrow_and_update());
         loop {
@@ -744,11 +751,11 @@ impl Till {
     }
 
     /// Waits for `next` by `now_ms` and lapses until it's ended; never ends.
-    async fn lapse_when(&self, next: Option<i64>, now_ms: &impl Fn() -> i64) {
+    async fn lapse_when(&self, next: Option<UnixSeconds>, now_ms: &impl Fn() -> UnixMillis) {
         let Some(next) = next else {
             return pending().await;
         };
-        let wait = (next.saturating_mul(1000) - now_ms()).max(0);
+        let wait = (next.to_millis().0 - now_ms().0).max(0);
         tokio::time::sleep(Duration::from_millis(wait as u64)).await;
         loop {
             self.lapse();
@@ -762,7 +769,7 @@ impl Till {
     }
 
     /// "Show the code again" on a closed sale: its code is back up.
-    pub fn reopen(&self, order_id: &str) {
+    pub fn reopen(&self, order_id: &OrderId) {
         if let Some((key, _)) = self.sale(order_id) {
             self.mark(&key, MarkKind::Reopened);
         }
@@ -777,8 +784,7 @@ impl Till {
             .monokulo
             .create_order(
                 &self.connection,
-                &decimal_amount(sale.amount_minor, &sale.currency),
-                &sale.currency,
+                &sale.amount,
                 sale.reference.as_deref(),
                 &Till::idempotency_key(sale),
             )
@@ -831,7 +837,7 @@ impl Till {
         key: &SaleKey,
         found: &FoundSale,
         action: Action,
-    ) -> Result<String, String> {
+    ) -> Result<OrderId, String> {
         let order = self.acted(key, action, self.create_order(found)).await?;
         self.created(key, &order, found);
         Ok(order.order_id)
@@ -840,7 +846,7 @@ impl Till {
     /// "Take it in Monero" on an offered cash sale: its order is made now,
     /// by the cashier, from any till. The new order's id, or what went
     /// wrong. A sale that isn't offered any more answers its own id.
-    pub async fn take_in_monero(&self, order_id: &str) -> Result<String, String> {
+    pub async fn take_in_monero(&self, order_id: &OrderId) -> Result<OrderId, String> {
         let Some((key, offered)) = self.sale(order_id) else {
             return Err("That sale isn't on the till any more.".into());
         };
@@ -857,7 +863,7 @@ impl Till {
     /// tills asking at once get one renewal). Only when the order offers
     /// the form: never a second order instead. The order's id (unchanged),
     /// or what went wrong.
-    pub async fn new_code(&self, order_id: &str) -> Result<String, String> {
+    pub async fn new_code(&self, order_id: &OrderId) -> Result<OrderId, String> {
         let Some((key, sale)) = self.sale(order_id) else {
             return Err("That sale isn't on the till any more.".into());
         };
@@ -874,7 +880,7 @@ impl Till {
         };
         let renewing = async {
             self.monokulo
-                .renew_order(&self.connection, &renew, expires_at)
+                .renew_order(&self.connection, &renew, expires_at.0)
                 .await
                 .map_err(|e| renewal_problem(&e))
         };
@@ -884,7 +890,7 @@ impl Till {
     }
 
     /// "Keep as cash" on an offered cash sale: it stays listed, quietly.
-    pub fn keep_as_cash(&self, order_id: &str) {
+    pub fn keep_as_cash(&self, order_id: &OrderId) {
         if let Some((key, sale)) = self.sale(order_id)
             && sale.offered
         {
@@ -896,7 +902,7 @@ impl Till {
     /// cash after all, so its code comes down and nothing is refunded (the
     /// point of sale already has the cash). Only a cash sale, and never one
     /// already paid in Monero.
-    pub fn paid_in_cash(&self, order_id: &str) {
+    pub fn paid_in_cash(&self, order_id: &OrderId) {
         if let Some((key, sale)) = self.sale(order_id)
             && sale.cash()
             && !sale.offered
@@ -915,7 +921,7 @@ impl Till {
     /// A paid sale is never refunded from here, nor one already refunded:
     /// the payment may land while the cashier's "No" is on its way. Why the
     /// POS refused is kept with the sale ([`TillState::refund_problems`]).
-    pub async fn refund(&self, order_id: &str) {
+    pub async fn refund(&self, order_id: &OrderId) {
         let Some((key, sale)) = self.sale(order_id) else {
             return;
         };
@@ -950,13 +956,13 @@ impl Till {
                 // gives it to every till; its idempotency key when it
                 // answered without one.
                 let (refund_id, status) = match made {
-                    Some(made) => (made.id, RefundStatus::of_square(&made.status)),
+                    Some(made) => (made.id, RefundStatus::of_pos(&made.status)),
                     None => (refund_key(&found), RefundStatus::Completed),
                 };
                 self.record(Fact::PosRefundSeen(RefundSeen {
                     sale: key.clone(),
                     refund_id,
-                    amount_minor: found.amount_minor,
+                    amount_minor: found.amount.minor,
                     status,
                 }));
                 Outcome::Done
@@ -985,7 +991,7 @@ impl Till {
     /// till's any more (the cashier changed it), or the source can't ask
     /// its own ([`Refunds::ByTill`]). The cashier's word marks the sale
     /// refunded, so it isn't left needing action for the rest of the shift.
-    pub async fn confirm_refund(&self, order_id: &str) -> bool {
+    pub async fn confirm_refund(&self, order_id: &OrderId) -> bool {
         let Some((key, sale)) = self.sale(order_id) else {
             return false;
         };
@@ -1022,10 +1028,7 @@ fn stepped(phase: SalePhase) -> Option<u32> {
 /// The idempotency key of a refund made through the POS (decision 21): the
 /// refund's id in the ledger.
 fn refund_key(found: &FoundSale) -> String {
-    format!("till-refund-{}", found.id)
-        .chars()
-        .take(45)
-        .collect()
+    till_pos::RefundKey::for_payment(&found.id).to_string()
 }
 
 /// Where the till's place in `pos`'s refunds listing is kept in the ledger.
@@ -1046,26 +1049,28 @@ fn payment_seen(sale: &FoundSale) -> PaymentSeen {
     PaymentSeen {
         pos: sale.point_of_sale,
         payment: PaymentId::new(sale.id.as_str()),
-        amount_minor: sale.amount_minor,
-        currency: sale.currency.clone(),
+        amount: sale.amount,
         tender: if sale.cash {
             Tender::Cash
         } else {
             Tender::Monero
         },
-        status: sale.status.clone().unwrap_or_else(|| "COMPLETED".into()),
-        device_id: sale.device_id.as_deref().map(Into::into),
+        status: sale
+            .status
+            .clone()
+            .unwrap_or(till_pos::PaymentStatus::Completed),
+        device_id: sale.device_id.clone(),
         device_name: sale.device_name.clone(),
         receipt_number: sale.reference.clone(),
         order_ref: sale.order_id.clone(),
         title: sale.title.clone(),
         created_at: sale.created_at.clone(),
-        updated_at: sale
-            .updated_at
-            .as_deref()
-            .and_then(till_pos::time::unix_millis)
-            .or_else(|| till_pos::time::unix_millis(&sale.created_at))
-            .unwrap_or(0),
+        updated_at: UnixMillis(
+            sale.updated_at
+                .as_ref()
+                .unwrap_or(&sale.created_at)
+                .as_millisecond(),
+        ),
     }
 }
 
@@ -1105,10 +1110,9 @@ fn event_order(event: &SaleEvent) -> OrderCreated {
         payment_uri: payment_uri::build(&event.address, event.piconero),
         address: event.address.clone(),
         xmr: payment_uri::xmr(event.piconero),
-        amount: event.amount.clone(),
-        currency: event.currency.clone(),
+        price: till_types::Price::new(event.amount.as_str(), event.currency.as_str()),
         reference: event.merchant_order_id.clone(),
-        expires_at: event.expires_at,
+        expires_at: UnixSeconds(event.expires_at),
         confirmations_required: None,
         device_name: Some(event.device_name.clone()).filter(|name| !name.trim().is_empty()),
         renew: None,

@@ -11,6 +11,7 @@
 
 use monokulo_client::{MoneyFormat, PointOfSale, SalePhase};
 use till_sales::TillSale;
+use till_types::UnixSeconds;
 
 use crate::order_text::{OrderCard, order_card};
 use crate::sale_page::header;
@@ -135,7 +136,7 @@ pub fn sale(
     let sale = &input.sale;
     let header = header(sale, input.till, input.location.as_deref());
     let live = sale.live();
-    let seconds = sale_text::seconds_left(sale.expires_at, clock.now);
+    let seconds = sale_text::seconds_left(sale.expires_at, UnixSeconds(clock.now));
     let amount = sale_text::amount(sale, money);
     SaleView {
         close_label: "Close the sale".into(),
@@ -181,9 +182,9 @@ mod tests {
 
     fn bp9m() -> TillSale {
         TillSale {
-            amount: "13.88".into(),
+            price: till_types::Price::new("13.88", "USD"),
             xmr: "0.05552".into(),
-            expires_at: at() + 892,
+            expires_at: UnixSeconds(at() + 892),
             receipt: Some(receipt(
                 "bP9m",
                 "2026-10-22T16:07:00-07:00",
@@ -301,7 +302,7 @@ mod tests {
     fn a_sale_paid_on_screen_spends_its_code_and_says_what_came_in() {
         let paid = TillSale {
             phase: SalePhase::Paid,
-            paid_at: Some(at()),
+            paid_at: Some(UnixSeconds(at())),
             ..bp9m()
         };
         let view = sale(&input(paid, SQUARE), Device::Iphone, la(at()), &money);

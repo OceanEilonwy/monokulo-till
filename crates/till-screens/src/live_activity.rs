@@ -8,9 +8,11 @@
 //! decision 2): the same state draws both. Android has its ongoing
 //! notification ([`crate::notification`]).
 
+use monokulo_client::OrderId;
 use till_sales::TillSale;
 
 use monokulo_client::SalePhase;
+use monokulo_client::payment_uri::PaymentUri;
 
 use crate::view::Device;
 
@@ -37,7 +39,7 @@ pub struct LiveActivityState {
     /// The order shown, for the tap's `monokulo-till://sale/{id}`. The app
     /// sets it; Monokulo's pushes don't carry it, so after one the tap
     /// opens the app at its shift.
-    pub order_id: Option<String>,
+    pub order_id: Option<OrderId>,
     /// "#1042": the sale's label.
     pub sale: Option<String>,
     /// "24.50": formatted by the device with `currency`, as Monokulo sends
@@ -72,43 +74,16 @@ pub struct LiveActivityInput {
     pub sales: Vec<TillSale>,
     /// The sale just paid, while it shows as paid (the app then idles the
     /// activity).
-    pub just_paid: Option<String>,
+    pub just_paid: Option<OrderId>,
     /// The sale whose code just ran out (or whose payment was reversed),
     /// while it shows as expired.
-    pub just_ended: Option<String>,
+    pub just_ended: Option<OrderId>,
     /// Settings › Dynamic Island › "Show code in island" (off by default).
     pub code_in_island: bool,
     /// The code keeps its receipt: the state is drawn on this device alone
     /// (the iPad's floating window, or a Live Activity with no push token
     /// in use), never sent through the relay (core.md decision 140).
     pub receipt: bool,
-}
-
-/// `uri` without its receipt: the payment URI as the order gave it.
-pub fn plain_uri(uri: &str) -> String {
-    let (head, fragment) = match uri.split_once('#') {
-        Some((head, fragment)) => (head, Some(fragment)),
-        None => (uri, None),
-    };
-    let mut plain = match head.split_once('?') {
-        Some((path, query)) => {
-            let kept: Vec<&str> = query
-                .split('&')
-                .filter(|pair| !pair.starts_with("orf=") && *pair != "orf")
-                .collect();
-            if kept.is_empty() {
-                path.to_owned()
-            } else {
-                format!("{path}?{}", kept.join("&"))
-            }
-        }
-        None => head.to_owned(),
-    };
-    if let Some(fragment) = fragment {
-        plain.push('#');
-        plain.push_str(fragment);
-    }
-    plain
 }
 
 /// "#1042" from the POS's receipt number.
@@ -162,10 +137,11 @@ pub fn live_activity(input: &LiveActivityInput, device: Device) -> Option<LiveAc
         phase,
         order_id: shown.map(|sale| sale.order_id.clone()),
         sale: shown.and_then(label),
-        amount: shown.map(|sale| sale.amount.clone()),
-        currency: shown.map(|sale| sale.currency.clone()),
+        // The texts as the order wrote them: the activity's own fields.
+        amount: shown.map(|sale| sale.price.amount().to_owned()),
+        currency: shown.map(|sale| sale.price.currency().to_owned()),
         xmr: shown.map(|sale| sale.xmr.clone()),
-        expires_at: shown.map(|sale| sale.expires_at),
+        expires_at: shown.map(|sale| sale.expires_at.0),
         waiting_count,
         payment_uri: shown
             .filter(|sale| input.code_in_island && sale.live() && sale.phase == SalePhase::Waiting)
@@ -173,7 +149,9 @@ pub fn live_activity(input: &LiveActivityInput, device: Device) -> Option<LiveAc
                 if input.receipt {
                     sale.code.uri.clone()
                 } else {
-                    plain_uri(&sale.code.uri)
+                    PaymentUri::from(sale.code.uri.as_str())
+                        .plain()
+                        .into_string()
                 }
             }),
         name: shown
@@ -186,6 +164,7 @@ pub fn live_activity(input: &LiveActivityInput, device: Device) -> Option<LiveAc
 mod tests {
     use super::*;
     use crate::fixtures::{found, till_sale};
+    use till_types::UnixSeconds;
 
     fn sale(id: &str, phase: SalePhase, mine: bool) -> TillSale {
         TillSale {
@@ -196,7 +175,7 @@ mod tests {
                 why: None,
             },
             phase,
-            expires_at: 1_761_312_000,
+            expires_at: UnixSeconds(1_761_312_000),
             found: mine.then(|| {
                 found(
                     "p1",
@@ -367,6 +346,10 @@ mod tests {
         .unwrap();
         assert_eq!(state.phase, ActivityPhase::Idle);
         assert_eq!(state.waiting_count, 0);
+    }
+
+    fn plain_uri(uri: &str) -> String {
+        PaymentUri::from(uri).plain().into_string()
     }
 
     #[test]

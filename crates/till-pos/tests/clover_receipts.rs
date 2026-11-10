@@ -17,9 +17,9 @@ use till_pos::{FoundSale, PointOfSale, SaleSource};
 
 fn merchant() -> CloverMerchant {
     CloverMerchant {
-        id: "MCLOVER00001".into(),
+        id: till_pos::clover::CloverMerchantId::new("MCLOVER00001").unwrap(),
         name: "The Bean Room".into(),
-        currency: "USD".into(),
+        currency: "USD".parse().unwrap(),
         timezone: Some("America/Los_Angeles".into()),
         country: Some("US".into()),
     }
@@ -28,11 +28,10 @@ fn merchant() -> CloverMerchant {
 fn sale() -> FoundSale {
     FoundSale {
         id: "PAY_MONERO_1".into(),
-        amount_minor: 2205,
-        currency: "USD".into(),
+        amount: till_types::Money::new(2205, "USD".parse().unwrap()),
         reference: None,
         order_id: Some("ORDER_CL_1".into()),
-        created_at: "2026-10-28T08:56:00Z".into(),
+        created_at: "2026-10-28T08:56:00Z".parse().unwrap(),
         updated_at: None,
         status: None,
         device_id: Some("DEV_FRONT".into()),
@@ -196,7 +195,7 @@ fn a_currency_without_cents_keeps_its_own_digits() {
         },
     };
     let tokyo = CloverMerchant {
-        currency: "JPY".into(),
+        currency: "JPY".parse().unwrap(),
         timezone: Some("Asia/Tokyo".into()),
         country: Some("JP".into()),
         ..merchant()

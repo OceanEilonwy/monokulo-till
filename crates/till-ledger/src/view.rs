@@ -11,8 +11,9 @@ use serde::{Deserialize, Serialize};
 use till_pos::FoundSale;
 
 use crate::facts::{Outcome, RefundStatus, Tender};
-use crate::ids::{DeviceId, SaleKey};
-use crate::model::{LocalMarks, PaymentPhase, SharedSale, action_name};
+use crate::ids::{DeviceId, OrderId, SaleKey};
+use crate::model::{LocalMarks, PaymentPhase, SharedSale};
+use crate::{UnixMillis, UnixSeconds};
 
 /// What an offered cash sale's `order_id` starts with, before the
 /// payment's id (`TillSale::OFFERED`).
@@ -34,6 +35,11 @@ pub mod setting {
     pub const RETENTION_DAYS: &str = "ledger.retention_days";
     /// Minutes after midnight, local, when the trading day starts; 240.
     pub const TRADING_DAY_START: &str = "shift.day_start";
+    /// "false" to list only this counter's sales.
+    pub const COUNTER_OTHERS: &str = "counter.others";
+    /// How a new sale shows up: `ShowSales::wire`'s `pip` or `side`;
+    /// absent for an alert.
+    pub const SHOW_SALES: &str = "sales.show";
 }
 
 /// The settings that feed views and effects, never the merge.
@@ -89,9 +95,10 @@ pub struct SaleView {
     pub sale: SaleKey,
     /// Its order's id; `cash:<payment>` for a cash sale
     /// with no order; the sale key for a sale still waiting for its order.
-    pub order_id: String,
-    pub amount: String,
-    pub currency: String,
+    pub order_id: OrderId,
+    /// The deciding order's price, else the POS payment's.
+    #[serde(flatten)]
+    pub price: till_types::Price,
     pub reference: Option<String>,
     pub code: Code,
     pub phase: SalePhase,
@@ -99,7 +106,7 @@ pub struct SaleView {
     pub payment: Option<PaymentPhase>,
     /// When its code (the order's latest quote) runs out, Unix seconds; 0
     /// with no order.
-    pub expires_at: i64,
+    pub expires_at: UnixSeconds,
     pub xmr: String,
     pub address: String,
     /// The POS payment as `TillSale::found` holds it, when this till sees it.
@@ -111,13 +118,13 @@ pub struct SaleView {
     pub url: Option<String>,
     /// Monokulo said nothing more will happen to its order.
     pub settled: bool,
-    pub created_at: i64,
-    pub seen_at: Option<i64>,
-    pub paid_at: Option<i64>,
-    pub ended_at: Option<i64>,
-    pub closed_at: Option<i64>,
-    pub refunded_at: Option<i64>,
-    pub refund_pending_at: Option<i64>,
+    pub created_at: UnixSeconds,
+    pub seen_at: Option<UnixSeconds>,
+    pub paid_at: Option<UnixSeconds>,
+    pub ended_at: Option<UnixSeconds>,
+    pub closed_at: Option<UnixSeconds>,
+    pub refunded_at: Option<UnixSeconds>,
+    pub refund_pending_at: Option<UnixSeconds>,
     pub confirmations: Option<u32>,
     pub confirmations_required: Option<u32>,
     /// A cash sale offered in Monero, with no order: cash as Monero is off,
@@ -128,8 +135,8 @@ pub struct SaleView {
     /// Monero on: its own counter's till makes the order. Listed quietly,
     /// never alerted, until the cashier here takes it in Monero.
     pub for_its_counter: bool,
-    pub kept_as_cash_at: Option<i64>,
-    pub paid_in_cash_at: Option<i64>,
+    pub kept_as_cash_at: Option<UnixSeconds>,
+    pub paid_in_cash_at: Option<UnixSeconds>,
 
     /// Rung up as cash at the POS.
     pub cash: bool,
@@ -156,8 +163,9 @@ pub struct SaleView {
     pub refund_problem: Option<String>,
 }
 
-fn secs(ms: Option<i64>) -> Option<i64> {
-    ms.map(|ms| ms.div_euclid(1000))
+/// A ledger time as a view shows it, in whole seconds.
+fn secs(ms: Option<UnixMillis>) -> Option<UnixSeconds> {
+    ms.map(UnixMillis::to_seconds)
 }
 
 /// The view of one sale, from its shared state, this device's marks and
@@ -167,7 +175,7 @@ pub fn view(
     shared: &SharedSale,
     marks: &LocalMarks,
     settings: &ViewSettings,
-    rung_at: i64,
+    rung_at: UnixMillis,
 ) -> SaleView {
     let payment = shared.pos.payment.as_ref();
     let deciding = shared.order.as_ref();
@@ -191,14 +199,13 @@ pub fn view(
 
     let found = payment.map(|p| FoundSale {
         id: p.payment.0.clone(),
-        amount_minor: p.amount_minor,
-        currency: p.currency.clone(),
+        amount: p.amount,
         reference: p.receipt_number.clone(),
         order_id: p.order_ref.clone(),
         created_at: p.created_at.clone(),
         updated_at: None,
         status: None,
-        device_id: p.device_id.as_ref().map(|d| d.0.clone()),
+        device_id: p.device_id.clone(),
         device_name: p.device_name.clone(),
         cash,
         title: p.title.clone(),
@@ -249,9 +256,7 @@ pub fn view(
     // as before the ledger (core.md decision 181). A refund made in the
     // POS's own app waits for completion, and a failed or rejected one
     // isn't one; [`SharedSale::ended`] waits for completion either way.
-    let refund_asked = marks
-        .actions
-        .get(&action_name(crate::facts::Action::Refund));
+    let refund_asked = marks.actions.get(&crate::facts::Action::Refund);
     let refund_done_at = refund_asked
         .filter(|a| a.outcome == Some(Outcome::Done))
         .and_then(|a| a.done_at);
@@ -281,26 +286,23 @@ pub fn view(
     SaleView {
         sale: sale.clone(),
         order_id: match (order, payment) {
-            (Some(o), _) => o.order_id.0.clone(),
-            (None, Some(p)) if cash => format!("{OFFERED}{}", p.payment),
-            (None, _) => sale.text(),
+            (Some(o), _) => o.order_id.clone(),
+            (None, Some(p)) if cash => format!("{OFFERED}{}", p.payment).into(),
+            (None, _) => sale.text().into(),
         },
-        amount: order.map(|o| o.amount.clone()).unwrap_or_else(|| {
-            payment
-                .map(|p| till_pos::decimal_amount(p.amount_minor, &p.currency))
-                .unwrap_or_default()
+        price: order.map(|o| o.price.clone()).unwrap_or_else(|| {
+            payment.map_or_else(
+                || till_types::Price::new("", ""),
+                |p| till_types::Price::of(p.amount),
+            )
         }),
-        currency: order
-            .map(|o| o.currency.clone())
-            .or_else(|| payment.map(|p| p.currency.clone()))
-            .unwrap_or_default(),
         reference: order
             .and_then(|o| o.reference.clone())
             .or_else(|| payment.and_then(|p| p.receipt_number.clone())),
         code,
         phase: phase.map_or(SalePhase::Waiting, PaymentPhase::sale_phase),
         payment: phase,
-        expires_at: order.map_or(0, |o| o.expires_at),
+        expires_at: order.map_or(UnixSeconds(0), |o| o.expires_at),
         xmr: order.map(|o| o.xmr.clone()).unwrap_or_default(),
         address: order.map(|o| o.address.clone()).unwrap_or_default(),
         found,
@@ -312,7 +314,7 @@ pub fn view(
         device_id,
         url: order.and_then(|o| o.url.clone()),
         settled: deciding.is_some_and(|a| a.observed.settled),
-        created_at: rung_at.div_euclid(1000),
+        created_at: rung_at.to_seconds(),
         seen_at: secs(marks.seen_at),
         paid_at: secs(marks.paid_at),
         ended_at: secs(marks.ended_at),
@@ -337,7 +339,7 @@ pub fn view(
             && marks
                 .clock_lapsed
                 .zip(order)
-                .is_some_and(|(at, o)| at >= o.expires_at.saturating_mul(1000)),
+                .is_some_and(|(at, o)| at >= o.expires_at.to_millis()),
         paid_after_refund: paid && refunded_at.is_some(),
         paid_after_close: paid && closed_at.is_some(),
         refund_problem,
