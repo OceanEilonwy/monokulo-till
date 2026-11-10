@@ -19,7 +19,7 @@ use monokulo_client::{
 use till_bell::{
     BellAddress, BellApi, BellWakeUps, SubscriptionKeys, WakeUpChoice, WakeUpStatus, is_ding,
 };
-use till_ledger::{AlertKind, Claim, ClaimPolicy, Fact, Process, Scope, ShiftMark};
+use till_ledger::{AlertKind, Claim, ClaimPolicy, Fact, Process, Scope, ShiftMark, UnixMillis};
 use till_pos::clover::TenderState;
 use till_pos::square::SquareLocation;
 use till_pos::{OAuthRedirect, Pkce, PosError};
@@ -1228,7 +1228,7 @@ impl State {
         if !self.visible || token != self.heartbeat {
             return;
         }
-        let until = self.now_ms() + FOREGROUND_FOR.as_millis() as i64;
+        let until = self.now_ms().plus(FOREGROUND_FOR.as_millis() as i64);
         self.record(Fact::Foreground { until });
         self.task(async move {
             tokio::time::sleep(HEARTBEAT).await;
@@ -1237,8 +1237,8 @@ impl State {
     }
 
     /// Now, as the ledger's facts keep a time (Unix ms).
-    fn now_ms(&self) -> i64 {
-        self.clock.now_ms().0
+    fn now_ms(&self) -> UnixMillis {
+        self.clock.now_ms()
     }
 
     /// Records `fact` in the engine's books.
@@ -1781,7 +1781,7 @@ impl State {
             self.keep(|m| m.shift_started_at = Some(now));
             self.record(Fact::ShiftMarked {
                 mark: ShiftMark::Started,
-                at: now.to_millis().0,
+                at: now.to_millis(),
             });
             if let Some(p) = &self.parts
                 && let Err(e) = p.side.books().with(|l| l.maintain())

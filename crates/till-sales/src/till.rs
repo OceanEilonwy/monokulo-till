@@ -255,9 +255,9 @@ impl Till {
             .min()
     }
 
-    /// Now, as the ledger's facts keep a time (Unix ms).
-    fn now_ms(&self) -> i64 {
-        self.clock.now_ms().0
+    /// Now, as the ledger's facts keep a time.
+    fn now_ms(&self) -> UnixMillis {
+        self.clock.now_ms()
     }
 
     fn record(&self, fact: Fact) -> bool {
@@ -495,7 +495,7 @@ impl Till {
                     .unwrap_or_else(|| sale.amount.currency.to_string()),
             ),
             reference: order.merchant_order_id.clone(),
-            expires_at: order.expires_at,
+            expires_at: UnixSeconds(order.expires_at),
             confirmations_required: order.confirmations_required,
             device_name: None,
             renew: order.renew.clone(),
@@ -576,7 +576,7 @@ impl Till {
             // The quote the order had then: a renewal's `sale.waiting`
             // carries its new one (core.md decision 169).
             quote: Some(Quote {
-                expires_at: event.expires_at,
+                expires_at: UnixSeconds(event.expires_at),
                 piconero: event.piconero,
             }),
             renew: None,
@@ -615,7 +615,7 @@ impl Till {
             received: None,
             overpaid: order.status.overpaid(),
             quote: Some(Quote {
-                expires_at: order.expires_at,
+                expires_at: UnixSeconds(order.expires_at),
                 piconero: order.piconero,
             }),
             renew: order.renew.clone(),
@@ -881,7 +881,7 @@ impl Till {
         };
         let renewing = async {
             self.monokulo
-                .renew_order(&self.connection, &renew, expires_at)
+                .renew_order(&self.connection, &renew, expires_at.0)
                 .await
                 .map_err(|e| renewal_problem(&e))
         };
@@ -1066,11 +1066,12 @@ fn payment_seen(sale: &FoundSale) -> PaymentSeen {
         order_ref: sale.order_id.clone(),
         title: sale.title.clone(),
         created_at: sale.created_at.clone(),
-        updated_at: sale
-            .updated_at
-            .as_ref()
-            .unwrap_or(&sale.created_at)
-            .as_millisecond(),
+        updated_at: UnixMillis(
+            sale.updated_at
+                .as_ref()
+                .unwrap_or(&sale.created_at)
+                .as_millisecond(),
+        ),
     }
 }
 
@@ -1112,7 +1113,7 @@ fn event_order(event: &SaleEvent) -> OrderCreated {
         xmr: payment_uri::xmr(event.piconero),
         price: till_types::Price::new(event.amount.as_str(), event.currency.as_str()),
         reference: event.merchant_order_id.clone(),
-        expires_at: event.expires_at,
+        expires_at: UnixSeconds(event.expires_at),
         confirmations_required: None,
         device_name: Some(event.device_name.clone()).filter(|name| !name.trim().is_empty()),
         renew: None,

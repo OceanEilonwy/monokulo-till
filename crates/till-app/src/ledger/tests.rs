@@ -104,7 +104,7 @@ fn payment(id: &str) -> Fact {
         order_ref: None,
         title: None,
         created_at: "2026-10-22T16:07:00Z".parse().unwrap(),
-        updated_at: 1_761_149_220_000,
+        updated_at: till_types::UnixMillis(1_761_149_220_000),
     })
 }
 
@@ -118,7 +118,7 @@ fn order(payment: &str, order: &str) -> Fact {
         xmr: "0.08".into(),
         price: till_pos::Price::new("13.88", "USD"),
         reference: Some("bP9m".into()),
-        expires_at: 1_893_456_000,
+        expires_at: till_types::UnixSeconds(1_893_456_000),
         confirmations_required: None,
         device_name: None,
         renew: None,
@@ -249,13 +249,17 @@ fn show_sales_is_kept_in_the_ledger_as_its_wire_word() {
     let (app, _) = side(&platform, &dir, Process::App);
     let settings = || app.books().with(|ledger| ledger.settings()).unwrap();
     // As the engine kept it before.
-    app.books()
-        .keep_settings(&[("sales.show", Some("FloatingWindow".to_owned()))], 1_000);
+    app.books().keep_settings(
+        &[("sales.show", Some("FloatingWindow".to_owned()))],
+        till_types::UnixMillis(1_000),
+    );
     app.kept
         .update(|m| m.show_sales = crate::ShowSales::FloatingWindow)
         .unwrap();
-    app.books()
-        .keep_settings(&app.kept.model().ledger_settings(), 2_000);
+    app.books().keep_settings(
+        &app.kept.model().ledger_settings(),
+        till_types::UnixMillis(2_000),
+    );
     assert_eq!(
         settings().get("sales.show").map(String::as_str),
         Some("pip")
@@ -268,8 +272,10 @@ fn show_sales_is_kept_in_the_ledger_as_its_wire_word() {
     app.kept
         .update(|m| m.show_sales = crate::ShowSales::Alert)
         .unwrap();
-    app.books()
-        .keep_settings(&app.kept.model().ledger_settings(), 3_000);
+    app.books().keep_settings(
+        &app.kept.model().ledger_settings(),
+        till_types::UnixMillis(3_000),
+    );
     assert_eq!(settings().get("sales.show"), None);
     assert_eq!(
         settings().get("counter.others").map(String::as_str),

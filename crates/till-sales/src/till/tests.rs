@@ -1311,7 +1311,7 @@ async fn a_payment_square_changed_has_its_order_read_again() {
         .row(&SaleKey::pos(PointOfSale::Square, "pay_monero"))
         .unwrap();
     assert_eq!(
-        row.shared.pos.payment.unwrap().updated_at,
+        row.shared.pos.payment.unwrap().updated_at.0,
         till_pos::time::unix_millis("2026-10-22T16:12:30.250Z").unwrap()
     );
 }

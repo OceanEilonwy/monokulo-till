@@ -163,9 +163,9 @@ pub struct SaleView {
     pub refund_problem: Option<String>,
 }
 
-/// A ledger time (Unix ms) as a view shows it, Unix seconds.
-fn secs(ms: Option<i64>) -> Option<i64> {
-    ms.map(|ms| UnixMillis(ms).to_seconds().0)
+/// A ledger time as a view shows it, in whole seconds.
+fn secs(ms: Option<UnixMillis>) -> Option<i64> {
+    ms.map(|ms| ms.to_seconds().0)
 }
 
 /// The view of one sale, from its shared state, this device's marks and
@@ -175,7 +175,7 @@ pub fn view(
     shared: &SharedSale,
     marks: &LocalMarks,
     settings: &ViewSettings,
-    rung_at: i64,
+    rung_at: UnixMillis,
 ) -> SaleView {
     let payment = shared.pos.payment.as_ref();
     let deciding = shared.order.as_ref();
@@ -304,7 +304,7 @@ pub fn view(
         code,
         phase: phase.map_or(SalePhase::Waiting, PaymentPhase::sale_phase),
         payment: phase,
-        expires_at: order.map_or(0, |o| o.expires_at),
+        expires_at: order.map_or(0, |o| o.expires_at.0),
         xmr: order.map(|o| o.xmr.clone()).unwrap_or_default(),
         address: order.map(|o| o.address.clone()).unwrap_or_default(),
         found,
@@ -316,7 +316,7 @@ pub fn view(
         device_id,
         url: order.and_then(|o| o.url.clone()),
         settled: deciding.is_some_and(|a| a.observed.settled),
-        created_at: UnixMillis(rung_at).to_seconds().0,
+        created_at: rung_at.to_seconds().0,
         seen_at: secs(marks.seen_at),
         paid_at: secs(marks.paid_at),
         ended_at: secs(marks.ended_at),
@@ -341,7 +341,7 @@ pub fn view(
             && marks
                 .clock_lapsed
                 .zip(order)
-                .is_some_and(|(at, o)| at >= o.expires_at.saturating_mul(1000)),
+                .is_some_and(|(at, o)| at >= o.expires_at.to_millis()),
         paid_after_refund: paid && refunded_at.is_some(),
         paid_after_close: paid && closed_at.is_some(),
         refund_problem,

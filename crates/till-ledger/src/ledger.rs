@@ -72,12 +72,12 @@ pub struct SaleRow {
     pub sale: SaleKey,
     pub shared: SharedSale,
     pub marks: LocalMarks,
-    pub rung_at: i64,
+    pub rung_at: UnixMillis,
     pub applied_seq: i64,
 }
 
 impl SaleRow {
-    fn new(sale: SaleKey, at: i64) -> SaleRow {
+    fn new(sale: SaleKey, at: UnixMillis) -> SaleRow {
         SaleRow {
             sale,
             shared: SharedSale::default(),
@@ -240,7 +240,7 @@ impl Ledger {
             .map_err(LedgerError::KeyUnavailable)?;
         let recovered = path.exists();
         if recovered {
-            db::move_aside(&path, clock.now_ms().0)?;
+            db::move_aside(&path, clock.now_ms())?;
         }
         let mut ledger = Ledger::open(&path, &fresh, scope, process, clock)?;
         ledger.set_learning(true)?;
@@ -289,7 +289,7 @@ impl Ledger {
     /// Records one fact (§6): merged, journalled if it changed something,
     /// with its effects claimed, in one `BEGIN IMMEDIATE`.
     pub fn record(&mut self, fact: Fact) -> Result<Recorded, LedgerError> {
-        let now = self.clock.now_ms().0;
+        let now = self.clock.now_ms();
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -320,7 +320,7 @@ impl Ledger {
     /// process that died more than 30 s after claiming), as `policy` says.
     /// While learning, they're marked posted and nothing is returned.
     pub fn claim_due(&mut self, policy: ClaimPolicy) -> Result<Vec<Claim>, LedgerError> {
-        let now = self.clock.now_ms().0;
+        let now = self.clock.now_ms();
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -335,7 +335,7 @@ impl Ledger {
             let rows = stmt.query_map(
                 params![
                     self.scope.0,
-                    now - REDELIVER_AFTER_MS,
+                    now.plus(-REDELIVER_AFTER_MS),
                     AlertState::Due,
                     AlertState::Pending
                 ],
@@ -424,7 +424,7 @@ impl Ledger {
 
     /// The app's heartbeat hasn't run out.
     pub fn foreground(&self) -> Result<bool, LedgerError> {
-        Ok(read_foreground(&self.conn)? > self.clock.now_ms().0)
+        Ok(read_foreground(&self.conn)? > self.clock.now_ms())
     }
 
     /// One sale's row.
@@ -564,10 +564,11 @@ impl Ledger {
     /// hourly unless `force`. Old `Foreground` heartbeats are dropped too,
     /// keeping the newest. Returns how many sales were compacted.
     pub fn compact(&mut self, force: bool) -> Result<usize, LedgerError> {
-        let now = self.clock.now_ms().0;
-        let last: Option<i64> =
-            meta_get(&self.conn, "last_compacted")?.and_then(|v| v.parse().ok());
-        if !force && last.is_some_and(|l| now - l < COMPACT_EVERY_MS && now >= l) {
+        let now = self.clock.now_ms();
+        let last: Option<UnixMillis> = meta_get(&self.conn, "last_compacted")?
+            .and_then(|v| v.parse().ok())
+            .map(UnixMillis);
+        if !force && last.is_some_and(|l| now < l.plus(COMPACT_EVERY_MS) && now >= l) {
             return Ok(0);
         }
         let window = self.shift_window()?;
@@ -629,7 +630,7 @@ impl Ledger {
              AND seq < (SELECT max(seq) FROM journal WHERE kind = 'Foreground')",
             [],
         )?;
-        meta_set(&tx, "last_compacted", &now.to_string())?;
+        meta_set(&tx, "last_compacted", &now.0.to_string())?;
         tx.commit()?;
         Ok(compacted)
     }
@@ -639,13 +640,13 @@ impl Ledger {
     /// projections, in every scope, as are events for orders that never
     /// arrived. Returns how many sales went.
     pub fn retain(&mut self) -> Result<usize, LedgerError> {
-        let now = self.clock.now_ms().0;
+        let now = self.clock.now_ms();
         let days = read_settings(&self.conn)?
             .get(setting::RETENTION_DAYS)
             .and_then(|d| d.parse::<i64>().ok())
             .filter(|d| *d > 0)
             .unwrap_or(DEFAULT_RETENTION_DAYS);
-        let cutoff = now - days * 24 * 60 * 60 * 1000;
+        let cutoff = now.plus(-days * 24 * 60 * 60 * 1000);
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -698,7 +699,7 @@ impl Ledger {
         json: &str,
         alerts_posted: &[String],
     ) -> Result<Imported, LedgerError> {
-        let now = self.clock.now_ms().0;
+        let now = self.clock.now_ms();
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -820,7 +821,7 @@ impl Ledger {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AlertRow {
     pub state: AlertState,
-    pub claimed_at: Option<i64>,
+    pub claimed_at: Option<UnixMillis>,
     pub by: Option<Process>,
 }
 
@@ -829,7 +830,7 @@ pub struct AlertRow {
 pub struct JournalRow {
     pub seq: i64,
     pub scope: String,
-    pub at: i64,
+    pub at: UnixMillis,
     pub sale_key: Option<String>,
     pub kind: String,
     pub body: Vec<u8>,
@@ -851,7 +852,7 @@ fn rebuild_in(conn: &Connection) -> Result<(), LedgerError> {
         "DELETE FROM alerts WHERE state != ?1",
         params![AlertState::Due],
     )?;
-    let rows: Vec<(i64, String, i64, String, Vec<u8>)> = {
+    let rows: Vec<(i64, String, UnixMillis, String, Vec<u8>)> = {
         let mut stmt =
             conn.prepare("SELECT seq, scope, at, kind, body FROM journal ORDER BY seq")?;
         let rows = stmt.query_map([], |r| {
@@ -968,7 +969,7 @@ fn insert_journal(
     conn: &Connection,
     scope: &Scope,
     seq: i64,
-    at: i64,
+    at: UnixMillis,
     sale_key: Option<&str>,
     fact: &Fact,
 ) -> Result<bool, LedgerError> {
@@ -991,7 +992,7 @@ fn insert_journal(
 fn journal_alert_fact(
     conn: &Connection,
     scope: &Scope,
-    at: i64,
+    at: UnixMillis,
     fact: &Fact,
 ) -> Result<(), LedgerError> {
     let sale = match fact.about() {
@@ -1013,10 +1014,12 @@ fn read_view_settings(conn: &Connection) -> Result<ViewSettings, LedgerError> {
     Ok(ViewSettings::from_table(&read_settings(conn)?))
 }
 
-fn read_foreground(conn: &Connection) -> Result<i64, LedgerError> {
-    Ok(meta_get(conn, "foreground_until")?
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(0))
+fn read_foreground(conn: &Connection) -> Result<UnixMillis, LedgerError> {
+    Ok(UnixMillis(
+        meta_get(conn, "foreground_until")?
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0),
+    ))
 }
 
 fn get_alert(
@@ -1046,7 +1049,7 @@ fn set_alert(
     sale: &SaleKey,
     kind: AlertKind,
     state: AlertState,
-    claimed_at: Option<i64>,
+    claimed_at: Option<UnixMillis>,
     by: Option<Process>,
 ) -> Result<(), LedgerError> {
     conn.execute(
@@ -1073,7 +1076,7 @@ fn read_alerts(
         Ok((
             r.get::<_, String>(0)?,
             r.get::<_, AlertState>(1)?,
-            r.get::<_, Option<i64>>(2)?,
+            r.get::<_, Option<UnixMillis>>(2)?,
             r.get::<_, Option<Process>>(3)?,
         ))
     })?;
@@ -1098,7 +1101,7 @@ fn post_silently(
     scope: &Scope,
     sale: &SaleKey,
     kind: AlertKind,
-    at: i64,
+    at: UnixMillis,
 ) -> Result<(), LedgerError> {
     set_alert(conn, scope, sale, kind, AlertState::Posted, None, None)?;
     journal_alert_fact(
@@ -1119,7 +1122,7 @@ fn claim(
     process: Process,
     row: &SaleRow,
     kind: AlertKind,
-    now: i64,
+    now: UnixMillis,
     settings: &ViewSettings,
 ) -> Result<Claim, LedgerError> {
     let id = notification_id(&row.sale, kind);
@@ -1159,7 +1162,7 @@ fn apply(
     conn: &Connection,
     scope: &Scope,
     fact: &Fact,
-    at: i64,
+    at: UnixMillis,
     mode: Mode<'_>,
 ) -> Result<Applied, LedgerError> {
     let (seq, journal) = match mode {
@@ -1436,7 +1439,7 @@ fn fold_kept(
     sale: &SaleKey,
     order: &OrderId,
     row: &mut SaleRow,
-    at: i64,
+    at: UnixMillis,
 ) -> Result<Option<SaleRow>, LedgerError> {
     if !matches!(sale, SaleKey::Pos { .. }) {
         return Ok(None);
@@ -1451,7 +1454,7 @@ fn fold_kept(
         row.marks.join(&kept.marks);
         row.marks.saw(&row.shared, at);
     }
-    let alerts: Vec<(String, AlertState, Option<i64>, Option<Process>)> = {
+    let alerts: Vec<(String, AlertState, Option<UnixMillis>, Option<Process>)> = {
         let mut stmt = conn.prepare(
             "SELECT kind, state, claimed_at, by FROM alerts WHERE scope = ?1 AND sale_key = ?2",
         )?;
@@ -1522,9 +1525,9 @@ fn apply_global(conn: &Connection, fact: &Fact) -> Result<bool, LedgerError> {
                 crate::facts::ShiftMark::Started => "shift.started",
                 crate::facts::ShiftMark::Stopped => "shift.stopped",
             },
-            at.to_string(),
+            at.0.to_string(),
         ),
-        Fact::Foreground { until } => set_meta("foreground_until", until.to_string()),
+        Fact::Foreground { until } => set_meta("foreground_until", until.0.to_string()),
         Fact::Imported { from, count } => set_meta("imported_from", format!("{from}:{count}")),
         _ => Ok(false),
     }

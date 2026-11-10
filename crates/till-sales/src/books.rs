@@ -325,7 +325,7 @@ impl Books {
 
     /// Keeps `options` as the ledger's settings (`Fact::SettingChanged`),
     /// those that changed only.
-    pub fn keep_options(&self, options: &TillOptions, at_ms: i64) {
+    pub fn keep_options(&self, options: &TillOptions, at_ms: UnixMillis) {
         let wanted = [
             (
                 setting::DEVICE,
@@ -345,7 +345,7 @@ impl Books {
 
     /// Keeps each `(name, value)` as a setting, recording only those that
     /// differ from the ledger's.
-    pub fn keep_settings(&self, wanted: &[(&str, Option<String>)], at_ms: i64) {
+    pub fn keep_settings(&self, wanted: &[(&str, Option<String>)], at_ms: UnixMillis) {
         let kept = match self.with(|ledger| ledger.settings()) {
             Ok(kept) => kept,
             Err(e) => {

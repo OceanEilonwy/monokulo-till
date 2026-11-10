@@ -572,7 +572,7 @@ mod tests {
             xmr: "0.03".into(),
             price: till_types::Price::new("5.00", "USD"),
             reference: None,
-            expires_at: 0,
+            expires_at: monokulo_client::UnixSeconds(0),
             confirmations_required: None,
             device_name: None,
             renew: None,

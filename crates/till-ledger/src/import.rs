@@ -10,12 +10,12 @@ use till_pos::FoundSale;
 
 use crate::facts::{Fact, MarkKind, OrderCreated, OrderObserved, OrderRead, PaymentSeen, Tender};
 use crate::ids::{OrderId, SaleKey};
-use crate::{LedgerError, UnixSeconds};
+use crate::{LedgerError, UnixMillis, UnixSeconds};
 
 /// One kept sale's facts, each with the time it's journalled at (Unix ms;
 /// `None` for now).
 pub(crate) struct ImportedSale {
-    pub facts: Vec<(Fact, Option<i64>)>,
+    pub facts: Vec<(Fact, Option<UnixMillis>)>,
 }
 
 #[derive(Deserialize)]
@@ -34,7 +34,7 @@ struct Kept {
     reference: Option<String>,
     code: KeptCode,
     phase: SalePhase,
-    expires_at: i64,
+    expires_at: UnixSeconds,
     xmr: String,
     address: String,
     #[serde(default)]
@@ -50,19 +50,19 @@ struct Kept {
     #[serde(default)]
     settled: bool,
     #[serde(default)]
-    created_at: i64,
+    created_at: UnixSeconds,
     #[serde(default)]
-    seen_at: Option<i64>,
+    seen_at: Option<UnixSeconds>,
     #[serde(default)]
-    paid_at: Option<i64>,
+    paid_at: Option<UnixSeconds>,
     #[serde(default)]
-    ended_at: Option<i64>,
+    ended_at: Option<UnixSeconds>,
     #[serde(default)]
-    closed_at: Option<i64>,
+    closed_at: Option<UnixSeconds>,
     #[serde(default)]
-    refunded_at: Option<i64>,
+    refunded_at: Option<UnixSeconds>,
     #[serde(default)]
-    refund_pending_at: Option<i64>,
+    refund_pending_at: Option<UnixSeconds>,
     #[serde(default)]
     confirmations: Option<u32>,
     #[serde(default)]
@@ -70,9 +70,9 @@ struct Kept {
     #[serde(default)]
     offered: bool,
     #[serde(default)]
-    kept_as_cash_at: Option<i64>,
+    kept_as_cash_at: Option<UnixSeconds>,
     #[serde(default)]
-    paid_in_cash_at: Option<i64>,
+    paid_in_cash_at: Option<UnixSeconds>,
 }
 
 /// The receipt as the Kotlin model wrote it: the ORF document with its
@@ -88,9 +88,9 @@ fn receipt_of(mut value: serde_json::Value) -> Option<orf_codec::Receipt> {
     serde_json::from_value(value).ok()
 }
 
-/// A kept time (Unix seconds) as the ledger keeps it, Unix ms.
-fn ms(seconds: Option<i64>) -> Option<i64> {
-    seconds.map(|s| UnixSeconds(s).to_millis().0)
+/// A kept time as the ledger keeps it, in milliseconds.
+fn ms(seconds: Option<UnixSeconds>) -> Option<UnixMillis> {
+    seconds.map(UnixSeconds::to_millis)
 }
 
 /// The facts of every sale in `json`. Sales with the same order id are one
@@ -124,10 +124,10 @@ pub(crate) fn facts_of_shift(json: &str) -> Result<Vec<ImportedSale>, LedgerErro
         let rung = sale
             .found
             .as_ref()
-            .map(|f| f.created_at.as_second())
-            .or(Some(sale.created_at).filter(|s| *s > 0))
-            .map(|s| UnixSeconds(s).to_millis().0);
-        let mut facts: Vec<(Fact, Option<i64>)> = Vec::new();
+            .map(|f| UnixSeconds(f.created_at.as_second()))
+            .or(Some(sale.created_at).filter(|s| s.0 > 0))
+            .map(UnixSeconds::to_millis);
+        let mut facts: Vec<(Fact, Option<UnixMillis>)> = Vec::new();
         if let Some(found) = &sale.found {
             facts.push((
                 Fact::PosPaymentSeen(PaymentSeen {
@@ -146,7 +146,7 @@ pub(crate) fn facts_of_shift(json: &str) -> Result<Vec<ImportedSale>, LedgerErro
                     order_ref: found.order_id.clone(),
                     title: found.title.clone(),
                     created_at: found.created_at.clone(),
-                    updated_at: rung.unwrap_or(0),
+                    updated_at: rung.unwrap_or_default(),
                 }),
                 rung,
             ));
@@ -155,13 +155,13 @@ pub(crate) fn facts_of_shift(json: &str) -> Result<Vec<ImportedSale>, LedgerErro
                 let read = match &receipt {
                     Some(r) => OrderRead::new(
                         key.clone(),
-                        rung.unwrap_or(0),
+                        rung.unwrap_or_default(),
                         Ok(r),
                         sale.customer_name.clone(),
                     ),
                     None => OrderRead {
                         sale: key.clone(),
-                        updated_at: rung.unwrap_or(0),
+                        updated_at: rung.unwrap_or_default(),
                         receipt: None,
                         why: None,
                         customer_name: sale.customer_name.clone(),
@@ -193,7 +193,7 @@ pub(crate) fn facts_of_shift(json: &str) -> Result<Vec<ImportedSale>, LedgerErro
                 }),
                 rung,
             ));
-            let observed = |phase, at: Option<i64>| {
+            let observed = |phase, at: Option<UnixMillis>| {
                 (
                     Fact::OrderObserved(OrderObserved {
                         order_id: order_id.clone(),

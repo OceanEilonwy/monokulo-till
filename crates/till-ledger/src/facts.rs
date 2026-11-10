@@ -7,7 +7,7 @@ use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use till_types::{Money, Price};
+use till_types::{Money, Price, UnixMillis, UnixSeconds};
 
 use crate::ids::{DeviceId, OrderId, PaymentId, SaleKey};
 use crate::model::{LocalMarks, SharedSale};
@@ -51,8 +51,8 @@ pub struct PaymentSeen {
     pub title: Option<String>,
     /// As the POS gave it (journalled as its text).
     pub created_at: till_pos::Rfc3339Instant,
-    /// Unix ms: the later one wins.
-    pub updated_at: i64,
+    /// The later one wins.
+    pub updated_at: UnixMillis,
 }
 
 impl PaymentSeen {
@@ -63,7 +63,7 @@ impl PaymentSeen {
     /// The order two listings of one payment are joined by: the later
     /// `updated_at`, then (for the join not to depend on arrival order) the
     /// content.
-    pub(crate) fn rank(&self) -> (i64, String) {
+    pub(crate) fn rank(&self) -> (UnixMillis, String) {
         (
             self.updated_at,
             serde_json::to_string(self).expect("a payment always serialises"),
@@ -76,9 +76,9 @@ impl PaymentSeen {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct OrderRead {
     pub sale: SaleKey,
-    /// The payment's `updated_at` (Unix ms) when its order was read: a read
-    /// for a later one replaces an earlier one.
-    pub updated_at: i64,
+    /// The payment's `updated_at` when its order was read: a read for a
+    /// later one replaces an earlier one.
+    pub updated_at: UnixMillis,
     /// The receipt as `orf_codec::encode_text` writes it.
     #[serde(default)]
     pub receipt: Option<String>,
@@ -93,7 +93,7 @@ impl OrderRead {
     /// `receipt` encoded for the journal, with why when it can't be.
     pub fn new(
         sale: SaleKey,
-        updated_at: i64,
+        updated_at: UnixMillis,
         receipt: Result<&orf_codec::Receipt, String>,
         customer_name: Option<String>,
     ) -> OrderRead {
@@ -176,8 +176,7 @@ pub struct OrderCreated {
     pub price: Price,
     #[serde(default)]
     pub reference: Option<String>,
-    /// Unix seconds.
-    pub expires_at: i64,
+    pub expires_at: UnixSeconds,
     #[serde(default)]
     pub confirmations_required: Option<u32>,
     /// The device that made it, as Monokulo names it (an event's
@@ -194,8 +193,7 @@ pub struct OrderCreated {
 /// it: a renewal gives the order a new one (core.md decision 169).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Quote {
-    /// Unix seconds.
-    pub expires_at: i64,
+    pub expires_at: UnixSeconds,
     pub piconero: u64,
 }
 
@@ -412,7 +410,7 @@ pub enum Fact {
         kind: AlertKind,
         notification_id: String,
         by: Process,
-        at: i64,
+        at: UnixMillis,
     },
     AlertPosted {
         sale: SaleKey,
@@ -421,32 +419,32 @@ pub enum Fact {
     ActionAsked {
         sale: SaleKey,
         action: Action,
-        at: i64,
+        at: UnixMillis,
     },
     ActionDone {
         sale: SaleKey,
         action: Action,
         outcome: Outcome,
-        at: i64,
+        at: UnixMillis,
     },
     Mark {
         sale: SaleKey,
         mark: MarkKind,
-        at: i64,
+        at: UnixMillis,
     },
     /// `None` removes the setting.
     SettingChanged {
         name: String,
         value: Option<String>,
-        at: i64,
+        at: UnixMillis,
     },
     ShiftMarked {
         mark: ShiftMark,
-        at: i64,
+        at: UnixMillis,
     },
-    /// The app is in front until `until` (Unix ms).
+    /// The app is in front until `until`.
     Foreground {
-        until: i64,
+        until: UnixMillis,
     },
     Imported {
         from: String,
@@ -462,7 +460,7 @@ pub struct SnapshotState {
     pub sale: SaleKey,
     pub shared: SharedSale,
     pub marks: LocalMarks,
-    pub rung_at: i64,
+    pub rung_at: UnixMillis,
     /// The journal's last seq it stands for.
     pub applied_seq: i64,
     #[serde(default)]
@@ -474,7 +472,7 @@ pub struct SnapshotState {
 pub struct SnapshotAlert {
     pub kind: AlertKind,
     pub state: AlertState,
-    pub claimed_at: Option<i64>,
+    pub claimed_at: Option<UnixMillis>,
     #[serde(default, with = "process_wire")]
     pub by: Option<Process>,
 }
@@ -659,11 +657,11 @@ mod tests {
                 order_ref: Some("o1".into()),
                 title: None,
                 created_at: "2026-11-09T10:00:00Z".parse().unwrap(),
-                updated_at: 1,
+                updated_at: UnixMillis(1),
             }),
             Fact::PosOrderRead(OrderRead {
                 sale: sale.clone(),
-                updated_at: 1,
+                updated_at: UnixMillis(1),
                 receipt: None,
                 why: Some("no order".into()),
                 customer_name: Some("Sam".into()),
@@ -682,7 +680,7 @@ mod tests {
                 received: None,
                 overpaid: false,
                 quote: Some(Quote {
-                    expires_at: 900,
+                    expires_at: crate::UnixSeconds(900),
                     piconero: 150_000_000_000,
                 }),
                 renew: Some("https://shop.example/api/v1/orders/ord".into()),
@@ -690,14 +688,16 @@ mod tests {
             Fact::Mark {
                 sale: sale.clone(),
                 mark: MarkKind::Closed,
-                at: 5,
+                at: UnixMillis(5),
             },
             Fact::SettingChanged {
                 name: "cash.monero".into(),
                 value: Some("false".into()),
-                at: 4,
+                at: UnixMillis(4),
             },
-            Fact::Foreground { until: 10 },
+            Fact::Foreground {
+                until: UnixMillis(10),
+            },
             Fact::Imported {
                 from: "shift".into(),
                 count: 2,
@@ -707,7 +707,7 @@ mod tests {
                 kind: AlertKind::NewSale,
                 notification_id: "n".into(),
                 by: Process::Extension,
-                at: 3,
+                at: UnixMillis(3),
             },
         ]
     }
@@ -735,7 +735,9 @@ mod tests {
     #[test]
     fn unknown_kinds_and_newer_versions_are_skipped() {
         assert_eq!(Fact::decode("SomethingNew", br#"{"v":1}"#), None);
-        let fact = Fact::Foreground { until: 10 };
+        let fact = Fact::Foreground {
+            until: UnixMillis(10),
+        };
         assert_eq!(Fact::decode("Foreground", br#"{"v":2,"until":10}"#), None);
         assert_eq!(
             Fact::decode("Foreground", br#"{"v":1,"until":10,"extra":true}"#),
@@ -767,9 +769,17 @@ mod tests {
 
     #[test]
     fn the_hash_covers_kind_sale_and_body() {
-        let a = Fact::Foreground { until: 10 };
+        let a = Fact::Foreground {
+            until: UnixMillis(10),
+        };
         assert_eq!(a.hash(None), a.hash(None));
         assert_ne!(a.hash(None), a.hash(Some("sq:1")));
-        assert_ne!(a.hash(None), Fact::Foreground { until: 11 }.hash(None));
+        assert_ne!(
+            a.hash(None),
+            Fact::Foreground {
+                until: UnixMillis(11)
+            }
+            .hash(None)
+        );
     }
 }
