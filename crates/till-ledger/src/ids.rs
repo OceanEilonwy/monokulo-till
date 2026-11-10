@@ -122,9 +122,9 @@ impl SaleKey {
         }
     }
 
-    /// The idempotency key of the sale's `attempt`th order, for a POS sale.
-    pub fn order_key(&self, attempt: u8) -> Option<OrderKey> {
-        Some(OrderKey::new(self.payment()?.clone(), attempt))
+    /// The idempotency key of the sale's order, for a POS sale.
+    pub fn order_key(&self) -> Option<OrderKey> {
+        Some(OrderKey::new(self.payment()?.clone()))
     }
 }
 
@@ -160,44 +160,29 @@ impl<'de> Deserialize<'de> for SaleKey {
     }
 }
 
-/// The idempotency key of a sale's Monokulo order: attempt 1 is the key
-/// every till has always used (`Till::idempotency_key`), so orders already
-/// made keep matching; attempt n (New code, §7) appends `#n`.
+/// The idempotency key of a sale's Monokulo order: the key every till has
+/// always used (`Till::idempotency_key`). One point-of-sale payment is one
+/// order: New code renews it (core.md decision 167).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct OrderKey {
     payment: PaymentId,
-    attempt: u8,
 }
 
 impl OrderKey {
-    /// Attempt 0 is taken as 1.
-    pub fn new(payment: PaymentId, attempt: u8) -> OrderKey {
-        OrderKey {
-            payment,
-            attempt: attempt.max(1),
-        }
+    pub fn new(payment: PaymentId) -> OrderKey {
+        OrderKey { payment }
     }
 
     pub fn payment(&self) -> &PaymentId {
         &self.payment
     }
 
-    pub fn attempt(&self) -> u8 {
-        self.attempt
-    }
-
     /// The key sent to create-order: `sq:` and 40 hex digits of the
-    /// payment id's SHA-256 (for Clover's payments too), then `#n` from
-    /// attempt 2 on.
+    /// payment id's SHA-256 (for Clover's payments too).
     pub fn key(&self) -> String {
         let hash = Sha256::digest(self.payment.0.as_bytes());
         let hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
-        let base = format!("sq:{}", &hex[..40]);
-        if self.attempt <= 1 {
-            base
-        } else {
-            format!("{base}#{}", self.attempt)
-        }
+        format!("sq:{}", &hex[..40])
     }
 }
 
@@ -248,17 +233,17 @@ mod tests {
     }
 
     #[test]
-    fn attempt_one_is_todays_key_and_later_attempts_append_their_number() {
+    fn the_key_is_todays_key() {
         for payment in ["pay_monero", "R2D2", "CLOVER-1"] {
-            let one = OrderKey::new(PaymentId::from(payment), 1);
-            assert_eq!(one.key(), todays_key(payment));
-            assert_eq!(OrderKey::new(payment.into(), 0).key(), todays_key(payment));
+            let key = OrderKey::new(PaymentId::from(payment));
+            assert_eq!(key.key(), todays_key(payment));
             assert_eq!(
-                OrderKey::new(payment.into(), 2).key(),
-                format!("{}#2", todays_key(payment))
+                SaleKey::pos(PointOfSale::Square, payment).order_key(),
+                Some(key)
             );
         }
         assert_eq!(todays_key("pay_monero").len(), 43);
+        assert_eq!(SaleKey::order("ord_1").order_key(), None);
     }
 
     #[test]

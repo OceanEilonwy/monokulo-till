@@ -572,7 +572,6 @@ mod tests {
         books.record(Fact::OrderCreated(OrderCreated {
             sale: SaleKey::Order(OrderId::new("ord_2")),
             order_id: OrderId::new("ord_2"),
-            attempt: 1,
             url: None,
             payment_uri: "monero:8Cy?tx_amount=0.03".into(),
             address: "8Cy".into(),
@@ -583,6 +582,7 @@ mod tests {
             expires_at: 0,
             confirmations_required: None,
             device_name: None,
+            renew: None,
         }));
         let side = Arc::new(Side {
             connection,

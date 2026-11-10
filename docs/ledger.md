@@ -1,7 +1,9 @@
 # The ledger: Till's sales as facts
 
 Status: accepted 2026-11-09 (revised after review the same night), for
-implementation on `ipad-redesign` before it merges to main. It replaces the
+implementation on `ipad-redesign` before it merges to main. Revised
+2026-11-10: New code renews the sale's one Monokulo order instead of making
+a second (decisions 167 to 174 in `docs/decisions/core.md`). It replaces the
 till's in-memory sale list, the kept shift JSON and the alert record with one
 encrypted journal of facts and projections derived from it, shared by the app
 and the iOS Notification Service Extension.
@@ -40,8 +42,8 @@ that can't move a sale backwards.
    for, cash mode, how sales show up) never enter the state machine: they feed
    the views and the effects only.
 3. **Writes are facts, merged monotonically.** A stale or duplicate fact can't
-   undo a newer one. Money that arrives is never hidden: a Paid on any attempt
-   always shows.
+   undo a newer one. Money that arrives is never hidden: a Paid on the
+   sale's order always shows, whichever quote it was paid against.
 4. **One sale identity, enforced by types.** Newtypes make it a compile error
    to apply one sale's order to another.
 5. **Local facts are kept apart from shared ones.** What this device did
@@ -66,16 +68,17 @@ pub enum SaleKey {
     /// Never merged with a Pos key (a till without a POS never sees one).
     Order(OrderId),
 }
-pub struct OrderKey { payment: PaymentId, attempt: u8 }  // idempotency key
+pub struct OrderKey { payment: PaymentId }  // idempotency key
 pub struct OrderId(String);
 pub struct DeviceId(String);
 ```
 
-- `OrderKey` attempt 1 is today's key, `"sq:" + 40 hex of SHA-256(payment)`
-  (`Till::idempotency_key`), so orders already made keep matching. Attempt n
-  appends `#n` (New code, §7).
+- `OrderKey` is `"sq:" + 40 hex of SHA-256(payment)` (`Till::idempotency_key`).
+  **One POS payment is one Monokulo order**: New code renews that order (§7),
+  it never makes a second.
 - The link from an order to its sale is the `order_id` that create-order
-  returns, recorded in `orders(order_id → sale_key, attempt)`. Monokulo events
+  returns, recorded in `orders(order_id → sale_key)` (the table's `attempt`
+  column is kept, always 1). Monokulo events
   and reads carry no idempotency key, so nothing else links them.
 - On a till signed in to a POS, a Monokulo event for an order not (yet) in
   `orders` is kept in `pending_events` and applied when its `OrderCreated`
@@ -127,10 +130,14 @@ Shared facts (what the sources said):
   encodes it, or why it couldn't be built)
 - `PosRefundSeen { refund_id, amount_minor, status }` (Square: listed by
   `/v2/refunds`; Clover: not in its API, see §7)
-- `OrderCreated { order_id, attempt, url, payment_uri, address, xmr,
-  amount, currency, reference, expires_at, confirmations_required }`
-- `OrderObserved { order_id, phase, confirmations, is_final, received }`
-  (from an event or a read; the merge orders them, §5)
+- `OrderCreated { order_id, url, payment_uri, address, xmr, amount,
+  currency, reference, expires_at, confirmations_required, renew }`
+  (`renew`: the order's `renew-order` form target, when Monokulo offers it;
+  a body written before 2026-11-10 may carry an `attempt`, ignored, §5)
+- `OrderObserved { order_id, phase, confirmations, is_final, received,
+  quote: { expires_at, piconero }, renew }` (from an event, a read, or a
+  renewal's answer; the merge orders them, §5; `quote` is the price and
+  expiry the order had when Monokulo said it)
 
 Local facts (what this device did):
 - `AlertClaimed { kind, notification_id }`, `AlertPosted { kind }`
@@ -179,10 +186,14 @@ Three independent parts, combined only when a view is built:
 ```rust
 pub struct SharedSale {
     pub pos: PosFacts,                  // latest payment + order read
-    pub attempts: Vec<Attempt>,         // Monokulo orders, attempt 1..n
+    pub order: Option<SaleOrder>,       // the sale's one Monokulo order
     pub refund: Option<PosRefund>,      // the POS's refund, if any
 }
-pub struct Attempt { pub order: OrderFacts, pub payment: PaymentPhase }
+pub struct SaleOrder {
+    pub order: OrderFacts,              // create-order's answer, latest quote
+    pub payment: PaymentPhase,          // from the observations and the quote
+    pub observed: Observations,
+}
 pub enum PaymentPhase {
     Waiting, Seen, Confirming { n: u32 }, Partial { received: Amount },
     Paid { overpaid: bool }, Expired, Cancelled, DoubleSpend,
@@ -204,20 +215,33 @@ pub struct LocalMarks {
   wins) < Partial (larger received wins).
 - `Expired` and `Cancelled` win over Waiting/Seen only with `is_final` false
   kept, so a later Seen/Paid still applies.
+- **An ending belongs to its quote** (decision 170). A renewal (§7) gives the
+  same order a new quote: a new `expires_at` and XMR amount, at the same
+  address. The order's quote is the latest seen by `expires_at` (from
+  `OrderCreated` and every `OrderObserved`), and an `Expired` or `Cancelled`
+  counts only while the quote it was observed under is the order's (one
+  written before quotes were recorded belongs to the first). Payments
+  (Seen, Confirming, Partial, Paid, DoubleSpend) count whatever the quote:
+  Monokulo judges a payment at the old price against the new one, as
+  partial or overpaid, and that shows.
+- **Two orders for one sale** can only come from journals written by the
+  2026-11-10 build's New code (decision 173): the order with the later
+  expiry stands, and the other's observations aren't applied.
 
 **Merging the POS**: a later `updated_at` wins for the payment; the order
-read replaces the previous one; a refund is recorded beside the attempts,
-never instead of them.
+read replaces the previous one; a refund is recorded beside the order,
+never instead of it.
 
 **The view** (`fn view(shared, marks, settings, this_device) -> SaleView`) is
-where everything combines: a Paid on any attempt shows as Paid; a Paid on a
+where everything combines: a Paid shows as Paid; a Paid on a
 refunded or closed sale shows as Paid with a flag ("Paid after it was
-refunded: refund the Monero" / "Paid after closing"); a Paid on two attempts
-shows "Paid twice: refund one". Cash with no attempt is Offered or, with the
+refunded: refund the Monero" / "Paid after closing"). Cash with no order is Offered or, with the
 setting on, a sale waiting for its order; another counter's cash sale, whose
 order its own till makes, is Offered as waiting for its counter, quietly. The device clock's lapse
 (`ClockLapsed`) is a local mark: it can show "No payment yet" here before
-Monokulo says Expired, and never changes the shared phase.
+Monokulo says Expired, and never changes the shared phase; it counts only
+when made after the current quote's expiry, so a renewed code isn't shown as
+run out.
 
 ## 6. Writing and effects
 
@@ -261,10 +285,10 @@ deliver claimed effects; on success: alerts.state='posted' + AlertPosted
 
 | Action | Who may | Writes to | Shared fact back |
 | --- | --- | --- | --- |
-| Make the order (Monero tender) | any till | Monokulo create-order, attempt 1 | `OrderCreated` |
+| Make the order (Monero tender) | any till | Monokulo create-order | `OrderCreated` |
 | Make the order (cash, cash-as-Monero on) | only a till set to the sale's device (or to every device) | create-order | `OrderCreated` |
 | Take it in Monero (cash offered) | any till, by the cashier | create-order | `OrderCreated` |
-| New code (expired, unpaid) | any till, by the cashier | create-order, attempt + 1 | `OrderCreated` |
+| New code (expired, unpaid) | any till, by the cashier, when the order offers `renew-order` | Monokulo renew-order on the same order | `OrderObserved` with the new quote |
 | Refund (Square) | the till the cashier uses | Square refund, idempotent (decision 21) | `PosRefundSeen` |
 | Refund (Clover) | — | done in Clover's app (decision 130) | `Mark RefundPending` → confirmed by the cashier |
 | Close / Reopen / Paid in cash / Keep as cash | this till | local only | `Mark` |
@@ -273,9 +297,16 @@ deliver claimed effects; on success: alerts.state='posted' + AlertPosted
   returns the same order for the same key and refuses a different amount
   (409). Cash orders are limited to the sale's own counter so a till with
   cash-as-Monero on doesn't make codes for a counter that only offers Monero.
-- **New code** reverses android.md 43 by the owner's decision (2026-11-09).
-  A Paid on any attempt ends the others (they show as superseded), and the
-  view warns when two attempts are paid.
+- **New code** reverses android.md 43 by the owner's decision (2026-11-09),
+  and since 2026-11-10 renews the sale's order rather than making a second
+  (decisions 167 to 174): Monokulo re-prices the expired, unpaid order at the
+  current rate with a new expiry, keeping its id and address, and refuses
+  once any payment reached it. The till sends the `expires_at` of the code
+  it shows, so two tills tapping at once get one renewal. Every till learns
+  the new quote from the stream (`sale.waiting` with the new amount and
+  expiry) or a read, like any other change. A Monokulo whose orders carry no
+  `renew-order` form can't renew: New code isn't offered there, and no
+  second order is ever made instead.
 - **Closing stays local.** Monokulo doesn't let an app cancel an order (only
   the store's POS can), so other tills converge when the code expires. A
   shared close needs a Monokulo endpoint (follow-up).
@@ -290,7 +321,7 @@ deliver claimed effects; on success: alerts.state='posted' + AlertPosted
 
 - **Monokulo**: the event stream becomes `OrderObserved` facts. A resync of
   open orders runs on reconnect and every few minutes; confirmations are read
-  every 20 s only while an attempt is Seen/Confirming (as today). Both write
+  every 20 s only while the order is Seen/Confirming (as today). Both write
   only when something changed.
 - **Square**: one incremental payments list from the cursor minus a small
   overlap, plus the refunds list, on each look. Each payment's order is read
@@ -398,8 +429,10 @@ delivers effects.
    whose process died is re-delivered once.
 7. A late Paid on an expired, cancelled, partly paid, closed or refunded sale
    shows as Paid (flagged where needed) and alerts.
-8. New code: attempt 2 has key `…#2`; a Paid on attempt 1 while attempt 2 is
-   live shows Paid and ends attempt 2; two Paids warn.
+8. New code: the renewed order is the same order with a new quote, waiting
+   again, whatever order the facts arrive in; an ending of the old quote
+   never ends the new one; a Paid against either shows Paid; a sale whose
+   order offers no `renew-order` doesn't offer New code.
 9. Settings never change `shared`; a cash sale gets an order only from a till
    set to its device.
 10. Migration imports sales, marks and posted alerts once, with two openers.
@@ -413,7 +446,8 @@ Recorded in `docs/decisions/core.md` as implemented:
 - Facts in an encrypted journal with per-sale projections (this document).
 - Receipts, items and names on every till signed in to the POS (supersedes
   the receipt clause of 113).
-- New code (reverses android.md 43); a Paid on any attempt ends the others.
+- New code (reverses android.md 43), renewing the sale's one order since
+  2026-11-10 (167 to 174).
 - Closes, paid in cash and keep as cash stay local until Monokulo lets apps
   cancel.
 - Cash orders only from a till set to the sale's device.

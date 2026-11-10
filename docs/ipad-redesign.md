@@ -172,6 +172,64 @@ The board names below (A1, P2, O3 …) are the canvas's.
 26. The two accessibility failures in the review: the Ready step tells done
     from not-done by more than colour, and progress tracks and arcs meet 3:1.
 
+### The sale in landscape (2026-11-10)
+
+From the owner's second look, on a 9.7-inch iPad with a home button in
+landscape with the sidebar shown: the order card was pushed to the right
+edge and cut off, Close the sale sat in the window's top corner, the
+progress bar read as a scroll bar, the buttons sat on the bottom edge, and
+the sidebar had an empty band and too many greys. The DesignPad board is
+the target; these settle how it's built.
+
+27. **On iPad the sale's title is a header row under the system's bar**
+    (the board's `nav`): the name at 28 pt and its line, one line each,
+    and Close the sale at the end as the system's bordered capsule in the
+    danger tint (`.bordered`, `.capsule`, `.large`). The bar keeps only
+    what the system puts there (the sidebar button), with its title
+    removed but still set, for the back button and VoiceOver. This amends
+    decision 23 for the live sale on regular width: the header is in the
+    safe area, under the bar, clear of the window controls and the status
+    bar. Compact width keeps the title and an ✕ Close in the bar.
+28. **The code and the order are one centred group.** Side by side, 40 pt
+    apart, where both fit at their ideal widths (the order 200 to 280 pt,
+    ideally the board's 240, so the pair fits beside a 340 pt sidebar on a
+    1024 pt screen), else the order under the code (`ViewThatFits`). The
+    code is the board's 300 pt (240 on a phone) and shrinks to the column
+    it's given, and on iPad to a short window's height (so the amount, the
+    code and the progress show together in a short Stage Manager window),
+    never under 160 pt, so nothing is cut at any width. The
+    group is centred in the space between the header and the buttons, and
+    scrolls only when it can't fit. The page is laid out inside the safe
+    area rather than by measured content margins, so a floating sidebar or
+    a window's insets can't push it off the edge.
+29. **Progress is the system's linear `ProgressView` with its own labels**:
+    over the bar the engine's words at the start ("Waiting for payment",
+    semibold) and the count at the end ("0 of 3", or while confirming the
+    engine's "4 of 10 confirmations"), under it the scan hint and time
+    left. Tint #E85D00, green once paid. The board draws the words under
+    the bar; the system control's own order (label, bar, value) is kept,
+    as it reads as progress at a glance even at 0 of 3. The track is the
+    system's: the words carry the state, so the 3:1 rule of decision 26
+    no longer applies to this bar.
+30. **Customer view and Share sit side by side at their own widths**
+    (at least 220 and 140 pt, the board's), centred, 12 pt above the sale's
+    content and 24 pt above the bottom of the safe area (16 pt on compact
+    width), stacking to a 360 pt column where the row doesn't fit.
+31. **The sidebar is the board's: white inset-grouped cards on the paper.**
+    Sections sit close (`.listSectionSpacing(.compact)`, and the filter's row
+    has no separator lines), so the filter is right under This shift; every card row is the card white (the summary
+    included, not the system's grouped grey); the open sale's row is the
+    board's pale accent wash (`Palette.selection`, #FBE6D6, dark #3A2414),
+    not the chip grey; and the column's own background is the paper
+    (`containerBackground(_:for: .navigation)`), not the system's sidebar
+    material.
+
+`TillTests/LayoutSnapshotTests.swift` draws the sidebar and the live sale
+in the 9.7-inch iPad's, iPad mini's and 13-inch iPad Pro's windows,
+landscape and portrait, half a 13-inch screen, a Stage Manager window and
+a compact third. CI keeps the pictures as the `till-ios-layout-snapshots`
+artifact.
+
 ## Android
 
 The engine changes (counters, cash, names, onboarding steps and copy) are

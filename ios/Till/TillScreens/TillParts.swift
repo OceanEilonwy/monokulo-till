@@ -51,63 +51,58 @@ enum PaymentSteps {
     }
 }
 
-/// A thin progress bar in the payment's colours: the progress orange on a
-/// track that meets 3:1, green once full (paid). It is the system's
-/// `ProgressView`, only drawn in Till's colours, so VoiceOver reads it as
-/// one.
-struct PaymentBarStyle: ProgressViewStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        let fraction = min(1, max(0, configuration.fractionCompleted ?? 0))
-        Capsule()
-            .fill(Palette.track)
-            .frame(height: 4)
-            .overlay(alignment: .leading) {
-                GeometryReader { box in
-                    Capsule()
-                        .fill(fraction >= 1 ? Palette.paid : Palette.progress)
-                        .frame(width: box.size.width * fraction)
-                }
-            }
-            .animation(.snappy(duration: 0.35), value: fraction)
-    }
-}
-
-/// A live sale's progress (the boards' bar and its label): the bar, the
-/// engine's status ("Seen on the network · 1 of 3") and its line under it
-/// ("Scan with any Monero wallet · 14:52 left"). The bar is at the
-/// engine's `fraction` where it gives one (`SaleView.progress`), else at
-/// the ring's step.
+/// A live sale's progress: the system's linear `ProgressView`, tinted
+/// the progress orange (green once full, paid), with its label over the
+/// bar, the engine's words ("Seen on the network") at the start and the
+/// count ("1 of 3") at the end, and the line under it ("Scan with any
+/// Monero wallet · 14:52 left"). The bar is at the engine's `fraction`
+/// where it gives one (`SaleView.progress`), else at the ring's step.
+/// Each line stays one line: shrunk a little, then cut short
+/// (docs/ipad-redesign.md, decisions 17, 22 and 29).
 struct PaymentProgress: View {
     let step: Int
     let status: String
+    var count: String? = nil
     var hint: String? = nil
     var fraction: Double? = nil
     /// What a screen reader says for the bar.
     var said: String? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ProgressView(value: fraction ?? PaymentSteps.fraction(step: step))
-                .progressViewStyle(PaymentBarStyle())
-                .accessibilityLabel("Payment")
-                .accessibilityValue(said ?? status)
-            VStack(alignment: .leading, spacing: 2) {
-                // One line, never wrapped: shrunk a little, then cut short.
+        let value = min(1, max(0, fraction ?? PaymentSteps.fraction(step: step)))
+        ProgressView(value: value) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(status)
                     .font(.subheadline.weight(.semibold))
-                    .monospacedDigit()
+                    .foregroundStyle(Palette.ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                if let hint, !hint.isEmpty {
-                    Text(hint)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if let count, !count.isEmpty {
+                    Text(count)
                         .font(.subheadline)
                         .foregroundStyle(Palette.secondary)
                         .monospacedDigit()
                         .lineLimit(1)
+                        .fixedSize()
                 }
             }
-            .accessibilityElement(children: .combine)
+        } currentValueLabel: {
+            if let hint, !hint.isEmpty {
+                Text(hint)
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.secondary)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
         }
+        .progressViewStyle(.linear)
+        .tint(value >= 1 ? Palette.paid : Palette.progress)
+        .animation(.snappy(duration: 0.35), value: value)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Payment")
+        .accessibilityValue(said ?? [status, count ?? ""].filter { !$0.isEmpty }.joined(separator: ", "))
     }
 }
 
@@ -193,6 +188,17 @@ enum EngineProgress {
     static func fraction(value: UInt8, total: UInt8) -> Double {
         guard total > 0 else { return 0 }
         return min(1, Double(value) / Double(total))
+    }
+
+    /// What stands at the end of the bar's label: the engine's line after
+    /// its words ("4 of 10 confirmations" from "Confirming · 4 of 10
+    /// confirmations"), else its count ("1 of 3").
+    static func count(label: String, count: String, line: String) -> String {
+        let lead = label + " · "
+        if !label.isEmpty, line.hasPrefix(lead), line.count > lead.count {
+            return String(line.dropFirst(lead.count))
+        }
+        return count
     }
 }
 

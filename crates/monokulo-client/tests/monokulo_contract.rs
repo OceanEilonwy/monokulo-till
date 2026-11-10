@@ -505,6 +505,46 @@ async fn an_order_says_how_many_confirmations_its_payment_has_of_the_stores_thre
     }
 }
 
+/// An order carries its `renew-order` form, which renews it (New code,
+/// core.md decisions 167 to 171): what the client sends is what Monokulo
+/// takes, the answer is the same order, and a refusal is heard by name.
+#[tokio::test]
+async fn an_order_is_renewed_with_its_renew_order_form_as_monokulo_records_it() {
+    let Some(stand) = Contract::start().await else {
+        return;
+    };
+    let made = stand
+        .api
+        .create_order(&stand.connection(), "24.50", "USD", Some("#1042"), "sq:abc")
+        .await
+        .unwrap();
+    let renew = made
+        .renew
+        .clone()
+        .expect("Monokulo offers the app's key the order's renew-order form");
+    assert!(
+        stand.shared.template(&path_of(&renew)).is_some(),
+        "its target is a route: {renew}"
+    );
+    let renewed = stand
+        .api
+        .renew_order(&stand.connection(), &renew, made.expires_at)
+        .await
+        .unwrap();
+    assert_eq!(renewed.order_id, made.order_id, "the same order");
+    assert_eq!(renewed.address, made.address, "at the same address");
+
+    stand.answer_with(&format!("POST {}", path_of(&renew)), "order-not-renewable");
+    let e = stand
+        .api
+        .renew_order(&stand.connection(), &renew, made.expires_at)
+        .await
+        .unwrap_err();
+    assert_eq!(e.status(), 409);
+    assert_eq!(e.problem(), Some("order-not-renewable"));
+    assert!(!e.to_string().trim().is_empty());
+}
+
 #[tokio::test]
 async fn making_an_order_hears_its_recorded_problems_by_name_with_their_detail() {
     let Some(stand) = Contract::start().await else {
@@ -537,11 +577,12 @@ enum Route {
     Disconnect,
     CreateOrder,
     Order,
+    RenewOrder,
     Events,
 }
 
 impl Route {
-    const ALL: [(Route, &'static str, &'static str); 8] = [
+    const ALL: [(Route, &'static str, &'static str); 9] = [
         (Route::Connect, "POST", "/apps/connect"),
         (Route::Entry, "GET", "/api/v1"),
         (Route::Store, "GET", "/api/v1/store"),
@@ -549,6 +590,7 @@ impl Route {
         (Route::Disconnect, "DELETE", "/api/v1/app"),
         (Route::CreateOrder, "POST", "/api/v1/orders"),
         (Route::Order, "GET", "/api/v1/orders/ord_1"),
+        (Route::RenewOrder, "POST", "/api/v1/orders/ord_1"),
         (Route::Events, "GET", "/api/v1/events"),
     ];
 
@@ -569,6 +611,10 @@ impl Route {
                 .map(drop),
             Route::Order => api
                 .order(&connection, &stand.url("/api/v1/orders/ord_1"))
+                .await
+                .map(drop),
+            Route::RenewOrder => api
+                .renew_order(&connection, &stand.url("/api/v1/orders/ord_1"), 99)
                 .await
                 .map(drop),
             Route::Events => match api.events(&connection).next().await {

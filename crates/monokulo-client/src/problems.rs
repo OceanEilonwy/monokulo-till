@@ -66,6 +66,15 @@ fn said(problem: &str, e: &MonokuloError) -> Option<String> {
             "Monokulo can't price this sale ({e}), so it has no payment code. Take another payment for it and refund it in the POS."
         ),
         "idempotency-conflict" => "Monokulo already has a different order for this POS sale, so it made no payment code. Take another payment for it and refund it in the POS.".into(),
+        // Renewing an order (New code): Monokulo says why it won't.
+        "order-not-renewable" => {
+            let detail = e.to_string();
+            if detail.trim().is_empty() || detail.starts_with("HTTP ") {
+                "Monokulo can't make a new code for this sale: a payment may have reached it already.".into()
+            } else {
+                detail
+            }
+        }
         // Reading an order, and the event stream.
         "not-found" => "The store has no such order any more.".into(),
         "too-many-streams" => "Too many devices are following this store's sales at once. Close Till on one you aren't using, or disconnect it from the store's Apps card.".into(),

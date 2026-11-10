@@ -129,6 +129,30 @@ struct TillScreenTests {
         #expect(EngineProgress.fraction(value: 1, total: 0) == 0)
     }
 
+    @Test func theBarsCountIsTheEnginesLineAfterItsWords() {
+        #expect(EngineProgress.count(label: "Seen on the network", count: "1 of 3", line: "Seen on the network · 1 of 3") == "1 of 3")
+        // Confirming, the line counts the confirmations.
+        #expect(EngineProgress.count(label: "Confirming", count: "2 of 3", line: "Confirming · 4 of 10 confirmations") == "4 of 10 confirmations")
+        // A line that isn't the words and more: the thirds.
+        #expect(EngineProgress.count(label: "Paid", count: "3 of 3", line: "") == "3 of 3")
+        #expect(EngineProgress.count(label: "", count: "0 of 3", line: "Waiting · 0 of 3") == "0 of 3")
+    }
+
+    @Test func theCodeShrinksToTheWindowNotPastIt() {
+        // The board's 300 pt where the column has room, 240 on a phone.
+        #expect(SaleLayout.codeSide(width: 700, regular: true) == 300)
+        #expect(SaleLayout.codeSide(width: 390, regular: false) == 240)
+        // A narrow regular column beside the sidebar: the card and the
+        // margins fit inside it.
+        let narrow: CGFloat = SaleLayout.codeSide(width: 340, regular: true)
+        #expect(narrow == 256, "340 less two 28 pt margins and the card's 28 pt")
+        // A short window: the whole column fits its height.
+        let short: CGFloat = SaleLayout.codeSide(width: 700, height: 440, regular: true)
+        #expect(short == 200)
+        // Never smaller than can be scanned.
+        #expect(SaleLayout.codeSide(width: 100, regular: true) == 160)
+    }
+
     @Test func alertsOffIsTheEnginesWarning() {
         #expect(AlertsStatusRow.off(Fact(label: "New sales and payments", value: "Off", tone: .warn, mono: false)))
         #expect(!AlertsStatusRow.off(Fact(label: "New sales and payments", value: "On", tone: .plain, mono: false)))
