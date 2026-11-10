@@ -11,6 +11,14 @@ struct QRMatrix: Equatable, Sendable {
 
     subscript(x: Int, y: Int) -> Bool { modules[y * size + x] }
 
+    /// One Core Image context for every code, on the CPU: a context is
+    /// costly to make (Apple says make one and reuse it), and a code is a
+    /// few hundred pixels, which the GPU (not allowed in the background,
+    /// where Picture in Picture draws) would only slow down. Creating one
+    /// per code, as each SwiftUI body that shows one did once a second
+    /// for its countdown, grew the app's memory the longer it ran.
+    nonisolated(unsafe) static let context = CIContext(options: [.useSoftwareRenderer: true, .cacheIntermediates: false])
+
     /// [text]'s code with error correction M, as Android's `ui/Qr.kt` makes
     /// it, from Core Image's `CIQRCodeGenerator` (docs/ios-plan.md §5).
     /// Nil only if Core Image fails.
@@ -20,7 +28,7 @@ struct QRMatrix: Equatable, Sendable {
         filter.correctionLevel = "M"
         guard let output = filter.outputImage else { return nil }
         let extent = output.extent.integral
-        guard let image = CIContext().createCGImage(output, from: extent) else { return nil }
+        guard let image = QRMatrix.context.createCGImage(output, from: extent) else { return nil }
 
         // One pixel a module: read it as grey, then crop to the dark modules,
         // whose bounds are the symbol's (the finder patterns are its corners),
@@ -101,7 +109,7 @@ struct QRCodeView: View {
         self.size = size
         self.padding = padding
         self.cornerRadius = cornerRadius
-        self.image = QRMatrix(text: text)?.image()
+        self.image = QRImages.image(text)
     }
 
     var body: some View {
@@ -121,5 +129,34 @@ struct QRCodeView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(label)
         .accessibilityAddTraits(.isImage)
+    }
+}
+
+/// The codes' images by their text, made once each: SwiftUI makes a
+/// ``QRCodeView`` again with every body it's in, which for a sale's page or
+/// the floating window is once a second while the countdown runs. The
+/// system empties it under memory pressure.
+enum QRImages {
+    private final class Box: @unchecked Sendable {
+        let image: CGImage
+        init(_ image: CGImage) { self.image = image }
+    }
+
+    nonisolated(unsafe) private static let cache: NSCache<NSString, Box> = {
+        let cache = NSCache<NSString, Box>()
+        cache.countLimit = 16
+        return cache
+    }()
+
+    static func image(_ text: String) -> CGImage? {
+        if let kept = cache.object(forKey: text as NSString) { return kept.image }
+        guard let image = QRMatrix(text: text)?.image() else { return nil }
+        cache.setObject(Box(image), forKey: text as NSString)
+        return image
+    }
+
+    /// Lets every kept image go (a memory warning).
+    static func empty() {
+        cache.removeAllObjects()
     }
 }
