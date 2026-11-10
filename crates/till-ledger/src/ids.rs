@@ -7,42 +7,7 @@ use monokulo_client::PointOfSale;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{Digest, Sha256};
 
-macro_rules! text_id {
-    ($(#[$doc:meta])* $name:ident) => {
-        $(#[$doc])*
-        #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-        #[serde(transparent)]
-        pub struct $name(pub String);
-
-        impl $name {
-            pub fn new(id: impl Into<String>) -> $name {
-                $name(id.into())
-            }
-
-            pub fn as_str(&self) -> &str {
-                &self.0
-            }
-        }
-
-        impl fmt::Display for $name {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str(&self.0)
-            }
-        }
-
-        impl From<&str> for $name {
-            fn from(id: &str) -> $name {
-                $name(id.to_owned())
-            }
-        }
-
-        impl From<String> for $name {
-            fn from(id: String) -> $name {
-                $name(id)
-            }
-        }
-    };
-}
+use till_types::text_id;
 
 text_id!(
     /// The point of sale's id for a payment.
