@@ -11,6 +11,7 @@
 use till_sales::TillSale;
 
 use monokulo_client::SalePhase;
+use monokulo_client::payment_uri::PaymentUri;
 
 use crate::view::Device;
 
@@ -84,33 +85,6 @@ pub struct LiveActivityInput {
     pub receipt: bool,
 }
 
-/// `uri` without its receipt: the payment URI as the order gave it.
-pub fn plain_uri(uri: &str) -> String {
-    let (head, fragment) = match uri.split_once('#') {
-        Some((head, fragment)) => (head, Some(fragment)),
-        None => (uri, None),
-    };
-    let mut plain = match head.split_once('?') {
-        Some((path, query)) => {
-            let kept: Vec<&str> = query
-                .split('&')
-                .filter(|pair| !pair.starts_with("orf=") && *pair != "orf")
-                .collect();
-            if kept.is_empty() {
-                path.to_owned()
-            } else {
-                format!("{path}?{}", kept.join("&"))
-            }
-        }
-        None => head.to_owned(),
-    };
-    if let Some(fragment) = fragment {
-        plain.push('#');
-        plain.push_str(fragment);
-    }
-    plain
-}
-
 /// "#1042" from the POS's receipt number.
 fn label(sale: &TillSale) -> Option<String> {
     let reference = sale.reference.as_deref()?.trim();
@@ -173,7 +147,9 @@ pub fn live_activity(input: &LiveActivityInput, device: Device) -> Option<LiveAc
                 if input.receipt {
                     sale.code.uri.clone()
                 } else {
-                    plain_uri(&sale.code.uri)
+                    PaymentUri::from(sale.code.uri.as_str())
+                        .plain()
+                        .into_string()
                 }
             }),
         name: shown
@@ -367,6 +343,10 @@ mod tests {
         .unwrap();
         assert_eq!(state.phase, ActivityPhase::Idle);
         assert_eq!(state.waiting_count, 0);
+    }
+
+    fn plain_uri(uri: &str) -> String {
+        PaymentUri::from(uri).plain().into_string()
     }
 
     #[test]

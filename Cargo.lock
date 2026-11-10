@@ -1420,6 +1420,7 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "futures-util",
+ "orf-codec",
  "reqwest",
  "serde",
  "serde_json",

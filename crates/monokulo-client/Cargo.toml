@@ -8,6 +8,8 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+# A payment URI's receipt parameter is orf-codec's to read and take out.
+orf-codec.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

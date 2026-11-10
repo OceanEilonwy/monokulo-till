@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 
 use monokulo_client::SalePhase;
+use monokulo_client::payment_uri::PaymentUri;
 use serde::Deserialize;
 use till_pos::FoundSale;
 
@@ -20,7 +21,7 @@ pub(crate) struct ImportedSale {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct KeptCode {
-    uri: String,
+    uri: PaymentUri,
 }
 
 #[derive(Deserialize)]
@@ -85,16 +86,6 @@ fn receipt_of(mut value: serde_json::Value) -> Option<orf_codec::Receipt> {
             .or_insert_with(|| serde_json::Value::from("sale"));
     }
     serde_json::from_value(value).ok()
-}
-
-/// The plain payment URI in a code that may carry the receipt.
-fn plain_uri(uri: &str) -> String {
-    for marker in ["&orf=", "?orf="] {
-        if let Some(at) = uri.find(marker) {
-            return uri[..at].to_owned();
-        }
-    }
-    uri.to_owned()
 }
 
 fn ms(seconds: Option<i64>) -> Option<i64> {
@@ -186,7 +177,7 @@ pub(crate) fn facts_of_shift(json: &str) -> Result<Vec<ImportedSale>, LedgerErro
                     sale: key.clone(),
                     order_id: order_id.clone(),
                     url: sale.url.clone(),
-                    payment_uri: plain_uri(&sale.code.uri),
+                    payment_uri: sale.code.uri.plain().into_string(),
                     address: sale.address.clone(),
                     xmr: sale.xmr.clone(),
                     amount: sale.amount.clone(),
@@ -255,4 +246,30 @@ pub(crate) fn facts_of_shift(json: &str) -> Result<Vec<ImportedSale>, LedgerErro
         out.push(ImportedSale { facts });
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The kept code's receipt is taken out and nothing else: a parameter
+    /// after `orf` (`tx_amount`) stays in the order's payment URI.
+    #[test]
+    fn the_receipt_is_taken_out_of_the_kept_code_and_nothing_else() {
+        let shift = r#"[
+ {"orderId":"ord_1","amount":"13.88","currency":"USD",
+  "code":{"uri":"monero:8Bx?orf=abc&tx_amount=0.08","hasReceipt":true},
+  "phase":"Waiting","expiresAt":1794244000,"xmr":"0.08","address":"8Bx","createdAt":1794243600}
+]"#;
+        let sales = facts_of_shift(shift).unwrap();
+        let uri = sales[0]
+            .facts
+            .iter()
+            .find_map(|(fact, _)| match fact {
+                Fact::OrderCreated(created) => Some(created.payment_uri.clone()),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(uri, "monero:8Bx?tx_amount=0.08");
+    }
 }
