@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>iPad split view: sales beside the live sale</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#B34700}a:hover{color:#1A1917}
+</style>
+</helmet>
+<div style="width: 1180px; height: 820px; position: relative; overflow: hidden; background: #F4F1EA; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; color: #1A1917; display: flex;">
+  <aside aria-label="This shift" style="width: 340px; flex: 0 0 auto; box-sizing: border-box; border-right: 1px solid #E4DED2; display: flex; flex-direction: column; padding: 64px 16px 20px; gap: 14px;">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 0 8px;">
+      <div style="flex-grow: 1; display: flex; flex-direction: column;">
+        <span style="font-size: 22px; font-weight: 700;">Front Counter</span>
+        <span style="font-size: 13px; color: #5A564C; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Watching Square</span>
+      </div>
+      <button type="button" aria-label="Settings" style="width: 44px; height: 44px; border-radius: 22px; border: 0; background: rgba(255, 255, 255, 0.8); display: flex; align-items: center; justify-content: center;"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2" fill="none" stroke="#1A1917" stroke-width="2"></circle><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1" stroke="#1A1917" stroke-width="2" stroke-linecap="round"></path></svg></button>
+    </div>
+    <div style="background:#FFFFFF;border-radius:14px;padding:14px 16px 16px;display:flex;flex-direction:column;gap:10px;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span style="flex-grow:1;display:flex;flex-direction:column;min-width:0;">
+          <span style="font-size:20px;font-weight:700;">This shift</span>
+          <span style="font-size:13px;color:#5A564C;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Since 9:02 · 9 paid</span>
+        </span>
+        <button type="button" style="height:36px;padding:0 14px 0 10px;border-radius:18px;border:0;background:#FBE6D6;color:#8A3800;font:inherit;font-size:15px;font-weight:600;display:flex;align-items:center;gap:6px;white-space:nowrap;"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 1.5v11M1.5 7h11" stroke="#8A3800" stroke-width="2" stroke-linecap="round"></path></svg>New shift</button>
+      </div>
+      <span style="font-family:Manrope,sans-serif;font-size:34px;font-weight:800;font-variant-numeric:tabular-nums;line-height:38px;">$142.30</span>
+    </div>
+    <div role="tablist" aria-label="Show" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));background:#E4DED2;border-radius:10px;padding:2px;">
+      <button type="button" role="tab" aria-selected="true" style="height:36px;border:0;border-radius:8px;background:#FFFFFF;box-shadow:0 1px 3px rgba(26,25,23,0.14);font:inherit;font-size:15px;font-weight:600;color:#1A1917;">All</button>
+      <button type="button" role="tab" aria-selected="false" style="height:36px;border:0;border-radius:8px;background:none;font:inherit;font-size:15px;color:#1A1917;white-space:nowrap;">Needs action</button>
+      <button type="button" role="tab" aria-selected="false" style="height:36px;border:0;border-radius:8px;background:none;font:inherit;font-size:15px;color:#1A1917;">Paid</button>
+    </div>
+    <span style="font-size: 13px; font-weight: 600; color: #5A564C; padding: 0 8px;">WAITING FOR PAYMENT</span>
+    <div style="background: #FFFFFF; border-radius: 12px; overflow: hidden;">
+      <div style="display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 0 14px; background: #FBE6D6; border-bottom: 1px solid #ECE6DA;">
+        <dc-import name="StatusGlyph" size="24" state="seen" hint-size="24px,24px"></dc-import>
+        <span style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0;"><span style="font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Sam</span><span style="font-size: 13px; color: #5A564C; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Seen · 1 of 3 · #m2Qe</span></span>
+        <span style="font-size: 17px; font-variant-numeric: tabular-nums;">$13.88</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 0 14px;">
+        <dc-import name="StatusGlyph" size="24" state="waiting" hint-size="24px,24px"></dc-import>
+        <span style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0;"><span style="font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Alex</span><span style="font-size: 13px; color: #5A564C; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Waiting · 14:40 left · #k9Pa</span></span>
+        <span style="font-size: 17px; font-variant-numeric: tabular-nums;">$4.20</span>
+      </div>
+    </div>
+    <span style="font-size: 13px; font-weight: 600; color: #5A564C; padding: 0 8px;">EARLIER</span>
+    <div style="background: #FFFFFF; border-radius: 12px; overflow: hidden;">
+      <div style="display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 0 14px; border-bottom: 1px solid #ECE6DA;">
+        <dc-import name="StatusGlyph" size="24" state="paid" hint-size="24px,24px"></dc-import>
+        <span style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0;"><span style="font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Priya</span><span style="font-size: 13px; color: #1A7F37; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Paid · 4 min ago · #j1Qx</span></span>
+        <span style="font-size: 17px; font-variant-numeric: tabular-nums;">$8.40</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 0 14px;">
+        <dc-import name="StatusGlyph" size="24" state="paid" hint-size="24px,24px"></dc-import>
+        <span style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0;"><span style="font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Sale #h7Rt</span><span style="font-size: 13px; color: #1A7F37; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Paid · 18 min ago · no name given</span></span>
+        <span style="font-size: 17px; font-variant-numeric: tabular-nums;">$15.75</span>
+      </div>
+    </div>
+  </aside>
+
+  <main style="flex-grow: 1; display: flex; flex-direction: column; box-sizing: border-box; padding: 20px 28px 24px;">
+    <nav style="display: flex; align-items: center; gap: 12px; min-height: 44px;">
+      <div style="flex-grow: 1; display: flex; flex-direction: column;">
+        <span style="font-size: 28px; font-weight: 700;">Sam</span>
+        <span style="font-size: 13px; color: #5A564C; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Sale #m2Qe · 11:02 left · Front iPad</span>
+      </div>
+      <div style="display:flex;gap:8px;"><button type="button" style="height:44px;padding:0 16px;border-radius:22px;border:0;background:#FF6600;color:#111111;font:inherit;font-size:15px;font-weight:600;display:flex;align-items:center;gap:6px;white-space:nowrap;"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 13.7-5.6M20 12a8 8 0 0 1-13.7 5.6" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round"></path><path d="M18 3v4h-4M6 21v-4h4" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>Customer view</button><button type="button" style="height:44px;padding:0 16px;border-radius:22px;border:1.5px solid #8C8577;background:rgba(255,255,255,0.8);color:#1A1917;font:inherit;font-size:15px;font-weight:600;display:flex;align-items:center;gap:6px;white-space:nowrap;"><svg width="14" height="16" viewBox="0 0 16 18" aria-hidden="true"><path d="M8 11V1M4 5l4-4 4 4M2 8v8h12V8" fill="none" stroke="#1A1917" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>Share</button><button type="button" style="height:44px;padding:0 18px;border-radius:22px;border:0;background:#F8DEDE;color:#B00020;font:inherit;font-size:15px;font-weight:600;">Close the sale</button></div>
+    </nav>
+    <div style="flex-grow: 1; display: flex; gap: 40px; align-items: center; justify-content: center;">
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 10px;">
+        <span style="font-family: Manrope, sans-serif; font-size: 44px; font-weight: 800; font-variant-numeric: tabular-nums;">$13.88</span>
+        <span style="font-size: 15px; color: #5A564C;">0.05552 XMR</span>
+        <div style="padding: 14px; background: #FFFFFF; border-radius: 20px;"><dc-import name="QR" size="300" hint-size="300px,300px"></dc-import></div>
+        <div style="width: 328px; display: flex; flex-direction: column; gap: 8px; margin-top: 6px;">
+          <div role="progressbar" aria-label="Payment" aria-valuemin="0" aria-valuemax="3" aria-valuenow="1" aria-valuetext="Seen, 1 of 3" style="height: 4px; border-radius: 2px; background: #DDD6C9; overflow: hidden;"><div style="width: 33.3%; height: 100%; border-radius: 2px; background: #E85D00;"></div></div>
+          <span style="display: flex; justify-content: space-between; font-size: 15px;"><span style="font-weight: 600;">Seen on the network</span><span style="color: #5A564C;">1 of 3</span></span>
+        </div>
+      </div>
+      <div style="width: 240px; display: flex; flex-direction: column; gap: 10px;">
+        <span style="font-size: 13px; font-weight: 600; color: #5A564C;">ORDER</span>
+        <div style="background: #FFFFFF; border-radius: 12px; overflow: hidden;">
+          <div style="display: flex; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid #ECE6DA; font-size: 15px;"><span>2 × Latte</span><span>$9.00</span></div>
+          <div style="display: flex; justify-content: space-between; padding: 12px 14px; font-size: 15px;"><span>1 × Scone</span><span>$4.88</span></div>
+        </div>
+      </div>
+    </div>
+  </main>
+  <div style="position: absolute; left: 0; top: 0;"><dc-import name="WindowControls" hint-size="120px,56px"></dc-import></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1180,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

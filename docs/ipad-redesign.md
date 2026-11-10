@@ -248,3 +248,30 @@ drawing, Android gets the plain version (a row line, a settings row).
    the empty till, the sale and Paid, Settings rows, Share, camera rotation.
 3. The iOS features on the new core: onboarding O1–O4 and C4, the counters
    menu, cash, alert first with Back to Square, then Picture in Picture.
+
+
+## Round 3 (2026-11-10)
+
+The owner's second iPad test led to the boards on the canvas's "Round 3"
+page ([designs/ipad-redesign/](designs/ipad-redesign/); the first page's
+boards are history). What was built, and where it is in the core's
+decisions:
+
+- **Cash ignored when "Treat cash as Monero" is off** (decision 167), the
+  setting a single toggle.
+- **Overpaid** (decision 168): a state, an alert and "Mark as refunded".
+- **New shift** and the shift's header (decision 169).
+- **One vertical sale screen**, Return to Square in the toolbar, no code from
+  Seen, a folded order, the capped and tap-to-enlarge code, the smaller
+  floating window (decision 170).
+- **Settings** keep the engine's sections (Monokulo's store first, then the
+  point of sale, counters, cash, alerts, how sales show up, the Dynamic
+  Island on iPhone only, Wake-ups, Disconnect): the designs' "Monokulo
+  account" is the store connection made at first start, "Store" in Settings
+  stays the Monokulo store and Square's location stays "Location".
+- **Not done yet:** Android's screens (it takes the engine's changes, but its
+  sale screen, shift header and floating bubble are as before), the Square
+  logo is a stand-in drawn from the Simple Icons set (replace it with
+  Square's official asset), Overpaid and Expired pages keep the small status
+  glyph as their hero (the designs show the Till logo), and none of the Swift
+  was compiled when it was written: CI is the check.

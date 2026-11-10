@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sale found: alert over Square</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#b34700}a:hover{color:#1a1917}
+</style>
+</helmet>
+<div style="width: 1180px; height: 820px; position: relative; overflow: hidden; background: #ececec; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; color: #1a1917;">
+
+  <div style="position: absolute; inset: 0; display: flex; gap: 24px; padding: 28px 24px 24px; box-sizing: border-box;">
+    <div style="flex: 1 1 0; display: flex; flex-direction: column; gap: 18px;">
+      <span style="font-size: 15px; font-weight: 700; color: #555555;">[Square POS, full screen]</span>
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px;">
+        <div style="height: 132px; border-radius: 14px; background: #dcdcdc;"></div>
+        <div style="height: 132px; border-radius: 14px; background: #dcdcdc;"></div>
+        <div style="height: 132px; border-radius: 14px; background: #dcdcdc;"></div>
+        <div style="height: 132px; border-radius: 14px; background: #dcdcdc;"></div>
+        <div style="height: 132px; border-radius: 14px; background: #dcdcdc;"></div>
+        <div style="height: 132px; border-radius: 14px; background: #dcdcdc;"></div>
+        <div style="height: 132px; border-radius: 14px; background: #dcdcdc;"></div>
+        <div style="height: 132px; border-radius: 14px; background: #dcdcdc;"></div>
+      </div>
+    </div>
+    <div style="flex: 0 0 340px; display: flex; flex-direction: column; gap: 12px; padding-top: 40px;">
+      <div style="display: flex; justify-content: space-between; padding: 16px; border-radius: 14px; background: #dcdcdc; font-size: 16px; color: #3a3a3a;"><span>Flat white ×2</span><span>$9.00</span></div>
+      <div style="display: flex; justify-content: space-between; padding: 16px; border-radius: 14px; background: #dcdcdc; font-size: 16px; color: #3a3a3a;"><span>Banana bread</span><span>$4.50</span></div>
+      <div style="display: flex; justify-content: space-between; padding: 16px; border-radius: 14px; background: #dcdcdc; font-size: 16px; color: #3a3a3a;"><span>Beans 250g</span><span>$11.00</span></div>
+      <div style="padding: 16px; border-radius: 14px; background: #b9b9b9; font-size: 16px; font-weight: 700; color: #1a1917;">Paid with Other: Monero</div>
+      <div style="flex-grow: 1;"></div>
+      <div style="height: 64px; border-radius: 14px; background: #c9c9c9; display: flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 700; color: #3a3a3a;">Total $24.50</div>
+    </div>
+  </div>
+
+  <div style="position:absolute;top:16px;left:340px;width:500px;box-sizing:border-box;padding:16px 18px;border-radius:24px;background:#ffffff;border:1px solid #dcd5c7;box-shadow:0 14px 40px rgba(26,25,23,0.22);display:flex;gap:14px;align-items:center;color:#1a1917;">
+    <span style="width:44px;height:44px;border-radius:11px;overflow:hidden;display:flex;align-items:center;justify-content:center;flex:0 0 auto;"><dc-import name="TillWidget" size="40" state="paid" hint-size="40px,40px"></dc-import></span>
+    <span style="display:flex;flex-direction:column;gap:3px;flex-grow:1;min-width:0;">
+      <span style="display:flex;justify-content:space-between;font-size:12px;font-weight:700;color:#5a564c;"><span>TILL · TIME SENSITIVE</span><span>now</span></span>
+      <span style="font-size:17px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Overpaid · Priya · $8.40</span>
+      <span style="font-size:15px;font-weight:500;color:#3a3a3a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Give back 0.03360 XMR. Tap to see how.</span>
+    </span>
+  </div>
+  <div style="position:absolute;left:340px;top:150px;width:500px;display:flex;justify-content:center;"><span style="padding:8px 14px;border-radius:16px;background:#1a1917;color:#ffffff;font-size:13px;font-weight:600;">Overpaid alerts like a new sale: time sensitive, once per sale. Tapping opens the sale (Q2).</span></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1180,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

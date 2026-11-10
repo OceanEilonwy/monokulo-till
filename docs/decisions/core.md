@@ -1814,3 +1814,22 @@ still strings across the till, the ledger, the screens and the bridge.
      `ShiftHeader`) carries "Since 9:02 AM", the takings, the paid count, the
      New shift button and its confirmation ("Start a new shift?"), while a
      shift is on.
+170. **One vertical sale screen, Return to Square in the toolbar, no code
+     from Seen on.** (Owner, 2026-11-10, the iPad round 3 designs.) While it
+     waits, a sale shows the amount, the code, a line saying the code opens
+     full screen when tapped (it replaces Customer view, which is gone), and
+     the order, in one vertical column; Share, Return to Square and Close the
+     sale are in the toolbar. From Seen the code is gone (`SaleView::shows_code`,
+     `hero_title`): the Till logo leads with "Seen · $13.88" or "Confirming ·
+     $13.88", the payment's bar and the order, with Return to Square and Done
+     in the toolbar, so nothing can be shown or paid twice. A long live
+     order folds to one row, "Order · 15 items", that opens the whole order
+     (`OrderCard::folded`), a dialog beside the sales on iPad. The code is
+     drawn at the smaller of the pane's width less 80 pt and its height less
+     260 pt (the page never scrolls with the order folded), 480 pt at most
+     and never under 200 pt; a dense code that doesn't scan at that size is
+     tapped open. "Return to {POS}" (`pos_text::back_to`; "Back to" before)
+     is offered on every state, where Square is installed. The floating
+     window's strip is 124 × 44 pt by default with "Watching", "Confirming"
+     or "Paid" over the amount and no names, its frames drawn at twice the
+     window's pixel density (the blur on an iPad).

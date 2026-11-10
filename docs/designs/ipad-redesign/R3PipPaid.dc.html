@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Paid in the floating window</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#b34700}a:hover{color:#1a1917}
+</style>
+</helmet>
+<div style="width: 1180px; height: 820px; position: relative; overflow: hidden; background: #ececec; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; color: #1a1917;">
+
+  <div style="position: absolute; inset: 0; display: flex; flex-direction: column; padding: 28px 24px 24px; gap: 18px; box-sizing: border-box;">
+    <span style="font-size: 15px; font-weight: 700; color: #555555;">[Square POS · sale complete]</span>
+    <div style="width: 700px; height: 300px; border-radius: 14px; background: #dcdcdc;"></div>
+  </div>
+
+  <a href="R3PipIdle.dc.html" aria-label="Till floating window: paid" style="position: absolute; right: 24px; bottom: 32px; width: 124px; height: 44px; border-radius: 12px; overflow: hidden; background: #1a1917; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28); display: flex; align-items: center; gap: 8px; padding: 0 10px; text-decoration: none; color: #ffffff;">
+    <dc-import name="TillWidget" size="28" state="paid" dark="{{yes}}" hint-size="28px,28px"></dc-import>
+    <span style="display: flex; flex-direction: column;">
+      <span style="font-size: 14px; font-weight: 700; white-space: nowrap;">Paid</span>
+      <span style="font-size: 12px; color: #d9d4c9; white-space: nowrap;">$24.50</span>
+    </span>
+  </a>
+
+  <div style="position: absolute; right: 24px; bottom: 92px; width: 320px; display: flex; flex-direction: column; gap: 8px; align-items: flex-end;">
+    <span style="padding: 8px 14px; border-radius: 16px; background: #1a1917; color: #ffffff; font-size: 13px; font-weight: 600;">Shrinks straight back to the strip, tick in green</span>
+    <span style="padding: 8px 14px; border-radius: 16px; background: #ffffff; border: 1px solid #dcd5c7; font-size: 13px; color: #3a3a3a;">After a few seconds it eases into Watching (P1)</span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1180,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() { return { yes: true }; }
+}
+</script>
+</body>
+</html>
