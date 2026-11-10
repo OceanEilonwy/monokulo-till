@@ -28,7 +28,7 @@ use std::sync::atomic::{AtomicI64, Ordering};
 pub use db::{KEY_SECRET, KeyMaterial, SecretStore};
 pub use effects::{DiffContext, Effect, diff};
 pub use facts::{
-    Action, AlertKind, Fact, MarkKind, OrderCreated, OrderObserved, OrderRead, Outcome,
+    Action, AlertKind, AlertState, Fact, MarkKind, OrderCreated, OrderObserved, OrderRead, Outcome,
     PaymentSeen, Process, Quote, RefundSeen, RefundStatus, ShiftMark, Tender,
 };
 pub use ids::{DeviceId, OrderId, OrderKey, PaymentId, SaleKey, Scope};

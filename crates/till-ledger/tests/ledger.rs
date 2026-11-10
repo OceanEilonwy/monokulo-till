@@ -6,7 +6,7 @@ use monokulo_client::{PointOfSale, SalePhase};
 use proptest::prelude::*;
 use till_ledger::view::setting;
 use till_ledger::{
-    AlertKind, ClaimPolicy, Fact, Imported, KeyMaterial, Ledger, LedgerError, MarkKind,
+    AlertKind, AlertState, ClaimPolicy, Fact, Imported, KeyMaterial, Ledger, LedgerError, MarkKind,
     OrderCreated, OrderObserved, OrderRead, PaymentPhase, PaymentSeen, Process, Quote, RefundSeen,
     RefundStatus, SaleKey, Scope, SecretStore, Tender, TestClock, ViewSettings, may_make_order,
 };
@@ -464,7 +464,7 @@ fn one_alert_per_sale_and_a_dead_claim_is_redelivered_once() {
             .unwrap()
             .unwrap()
             .state,
-        "posted"
+        AlertState::Posted
     );
 }
 
@@ -506,7 +506,7 @@ fn a_new_sale_paid_before_anyone_showed_it_is_not_shown() {
             .unwrap()
             .unwrap()
             .state,
-        "posted"
+        AlertState::Posted
     );
 }
 
@@ -827,7 +827,7 @@ fn the_kept_shift_is_imported_once() {
             .unwrap()
             .unwrap()
             .state,
-        "posted"
+        AlertState::Posted
     );
     assert!(
         app.alert(&SaleKey::order("ord_9"), AlertKind::NewSale)
@@ -935,7 +935,7 @@ fn the_key_states() {
             .unwrap()
             .unwrap()
             .state,
-        "posted"
+        AlertState::Posted
     );
     let lost = std::fs::read_dir(fx.dir.path())
         .unwrap()
@@ -1082,7 +1082,7 @@ fn a_sale_kept_from_monokulo_alone_is_folded_into_the_pos_sale_that_finds_it() {
             .unwrap()
             .unwrap()
             .state,
-        "posted"
+        AlertState::Posted
     );
     assert!(l.alert(&kept7, AlertKind::NewSale).unwrap().is_none());
     let eight = l.sale(&sale("p8")).unwrap().unwrap();

@@ -3,6 +3,7 @@
 //! versioned JSON body (`"v"`).
 
 use monokulo_client::{PointOfSale, SalePhase};
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -269,6 +270,93 @@ impl Process {
             Process::Extension => "extension",
         }
     }
+
+    pub fn from_wire(text: &str) -> Option<Process> {
+        [Process::App, Process::Extension]
+            .into_iter()
+            .find(|p| p.wire() == text)
+    }
+}
+
+/// `alerts.by`, and a snapshot's: the process's wire name, as the column
+/// holds it. (Its own serde, in facts' bodies, is the variant's name.)
+impl ToSql for Process {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::from(self.wire()))
+    }
+}
+
+impl FromSql for Process {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Process> {
+        let text = value.as_str()?;
+        Process::from_wire(text).ok_or_else(|| FromSqlError::Other(unknown("process", text)))
+    }
+}
+
+/// Where an alert stands (`alerts.state`, §6): left for a process to claim,
+/// claimed and not yet delivered, or delivered. Kept as `due`, `pending`
+/// and `posted`, in the column and in a snapshot's alerts alike.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AlertState {
+    Due,
+    Pending,
+    Posted,
+}
+
+impl AlertState {
+    pub const ALL: [AlertState; 3] = [AlertState::Due, AlertState::Pending, AlertState::Posted];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AlertState::Due => "due",
+            AlertState::Pending => "pending",
+            AlertState::Posted => "posted",
+        }
+    }
+
+    pub fn from_wire(text: &str) -> Option<AlertState> {
+        AlertState::ALL.into_iter().find(|s| s.as_str() == text)
+    }
+}
+
+impl ToSql for AlertState {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::from(self.as_str()))
+    }
+}
+
+impl FromSql for AlertState {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<AlertState> {
+        let text = value.as_str()?;
+        AlertState::from_wire(text).ok_or_else(|| FromSqlError::Other(unknown("alert state", text)))
+    }
+}
+
+fn unknown(what: &str, text: &str) -> Box<dyn std::error::Error + Send + Sync> {
+    format!("not an {what}: {text:?}").into()
+}
+
+/// A snapshot alert's `by`, as `alerts.by` holds it (`app`, `extension`).
+/// A name this build doesn't know reads as no process: it only says who
+/// claimed it.
+mod process_wire {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    use super::Process;
+
+    pub fn serialize<S: Serializer>(by: &Option<Process>, s: S) -> Result<S::Ok, S::Error> {
+        match by {
+            Some(process) => s.serialize_some(process.wire()),
+            None => s.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Process>, D::Error> {
+        Ok(Option::<String>::deserialize(d)?
+            .as_deref()
+            .and_then(Process::from_wire))
+    }
 }
 
 /// Something the cashier asked this till to do about a sale (§7).
@@ -383,9 +471,10 @@ pub struct SnapshotState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SnapshotAlert {
     pub kind: AlertKind,
-    pub state: String,
+    pub state: AlertState,
     pub claimed_at: Option<i64>,
-    pub by: Option<String>,
+    #[serde(default, with = "process_wire")]
+    pub by: Option<Process>,
 }
 
 /// Which sale a fact is about.
@@ -513,6 +602,45 @@ impl Fact {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The alerts table's text and a snapshot's alerts are as they were
+    /// before the states had a type.
+    #[test]
+    fn alert_states_and_processes_keep_their_text() {
+        for (state, text) in [
+            (AlertState::Due, "due"),
+            (AlertState::Pending, "pending"),
+            (AlertState::Posted, "posted"),
+        ] {
+            assert_eq!(state.as_str(), text);
+            assert_eq!(AlertState::from_wire(text), Some(state));
+            assert_eq!(serde_json::to_value(state).unwrap(), text);
+        }
+        let kept = r#"{"kind":"NewSale","state":"pending","claimed_at":5,"by":"extension"}"#;
+        let alert: SnapshotAlert = serde_json::from_str(kept).unwrap();
+        assert_eq!(alert.state, AlertState::Pending);
+        assert_eq!(alert.by, Some(Process::Extension));
+        assert_eq!(serde_json::to_string(&alert).unwrap(), kept);
+        let unclaimed: SnapshotAlert =
+            serde_json::from_str(r#"{"kind":"Paid","state":"posted","claimed_at":null,"by":null}"#)
+                .unwrap();
+        assert_eq!(unclaimed.by, None);
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let (state, by): (String, String) = conn
+            .query_row(
+                "SELECT ?1, ?2",
+                rusqlite::params![AlertState::Posted, Process::App],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((state.as_str(), by.as_str()), ("posted", "app"));
+        let read: AlertState = conn.query_row("SELECT 'due'", [], |r| r.get(0)).unwrap();
+        assert_eq!(read, AlertState::Due);
+        assert!(
+            conn.query_row("SELECT 'post'", [], |r| r.get::<_, AlertState>(0))
+                .is_err()
+        );
+    }
 
     pub(crate) fn every_kind() -> Vec<Fact> {
         let sale = SaleKey::pos(PointOfSale::Square, "p1");
