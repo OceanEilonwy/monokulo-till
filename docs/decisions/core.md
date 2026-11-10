@@ -1688,3 +1688,15 @@ once at the edge, with the stored and sent text unchanged.
      settings' names are constants in the ledger's `setting` module. A
      typed `Setting` enum for every ledger setting was left: the ledger
      can't name `ShowSales`, which is till-screens'.
+192. **A build names its points of sale's environments as enums.**
+     `CloverSetup.environment` was a string the engine read at start, and a
+     build that misspelt it had an engine that refused every action, Square
+     tills included; `SquareSetup.sandbox` was a bool. Both are now enums
+     crossing to Swift and Kotlin (`CloverEnvironment`,
+     `SquareEnvironment`, till-app's mirrors of till-pos's, since the leaf
+     crates never take UniFFI). Each app reads its build setting into the
+     enum as it starts and stops there on a name that isn't one. Inside the
+     core a `PosEnvironment` (a Square or a Clover environment) is what a
+     sign-in registers with a Bell under, spelt as the Bell spells it, so
+     `BellClient::register` takes the typed sign-in and the token as a
+     `Secret` instead of four adjacent strings.

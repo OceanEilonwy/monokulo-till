@@ -506,7 +506,7 @@ impl State {
             Process::App,
             http.clone(),
             self.clock.clone(),
-        )?);
+        ));
         {
             let tx = self.tx.clone();
             side.ledger().deliver_to(Arc::new(move |claims| {

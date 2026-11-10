@@ -13,7 +13,7 @@ use reqwest::header::{self, HeaderMap};
 use serde::{Deserialize, Serialize};
 use till_types::Secret;
 
-use crate::{BellAddress, BellInfo, PushSubscription};
+use crate::{BellAddress, BellInfo, PosSignIn, PushSubscription};
 
 /// What `POST /v1/register` answers (monokulo's `docs/bell.md`).
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -28,17 +28,15 @@ pub trait BellClient: Send + Sync {
     /// `GET /v1/info`.
     async fn info(&self, bell: &BellAddress) -> Result<BellInfo, BellError>;
 
-    /// `POST /v1/register` for `point_of_sale` in `environment` (decision
-    /// 305): the one request that carries the point of sale's token (A9.1).
-    /// `location_id` is the Square location, or the Clover merchant (a
-    /// Clover merchant is its own location: acceptance D1).
+    /// `POST /v1/register` for `sign_in`'s point of sale, environment
+    /// (decision 305) and location (the Square location, or the Clover
+    /// merchant, its own location: acceptance D1): the one request that
+    /// carries the point of sale's token (A9.1).
     async fn register(
         &self,
         bell: &BellAddress,
-        point_of_sale: PointOfSale,
-        environment: &str,
+        sign_in: &PosSignIn,
         access_token: &Secret,
-        location_id: &str,
         subscription: &PushSubscription,
     ) -> Result<BellRegistered, BellError>;
 
@@ -243,17 +241,15 @@ impl BellClient for BellApi {
     async fn register(
         &self,
         bell: &BellAddress,
-        point_of_sale: PointOfSale,
-        environment: &str,
+        sign_in: &PosSignIn,
         access_token: &Secret,
-        location_id: &str,
         subscription: &PushSubscription,
     ) -> Result<BellRegistered, BellError> {
         let body = RegisterBody {
-            point_of_sale: point_of_sale.wire(),
-            environment,
+            point_of_sale: sign_in.point_of_sale().wire(),
+            environment: sign_in.environment.wire(),
             access_token: access_token.expose_str(),
-            location_id,
+            location_id: &sign_in.location_id,
             subscription: RegisterSubscription {
                 endpoint: &subscription.endpoint,
                 keys: RegisterKeys {

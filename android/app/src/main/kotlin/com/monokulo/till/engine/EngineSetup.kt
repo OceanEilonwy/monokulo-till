@@ -5,8 +5,10 @@ import android.os.Build
 import android.text.format.DateFormat
 import com.monokulo.till.BuildConfig
 import java.util.TimeZone
+import uniffi.till_app.CloverEnvironment
 import uniffi.till_app.CloverSetup
 import uniffi.till_app.EngineConfig
+import uniffi.till_app.SquareEnvironment
 import uniffi.till_app.SquareSetup
 import uniffi.till_screens.Device
 
@@ -22,7 +24,7 @@ fun engineConfig(context: Context): EngineConfig = EngineConfig(
     hours24 = DateFormat.is24HourFormat(context),
     square = SquareSetup(
         applicationId = BuildConfig.SQUARE_APPLICATION_ID,
-        sandbox = BuildConfig.SQUARE_SANDBOX,
+        environment = if (BuildConfig.SQUARE_SANDBOX) SquareEnvironment.SANDBOX else SquareEnvironment.PRODUCTION,
         redirectUri = BuildConfig.SQUARE_REDIRECT_URI,
         baseUrl = BuildConfig.SQUARE_BASE_URL.ifEmpty { null },
         // A debug build's sign-in comes back on its own scheme; a release build's is the redirect itself.
@@ -30,13 +32,19 @@ fun engineConfig(context: Context): EngineConfig = EngineConfig(
     ),
     clover = CloverSetup(
         applicationId = BuildConfig.CLOVER_APPLICATION_ID,
-        environment = BuildConfig.CLOVER_ENVIRONMENT,
+        environment = cloverEnvironment(BuildConfig.CLOVER_ENVIRONMENT),
         redirectUri = BuildConfig.CLOVER_REDIRECT_URI,
         baseUrl = BuildConfig.CLOVER_BASE_URL.ifEmpty { null },
         returnUri = BuildConfig.CLOVER_RETURN_URI.takeIf { it != BuildConfig.CLOVER_REDIRECT_URI },
     ),
     bellUrl = BuildConfig.BELL_URL,
 )
+
+/**
+ * The Clover environment [name] is, as builds spell them (`till.clover.environment`: `north_america`, `europe`,
+ * `latin_america` or `sandbox`). A build naming none of them can't sign in to Clover at all, so it stops as it starts.
+ */
+fun cloverEnvironment(name: String): CloverEnvironment = CloverEnvironment.valueOf(name.uppercase())
 
 /** This device's offset from UTC now, in seconds. */
 fun utcOffsetSeconds(): Int = TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 1000

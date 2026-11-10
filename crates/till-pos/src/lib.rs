@@ -24,6 +24,7 @@
 
 #[cfg(feature = "clover")]
 pub mod clover;
+mod environment;
 mod error;
 #[cfg(any(feature = "square", feature = "clover"))]
 mod http;
@@ -37,6 +38,7 @@ pub mod square;
 pub mod time;
 mod tokens;
 
+pub use environment::{CloverEnvironment, PosEnvironment, SquareEnvironment};
 pub use error::PosError;
 pub use monokulo_client::{Clock, PointOfSale};
 pub use pkce::Pkce;

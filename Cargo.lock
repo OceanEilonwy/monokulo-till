@@ -2537,6 +2537,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "till-pos",
  "till-types",
  "tokio",
  "tokio-util",

@@ -633,7 +633,7 @@ impl Inner {
             Err(Stop::Cancelled) => return Err(Cancelled),
             Err(Stop::Failed(BellError::Problem(problem))) => problem_status(
                 &problem,
-                signed_in.map(|s| s.point_of_sale),
+                signed_in.as_ref().map(PosSignIn::point_of_sale),
                 self.clock.now(),
             ),
             Err(Stop::Failed(e)) => WakeUpStatus::unreachable(unreachable_reason(&e)),
@@ -658,17 +658,16 @@ impl Inner {
             self.release().await;
             return Ok(WakeUpStatus::NoPos);
         };
-        let point_of_sale = signed_in.point_of_sale;
+        let point_of_sale = signed_in.point_of_sale();
         let Some(environments) = info.get(point_of_sale) else {
             self.release().await;
             return Ok(WakeUpStatus::refused(pos_words::not_rung(point_of_sale)));
         };
         // Environments other than the till's, ones this build doesn't know included, are never read.
-        let Some(application_id) = environments.get(&signed_in.environment) else {
+        let Some(application_id) = environments.get(signed_in.environment.wire()) else {
             self.release().await;
             return Ok(WakeUpStatus::refused(pos_words::not_rung_in(
-                point_of_sale,
-                &signed_in.environment,
+                signed_in.environment,
             )));
         };
         if *application_id != signed_in.application_id {
@@ -724,14 +723,7 @@ impl Inner {
         // Once the Bell has the request, its answer is kept whatever happens to the pass: not a wait to cancel at.
         let answer = self
             .bells
-            .register(
-                bell,
-                point_of_sale,
-                &signed_in.environment,
-                &token,
-                &signed_in.location_id,
-                &subscription,
-            )
+            .register(bell, signed_in, &token, &subscription)
             .await?;
         self.store.set_registration(Some(BellRegistration {
             bell: bell.clone(),
@@ -740,7 +732,7 @@ impl Inner {
             subscription,
             distributor: through,
             point_of_sale: Some(point_of_sale.wire().to_owned()),
-            environment: Some(signed_in.environment.clone()),
+            environment: Some(signed_in.environment.wire().to_owned()),
         }));
         let last_ding_at = self.mem().last_ding_at;
         Ok(match self.status_now() {

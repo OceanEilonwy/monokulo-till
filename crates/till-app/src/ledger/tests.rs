@@ -27,14 +27,14 @@ fn config(data_dir: &str) -> EngineConfig {
         hours_24: false,
         square: SquareSetup {
             application_id: "sq0idp-till".into(),
-            sandbox: false,
+            environment: crate::SquareEnvironment::Production,
             redirect_uri: "https://till.monokulo.com/square".into(),
             base_url: None,
             return_uri: None,
         },
         clover: CloverSetup {
             application_id: "clv-till".into(),
-            environment: "sandbox".into(),
+            environment: crate::CloverEnvironment::Sandbox,
             redirect_uri: "https://till.monokulo.com/clover".into(),
             base_url: None,
             return_uri: None,
@@ -75,8 +75,7 @@ fn side(
         process,
         reqwest::Client::new(),
         Arc::new(FixedClock::at(1_761_149_280)),
-    )
-    .unwrap();
+    );
     let claimed = Arc::new(Mutex::new(Vec::new()));
     let into = claimed.clone();
     side.ledger()

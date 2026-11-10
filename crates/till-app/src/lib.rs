@@ -185,12 +185,53 @@ pub trait EngineListener: Send + Sync {
     fn on_log(&self, message: String);
 }
 
+/// Which Square the build is for: production's or the sandbox's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum SquareEnvironment {
+    Sandbox,
+    Production,
+}
+
+impl From<SquareEnvironment> for till_pos::SquareEnvironment {
+    fn from(environment: SquareEnvironment) -> till_pos::SquareEnvironment {
+        match environment {
+            SquareEnvironment::Sandbox => till_pos::SquareEnvironment::Sandbox,
+            SquareEnvironment::Production => till_pos::SquareEnvironment::Production,
+        }
+    }
+}
+
+/// Which of Clover's platforms the build is for (decision 127 in
+/// docs/decisions/android.md): a name a build gets wrong is a compile
+/// error in Swift and Kotlin, not an engine that won't start.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum CloverEnvironment {
+    Sandbox,
+    NorthAmerica,
+    Europe,
+    LatinAmerica,
+}
+
+impl From<CloverEnvironment> for till_pos::CloverEnvironment {
+    fn from(environment: CloverEnvironment) -> till_pos::CloverEnvironment {
+        match environment {
+            CloverEnvironment::Sandbox => till_pos::CloverEnvironment::Sandbox,
+            CloverEnvironment::NorthAmerica => till_pos::CloverEnvironment::NorthAmerica,
+            CloverEnvironment::Europe => till_pos::CloverEnvironment::Europe,
+            CloverEnvironment::LatinAmerica => till_pos::CloverEnvironment::LatinAmerica,
+        }
+    }
+}
+
 /// Which Square, as the build names it (Android's `BuildConfig`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct SquareSetup {
     pub application_id: String,
-    pub sandbox: bool,
+    /// Where Square's sign-in and API are: production's or the sandbox's.
+    pub environment: SquareEnvironment,
     /// Where Square sends the sign-in back: an App Link into the app. The
     /// token exchange names it, as Square requires.
     pub redirect_uri: String,
@@ -209,8 +250,7 @@ pub struct SquareSetup {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct CloverSetup {
     pub application_id: String,
-    /// `sandbox`, `north_america`, `europe` or `latin_america`.
-    pub environment: String,
+    pub environment: CloverEnvironment,
     pub redirect_uri: String,
     pub base_url: Option<String>,
     /// As [`SquareSetup::return_uri`].

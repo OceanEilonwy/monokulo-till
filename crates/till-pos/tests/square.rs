@@ -13,7 +13,9 @@ use monokulo_client::FixedClock;
 use till_pos::square::{
     SquareApi, SquareAuth, SquareConfig, SquareLocation, SquareOrder, SquareSource,
 };
-use till_pos::{FoundSale, ListedRefund, Pkce, PointOfSale, Refunds, SaleSource};
+use till_pos::{
+    FoundSale, ListedRefund, Pkce, PointOfSale, Refunds, SaleSource, SquareEnvironment,
+};
 
 const NOW: &str = "2026-10-22T16:10:00Z";
 
@@ -79,15 +81,15 @@ impl Fixture {
 #[tokio::test]
 async fn the_environment_is_the_applications_as_a_bell_names_it() {
     let f = Fixture::start().await;
-    assert_eq!(f.config.environment(), "production");
+    assert_eq!(f.config.environment(), SquareEnvironment::Production);
     let sandbox = SquareConfig {
         application_id: "sandbox-sq0idb-dev".into(),
         ..f.config.clone()
     };
-    assert_eq!(sandbox.environment(), "sandbox");
+    assert_eq!(sandbox.environment(), SquareEnvironment::Sandbox);
     assert_eq!(
-        SquareConfig::environment_of("sq0idp-sandbox-lookalike"),
-        "production"
+        SquareEnvironment::of_application("sq0idp-sandbox-lookalike"),
+        SquareEnvironment::Production
     );
 }
 

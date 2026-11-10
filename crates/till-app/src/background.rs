@@ -336,17 +336,14 @@ async fn look_kept(
         return BackgroundCheck::nothing();
     }
     let device = config.device;
-    let side = match Side::new(
+    let side = Side::new(
         Arc::new(config),
         kept,
         platform.clone(),
         Process::Extension,
         http.clone(),
         clock.clone(),
-    ) {
-        Ok(side) => side,
-        Err(problem) => return BackgroundCheck::failed(problem),
-    };
+    );
     let Some(source) = side.sale_source() else {
         return BackgroundCheck::nothing();
     };

@@ -1,5 +1,7 @@
 //! Which Square, and as which application (Android: `SquareConfig.kt`).
 
+use crate::SquareEnvironment;
+
 /// Which Square, and as which application (docs/design.md §1).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SquareConfig {
@@ -53,19 +55,9 @@ impl SquareConfig {
         }
     }
 
-    /// The environment [`application_id`](Self::application_id) is in, as a
-    /// Bell spells it: `sandbox` or `production` (decision 147).
-    pub fn environment(&self) -> &'static str {
-        SquareConfig::environment_of(&self.application_id)
-    }
-
-    /// Square's sandbox applications' ids start `sandbox-`; every other id
-    /// is production's.
-    pub fn environment_of(application_id: &str) -> &'static str {
-        if application_id.starts_with("sandbox-") {
-            "sandbox"
-        } else {
-            "production"
-        }
+    /// The environment [`application_id`](Self::application_id) is in
+    /// (decision 147).
+    pub fn environment(&self) -> SquareEnvironment {
+        SquareEnvironment::of_application(&self.application_id)
     }
 }

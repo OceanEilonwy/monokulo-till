@@ -47,14 +47,14 @@ fn config(square: Option<&MockServer>) -> EngineConfig {
         hours_24: false,
         square: SquareSetup {
             application_id: "sq0idp-till".into(),
-            sandbox: false,
+            environment: crate::SquareEnvironment::Production,
             redirect_uri: "https://till.monokulo.com/square".into(),
             base_url: square.map(MockServer::uri),
             return_uri: None,
         },
         clover: CloverSetup {
             application_id: "clv-till".into(),
-            environment: "sandbox".into(),
+            environment: crate::CloverEnvironment::Sandbox,
             redirect_uri: "https://till.monokulo.com/clover".into(),
             base_url: None,
             return_uri: None,

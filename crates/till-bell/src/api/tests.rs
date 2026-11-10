@@ -1,6 +1,8 @@
 use std::collections::BTreeSet;
 
+use monokulo_client::PointOfSale;
 use serde_json::Value;
+use till_pos::{CloverEnvironment, PosEnvironment, SquareEnvironment};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
@@ -68,10 +70,12 @@ impl StandIn {
         self.api
             .register(
                 &self.bell,
-                PointOfSale::Square,
-                "sandbox",
+                &PosSignIn {
+                    application_id: "sandbox-sq0idb-till".into(),
+                    environment: PosEnvironment::Square(SquareEnvironment::Sandbox),
+                    location_id: "L1".into(),
+                },
                 &"EAAAtoken".into(),
-                "L1",
                 &subscription(),
             )
             .await
@@ -242,10 +246,12 @@ async fn a_clover_till_registers_its_merchant_as_the_location_and_its_region_as_
         .api
         .register(
             &bell.bell,
-            PointOfSale::Clover,
-            "europe",
+            &PosSignIn {
+                application_id: "MONOKULARBELL".into(),
+                environment: PosEnvironment::Clover(CloverEnvironment::Europe),
+                location_id: "MCLOVERDEV001".into(),
+            },
             &"clv-token".into(),
-            "MCLOVERDEV001",
             &subscription(),
         )
         .await;

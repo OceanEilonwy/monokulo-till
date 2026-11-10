@@ -5,35 +5,29 @@
 //! [`WakeUpStatus`](crate::WakeUpStatus) carries.
 
 use monokulo_client::PointOfSale;
+use till_pos::{CloverEnvironment, PosEnvironment, SquareEnvironment};
 
 /// The Bell runs nothing for `point_of_sale`: refused for good.
 pub fn not_rung(point_of_sale: PointOfSale) -> String {
     format!("it doesn't ring {} tills", point_of_sale.display_name())
 }
 
-/// The Bell rings `point_of_sale`, but not in the till's `environment`:
+/// The Bell rings the till's point of sale, but not in its `environment`:
 /// refused for good ("it doesn't ring Square sandbox tills", "it doesn't
 /// ring Clover tills in Europe").
-pub fn not_rung_in(point_of_sale: PointOfSale, environment: &str) -> String {
-    format!("it doesn't ring {}", tills(point_of_sale, environment))
+pub fn not_rung_in(environment: PosEnvironment) -> String {
+    format!("it doesn't ring {}", tills(environment))
 }
 
-/// `point_of_sale`'s tills in `environment`; one the point of sale doesn't
-/// have goes by its wire name.
-fn tills(point_of_sale: PointOfSale, environment: &str) -> String {
-    match point_of_sale {
-        PointOfSale::Square => match environment {
-            "production" => "Square production tills".into(),
-            "sandbox" => "Square sandbox tills".into(),
-            _ => format!("Square {environment} tills"),
-        },
-        PointOfSale::Clover => match environment {
-            "north_america" => "Clover tills in North America".into(),
-            "europe" => "Clover tills in Europe".into(),
-            "latin_america" => "Clover tills in Latin America".into(),
-            "sandbox" => "Clover sandbox tills".into(),
-            _ => format!("Clover {environment} tills"),
-        },
+/// The point of sale's tills in `environment`.
+fn tills(environment: PosEnvironment) -> &'static str {
+    match environment {
+        PosEnvironment::Square(SquareEnvironment::Production) => "Square production tills",
+        PosEnvironment::Square(SquareEnvironment::Sandbox) => "Square sandbox tills",
+        PosEnvironment::Clover(CloverEnvironment::NorthAmerica) => "Clover tills in North America",
+        PosEnvironment::Clover(CloverEnvironment::Europe) => "Clover tills in Europe",
+        PosEnvironment::Clover(CloverEnvironment::LatinAmerica) => "Clover tills in Latin America",
+        PosEnvironment::Clover(CloverEnvironment::Sandbox) => "Clover sandbox tills",
     }
 }
 

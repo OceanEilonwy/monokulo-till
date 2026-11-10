@@ -70,8 +70,21 @@ enum TillShared {
     }
 
     /// As `squareRedirect`, for Clover's sandbox.
-    static func cloverRedirect(environment: String, host: String = Build.linkHost) -> String {
-        environment == "sandbox" ? "https://\(host)/clover/debug/" : "https://\(host)/clover"
+    static func cloverRedirect(environment: CloverEnvironment, host: String = Build.linkHost) -> String {
+        environment == .sandbox ? "https://\(host)/clover/debug/" : "https://\(host)/clover"
+    }
+
+    /// The Clover environment `name` is, as builds spell them
+    /// (`Build.cloverEnvironment`). A build naming none of them can't sign
+    /// in to Clover at all, so it stops as it starts.
+    static func cloverEnvironment(_ name: String) -> CloverEnvironment {
+        switch name {
+        case "sandbox": return .sandbox
+        case "north_america": return .northAmerica
+        case "europe": return .europe
+        case "latin_america": return .latinAmerica
+        default: preconditionFailure("TillCloverEnvironment isn't a Clover environment: \(name)")
+        }
     }
 
     /// What the engine needs to know about this device and build
@@ -83,6 +96,7 @@ enum TillShared {
         #else
         let debug = false
         #endif
+        let clover = cloverEnvironment(Build.cloverEnvironment)
         let format = DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: .current) ?? ""
         return EngineConfig(
             dataDir: dataDirectory().path,
@@ -95,14 +109,14 @@ enum TillShared {
             hours24: !format.contains("a"),
             square: SquareSetup(
                 applicationId: Build.squareApplicationId,
-                sandbox: Build.squareSandbox,
+                environment: Build.squareSandbox ? .sandbox : .production,
                 redirectUri: squareRedirect(sandbox: Build.squareSandbox),
                 baseUrl: nil
             ),
             clover: CloverSetup(
                 applicationId: Build.cloverApplicationId,
-                environment: Build.cloverEnvironment,
-                redirectUri: cloverRedirect(environment: Build.cloverEnvironment),
+                environment: clover,
+                redirectUri: cloverRedirect(environment: clover),
                 baseUrl: nil
             ),
             bellUrl: bellUrl,

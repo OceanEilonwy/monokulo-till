@@ -17,6 +17,11 @@ use tokio::time::Instant;
 use super::*;
 use crate::{BellInfo, BellRegistered};
 
+/// `point_of_sale`'s environment `wire` names, which these tests always know.
+fn environment(point_of_sale: PointOfSale, wire: &str) -> till_pos::PosEnvironment {
+    till_pos::PosEnvironment::from_wire(point_of_sale, wire).expect("a known environment")
+}
+
 /// A till signed in to one point of sale, as the scenarios run for it.
 #[derive(Clone, Copy)]
 struct TestTill {
@@ -126,12 +131,12 @@ impl BellClient for FakeBell {
     async fn register(
         &self,
         bell: &BellAddress,
-        point_of_sale: PointOfSale,
-        environment: &str,
+        sign_in: &PosSignIn,
         access_token: &Secret,
-        location_id: &str,
         subscription: &PushSubscription,
     ) -> Result<BellRegistered, BellError> {
+        let (point_of_sale, location_id) = (sign_in.point_of_sale(), &sign_in.location_id);
+        let environment = sign_in.environment.wire();
         self.calls.lock().unwrap().push(format!(
             "POST {} {} {location_id} {}",
             bell.display(),
@@ -340,9 +345,8 @@ impl PosSide for FakePos {
             .unwrap()
             .clone()
             .map(|application_id| PosSignIn {
-                point_of_sale: self.point_of_sale,
                 application_id,
-                environment: self.environment.lock().unwrap().clone(),
+                environment: environment(self.point_of_sale, &self.environment.lock().unwrap()),
                 location_id: self.location_id.clone(),
             }))
     }
@@ -801,10 +805,10 @@ async fn a_bell_without_the_tills_environment_is_refused_for_good_in_words_namin
     assert_eq!(status(&wake_ups), refused(till.not_rung_here));
     assert_eq!(
         status(&wake_ups),
-        refused(&pos_words::not_rung_in(
+        refused(&pos_words::not_rung_in(environment(
             till.point_of_sale,
             till.environment
-        ))
+        )))
     );
     wait(minutes(60)).await;
     assert_eq!(
@@ -840,10 +844,10 @@ async fn a_till_signed_in_elsewhere_is_refused_by_a_bell_for_this_environment_al
     run_current().await;
     assert_eq!(
         status(&wake_ups),
-        refused(&pos_words::not_rung_in(
+        refused(&pos_words::not_rung_in(environment(
             till.point_of_sale,
             till.other_environment
-        ))
+        )))
     );
 }
 
@@ -1056,10 +1060,10 @@ async fn an_environment_this_build_doesnt_know_is_passed_over_beside_the_tills_o
     run_current().await;
     assert_eq!(
         status(&wake_ups),
-        refused(&pos_words::not_rung_in(
+        refused(&pos_words::not_rung_in(environment(
             till.point_of_sale,
             till.environment
-        ))
+        )))
     );
 }
 

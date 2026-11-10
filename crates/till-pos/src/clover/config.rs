@@ -1,63 +1,6 @@
 //! Which Clover, and as which application (Android: `CloverConfig.kt`).
 
-/// Which of Clover's platforms a merchant is on: each has its own sign-in
-/// page and API host, and its own developer apps (decision 127 in
-/// docs/decisions/android.md).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum CloverEnvironment {
-    Sandbox,
-    NorthAmerica,
-    Europe,
-    LatinAmerica,
-}
-
-impl CloverEnvironment {
-    /// Every environment, in the order the Bell lists them.
-    pub const ALL: [CloverEnvironment; 4] = [
-        CloverEnvironment::Sandbox,
-        CloverEnvironment::NorthAmerica,
-        CloverEnvironment::Europe,
-        CloverEnvironment::LatinAmerica,
-    ];
-
-    /// The name builds and the Bell's `/v1/info` use for it.
-    pub fn wire(self) -> &'static str {
-        match self {
-            CloverEnvironment::Sandbox => "sandbox",
-            CloverEnvironment::NorthAmerica => "north_america",
-            CloverEnvironment::Europe => "europe",
-            CloverEnvironment::LatinAmerica => "latin_america",
-        }
-    }
-
-    /// Where the merchant signs in.
-    pub fn web_base(self) -> &'static str {
-        match self {
-            CloverEnvironment::Sandbox => "https://sandbox.dev.clover.com",
-            CloverEnvironment::NorthAmerica => "https://www.clover.com",
-            CloverEnvironment::Europe => "https://www.eu.clover.com",
-            CloverEnvironment::LatinAmerica => "https://www.la.clover.com",
-        }
-    }
-
-    /// Tokens and `/v3`.
-    pub fn api_base(self) -> &'static str {
-        match self {
-            CloverEnvironment::Sandbox => "https://apisandbox.dev.clover.com",
-            CloverEnvironment::NorthAmerica => "https://api.clover.com",
-            CloverEnvironment::Europe => "https://api.eu.clover.com",
-            CloverEnvironment::LatinAmerica => "https://api.la.clover.com",
-        }
-    }
-
-    /// The environment `wire` names, or `None` for one this build doesn't
-    /// know.
-    pub fn from_wire(wire: &str) -> Option<CloverEnvironment> {
-        CloverEnvironment::ALL
-            .into_iter()
-            .find(|e| e.wire() == wire)
-    }
-}
+pub use crate::environment::CloverEnvironment;
 
 /// Which Clover, and as which application (docs/design.md §1).
 #[derive(Clone, Debug, PartialEq, Eq)]

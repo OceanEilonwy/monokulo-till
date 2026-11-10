@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use monokulo_client::PointOfSale;
 use serde::{Deserialize, Serialize};
+use till_pos::PosEnvironment;
 
 use crate::{BellAddress, PushSubscription};
 
@@ -71,13 +72,18 @@ impl BellInfo {
 /// needs it (decision 132): the application and environment it signed in
 /// through, and `location_id`, the Square location it watches or the Clover
 /// merchant it is at (a Clover merchant is its own location, acceptance D1).
-/// `environment` is spelt as a Bell's `/v1/info` spells it.
+/// The environment names the point of sale.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PosSignIn {
-    pub point_of_sale: PointOfSale,
     pub application_id: String,
-    pub environment: String,
+    pub environment: PosEnvironment,
     pub location_id: String,
+}
+
+impl PosSignIn {
+    pub fn point_of_sale(&self) -> PointOfSale {
+        self.environment.point_of_sale()
+    }
 }
 
 /// A registration the Bell holds for this till: `POST /v1/register`'s
@@ -111,8 +117,8 @@ pub struct BellRegistration {
 impl BellRegistration {
     /// Made for `sign_in`'s point of sale and environment.
     pub fn is_for(&self, sign_in: &PosSignIn) -> bool {
-        self.point_of_sale.as_deref() == Some(sign_in.point_of_sale.wire())
-            && self.environment.as_deref() == Some(sign_in.environment.as_str())
+        self.point_of_sale.as_deref() == Some(sign_in.point_of_sale().wire())
+            && self.environment.as_deref() == Some(sign_in.environment.wire())
     }
 }
 
