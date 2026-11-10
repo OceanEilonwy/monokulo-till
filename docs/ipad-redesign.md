@@ -269,9 +269,9 @@ decisions:
   Island on iPhone only, Wake-ups, Disconnect): the designs' "Monokulo
   account" is the store connection made at first start, "Store" in Settings
   stays the Monokulo store and Square's location stays "Location".
-- **Not done yet:** Android's screens (it takes the engine's changes, but its
-  sale screen, shift header and floating bubble are as before), the Square
-  logo is a stand-in drawn from the Simple Icons set (replace it with
-  Square's official asset), Overpaid and Expired pages keep the small status
-  glyph as their hero (the designs show the Till logo), and none of the Swift
-  was compiled when it was written: CI is the check.
+- **Android** takes the engine's changes and draws the shift's header with
+  New shift and the sale without its code from Seen (its own circular badge
+  and status pill in the code's place); the rest of its sale screen, its page
+  heroes and its floating bubble stay Android's own design.
+- **Not checked:** none of the Swift was compiled when it was written (CI is
+  the check), and Square's usage rules for its mark on its own in a button.
