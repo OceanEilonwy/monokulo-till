@@ -673,8 +673,7 @@ mod tests {
     async fn a_square_sales_refund_fails_with_nothing_sent_so_the_till_never_marks_it_refunded() {
         let sale = FoundSale {
             id: "p_1".into(),
-            amount_minor: 840,
-            currency: "USD".into(),
+            amount: till_types::Money::new(840, "USD".parse().unwrap()),
             reference: Some("bP9m".into()),
             order_id: Some("o_1".into()),
             created_at: "2026-10-22T22:50:00Z".into(),

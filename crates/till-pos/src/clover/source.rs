@@ -179,8 +179,7 @@ impl CloverSource {
         };
         FoundSale {
             id: payment.id,
-            amount_minor: payment.amount,
-            currency: self.merchant.currency.clone(),
+            amount: till_types::Money::new(payment.amount, self.merchant.currency),
             // Clover prints no receipt number on a payment (acceptance D7).
             reference: None,
             order_id,
@@ -278,7 +277,7 @@ impl RefundInPos for CloverSource {
             .filter(|r| !r.voided)
             .map(|r| r.amount)
             .sum();
-        if refunded >= sale.amount_minor {
+        if refunded >= sale.amount.minor {
             return Ok(true);
         }
         let Some(order_id) = sale

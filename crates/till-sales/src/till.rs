@@ -18,7 +18,7 @@ use till_ledger::{
     PaymentId, PaymentSeen, Quote, RefundSeen, RefundStatus, SaleKey, ShiftMark, Tender,
     may_make_order,
 };
-use till_pos::{FoundSale, PosError, RefundInPos, Refunds, SaleSource, decimal_amount};
+use till_pos::{FoundSale, PosError, RefundInPos, Refunds, SaleSource};
 use tokio::sync::watch;
 
 use crate::{Books, TillSale, TillState};
@@ -484,11 +484,11 @@ impl Till {
             amount: order
                 .amount
                 .clone()
-                .unwrap_or_else(|| decimal_amount(sale.amount_minor, &sale.currency)),
+                .unwrap_or_else(|| sale.amount.decimal()),
             currency: order
                 .currency
                 .clone()
-                .unwrap_or_else(|| sale.currency.clone()),
+                .unwrap_or_else(|| sale.amount.currency.to_string()),
             reference: order.merchant_order_id.clone(),
             expires_at: order.expires_at,
             confirmations_required: order.confirmations_required,
@@ -781,8 +781,7 @@ impl Till {
             .monokulo
             .create_order(
                 &self.connection,
-                &decimal_amount(sale.amount_minor, &sale.currency),
-                &sale.currency,
+                &sale.amount,
                 sale.reference.as_deref(),
                 &Till::idempotency_key(sale),
             )
@@ -960,7 +959,7 @@ impl Till {
                 self.record(Fact::PosRefundSeen(RefundSeen {
                     sale: key.clone(),
                     refund_id,
-                    amount_minor: found.amount_minor,
+                    amount_minor: found.amount.minor,
                     status,
                 }));
                 Outcome::Done
@@ -1050,8 +1049,7 @@ fn payment_seen(sale: &FoundSale) -> PaymentSeen {
     PaymentSeen {
         pos: sale.point_of_sale,
         payment: PaymentId::new(sale.id.as_str()),
-        amount_minor: sale.amount_minor,
-        currency: sale.currency.clone(),
+        amount: sale.amount,
         tender: if sale.cash {
             Tender::Cash
         } else {

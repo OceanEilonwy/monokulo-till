@@ -11,11 +11,23 @@ use crate::http;
 use crate::receipts::one_line;
 use crate::{PaymentStatus, PosError, RefundStatus};
 
-/// An amount in a currency's minor unit, as Square writes it.
+/// An amount in a currency's minor unit, as Square writes it. The
+/// currency stays Square's text here: one that isn't a code is dropped
+/// where a sale is made of it, never failing the page it's on.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Money {
     pub amount: i64,
     pub currency: String,
+}
+
+impl Money {
+    /// `money` as Square writes it.
+    pub fn of(money: till_types::Money) -> Money {
+        Money {
+            amount: money.minor,
+            currency: money.currency.to_string(),
+        }
+    }
 }
 
 /// The parts of a Square payment the till reads.

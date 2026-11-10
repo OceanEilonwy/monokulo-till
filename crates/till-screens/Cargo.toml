@@ -21,6 +21,7 @@ orf-codec.workspace = true
 till-bell.workspace = true
 till-pos.workspace = true
 till-sales.workspace = true
+till-types.workspace = true
 uniffi = { workspace = true, optional = true }
 
 [dev-dependencies]

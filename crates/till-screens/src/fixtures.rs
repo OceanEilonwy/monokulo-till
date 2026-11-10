@@ -56,8 +56,7 @@ pub(crate) fn found(
 ) -> FoundSale {
     FoundSale {
         id: id.into(),
-        amount_minor,
-        currency: currency.into(),
+        amount: till_types::Money::new(amount_minor, currency.parse().unwrap()),
         reference: reference.map(Into::into),
         order_id: Some(order_id.into()),
         created_at: created_at.into(),

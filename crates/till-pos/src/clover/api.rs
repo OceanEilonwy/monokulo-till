@@ -6,6 +6,7 @@ use monokulo_client::PointOfSale;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use till_types::CurrencyCode;
 
 use super::{CloverAuth, CloverConfig, clover_error, retry_after};
 use crate::PosError;
@@ -18,8 +19,8 @@ use crate::http;
 pub struct CloverMerchant {
     pub id: String,
     pub name: String,
-    /// ISO 4217, the merchant's `defaultCurrency`.
-    pub currency: String,
+    /// The merchant's `defaultCurrency`.
+    pub currency: CurrencyCode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timezone: Option<String>,
     /// ISO 3166 alpha-2, which a receipt needs: from the address, else the
@@ -279,7 +280,7 @@ impl CloverApi {
             .await?;
         let currency = properties
             .default_currency
-            .filter(|c| c.len() == 3 && c.bytes().all(|b| b.is_ascii_uppercase()))
+            .and_then(|c| CurrencyCode::new(&c).ok())
             .ok_or_else(|| {
                 PosError::answered(
                     PointOfSale::Clover,

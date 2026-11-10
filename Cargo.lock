@@ -1577,6 +1577,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "till-types",
  "time",
  "zstd",
 ]
@@ -2588,6 +2589,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "till-pos",
+ "till-types",
 ]
 
 [[package]]
@@ -2625,6 +2627,7 @@ dependencies = [
  "tempfile",
  "till-ledger",
  "till-pos",
+ "till-types",
  "tokio",
  "wiremock",
 ]
@@ -2640,6 +2643,7 @@ dependencies = [
  "till-bell",
  "till-pos",
  "till-sales",
+ "till-types",
  "uniffi",
 ]
 

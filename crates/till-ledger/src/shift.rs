@@ -83,7 +83,7 @@ pub struct ShiftSummary {
 
 fn minor(view: &SaleView) -> Option<i64> {
     if let Some(found) = &view.found {
-        return Some(found.amount_minor);
+        return Some(found.amount.minor);
     }
     let exponent = monokulo_client::amounts::exponent(&view.currency).unwrap_or(2);
     monokulo_client::amounts::minor_units(&view.amount, exponent)

@@ -11,6 +11,7 @@ use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Method, Response, StatusCode, Url};
 use serde::Serialize;
 use serde_json::Value;
+use till_types::Money;
 
 use crate::clock::Clock;
 use crate::connect_code::ConnectCode;
@@ -251,15 +252,15 @@ impl MonokuloApi {
         Ok(self.entry(connection).await?.onion_api.map(Into::into))
     }
 
-    /// Makes an order with the `create-order` form. `idempotency_key` makes
+    /// Makes an order with the `create-order` form for `price` (its amount
+    /// as a decimal in the currency's digits). `idempotency_key` makes
     /// a retry, or a second till finding the same sale, get the same order.
     /// Never a description: it would carry what was bought
     /// (docs/design.md §4).
     pub async fn create_order(
         &self,
         connection: &Connection,
-        amount: &str,
-        currency: &str,
+        price: &Money,
         merchant_order_id: Option<&str>,
         idempotency_key: &str,
     ) -> Result<Order> {
@@ -271,9 +272,10 @@ impl MonokuloApi {
             merchant_order_id: Option<&'a str>,
             idempotency_key: &'a str,
         }
+        let amount = price.decimal();
         let body = serde_json::to_vec(&NewOrder {
-            amount,
-            currency,
+            amount: &amount,
+            currency: price.currency.as_str(),
             merchant_order_id,
             idempotency_key,
         })?;

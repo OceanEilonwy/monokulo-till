@@ -191,8 +191,7 @@ pub fn view(
 
     let found = payment.map(|p| FoundSale {
         id: p.payment.0.clone(),
-        amount_minor: p.amount_minor,
-        currency: p.currency.clone(),
+        amount: p.amount,
         reference: p.receipt_number.clone(),
         order_id: p.order_ref.clone(),
         created_at: p.created_at.clone(),
@@ -285,14 +284,12 @@ pub fn view(
             (None, Some(p)) if cash => format!("{OFFERED}{}", p.payment),
             (None, _) => sale.text(),
         },
-        amount: order.map(|o| o.amount.clone()).unwrap_or_else(|| {
-            payment
-                .map(|p| till_pos::decimal_amount(p.amount_minor, &p.currency))
-                .unwrap_or_default()
-        }),
+        amount: order
+            .map(|o| o.amount.clone())
+            .unwrap_or_else(|| payment.map(|p| p.amount.decimal()).unwrap_or_default()),
         currency: order
             .map(|o| o.currency.clone())
-            .or_else(|| payment.map(|p| p.currency.clone()))
+            .or_else(|| payment.map(|p| p.amount.currency.to_string()))
             .unwrap_or_default(),
         reference: order
             .and_then(|o| o.reference.clone())

@@ -276,8 +276,7 @@ fn found(
 ) -> FoundSale {
     FoundSale {
         id: id.into(),
-        amount_minor,
-        currency: currency.into(),
+        amount: till_types::Money::new(amount_minor, currency.parse().unwrap()),
         reference: Some(reference.into()),
         order_id: Some(order_id.into()),
         created_at: created_at.into(),
@@ -727,7 +726,7 @@ async fn a_sale_whose_order_fails_is_tried_again_and_only_marked_handled_once_it
     assert_eq!(
         Till::idempotency_key(&sale()),
         Till::idempotency_key(&FoundSale {
-            amount_minor: 1,
+            amount: till_types::Money::new(1, till_types::CurrencyCode::USD),
             ..sale()
         }),
         "the key is the POS payment's alone"

@@ -1597,3 +1597,30 @@ once at the edge, with the stored and sent text unchanged.
      one the till knows, and the cursor would stay there for good. A
      Monokulo order status the till doesn't know leaves the sale waiting,
      as `pending` does.
+171. **One `CurrencyCode` and one ISO 4217 table, in till-types.** A
+     currency is a `till_types::CurrencyCode`: three ASCII letters, read
+     trimmed and upper-cased (`"usd"` is USD), written as its letters, so
+     stored JSON is unchanged. Its `iso_digits()` come from the one table
+     (monokulo-client's, the fullest: CLF and UYW in four, the metals,
+     funds and test codes in none), which till-pos, monokulo-client and
+     orf-codec now all read; their own tables are gone. It lives in
+     till-types rather than orf-codec because monokulo-client doesn't
+     depend on orf-codec's zstd, and till-types stays serde-only; orf-codec
+     takes it as a path dependency. A `Money { minor, currency }` carries
+     an amount with its currency where they travelled apart: a
+     `FoundSale` and a journalled `PaymentSeen` (flattened, so their JSON
+     keeps `amountMinor`/`amount_minor` and `currency`), Square's refund
+     amount, and Monokulo's create-order, which takes the price as one
+     `&Money`. A shift's summary sums per currency whatever its case.
+172. **A code ISO 4217 doesn't list counts in two digits, everywhere it's
+     counted.** Where an amount is counted in minor units (a sale's
+     price, a receipt's numbers, orf-codec's encoding) a code that isn't on
+     the list ("XMR") has 2, as Java's `Currency` answered and till-pos and
+     orf-codec already did; only the screen's `amounts::fiat` writes a
+     decimal in such a code as it came ("4.5 XMR") rather than as money.
+     orf-codec's encoding changes for the codes its table had wrong: a
+     CLF or UYW receipt is encoded in four digits (one with four-digit
+     amounts, which Square and Clover sales give, was refused before), and
+     the metals, funds and test codes in none. No receipt the till made
+     was in those codes; USD, EUR, GBP and every currency a point of sale
+     takes encode exactly as before, and the corpus is unchanged.

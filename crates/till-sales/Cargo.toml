@@ -14,6 +14,7 @@ futures-util.workspace = true
 monokulo-client.workspace = true
 orf-codec.workspace = true
 serde.workspace = true
+till-types.workspace = true
 # `raw_value`: a saved shift writes its doubles as Kotlin did (Java's
 # `Double.toString`), byte for byte.
 serde_json = { workspace = true, features = ["raw_value"] }

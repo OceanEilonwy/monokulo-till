@@ -41,8 +41,11 @@ pub fn receipt(
     if order.line_items.elements.len() >= EXPANDED_MAX {
         return None;
     }
-    let currency = order.currency.as_ref().unwrap_or(&merchant.currency);
-    let digits = minor_digits(currency);
+    let currency = order
+        .currency
+        .clone()
+        .unwrap_or_else(|| merchant.currency.to_string());
+    let digits = minor_digits(&currency);
     let lines = lines(&order.line_items.elements);
     let sum: i64 = lines.iter().map(|l| l.total_minor).sum();
     let rest = order.total - sum;
@@ -104,7 +107,7 @@ pub fn receipt(
             authorization_code: None,
         }),
         total: major(order.total, digits),
-        currency: currency.clone(),
+        currency,
         trust: None,
         extensions: discount,
     })

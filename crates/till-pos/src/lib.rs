@@ -38,11 +38,11 @@ pub mod time;
 mod tokens;
 
 pub use error::PosError;
-pub use money::decimal_amount;
 pub use monokulo_client::{Clock, PointOfSale};
 pub use pkce::Pkce;
 pub use source::{
     CursorStore, FoundSale, ListedRefund, PaymentStatus, RefundByTill, RefundInPos, RefundStatus,
     Refunds, SaleOrder, SaleSource,
 };
+pub use till_types::{CurrencyCode, Money};
 pub use tokens::{NoTokenLock, PosTokens, StoreError, TokenLock, TokenStore};

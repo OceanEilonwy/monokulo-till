@@ -31,7 +31,7 @@ fn bean_room() -> CloverMerchant {
     CloverMerchant {
         id: "MCLOVER00001".into(),
         name: "The Bean Room".into(),
-        currency: "USD".into(),
+        currency: "USD".parse().unwrap(),
         timezone: Some("America/Los_Angeles".into()),
         country: Some("US".into()),
     }
@@ -108,8 +108,7 @@ fn ids(sales: &[FoundSale]) -> Vec<&str> {
 fn sale(order_id: Option<&str>, device: Option<&str>) -> FoundSale {
     FoundSale {
         id: "PAY_MONERO_1".into(),
-        amount_minor: 2205,
-        currency: "USD".into(),
+        amount: till_types::Money::new(2205, "USD".parse().unwrap()),
         reference: None,
         order_id: order_id.map(Into::into),
         created_at: "2026-10-28T08:56:00Z".into(),
@@ -264,8 +263,7 @@ async fn only_successful_monero_payments_not_voided_refunded_or_handled_are_sale
         *sale,
         FoundSale {
             id: "PAY_MONERO_1".into(),
-            amount_minor: 2205,
-            currency: "USD".into(),
+            amount: till_types::Money::new(2205, "USD".parse().unwrap()),
             reference: None,
             order_id: Some("ORDER_CL_1".into()),
             created_at: "2026-10-28T08:56:00Z".into(),

@@ -13,7 +13,7 @@ use monokulo_client::FixedClock;
 use till_pos::square::{
     SquareApi, SquareAuth, SquareConfig, SquareLocation, SquareOrder, SquareSource,
 };
-use till_pos::{FoundSale, ListedRefund, Pkce, PointOfSale, Refunds, SaleSource, decimal_amount};
+use till_pos::{FoundSale, ListedRefund, Pkce, PointOfSale, Refunds, SaleSource};
 
 const NOW: &str = "2026-10-22T16:10:00Z";
 
@@ -206,7 +206,7 @@ async fn only_completed_monero_tenders_are_sales_and_handled_ones_arent_given_ag
         "Monero and completed cash, not card, other tenders or open payments"
     );
     let sale = &sales[0];
-    assert_eq!(sale.amount_minor, 1388);
+    assert_eq!(sale.amount.minor, 1388);
     assert_eq!(sale.reference.as_deref(), Some("bP9m"));
     assert_eq!(sale.device_id.as_deref(), Some("dev_front"));
     assert_eq!(
@@ -219,7 +219,7 @@ async fn only_completed_monero_tenders_are_sales_and_handled_ones_arent_given_ag
     assert_eq!(sale.status.as_ref().map(|s| s.as_str()), Some("COMPLETED"));
     let cash = &sales[1];
     assert!(cash.cash);
-    assert_eq!(cash.amount_minor, 2450);
+    assert_eq!(cash.amount.minor, 2450);
     assert_eq!(cash.device_id.as_deref(), Some("dev_bar"));
     assert_eq!(cash.device_name.as_deref(), Some("Bar iPad"));
     let request = f.stand.take_request().await;
@@ -501,8 +501,7 @@ async fn a_refund_is_the_whole_sale_once() {
     let made = refunds
         .refund(&FoundSale {
             id: "pay_monero".into(),
-            amount_minor: 1388,
-            currency: "USD".into(),
+            amount: till_types::Money::new(1388, "USD".parse().unwrap()),
             reference: Some("bP9m".into()),
             order_id: Some("ord_sq_1".into()),
             created_at: "2026-10-22T16:07:00Z".into(),
@@ -531,9 +530,11 @@ async fn a_refund_is_the_whole_sale_once() {
 
 #[test]
 fn amounts_are_decimals_in_the_currencys_own_digits() {
-    assert_eq!(decimal_amount(2450, "USD"), "24.50");
-    assert_eq!(decimal_amount(1200, "JPY"), "1200");
-    assert_eq!(decimal_amount(5, "EUR"), "0.05");
+    let decimal =
+        |minor, currency: &str| till_types::Money::new(minor, currency.parse().unwrap()).decimal();
+    assert_eq!(decimal(2450, "USD"), "24.50");
+    assert_eq!(decimal(1200, "JPY"), "1200");
+    assert_eq!(decimal(5, "EUR"), "0.05");
 }
 
 // Not in SquareTest.kt: the lock docs/ios-plan.md §5 asks for.
@@ -614,8 +615,7 @@ async fn a_cursor_that_cant_be_read_is_an_error_and_never_saved_over() {
     assert!(matches!(e, till_pos::PosError::Store(_)), "{e:?}");
     source.handled(&FoundSale {
         id: "pay_1".into(),
-        amount_minor: 1388,
-        currency: "USD".into(),
+        amount: till_types::Money::new(1388, "USD".parse().unwrap()),
         reference: None,
         order_id: None,
         created_at: "2026-10-22T16:07:00Z".into(),

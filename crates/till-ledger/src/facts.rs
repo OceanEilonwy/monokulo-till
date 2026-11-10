@@ -6,6 +6,7 @@ use monokulo_client::{PointOfSale, SalePhase};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use till_types::Money;
 
 use crate::ids::{DeviceId, OrderId, PaymentId, SaleKey};
 use crate::model::{LocalMarks, SharedSale};
@@ -28,8 +29,9 @@ pub enum Tender {
 pub struct PaymentSeen {
     pub pos: PointOfSale,
     pub payment: PaymentId,
-    pub amount_minor: i64,
-    pub currency: String,
+    /// Journalled as `amount_minor` and `currency`.
+    #[serde(flatten, with = "till_types::money::snake")]
+    pub amount: Money,
     pub tender: Tender,
     /// The POS's status for it (Square's `COMPLETED`), as its text.
     pub status: till_pos::PaymentStatus,
@@ -518,8 +520,7 @@ mod tests {
             Fact::PosPaymentSeen(PaymentSeen {
                 pos: PointOfSale::Square,
                 payment: "p1".into(),
-                amount_minor: 1388,
-                currency: "USD".into(),
+                amount: Money::new(1388, till_types::CurrencyCode::USD),
                 tender: Tender::Monero,
                 status: "COMPLETED".into(),
                 device_id: Some("dev".into()),
@@ -589,6 +590,16 @@ mod tests {
             assert_eq!(value["v"], 1, "{}", fact.kind());
             assert_eq!(Fact::decode(fact.kind(), &body), Some(fact.clone()));
         }
+    }
+
+    /// A journalled payment keeps its body (and so its hash): the amount
+    /// as `amount_minor` and `currency`, the status as its text.
+    #[test]
+    fn a_payments_body_is_as_journalled_before() {
+        let body = r#"{"v":1,"amount_minor":1388,"created_at":"2026-11-09T10:00:00Z","currency":"USD","device_id":"dev","device_name":"Front iPad","order_ref":"o1","payment":"p1","pos":"square","receipt_number":"bP9m","status":"COMPLETED","tender":"Monero","title":null,"updated_at":1}"#;
+        let fact = Fact::decode("PosPaymentSeen", body.as_bytes()).unwrap();
+        assert_eq!(fact, every_kind()[0]);
+        assert_eq!(String::from_utf8(fact.body()).unwrap(), body);
     }
 
     #[test]

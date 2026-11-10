@@ -97,7 +97,7 @@ impl SaleSource for SquareSource {
         Ok(payments
             .into_iter()
             .filter(|p| self.is_monero(p) || is_cash(p))
-            .map(found_sale)
+            .filter_map(found_sale)
             .filter(|sale| !is_handled(&handled, sale))
             .collect())
     }
@@ -140,10 +140,7 @@ impl RefundByTill for SquareSource {
             .chars()
             .take(45)
             .collect();
-        let amount = Money {
-            amount: sale.amount_minor,
-            currency: sale.currency.clone(),
-        };
+        let amount = Money::of(sale.amount);
         Ok(self
             .api
             .refund(&sale.id, &amount, &key, "Not paid in Monero")
@@ -162,19 +159,21 @@ fn listed_refund(refund: super::SquareRefund) -> ListedRefund {
     }
 }
 
-fn found_sale(payment: SquarePayment) -> FoundSale {
+/// The sale `payment` is; `None` for one whose currency isn't a currency
+/// code, which no order could be priced in.
+fn found_sale(payment: SquarePayment) -> Option<FoundSale> {
     let cash = is_cash(&payment);
     let money = payment.total_money.unwrap_or(payment.amount_money);
+    let amount = till_types::Money::new(money.amount, money.currency.parse().ok()?);
     let device = payment.device_details;
     let device_name = device
         .as_ref()
         .and_then(|d| d.device_name.as_deref())
         .map(crate::receipts::one_line)
         .filter(|name| !name.is_empty());
-    FoundSale {
+    Some(FoundSale {
         id: payment.id,
-        amount_minor: money.amount,
-        currency: money.currency,
+        amount,
         reference: payment.receipt_number,
         order_id: payment.order_id,
         created_at: payment.created_at,
@@ -185,5 +184,5 @@ fn found_sale(payment: SquarePayment) -> FoundSale {
         cash,
         title: None,
         point_of_sale: PointOfSale::Square,
-    }
+    })
 }

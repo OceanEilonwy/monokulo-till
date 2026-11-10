@@ -4,6 +4,7 @@
 use async_trait::async_trait;
 use monokulo_client::PointOfSale;
 use serde::{Deserialize, Serialize};
+use till_types::Money;
 
 use crate::{PosError, StoreError};
 
@@ -133,9 +134,10 @@ pub struct FoundSale {
     /// The point of sale's id for the payment: what the till's idempotency
     /// key is made from.
     pub id: String,
-    /// In the currency's minor unit (cents).
-    pub amount_minor: i64,
-    pub currency: String,
+    /// What it was for: kept as the Kotlin `FoundSale` kept it, as
+    /// `amountMinor` (in the currency's minor unit, cents) and `currency`.
+    #[serde(flatten, with = "till_types::money::camel")]
+    pub amount: Money,
     /// What the point of sale printed or showed for it ("bP9m"), if
     /// anything.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -322,8 +324,7 @@ mod tests {
     fn a_cash_sale_keeps_its_device_and_that_it_was_cash() {
         let sale = FoundSale {
             id: "pay_2".into(),
-            amount_minor: 2450,
-            currency: "USD".into(),
+            amount: Money::new(2450, till_types::CurrencyCode::USD),
             reference: None,
             order_id: None,
             created_at: "2026-11-09T16:07:00Z".into(),

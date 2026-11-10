@@ -132,8 +132,7 @@ pub(crate) fn facts_of_shift(json: &str) -> Result<Vec<ImportedSale>, LedgerErro
                 Fact::PosPaymentSeen(PaymentSeen {
                     pos: found.point_of_sale,
                     payment: found.id.as_str().into(),
-                    amount_minor: found.amount_minor,
-                    currency: found.currency.clone(),
+                    amount: found.amount,
                     tender: if found.cash {
                         Tender::Cash
                     } else {

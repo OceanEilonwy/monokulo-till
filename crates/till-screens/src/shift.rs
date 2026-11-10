@@ -8,6 +8,7 @@
 
 use monokulo_client::{MoneyFormat, PointOfSale, SalePhase, amounts};
 use till_sales::{Standing, TillSale};
+use till_types::CurrencyCode;
 
 use crate::close;
 use crate::counters::{CounterChoice, CounterMenu, Counters};
@@ -317,27 +318,42 @@ pub fn summary(
     let mut parts = if paid.is_empty() {
         vec!["Nothing paid yet".to_owned()]
     } else {
-        let mut currencies: Vec<&str> = Vec::new();
-        for sale in &paid {
-            if !currencies.contains(&sale.currency.as_str()) {
-                currencies.push(&sale.currency);
-            }
-        }
         let mut parts = vec![format!("{} paid", paid.len())];
-        parts.extend(currencies.into_iter().map(|currency| {
-            let those: Vec<&str> = paid
-                .iter()
-                .filter(|sale| sale.currency == currency)
-                .map(|sale| sale.amount.as_str())
-                .collect();
-            total(&those, currency, money)
-        }));
+        parts.extend(per_currency(&paid, money));
         parts
     };
     if let Some(start) = started_at {
         parts.push(format!("since {}", time(start, clock)));
     }
     parts.join(" · ")
+}
+
+/// `paid` summed per currency, in the order the currencies first appear:
+/// one total each, as the device writes money. A currency is its code
+/// whatever its case ("usd" is USD); text that isn't a code is taken as it
+/// is.
+fn per_currency(paid: &[&TillSale], money: &dyn MoneyFormat) -> Vec<String> {
+    let code = |sale: &TillSale| {
+        CurrencyCode::new(&sale.currency).map_or_else(|_| sale.currency.clone(), |c| c.to_string())
+    };
+    let mut currencies: Vec<String> = Vec::new();
+    for sale in paid {
+        let currency = code(sale);
+        if !currencies.contains(&currency) {
+            currencies.push(currency);
+        }
+    }
+    currencies
+        .into_iter()
+        .map(|currency| {
+            let those: Vec<&str> = paid
+                .iter()
+                .filter(|sale| code(sale) == currency)
+                .map(|sale| sale.amount.as_str())
+                .collect();
+            total(&those, &currency, money)
+        })
+        .collect()
 }
 
 /// `amounts` added up in `currency`, as the device writes money; an amount
@@ -869,25 +885,12 @@ pub fn cash_in_monero(sales: &[TillSale], money: &dyn MoneyFormat) -> Option<Str
     if paid.is_empty() {
         return None;
     }
-    let mut currencies: Vec<&str> = Vec::new();
-    for sale in &paid {
-        if !currencies.contains(&sale.currency.as_str()) {
-            currencies.push(&sale.currency);
-        }
-    }
     let mut parts = vec![format!(
         "{} cash {} paid in Monero",
         paid.len(),
         sales_word(paid.len())
     )];
-    parts.extend(currencies.into_iter().map(|currency| {
-        let those: Vec<&str> = paid
-            .iter()
-            .filter(|sale| sale.currency == currency)
-            .map(|sale| sale.amount.as_str())
-            .collect();
-        total(&those, currency, money)
-    }));
+    parts.extend(per_currency(&paid, money));
     Some(parts.join(" · "))
 }
 
@@ -1308,6 +1311,16 @@ pub(crate) mod tests {
             summary(&mixed, None, clock, &money),
             "3 paid · $4.00 · ¥500"
         );
+        // One currency whatever its case.
+        let cased = [
+            sale_of("a").phase(Paid).amount("1.25").build(),
+            sale_of("b")
+                .phase(Paid)
+                .amount("2.75")
+                .currency("usd")
+                .build(),
+        ];
+        assert_eq!(summary(&cased, None, clock, &money), "2 paid · $4.00");
         // A sale the last shift carried over, paid after its refund, isn't
         // this shift's takings.
         let carried = sale_of("paidAfterRefund")

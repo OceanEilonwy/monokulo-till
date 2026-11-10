@@ -137,9 +137,10 @@ impl PreviewSale {
             .reference
             .clone()
             .unwrap_or_else(|| self.order_id.clone());
-        let minor = monokulo_client::amounts::exponent(&self.currency)
-            .and_then(|exp| monokulo_client::amounts::minor_units(&self.amount, exp))
-            .unwrap_or(0);
+        let currency: till_pos::CurrencyCode =
+            self.currency.parse().unwrap_or(till_pos::CurrencyCode::USD);
+        let amount = till_pos::Money::from_decimal(&self.amount, currency)
+            .unwrap_or(till_pos::Money::new(0, currency));
         let receipt = self.receipt.then(sample_receipt);
         let uri = format!(
             "monero:{}?tx_amount={}&tx_description={}",
@@ -157,8 +158,7 @@ impl PreviewSale {
             address: self.address.clone(),
             found: self.found.then(|| FoundSale {
                 id: format!("p_{}", self.order_id),
-                amount_minor: minor,
-                currency: self.currency.clone(),
+                amount,
                 reference: Some(reference),
                 order_id: Some("o".into()),
                 created_at: "2026-10-22T22:50:00Z".into(),
@@ -259,7 +259,7 @@ mod tests {
         assert_eq!(sales.len(), 2);
         let waiting = &sales[0];
         assert_eq!(waiting.reference.as_deref(), Some("a1"));
-        assert_eq!(waiting.found.as_ref().unwrap().amount_minor, 840);
+        assert_eq!(waiting.found.as_ref().unwrap().amount.minor, 840);
         assert!(waiting.live() && preview_sale_live(PreviewSale::new("a1")));
         let read = &sales[1];
         assert_eq!(read.phase, SalePhase::Paid);

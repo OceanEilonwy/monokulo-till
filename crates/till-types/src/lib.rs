@@ -1,11 +1,14 @@
 //! Small types shared by the till's Rust core, so a value's meaning is in
 //! its type rather than in a `String`: [`Secret`] for credentials that must
 //! never reach a log, [`text_id!`] for opaque ids that mustn't be
-//! passed one for another, and [`wire_enum!`] for a closed set of words
-//! another service sends, with room for one it adds later.
+//! passed one for another, [`wire_enum!`] for a closed set of words
+//! another service sends, with room for one it adds later, and
+//! [`CurrencyCode`] and [`Money`], with the one ISO 4217 table.
 
+pub mod money;
 mod secret;
 
+pub use money::{CurrencyCode, Money, NotACurrencyCode};
 pub use secret::Secret;
 
 /// A newtype over `String` for an opaque id: `Clone, Debug, Eq, Ord, Hash`,

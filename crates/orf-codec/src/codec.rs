@@ -20,6 +20,7 @@ use std::io;
 use std::sync::OnceLock;
 
 use serde_json::{Map, Number, Value};
+use till_types::CurrencyCode;
 use time::format_description::FormatItem;
 use time::macros::format_description;
 use time::{OffsetDateTime, UtcOffset};
@@ -172,14 +173,12 @@ fn read_leb128(data: &[u8]) -> Result<(usize, usize), DecodeError> {
 
 // ---- amounts ----------------------------------------------------------------
 
-/// Digits after the decimal point in a currency's minor unit (ISO 4217).
+/// Digits after the decimal point in a currency's minor unit: ISO 4217's,
+/// else 2 ([`CurrencyCode::minor_digits`], the table every crate of the
+/// till reads). Text that isn't a code at all has 2; the encoder refuses
+/// it as the currency's letters anyway.
 fn exponent(currency: &str) -> u32 {
-    match currency {
-        "BIF" | "CLP" | "DJF" | "GNF" | "ISK" | "JPY" | "KMF" | "KRW" | "PYG" | "RWF" | "UGX"
-        | "UYI" | "VND" | "VUV" | "XAF" | "XOF" | "XPF" => 0,
-        "BHD" | "IQD" | "JOD" | "KWD" | "LYD" | "OMR" | "TND" => 3,
-        _ => 2,
-    }
+    CurrencyCode::new(currency).map_or(2, |code| code.minor_digits())
 }
 
 /// `x` as an integer count of 10^-exp, only if that count gives back exactly `x`.
@@ -832,5 +831,32 @@ mod tests {
         assert_eq!(tax_amount(825, 87_500), 72);
         assert_eq!(round_div(-5, 10), -1);
         assert_eq!(line_total(1240, 69), 86);
+    }
+
+    /// The digits are the till's one ISO 4217 table's: CLF in four, as
+    /// Square and Clover amounts are counted, so its receipts encode.
+    #[test]
+    fn exponents_are_the_shared_tables() {
+        for (code, digits) in [("USD", 2), ("JPY", 0), ("KWD", 3), ("CLF", 4), ("UYW", 4)] {
+            assert_eq!(exponent(code), digits, "{code}");
+            assert_eq!(
+                exponent(code),
+                CurrencyCode::new(code).unwrap().minor_digits()
+            );
+        }
+        assert_eq!(exponent("XMR"), 2, "a code ISO 4217 doesn't list");
+        let receipt: Receipt = serde_json::from_str(
+            r#"{
+          "orf_version": "0.1.0",
+          "receipt": { "receipt_id": "7", "issue_timestamp": "2026-10-22T12:00:00Z", "receipt_type": "sale" },
+          "merchant": { "legal_name": "Corner Shop", "country_code": "CL" },
+          "line_items": [{ "description": "Te", "quantity": 1, "unit_price": 0.1234, "line_total": 0.1234 }],
+          "total": 0.1234,
+          "currency": "CLF"
+        }"#,
+        )
+        .unwrap();
+        let back = crate::decode(&crate::encode(&receipt).unwrap()).unwrap();
+        assert_eq!(back, receipt);
     }
 }

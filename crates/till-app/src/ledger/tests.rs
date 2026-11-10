@@ -97,8 +97,7 @@ fn payment(id: &str) -> Fact {
     Fact::PosPaymentSeen(PaymentSeen {
         pos: PointOfSale::Square,
         payment: PaymentId::new(id),
-        amount_minor: 1388,
-        currency: "USD".into(),
+        amount: till_pos::Money::new(1388, till_pos::CurrencyCode::USD),
         tender: Tender::Monero,
         status: "COMPLETED".into(),
         device_id: None,

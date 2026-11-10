@@ -62,8 +62,7 @@ fn payment(id: &str, device: &str, tender: Tender, updated_at: i64) -> Fact {
     Fact::PosPaymentSeen(PaymentSeen {
         pos: PointOfSale::Square,
         payment: id.into(),
-        amount_minor: 2450,
-        currency: "USD".into(),
+        amount: till_types::Money::new(2450, "USD".parse().unwrap()),
         tender,
         status: "COMPLETED".into(),
         device_id: Some(device.into()),
