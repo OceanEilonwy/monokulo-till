@@ -91,6 +91,7 @@ struct ShiftScreen: View {
             if !view.chips.isEmpty {
                 Section {
                     FilterPicker(chips: view.chips) { send(.chooseFilter(filter: $0)) }
+                        .listRowSeparator(.hidden)
                 }
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets())

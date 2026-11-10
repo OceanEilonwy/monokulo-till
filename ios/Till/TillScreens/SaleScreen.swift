@@ -100,6 +100,7 @@ struct SaleScreen: View {
                 } label: {
                     Text(view.closeLabel)
                         .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Palette.danger)
                         .lineLimit(1)
                 }
                 .buttonStyle(.bordered)
@@ -123,7 +124,7 @@ struct SaleScreen: View {
                     codeColumn(side: side)
                     if let order = view.order {
                         orderColumn(order)
-                            .frame(minWidth: 220, idealWidth: 260, maxWidth: 300)
+                            .frame(minWidth: 200, idealWidth: 240, maxWidth: 280)
                     }
                 }
                 VStack(spacing: 24) {

@@ -191,8 +191,9 @@ the target; these settle how it's built.
     safe area, under the bar, clear of the window controls and the status
     bar. Compact width keeps the title and an ✕ Close in the bar.
 28. **The code and the order are one centred group.** Side by side, 40 pt
-    apart, where both fit at their ideal widths (the order 220 to 300 pt,
-    ideally 260), else the order under the code (`ViewThatFits`). The
+    apart, where both fit at their ideal widths (the order 200 to 280 pt,
+    ideally the board's 240, so the pair fits beside a 340 pt sidebar on a
+    1024 pt screen), else the order under the code (`ViewThatFits`). The
     code is the board's 300 pt (240 on a phone) and shrinks to the column
     it's given, never under 160 pt, so nothing is cut at any width. The
     group is centred in the space between the header and the buttons, and
@@ -213,8 +214,8 @@ the target; these settle how it's built.
     content and 24 pt above the bottom of the safe area (16 pt on compact
     width), stacking to a 360 pt column where the row doesn't fit.
 31. **The sidebar is the board's: white inset-grouped cards on the paper.**
-    Sections sit close (`.listSectionSpacing(.compact)`), so the filter is
-    right under This shift; every card row is the card white (the summary
+    Sections sit close (`.listSectionSpacing(.compact)`, and the filter's row
+    has no separator lines), so the filter is right under This shift; every card row is the card white (the summary
     included, not the system's grouped grey); the open sale's row is the
     board's pale accent wash (`Palette.selection`, #FBE6D6, dark #3A2414),
     not the chip grey; and the column's own background is the paper
