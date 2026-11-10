@@ -12,8 +12,8 @@ use super::{
 use crate::source::{OVERLAP_SECONDS, is_handled, mark_handled};
 use crate::time::Rfc3339Instant;
 use crate::{
-    CursorStore, FoundSale, ListedRefund, PaymentStatus, PosError, RefundByTill, RefundKey,
-    Refunds, SaleOrder, SaleSource,
+    CursorStore, FoundSale, ListedRefund, PaymentStatus, PosDeviceId, PosError, RefundByTill,
+    RefundKey, Refunds, SaleOrder, SaleSource,
 };
 
 /// Square as a [`SaleSource`]: the till's location's payments since it
@@ -184,7 +184,7 @@ fn found_sale(payment: SquarePayment) -> Option<FoundSale> {
         created_at: payment.created_at,
         updated_at: payment.updated_at,
         status: Some(payment.status),
-        device_id: device.and_then(|d| d.device_id),
+        device_id: device.and_then(|d| d.device_id).map(PosDeviceId::from),
         device_name,
         cash,
         title: None,

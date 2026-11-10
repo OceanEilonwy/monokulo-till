@@ -10,7 +10,7 @@ use till_pos::FoundSale;
 
 use crate::LedgerError;
 use crate::facts::{Fact, MarkKind, OrderCreated, OrderObserved, OrderRead, PaymentSeen, Tender};
-use crate::ids::{DeviceId, OrderId, SaleKey};
+use crate::ids::{OrderId, SaleKey};
 
 /// One kept sale's facts, each with the time it's journalled at (Unix ms;
 /// `None` for now).
@@ -139,7 +139,7 @@ pub(crate) fn facts_of_shift(json: &str) -> Result<Vec<ImportedSale>, LedgerErro
                         Tender::Monero
                     },
                     status: till_pos::PaymentStatus::Completed,
-                    device_id: found.device_id.as_deref().map(DeviceId::from),
+                    device_id: found.device_id.clone(),
                     device_name: found.device_name.clone(),
                     receipt_number: found.reference.clone(),
                     order_ref: found.order_id.clone(),

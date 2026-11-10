@@ -305,9 +305,9 @@ impl TillSale {
 
     /// The point of sale's device that took it, by id and by name, when the
     /// point of sale said.
-    pub fn pos_device(&self) -> Option<(&str, Option<&str>)> {
+    pub fn pos_device(&self) -> Option<(&till_pos::PosDeviceId, Option<&str>)> {
         let found = self.found.as_ref()?;
-        Some((found.device_id.as_deref()?, found.device_name.as_deref()))
+        Some((found.device_id.as_ref()?, found.device_name.as_deref()))
     }
 
     /// Its payment is on the network and not yet paid: its confirmations

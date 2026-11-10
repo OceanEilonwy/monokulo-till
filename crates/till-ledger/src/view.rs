@@ -197,7 +197,7 @@ pub fn view(
         created_at: p.created_at.clone(),
         updated_at: None,
         status: None,
-        device_id: p.device_id.as_ref().map(|d| d.0.clone()),
+        device_id: p.device_id.clone(),
         device_name: p.device_name.clone(),
         cash,
         title: p.title.clone(),

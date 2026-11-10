@@ -208,7 +208,10 @@ async fn only_completed_monero_tenders_are_sales_and_handled_ones_arent_given_ag
     let sale = &sales[0];
     assert_eq!(sale.amount.minor, 1388);
     assert_eq!(sale.reference.as_deref(), Some("bP9m"));
-    assert_eq!(sale.device_id.as_deref(), Some("dev_front"));
+    assert_eq!(
+        sale.device_id.as_ref().map(|d| d.as_str()),
+        Some("dev_front")
+    );
     assert_eq!(
         sale.device_name.as_deref(),
         Some("Front iPad"),
@@ -223,7 +226,7 @@ async fn only_completed_monero_tenders_are_sales_and_handled_ones_arent_given_ag
     let cash = &sales[1];
     assert!(cash.cash);
     assert_eq!(cash.amount.minor, 2450);
-    assert_eq!(cash.device_id.as_deref(), Some("dev_bar"));
+    assert_eq!(cash.device_id.as_ref().map(|d| d.as_str()), Some("dev_bar"));
     assert_eq!(cash.device_name.as_deref(), Some("Bar iPad"));
     let request = f.stand.take_request().await;
     assert_eq!(query(&request, "location_id").as_deref(), Some("L1"));

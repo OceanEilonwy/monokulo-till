@@ -163,7 +163,7 @@ pub struct PendingSignIn {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CounterKept {
-    pub id: String,
+    pub id: till_pos::PosDeviceId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// Unix seconds.
@@ -631,7 +631,7 @@ pub struct Model {
     pub show_others: bool,
     /// What Clover calls the merchant's devices, by id (core.md decision
     /// 137); forgotten with the store.
-    pub clover_devices: std::collections::BTreeMap<String, String>,
+    pub clover_devices: std::collections::BTreeMap<till_pos::PosDeviceId, String>,
     /// A cash sale is treated as Monero as it's found (on unless turned
     /// off, core.md decision 116).
     pub cash_as_monero: bool,

@@ -5,12 +5,21 @@
 //! window, unless the cashier chose every device. Every counter's sales
 //! stay in the shift, and the title menu chooses whose the list shows.
 
+use till_pos::PosDeviceId;
 use till_sales::TillSale;
+
+// A device's id crosses to Kotlin and Swift as the bare string it was.
+#[cfg(feature = "uniffi")]
+uniffi::custom_type!(PosDeviceId, String, {
+    remote,
+    lower: |id| id.0,
+    try_lift: |id| Ok(PosDeviceId(id)),
+});
 
 /// This counter's point-of-sale device, as the test sale named it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CounterDevice {
-    pub id: String,
+    pub id: PosDeviceId,
     /// What the point of sale calls it ("Front iPad"); Clover names none.
     pub name: Option<String>,
 }
@@ -28,7 +37,7 @@ pub struct Counters {
     pub show_others: bool,
     /// What the point of sale calls its devices, by id, where its payments
     /// don't say: Clover's devices endpoint (core.md decision 142).
-    pub names: std::collections::BTreeMap<String, String>,
+    pub names: std::collections::BTreeMap<PosDeviceId, String>,
 }
 
 impl Counters {
@@ -40,7 +49,7 @@ impl Counters {
             return false;
         };
         match &sale.found {
-            Some(found) => found.device_id.as_deref().is_some_and(|d| d != mine.id),
+            Some(found) => found.device_id.as_ref().is_some_and(|d| *d != mine.id),
             None => true,
         }
     }
@@ -70,7 +79,7 @@ pub enum CounterChoice {
     /// "All counters".
     All,
     /// One point-of-sale device's: this counter's, or another's.
-    Device { device_id: String },
+    Device { device_id: PosDeviceId },
     /// Sales other tills found, whose device this till doesn't know.
     OtherTills,
 }
@@ -139,7 +148,7 @@ pub const OTHER_TILLS: &str = "Other tills";
 /// What the menu calls `device_id`: its name on a sale, else the point of
 /// sale's list of devices, else this counter's kept name, else "Device"
 /// and the end of its id.
-pub fn device_name(device_id: &str, sales: &[TillSale], counters: &Counters) -> String {
+pub fn device_name(device_id: &PosDeviceId, sales: &[TillSale], counters: &Counters) -> String {
     sales
         .iter()
         .filter_map(TillSale::pos_device)
@@ -150,11 +159,12 @@ pub fn device_name(device_id: &str, sales: &[TillSale], counters: &Counters) -> 
             counters
                 .device
                 .as_ref()
-                .filter(|d| d.id == device_id)
+                .filter(|d| d.id == *device_id)
                 .and_then(|d| d.name.clone())
         })
         .unwrap_or_else(|| {
             let end: String = device_id
+                .as_str()
                 .chars()
                 .rev()
                 .take(4)
@@ -211,7 +221,7 @@ pub fn menu(
     if counters.device.is_none() && groups.len() < 2 {
         return None;
     }
-    let mine = counters.device.as_ref().map(|d| d.id.as_str());
+    let mine = counters.device.as_ref().map(|d| &d.id);
     let mut items: Vec<CounterItem> = groups
         .iter()
         .map(|g| {
@@ -220,7 +230,7 @@ pub fn menu(
                 .filter(|sale| g.shows(sale, counters))
                 .collect();
             let (name, sub) = match g {
-                CounterChoice::Device { device_id } if Some(device_id.as_str()) == mine => (
+                CounterChoice::Device { device_id } if Some(device_id) == mine => (
                     device_name(device_id, sales, counters),
                     "This counter · alerts",
                 ),
@@ -417,10 +427,13 @@ mod tests {
         let mut nameless = sales[0].clone();
         nameless.found.as_mut().unwrap().device_id = Some("A1B2C3D4".into());
         assert_eq!(
-            device_name("A1B2C3D4", &[nameless], &Counters::default()),
+            device_name(&"A1B2C3D4".into(), &[nameless], &Counters::default()),
             "Device C3D4"
         );
-        assert_eq!(device_name("dev_front", &[], &front()), "Front iPad");
+        assert_eq!(
+            device_name(&"dev_front".into(), &[], &front()),
+            "Front iPad"
+        );
         let bar = sale("b", Some(("dev_bar", "Bar iPad")), SalePhase::Waiting);
         assert_eq!(
             row_device(&bar, std::slice::from_ref(&bar), &front()).as_deref(),
@@ -434,16 +447,16 @@ mod tests {
         let mut clover = sale("c", None, SalePhase::Waiting);
         clover.found.as_mut().unwrap().device_id = Some("DEV3F2A".into());
         let counters = Counters {
-            names: [("DEV3F2A".to_owned(), "Front counter".to_owned())].into(),
+            names: [("DEV3F2A".into(), "Front counter".to_owned())].into(),
             ..Counters::default()
         };
         assert_eq!(
-            device_name("DEV3F2A", std::slice::from_ref(&clover), &counters),
+            device_name(&"DEV3F2A".into(), std::slice::from_ref(&clover), &counters),
             "Front counter",
             "not \"Device 3F2A\""
         );
         assert_eq!(
-            device_name("DEV3F2A", &[clover], &Counters::default()),
+            device_name(&"DEV3F2A".into(), &[clover], &Counters::default()),
             "Device 3F2A"
         );
     }

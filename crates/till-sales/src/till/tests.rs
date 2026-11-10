@@ -1006,7 +1006,10 @@ async fn another_devices_sale_is_taken_with_its_name_and_its_receipt() {
     );
     assert!(theirs.code.has_receipt);
     assert_eq!(theirs.customer_name.as_deref(), Some("Sam"));
-    assert_eq!(theirs.pos_device(), Some(("dev_back", Some("Bar iPad"))));
+    assert_eq!(
+        theirs.pos_device(),
+        Some((&"dev_back".into(), Some("Bar iPad")))
+    );
     let mine = state.sale("ord_1").unwrap();
     assert!(mine.code.has_receipt);
     assert!(mine.receipt.is_some());

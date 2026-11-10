@@ -1106,7 +1106,7 @@ mod tests {
                         id: "DEV_FRONT".into(),
                         name: None,
                     }),
-                    names: [("DEV_FRONT".to_owned(), "Front counter".to_owned())].into(),
+                    names: [("DEV_FRONT".into(), "Front counter".to_owned())].into(),
                     ..Counters::default()
                 },
                 devices: vec!["Front counter".into()],

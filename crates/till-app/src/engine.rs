@@ -239,7 +239,7 @@ pub(crate) struct State {
     finding: Option<BTreeSet<String>>,
     /// The Clover devices whose names were asked for since the till
     /// started, named or not (core.md decision 142): each is asked once.
-    devices_asked: BTreeSet<String>,
+    devices_asked: BTreeSet<till_pos::PosDeviceId>,
     refund_sheet: Option<RefundSheet>,
     visible: bool,
     alerts_allowed: bool,
@@ -1068,7 +1068,7 @@ impl State {
             return;
         };
         let sales = p.runner.state().till.sales;
-        let unnamed: BTreeSet<String> = sales
+        let unnamed: BTreeSet<till_pos::PosDeviceId> = sales
             .iter()
             .filter_map(|sale| sale.pos_device().map(|(id, _)| id.to_owned()))
             .chain(model.counter_device.iter().map(|d| d.id.clone()))
@@ -1083,9 +1083,9 @@ impl State {
             let devices = api.devices(&merchant.id).await;
             apply(move |s| match devices {
                 Ok(devices) => {
-                    let named: Vec<(String, String)> = devices
+                    let named: Vec<(till_pos::PosDeviceId, String)> = devices
                         .iter()
-                        .filter_map(|d| d.label().map(|label| (d.id.clone(), label)))
+                        .filter_map(|d| d.label().map(|label| (d.id.as_str().into(), label)))
                         .collect();
                     let _ = s.keep(|m| m.clover_devices.extend(named));
                 }
@@ -1096,7 +1096,7 @@ impl State {
 
     /// Keeps `id` as this counter's device, and starts the till again
     /// with it.
-    fn learn_device(&mut self, id: String, name: Option<String>) {
+    fn learn_device(&mut self, id: till_pos::PosDeviceId, name: Option<String>) {
         let learned_at = self.clock.now();
         if self.keep(|m| {
             m.counter_device = Some(crate::store::CounterKept {

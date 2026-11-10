@@ -52,11 +52,9 @@ text_id!(
     /// Monokulo's id for an order: what create-order returns.
     OrderId
 );
-text_id!(
-    /// The point of sale's id for a device (a Square register, a Clover
-    /// station).
-    DeviceId
-);
+/// The point of sale's id for a device (a Square register, a Clover
+/// station): till-pos's, one type from the payment to the journal.
+pub use till_pos::PosDeviceId as DeviceId;
 
 /// One sale. Written as text in the database: `sq:<payment>` and
 /// `cl:<payment>` for a sale this till can see in its point of sale,

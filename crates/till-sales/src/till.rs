@@ -32,7 +32,7 @@ mod tests;
 /// it's found. Kept as the ledger's settings ([`Books::keep_options`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TillOptions {
-    pub device_id: Option<String>,
+    pub device_id: Option<till_pos::PosDeviceId>,
     pub every_device: bool,
     pub cash_as_monero: bool,
 }
@@ -196,7 +196,7 @@ impl Till {
 
     /// The same till, at the counter whose point-of-sale device is
     /// `device_id` (core.md decision 113), cash treated as Monero.
-    pub fn with_device_id(self, device_id: impl Into<String>) -> Till {
+    pub fn with_device_id(self, device_id: impl Into<till_pos::PosDeviceId>) -> Till {
         self.with_options(&TillOptions {
             device_id: Some(device_id.into()),
             ..TillOptions::default()
@@ -1058,7 +1058,7 @@ fn payment_seen(sale: &FoundSale) -> PaymentSeen {
             .status
             .clone()
             .unwrap_or(till_pos::PaymentStatus::Completed),
-        device_id: sale.device_id.as_deref().map(Into::into),
+        device_id: sale.device_id.clone(),
         device_name: sale.device_name.clone(),
         receipt_number: sale.reference.clone(),
         order_ref: sale.order_id.clone(),

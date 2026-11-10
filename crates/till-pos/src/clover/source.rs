@@ -192,7 +192,7 @@ impl CloverSource {
             created_at: Rfc3339Instant::from_millisecond(payment.created_time),
             updated_at: None,
             status: None,
-            device_id: payment.device.map(|d| d.id),
+            device_id: payment.device.map(|d| d.id.into()),
             device_name: None,
             cash: false,
             title,

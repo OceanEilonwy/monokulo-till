@@ -105,6 +105,12 @@ till_types::wire_enum!(
     }
 );
 
+till_types::text_id!(
+    /// The point of sale's id for a device (a Square register, a Clover
+    /// station): what took a payment, and what names a counter.
+    PosDeviceId
+);
+
 /// The idempotency key of a refund the till makes through the point of
 /// sale (decision 21): `till-refund-<payment id>`, cut to Square's 45
 /// characters. Made only from the payment, so every retry, and every till,
@@ -188,7 +194,7 @@ pub struct FoundSale {
     /// The device that took it, when the point of sale says: to show it on
     /// its own till only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub device_id: Option<String>,
+    pub device_id: Option<PosDeviceId>,
     /// What the point of sale calls that device ("Front iPad"), when it
     /// says: Square's `device_details.device_name`. Clover's payments name
     /// only the device's id.

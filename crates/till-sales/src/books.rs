@@ -326,7 +326,10 @@ impl Books {
     /// those that changed only.
     pub fn keep_options(&self, options: &TillOptions, at_ms: i64) {
         let wanted = [
-            (setting::DEVICE, options.device_id.clone()),
+            (
+                setting::DEVICE,
+                options.device_id.as_ref().map(|d| d.to_string()),
+            ),
             (
                 setting::EVERY_DEVICE,
                 Some(options.every_device.to_string()),
