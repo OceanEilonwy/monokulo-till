@@ -11,7 +11,7 @@ mod source;
 
 pub use api::{
     CloverApi, CloverDevice, CloverMerchant, CloverOrder, CloverPayment, CloverRefund,
-    CloverTender, Elements, OrderLineItem, PaymentOrder, Ref,
+    CloverTender, Elements, OrderLineItem, PaymentOrder, PaymentResult, PaymentState, Ref,
 };
 pub use auth::CloverAuth;
 pub use config::{CloverConfig, CloverEnvironment};

@@ -216,7 +216,7 @@ async fn only_completed_monero_tenders_are_sales_and_handled_ones_arent_given_ag
     );
     assert!(!sale.cash);
     assert_eq!(sale.updated_at.as_deref(), Some("2026-10-22T16:07:01.004Z"));
-    assert_eq!(sale.status.as_deref(), Some("COMPLETED"));
+    assert_eq!(sale.status.as_ref().map(|s| s.as_str()), Some("COMPLETED"));
     let cash = &sales[1];
     assert!(cash.cash);
     assert_eq!(cash.amount_minor, 2450);

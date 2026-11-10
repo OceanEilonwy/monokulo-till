@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use super::{SquareAuth, SquareConfig, answered};
-use crate::PosError;
 use crate::http;
 use crate::receipts::one_line;
+use crate::{PaymentStatus, PosError, RefundStatus};
 
 /// An amount in a currency's minor unit, as Square writes it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -27,9 +27,9 @@ pub struct SquarePayment {
     /// RFC 3339.
     #[serde(default)]
     pub updated_at: Option<String>,
-    pub status: String,
+    pub status: PaymentStatus,
     #[serde(default)]
-    pub source_type: Option<String>,
+    pub source_type: Option<SourceType>,
     pub amount_money: Money,
     #[serde(default)]
     pub total_money: Option<Money>,
@@ -44,6 +44,28 @@ pub struct SquarePayment {
     #[serde(default)]
     pub device_details: Option<Device>,
 }
+
+till_types::wire_enum!(
+    /// What a Square payment was tendered with (its `source_type`).
+    SourceType {
+        Card = "CARD",
+        BankAccount = "BANK_ACCOUNT",
+        Wallet = "WALLET",
+        BuyNowPayLater = "BUY_NOW_PAY_LATER",
+        SquareAccount = "SQUARE_ACCOUNT",
+        Cash = "CASH",
+        /// An Other tender: the Monero one, among others.
+        External = "EXTERNAL",
+    }
+);
+
+till_types::wire_enum!(
+    /// A Square location's status.
+    LocationStatus {
+        Active = "ACTIVE",
+        Inactive = "INACTIVE",
+    }
+);
 
 /// A payment's `external_details`: an Other tender's.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -186,7 +208,7 @@ pub struct SquareLocation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timezone: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub status: Option<String>,
+    pub status: Option<LocationStatus>,
 }
 
 /// A refund of a payment, as Square lists it (`GET /v2/refunds`) or
@@ -194,8 +216,7 @@ pub struct SquareLocation {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct SquareRefund {
     pub id: String,
-    /// `PENDING`, `COMPLETED`, `REJECTED` or `FAILED`.
-    pub status: String,
+    pub status: RefundStatus,
     pub amount_money: Money,
     pub payment_id: String,
     /// RFC 3339; absent from some answers.
@@ -324,7 +345,7 @@ impl SquareApi {
     pub async fn locations(&self) -> Result<Vec<SquareLocation>, PosError> {
         let url = http::url(self.config.connect_base(), &["v2", "locations"], &[]);
         let mut locations = self.get::<Locations>(&url).await?.locations;
-        locations.retain(|l| l.status.as_deref() != Some("INACTIVE"));
+        locations.retain(|l| l.status != Some(LocationStatus::Inactive));
         Ok(locations)
     }
 

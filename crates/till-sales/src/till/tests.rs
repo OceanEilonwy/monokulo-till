@@ -499,7 +499,7 @@ impl RefundByTill for FakeSource {
                 id: "rf_1".into(),
                 payment_id: sale.id.clone(),
                 amount_minor: sale.amount_minor,
-                status,
+                status: status.as_str().into(),
                 created_at: None,
             }))
     }
@@ -1230,6 +1230,31 @@ async fn a_refund_made_in_squares_own_app_is_seen_on_the_next_look() {
         "with the shift until a refund is listed, then from the newest, held at the pending one"
     );
     assert!(source.refunded().is_empty(), "the till refunded nothing");
+}
+
+/// A refund status Square adds later is kept as not yet done, so the sale
+/// isn't refunded by it, but it never holds the refunds cursor back
+/// (core.md decision 170): the next listing starts from the newest refund.
+#[tokio::test]
+async fn a_refund_status_the_till_doesnt_know_never_holds_the_cursor() {
+    let f = fixture().await;
+    let source = FakeSource::new(vec![sale()]);
+    let till = f.till(source.clone());
+    f.enqueue(order());
+    till.check().await;
+    till.on_status("ord_1", OrderStatus::of(SalePhase::Expired));
+    *source.pos_refunds.lock().unwrap() = Some(vec![
+        listed_refund("rf_1", "pay_monero", "IN_REVIEW", "2026-10-22T16:20:00Z"),
+        listed_refund("rf_card", "pay_card", "COMPLETED", "2026-10-22T16:25:00Z"),
+    ]);
+    till.check().await;
+    assert!(!only(&till).refunded(), "not known to be done");
+    till.check().await;
+    assert_eq!(
+        source.refunds_from.lock().unwrap().last().unwrap(),
+        "2026-10-22T16:23:00Z",
+        "from the newest refund, not held at the unknown one"
+    );
 }
 
 /// A payment Square changed since it was seen (its `updated_at`) replaces

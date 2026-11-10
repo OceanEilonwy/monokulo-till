@@ -77,6 +77,32 @@ pub trait RefundByTill: Send + Sync {
     async fn refund(&self, sale: &FoundSale) -> Result<Option<ListedRefund>, PosError>;
 }
 
+till_types::wire_enum!(
+    /// A payment's status as Square writes it. Only a `COMPLETED` payment
+    /// is a sale; any other, or one Square adds later
+    /// ([`Other`](PaymentStatus::Other)), is left alone.
+    PaymentStatus {
+        Approved = "APPROVED",
+        Pending = "PENDING",
+        Completed = "COMPLETED",
+        Canceled = "CANCELED",
+        Failed = "FAILED",
+    }
+);
+
+till_types::wire_enum!(
+    /// A refund's status as Square writes it. One Square adds later
+    /// ([`Other`](RefundStatus::Other)) is neither pending nor done: the
+    /// till records it as not yet done, but it never holds the refunds
+    /// listing's cursor back (core.md decision 170).
+    RefundStatus {
+        Pending = "PENDING",
+        Completed = "COMPLETED",
+        Rejected = "REJECTED",
+        Failed = "FAILED",
+    }
+);
+
 /// A refund of a payment, as the point of sale lists it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ListedRefund {
@@ -87,7 +113,7 @@ pub struct ListedRefund {
     /// In the currency's minor unit.
     pub amount_minor: i64,
     /// As the point of sale wrote it (Square's `COMPLETED`).
-    pub status: String,
+    pub status: RefundStatus,
     /// RFC 3339, when the point of sale says.
     pub created_at: Option<String>,
 }
@@ -126,7 +152,7 @@ pub struct FoundSale {
     /// The point of sale's status for the payment (Square's `COMPLETED`),
     /// when it says.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub status: Option<String>,
+    pub status: Option<PaymentStatus>,
     /// The device that took it, when the point of sale says: to show it on
     /// its own till only.
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -10,8 +10,8 @@ mod receipts;
 mod source;
 
 pub use api::{
-    Device, External, LineItem, Modifier, Money, OrderTax, SquareApi, SquareLocation, SquareOrder,
-    SquarePayment, SquareRefund,
+    Device, External, LineItem, LocationStatus, Modifier, Money, OrderTax, SourceType, SquareApi,
+    SquareLocation, SquareOrder, SquarePayment, SquareRefund,
 };
 pub use auth::SquareAuth;
 pub use config::SquareConfig;

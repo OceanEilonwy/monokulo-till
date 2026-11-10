@@ -5,10 +5,11 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use monokulo_client::{Clock, PointOfSale};
 
-use super::{Money, SquareApi, SquareConfig, SquareLocation, SquarePayment, receipt};
+use super::{Money, SourceType, SquareApi, SquareConfig, SquareLocation, SquarePayment, receipt};
 use crate::source::{OVERLAP_SECONDS, is_handled, mark_handled};
 use crate::{
-    CursorStore, FoundSale, ListedRefund, PosError, RefundByTill, Refunds, SaleOrder, SaleSource,
+    CursorStore, FoundSale, ListedRefund, PaymentStatus, PosError, RefundByTill, Refunds,
+    SaleOrder, SaleSource,
 };
 
 /// Square as a [`SaleSource`]: the till's location's payments since it
@@ -49,8 +50,8 @@ impl SquareSource {
     /// Whether `payment` is a completed Monero tender: `EXTERNAL`, its
     /// source the tender's name (trimmed, any case).
     fn is_monero(&self, payment: &SquarePayment) -> bool {
-        payment.status == "COMPLETED"
-            && payment.source_type.as_deref() == Some("EXTERNAL")
+        payment.status == PaymentStatus::Completed
+            && payment.source_type == Some(SourceType::External)
             && payment.external_details.as_ref().is_some_and(|e| {
                 e.source.trim().to_lowercase() == self.config.tender_name.trim().to_lowercase()
             })
@@ -61,7 +62,7 @@ impl SquareSource {
 /// the till offers it in Monero, or treats it as Monero, as the cashier
 /// chose.
 fn is_cash(payment: &SquarePayment) -> bool {
-    payment.status == "COMPLETED" && payment.source_type.as_deref() == Some("CASH")
+    payment.status == PaymentStatus::Completed && payment.source_type == Some(SourceType::Cash)
 }
 
 #[async_trait]

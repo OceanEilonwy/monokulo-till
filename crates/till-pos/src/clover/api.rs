@@ -52,8 +52,7 @@ pub struct CloverPayment {
     pub id: String,
     /// In the currency's minor unit; a tip is apart from it.
     pub amount: i64,
-    /// `SUCCESS`, `FAIL`, `VOIDED`, …
-    pub result: String,
+    pub result: PaymentResult,
     pub created_time: i64,
     #[serde(default)]
     pub voided: bool,
@@ -66,6 +65,37 @@ pub struct CloverPayment {
     #[serde(default)]
     pub refunds: Elements<CloverRefund>,
 }
+
+till_types::wire_enum!(
+    /// How a Clover payment ended (its `result`). Only `SUCCESS` is a sale.
+    PaymentResult {
+        Success = "SUCCESS",
+        Fail = "FAIL",
+        Initiated = "INITIATED",
+        Voided = "VOIDED",
+        Voiding = "VOIDING",
+        VoidFailed = "VOID_FAILED",
+        Auth = "AUTH",
+        AuthCompleted = "AUTH_COMPLETED",
+        Discount = "DISCOUNT",
+        OfflineRetrying = "OFFLINE_RETRYING",
+        Pending = "PENDING",
+    }
+);
+
+till_types::wire_enum!(
+    /// Where a Clover order's payment stands (its `paymentState`). Only
+    /// `REFUNDED` counts as refunded: a part refund, or a state Clover adds
+    /// later, doesn't.
+    PaymentState {
+        Open = "OPEN",
+        Paid = "PAID",
+        Refunded = "REFUNDED",
+        Credited = "CREDITED",
+        PartiallyPaid = "PARTIALLY_PAID",
+        PartiallyRefunded = "PARTIALLY_REFUNDED",
+    }
+);
 
 /// One of the merchant's Clover devices (`/devices`): what the counters
 /// menu calls a payment's device (core.md decision 142).
@@ -140,9 +170,8 @@ pub struct CloverOrder {
     /// In the currency's minor unit, tax included.
     pub total: i64,
     pub created_time: i64,
-    /// `OPEN`, `PAID`, `REFUNDED`, `PARTIALLY_REFUNDED`, …
     #[serde(default)]
-    pub payment_state: Option<String>,
+    pub payment_state: Option<PaymentState>,
     #[serde(default)]
     pub line_items: Elements<OrderLineItem>,
 }

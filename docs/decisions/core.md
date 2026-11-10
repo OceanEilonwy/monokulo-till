@@ -1574,3 +1574,26 @@ window's, in another change.)
      when the push isn't a ding for this till, else the look.
      `is_relayed_ding` and `background_check` stay, for the app and
      Android.
+
+## String typing: wire, money and POS types (2026-11-10)
+
+The words, amounts, times and ids the points of sale, Monokulo and the
+Bell send were `String`s compared with literals, three ISO 4217 tables
+disagreed, and two payment-URI strippers did. Each is now a type, read
+once at the edge, with the stored and sent text unchanged.
+
+170. **A status this build doesn't know is kept, and never holds a
+     cursor.** The words a service writes (Square's payment, refund,
+     source and location statuses; Clover's payment result and order
+     payment state; Monokulo's order status) are enums made with
+     `till_types::wire_enum!`, which keeps any other text as
+     `Other(String)` and writes it back as it came, so a saved
+     `FoundSale` or a journalled `PaymentSeen` is unchanged. Only the
+     known words act: only `COMPLETED` makes a Square sale, `SUCCESS` a
+     Clover one, `REFUNDED` a Clover refund. A Square refund status the
+     till doesn't know is recorded as pending (not done: the sale isn't
+     refunded by it), but unlike `PENDING` it doesn't hold the refunds
+     cursor (decision 163) back: a status Square adds may never turn into
+     one the till knows, and the cursor would stay there for good. A
+     Monokulo order status the till doesn't know leaves the sale waiting,
+     as `pending` does.

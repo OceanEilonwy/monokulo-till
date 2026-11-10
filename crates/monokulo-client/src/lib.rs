@@ -29,7 +29,7 @@ pub use clock::{Clock, FixedClock, SystemClock};
 pub use connect_code::ConnectCode;
 pub use connection::Connection;
 pub use error::MonokuloError;
-pub use order::Order;
+pub use order::{Order, OrderStatus};
 pub use point_of_sale::PointOfSale;
 pub use sale::{SaleEvent, SalePhase};
 pub use store::{AppConnection, Store, Wallet};

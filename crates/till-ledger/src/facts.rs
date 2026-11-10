@@ -31,8 +31,8 @@ pub struct PaymentSeen {
     pub amount_minor: i64,
     pub currency: String,
     pub tender: Tender,
-    /// The POS's status for it (Square's `COMPLETED`).
-    pub status: String,
+    /// The POS's status for it (Square's `COMPLETED`), as its text.
+    pub status: till_pos::PaymentStatus,
     #[serde(default)]
     pub device_id: Option<DeviceId>,
     #[serde(default)]
@@ -119,13 +119,16 @@ pub enum RefundStatus {
 }
 
 impl RefundStatus {
-    /// Square's status text; anything else is pending.
-    pub fn of_square(status: &str) -> RefundStatus {
+    /// The point of sale's status, as the ledger keeps it. One this build
+    /// doesn't know is kept as pending, not done (core.md decision 170).
+    pub fn of_pos(status: &till_pos::RefundStatus) -> RefundStatus {
         match status {
-            "COMPLETED" => RefundStatus::Completed,
-            "FAILED" => RefundStatus::Failed,
-            "REJECTED" => RefundStatus::Rejected,
-            _ => RefundStatus::Pending,
+            till_pos::RefundStatus::Completed => RefundStatus::Completed,
+            till_pos::RefundStatus::Failed => RefundStatus::Failed,
+            till_pos::RefundStatus::Rejected => RefundStatus::Rejected,
+            till_pos::RefundStatus::Pending | till_pos::RefundStatus::Other(_) => {
+                RefundStatus::Pending
+            }
         }
     }
 

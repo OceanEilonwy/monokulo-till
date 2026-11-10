@@ -42,6 +42,7 @@ pub use money::decimal_amount;
 pub use monokulo_client::{Clock, PointOfSale};
 pub use pkce::Pkce;
 pub use source::{
-    CursorStore, FoundSale, ListedRefund, RefundByTill, RefundInPos, Refunds, SaleOrder, SaleSource,
+    CursorStore, FoundSale, ListedRefund, PaymentStatus, RefundByTill, RefundInPos, RefundStatus,
+    Refunds, SaleOrder, SaleSource,
 };
 pub use tokens::{NoTokenLock, PosTokens, StoreError, TokenLock, TokenStore};

@@ -5,7 +5,10 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use monokulo_client::{Clock, PointOfSale};
 
-use super::{CloverApi, CloverConfig, CloverMerchant, CloverPayment, CloverTender, receipt};
+use super::{
+    CloverApi, CloverConfig, CloverMerchant, CloverPayment, CloverTender, PaymentResult,
+    PaymentState, receipt,
+};
 use crate::source::{OVERLAP_SECONDS, mark_handled};
 use crate::{
     CursorStore, FoundSale, PosError, RefundInPos, Refunds, SaleOrder, SaleSource, StoreError,
@@ -196,7 +199,7 @@ impl CloverSource {
 /// Whether `payment` is a Monero sale: it succeeded with the Monero tender,
 /// and wasn't voided, nor refunded by a refund that wasn't voided.
 fn is_monero(payment: &CloverPayment, tender_id: &str) -> bool {
-    payment.result == "SUCCESS"
+    payment.result == PaymentResult::Success
         && !payment.voided
         && payment.tender.as_ref().is_some_and(|t| t.id == tender_id)
         && payment.refunds.elements.iter().all(|r| r.voided)
@@ -265,7 +268,7 @@ impl RefundInPos for CloverSource {
     /// isn't enough.
     async fn refunded(&self, sale: &FoundSale) -> Result<bool, PosError> {
         let payment = self.api.payment(&self.merchant.id, &sale.id).await?;
-        if payment.voided || payment.result == "VOIDED" {
+        if payment.voided || payment.result == PaymentResult::Voided {
             return Ok(true);
         }
         let refunded: i64 = payment
@@ -286,6 +289,6 @@ impl RefundInPos for CloverSource {
             return Ok(false);
         };
         let order = self.api.order(&self.merchant.id, &order_id).await?;
-        Ok(order.payment_state.as_deref() == Some("REFUNDED"))
+        Ok(order.payment_state == Some(PaymentState::Refunded))
     }
 }

@@ -10,10 +10,8 @@ use crate::sale::SalePhase;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Order {
     pub order_id: String,
-    /// `pending`, `unconfirmed`, `confirming`, `paid`, `partial`, `overpaid`,
-    /// `expired` or `cancelled`.
     #[serde(default = "pending")]
-    pub status: String,
+    pub status: OrderStatus,
     #[serde(default)]
     pub is_final: bool,
     /// The subaddress to pay: this order's alone.
@@ -47,8 +45,45 @@ pub struct Order {
     pub renew: Option<String>,
 }
 
-fn pending() -> String {
-    "pending".to_owned()
+fn pending() -> OrderStatus {
+    OrderStatus::Pending
+}
+
+till_types::wire_enum!(
+    /// An order's `status`, as Monokulo writes it.
+    OrderStatus {
+        Pending = "pending",
+        Unconfirmed = "unconfirmed",
+        Confirming = "confirming",
+        Paid = "paid",
+        Overpaid = "overpaid",
+        Partial = "partial",
+        Expired = "expired",
+        Cancelled = "cancelled",
+    }
+);
+
+impl OrderStatus {
+    /// The phase it puts a sale in. A status this build doesn't know
+    /// ([`Other`](OrderStatus::Other)) leaves the sale waiting, as
+    /// `pending` does: the order's code still takes a payment, and the
+    /// next status Monokulo sends moves it on.
+    pub fn phase(&self) -> SalePhase {
+        match self {
+            OrderStatus::Unconfirmed => SalePhase::Seen,
+            OrderStatus::Confirming => SalePhase::Confirming,
+            OrderStatus::Paid | OrderStatus::Overpaid => SalePhase::Paid,
+            OrderStatus::Partial => SalePhase::Partial,
+            OrderStatus::Expired => SalePhase::Expired,
+            OrderStatus::Cancelled => SalePhase::Cancelled,
+            OrderStatus::Pending | OrderStatus::Other(_) => SalePhase::Waiting,
+        }
+    }
+
+    /// Paid more than asked.
+    pub fn overpaid(&self) -> bool {
+        *self == OrderStatus::Overpaid
+    }
 }
 
 impl Order {
@@ -64,20 +99,12 @@ impl Order {
 
     /// The phase it puts a sale in.
     pub fn phase(&self) -> SalePhase {
-        Order::phase_of(&self.status)
+        self.status.phase()
     }
 
-    /// The phase an order's `status` puts a sale in. A status this build
-    /// doesn't know is still waiting.
+    /// The phase an order's `status` text puts a sale in
+    /// ([`OrderStatus::phase`]).
     pub fn phase_of(status: &str) -> SalePhase {
-        match status {
-            "unconfirmed" => SalePhase::Seen,
-            "confirming" => SalePhase::Confirming,
-            "paid" | "overpaid" => SalePhase::Paid,
-            "partial" => SalePhase::Partial,
-            "expired" => SalePhase::Expired,
-            "cancelled" => SalePhase::Cancelled,
-            _ => SalePhase::Waiting,
-        }
+        OrderStatus::from(status).phase()
     }
 }

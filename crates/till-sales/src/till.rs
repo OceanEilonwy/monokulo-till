@@ -391,10 +391,14 @@ impl Till {
                 .created_at
                 .as_deref()
                 .and_then(till_pos::time::unix_seconds);
-            let status = RefundStatus::of_square(&refund.status);
+            let status = RefundStatus::of_pos(&refund.status);
             if let Some(at) = at {
                 newest = newest.max(Some(at));
-                if status == RefundStatus::Pending {
+                // Only a refund Square says is pending holds the cursor: one
+                // whose status this build doesn't know may never change to
+                // one it does, and would hold it there for good (core.md
+                // decision 170).
+                if refund.status == till_pos::RefundStatus::Pending {
                     pending = Some(pending.map_or(at, |p| p.min(at)));
                 }
             }
@@ -604,7 +608,7 @@ impl Till {
             confirmations: order.confirmations.or(stepped(order.phase())),
             is_final: order.is_final,
             received: None,
-            overpaid: order.status == "overpaid",
+            overpaid: order.status.overpaid(),
             quote: Some(Quote {
                 expires_at: order.expires_at,
                 piconero: order.piconero,
@@ -950,7 +954,7 @@ impl Till {
                 // gives it to every till; its idempotency key when it
                 // answered without one.
                 let (refund_id, status) = match made {
-                    Some(made) => (made.id, RefundStatus::of_square(&made.status)),
+                    Some(made) => (made.id, RefundStatus::of_pos(&made.status)),
                     None => (refund_key(&found), RefundStatus::Completed),
                 };
                 self.record(Fact::PosRefundSeen(RefundSeen {
@@ -1053,7 +1057,10 @@ fn payment_seen(sale: &FoundSale) -> PaymentSeen {
         } else {
             Tender::Monero
         },
-        status: sale.status.clone().unwrap_or_else(|| "COMPLETED".into()),
+        status: sale
+            .status
+            .clone()
+            .unwrap_or(till_pos::PaymentStatus::Completed),
         device_id: sale.device_id.as_deref().map(Into::into),
         device_name: sale.device_name.clone(),
         receipt_number: sale.reference.clone(),

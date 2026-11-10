@@ -139,7 +139,7 @@ pub(crate) fn facts_of_shift(json: &str) -> Result<Vec<ImportedSale>, LedgerErro
                     } else {
                         Tender::Monero
                     },
-                    status: "COMPLETED".into(),
+                    status: till_pos::PaymentStatus::Completed,
                     device_id: found.device_id.as_deref().map(DeviceId::from),
                     device_name: found.device_name.clone(),
                     receipt_number: found.reference.clone(),
