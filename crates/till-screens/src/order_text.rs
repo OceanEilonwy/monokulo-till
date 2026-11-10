@@ -149,6 +149,18 @@ pub struct OrderCard {
     pub foot: String,
     /// "13.88 USD".
     pub total: String,
+    /// A long order on a live sale folds to one row that opens the whole
+    /// order (the design's Q6), instead of three lines and "+N more".
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub folded: Option<FoldedOrder>,
+}
+
+/// A long order as one row: "Order · 15 items" and its total.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct FoldedOrder {
+    pub label: String,
+    pub total: String,
 }
 
 /// `receipt`'s card, named by `pos`: on a live sale (`live`) a long order
@@ -171,6 +183,10 @@ pub fn order_card(receipt: &Receipt, pos: Option<PointOfSale>, live: bool) -> Or
         more: (more > 0).then(|| format!("+{more} more")),
         foot: sale_text::tax(receipt).unwrap_or_else(|| "Total".into()),
         total: sale_text::total(receipt),
+        folded: (more > 0).then(|| FoldedOrder {
+            label: format!("Order · {}", sale_text::items(receipt)),
+            total: sale_text::total(receipt),
+        }),
     }
 }
 
@@ -511,5 +527,10 @@ mod tests {
         assert_eq!(card.foot, "Total");
         assert_eq!(order_card(&eight, None, false).lines.len(), 8);
         assert_eq!(order_card(&eight, None, false).more, None);
+        // A long live order folds to one row; a short one, or a page, never.
+        let folded = card.folded.expect("a long live order folds");
+        assert!(folded.label.starts_with("Order · "), "{}", folded.label);
+        assert_eq!(folded.total, sale_text::total(&eight));
+        assert_eq!(order_card(&eight, None, false).folded, None);
     }
 }

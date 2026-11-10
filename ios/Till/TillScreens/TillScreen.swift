@@ -60,6 +60,22 @@ struct TillScreen: View {
                     .presentationBackground(Palette.ground)
             }
         }
+        // The whole order, as a dialog beside the sales (the design's Q6b);
+        // under compact width it's a page in the stack.
+        .sheet(isPresented: orderUp) {
+            if case .order(let orderId) = route {
+                NavigationStack {
+                    OrderDetail(core: core, orderId: orderId, send: send)
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") { core.send(.back) }
+                            }
+                        }
+                }
+                .presentationDetents([.large])
+                .presentationBackground(Palette.ground)
+            }
+        }
         .fullScreenCover(isPresented: codeUp) {
             if let sale = core.sale {
                 CodeScreen(view: sale.code, send: send, phone: sizeClass != .regular)
@@ -106,6 +122,20 @@ struct TillScreen: View {
             set: { up in
                 // Swiped down: Settings goes back as Done would.
                 if !up && route == .settings { core.send(.back) }
+            }
+        )
+    }
+
+    /// The whole order's dialog: up while the engine shows it and the sales
+    /// sit beside the sale (regular width).
+    private var orderUp: Binding<Bool> {
+        Binding(
+            get: {
+                guard sizeClass == .regular && hasSales, case .order = route else { return false }
+                return true
+            },
+            set: { up in
+                if !up, case .order = route { core.send(.back) }
             }
         )
     }
@@ -219,10 +249,8 @@ struct TillScreen: View {
 
     private var detailPath: Binding<[Route]> {
         Binding(
-            get: {
-                if case .order(let orderId) = shown { return [.order(orderId: orderId)] }
-                return []
-            },
+            // The order is a dialog here (``orderUp``), never a page.
+            get: { [] },
             set: { path in
                 if path.isEmpty, case .order = route { core.send(.back) }
             }
@@ -268,19 +296,19 @@ struct SaleDetail: View {
                 SalePageScreen(
                     orderId: orderId, page: sale.page, paid: SalePageScreen.isPaid(sale.view),
                     celebrate: celebrate, send: send,
-                    backToSquare: backToSquare(paid: SalePageScreen.isPaid(sale.view))
+                    backToSquare: backToSquare
                 )
             } else {
-                SaleScreen(orderId: orderId, view: sale.view, send: send)
+                SaleScreen(orderId: orderId, view: sale.view, send: send, returnToSquare: backToSquare)
             }
         } else {
             TillLoading()
         }
     }
 
-    /// Paid's Back to Square (A3), when it's offered.
-    private func backToSquare(paid: Bool) -> (@MainActor @Sendable () -> Void)? {
-        guard paid, BackToSquare.shown(core) else { return nil }
+    /// Return to Square in the toolbar of every state, when it's offered.
+    private var backToSquare: (@MainActor @Sendable () -> Void)? {
+        guard BackToSquare.shown(core) else { return nil }
         let core = core
         return { @MainActor @Sendable in BackToSquare.open(core) }
     }

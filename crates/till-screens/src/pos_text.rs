@@ -390,11 +390,11 @@ pub fn receipt_label(pos: Option<PointOfSale>, receipt_id: &str) -> String {
     }
 }
 
-/// The live sale's button back to the point-of-sale app on this phone
-/// (Android only: iOS can't open Square, docs/ios-plan.md §4).
+/// The button that returns to the point-of-sale app on this device, "Return
+/// to Square" (core.md decision 170; "Back to" before).
 pub fn back_to(pos: Option<PointOfSale>) -> String {
     format!(
-        "Back to {}",
+        "Return to {}",
         pos.map_or("the till", PointOfSale::display_name)
     )
 }
@@ -633,6 +633,6 @@ mod tests {
             "Clover order 7F3KQ2MA"
         );
         assert_eq!(receipt_label(None, "bP9m"), "Receipt bP9m");
-        assert_eq!(back_to(Some(SQUARE)), "Back to Square");
+        assert_eq!(back_to(Some(SQUARE)), "Return to Square");
     }
 }

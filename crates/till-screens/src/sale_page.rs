@@ -1060,7 +1060,7 @@ mod tests {
         let sale = sale_of("paidHere").build();
         assert_eq!(
             sale_page(&input(sale.clone()), la(at), &money).back_to,
-            "Back to Square"
+            "Return to Square"
         );
         let clover_till = SalePageInput {
             till: CLOVER,
