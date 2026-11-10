@@ -1027,10 +1027,7 @@ fn stepped(phase: SalePhase) -> Option<u32> {
 /// The idempotency key of a refund made through the POS (decision 21): the
 /// refund's id in the ledger.
 fn refund_key(found: &FoundSale) -> String {
-    format!("till-refund-{}", found.id)
-        .chars()
-        .take(45)
-        .collect()
+    till_pos::RefundKey::for_payment(&found.id).to_string()
 }
 
 /// Where the till's place in `pos`'s refunds listing is kept in the ledger.

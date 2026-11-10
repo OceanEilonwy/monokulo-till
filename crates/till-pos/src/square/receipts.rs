@@ -87,7 +87,7 @@ pub fn receipt(
             receipt_id: sale
                 .reference
                 .clone()
-                .unwrap_or_else(|| take_last(&order.id, 8)),
+                .unwrap_or_else(|| take_last(order.id.as_str(), 8)),
             issue_timestamp: receipt_timestamp(created, location.timezone.as_deref()),
             receipt_type: ReceiptType::Sale,
             status: None,

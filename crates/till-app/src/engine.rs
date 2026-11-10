@@ -767,7 +767,11 @@ impl State {
             Action::SignIn { application_id } => self.sign_in(application_id),
             Action::SignInReturned { url } => self.sign_in_returned(&url),
             Action::ChooseLocation { location_id } => {
-                if let Some(location) = self.locations.iter().find(|l| l.id == location_id).cloned()
+                if let Some(location) = self
+                    .locations
+                    .iter()
+                    .find(|l| l.id.as_str() == location_id)
+                    .cloned()
                 {
                     self.choose_location(location);
                 }
@@ -2589,7 +2593,16 @@ async fn finish_clover(
             m.clover_application_id = Some(through.clone()).filter(|id| *id != build);
         }
     });
-    let merchant = side.clover_api().merchant(&tokens.merchant_id).await?;
+    // The sign-in checked it: the merchant's id as `finish` read it.
+    let merchant_id =
+        till_pos::clover::CloverMerchantId::new(&tokens.merchant_id).ok_or_else(|| {
+            PosError::answered(
+                PointOfSale::Clover,
+                0,
+                "Clover didn't say which merchant signed in. Try again.",
+            )
+        })?;
+    let merchant = side.clover_api().merchant(&merchant_id).await?;
     side.update(|m| {
         m.clover_merchant = Some(merchant.clone());
         m.point_of_sale = Some(PointOfSale::Clover);

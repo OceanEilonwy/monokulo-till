@@ -42,7 +42,7 @@ pub use monokulo_client::{Clock, PointOfSale};
 pub use pkce::Pkce;
 pub use source::{
     CursorStore, FoundSale, HandledMarker, ListedRefund, PaymentStatus, RefundByTill, RefundInPos,
-    RefundStatus, Refunds, SaleOrder, SaleSource,
+    RefundKey, RefundStatus, Refunds, SaleOrder, SaleSource,
 };
 pub use till_types::{CurrencyCode, Money};
 pub use time::Rfc3339Instant;

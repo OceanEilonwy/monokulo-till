@@ -12,12 +12,65 @@ use super::{CloverAuth, CloverConfig, clover_error, retry_after};
 use crate::PosError;
 use crate::http;
 
+/// A Clover merchant's id: letters and digits, 13 in practice and at most
+/// 64 here, since it goes into every `/v3` path. Read only through
+/// [`CloverMerchantId::new`], which refuses anything else; serialized as
+/// the bare id.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct CloverMerchantId(String);
+
+impl CloverMerchantId {
+    /// `id`, when it's a merchant id.
+    pub fn new(id: &str) -> Option<CloverMerchantId> {
+        ((1..=64).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_alphanumeric()))
+            .then(|| CloverMerchantId(id.to_owned()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for CloverMerchantId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl TryFrom<String> for CloverMerchantId {
+    type Error = String;
+
+    fn try_from(id: String) -> Result<CloverMerchantId, String> {
+        CloverMerchantId::new(&id).ok_or_else(|| format!("{id:?} isn't a Clover merchant id"))
+    }
+}
+
+impl From<CloverMerchantId> for String {
+    fn from(id: CloverMerchantId) -> String {
+        id.0
+    }
+}
+
+till_types::text_id!(
+    /// A Clover tender's id: the Monero tender's, at one merchant.
+    CloverTenderId
+);
+till_types::text_id!(
+    /// A Clover payment's id.
+    CloverPaymentId
+);
+till_types::text_id!(
+    /// A Clover order's id.
+    CloverOrderId
+);
+
 /// The Clover merchant the till signed in at: its name for the receipt,
 /// and the currency and time zone its payments and orders are in
 /// (`/properties`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloverMerchant {
-    pub id: String,
+    pub id: CloverMerchantId,
     pub name: String,
     /// The merchant's `defaultCurrency`.
     pub currency: CurrencyCode,
@@ -32,7 +85,7 @@ pub struct CloverMerchant {
 /// One of the merchant's tenders (payment types).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloverTender {
-    pub id: String,
+    pub id: CloverTenderId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     #[serde(default = "yes")]
@@ -50,7 +103,7 @@ fn yes() -> bool {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CloverPayment {
-    pub id: String,
+    pub id: CloverPaymentId,
     /// In the currency's minor unit; a tip is apart from it.
     pub amount: i64,
     pub result: PaymentResult,
@@ -147,7 +200,7 @@ pub struct Ref {
 /// ("Table 4").
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct PaymentOrder {
-    pub id: String,
+    pub id: CloverOrderId,
     #[serde(default)]
     pub title: Option<String>,
 }
@@ -165,7 +218,7 @@ pub struct CloverRefund {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CloverOrder {
-    pub id: String,
+    pub id: CloverOrderId,
     #[serde(default)]
     pub currency: Option<String>,
     /// In the currency's minor unit, tax included.
@@ -264,11 +317,14 @@ impl CloverApi {
     /// The merchant, with its address, then its properties. An answer for
     /// another merchant means signing in again; one with no currency is
     /// refused.
-    pub async fn merchant(&self, merchant_id: &str) -> Result<CloverMerchant, PosError> {
+    pub async fn merchant(
+        &self,
+        merchant_id: &CloverMerchantId,
+    ) -> Result<CloverMerchant, PosError> {
         let merchant: Merchant = self
             .get(&self.url(merchant_id, &[], &[("expand", "address")]))
             .await?;
-        if merchant.id != merchant_id {
+        if merchant.id != merchant_id.as_str() {
             return Err(PosError::sign_in(
                 PointOfSale::Clover,
                 0,
@@ -289,7 +345,7 @@ impl CloverApi {
                 )
             })?;
         Ok(CloverMerchant {
-            id: merchant.id,
+            id: merchant_id.clone(),
             name: merchant
                 .name
                 .filter(|n| !n.trim().is_empty())
@@ -304,7 +360,10 @@ impl CloverApi {
     }
 
     /// The merchant's tenders.
-    pub async fn tenders(&self, merchant_id: &str) -> Result<Vec<CloverTender>, PosError> {
+    pub async fn tenders(
+        &self,
+        merchant_id: &CloverMerchantId,
+    ) -> Result<Vec<CloverTender>, PosError> {
         let url = self.url(merchant_id, &["tenders"], &[("limit", "1000")]);
         Ok(self.get::<Elements<CloverTender>>(&url).await?.elements)
     }
@@ -314,7 +373,7 @@ impl CloverApi {
     /// It opens no cash drawer and takes no tips. Needs Merchant write.
     pub async fn create_tender(
         &self,
-        merchant_id: &str,
+        merchant_id: &CloverMerchantId,
         label: &str,
     ) -> Result<CloverTender, PosError> {
         let body = json!({
@@ -338,8 +397,8 @@ impl CloverApi {
     /// [`MAX_PAGES`](Self::MAX_PAGES).
     pub async fn payments(
         &self,
-        merchant_id: &str,
-        tender_id: &str,
+        merchant_id: &CloverMerchantId,
+        tender_id: &CloverTenderId,
         since_ms: i64,
     ) -> Result<Vec<CloverPayment>, PosError> {
         let mut all = Vec::new();
@@ -373,12 +432,12 @@ impl CloverApi {
     /// One payment, with its tender, order and refunds.
     pub async fn payment(
         &self,
-        merchant_id: &str,
-        payment_id: &str,
+        merchant_id: &CloverMerchantId,
+        payment_id: &CloverPaymentId,
     ) -> Result<CloverPayment, PosError> {
         let url = self.url(
             merchant_id,
-            &["payments", payment_id],
+            &["payments", payment_id.as_str()],
             &[("expand", "tender,order,refunds")],
         );
         self.get(&url).await
@@ -387,16 +446,23 @@ impl CloverApi {
     /// The merchant's devices, for their names. Clover's devices endpoint
     /// needs Merchant read, which the till already asks for (the merchant's
     /// name and currency come from it).
-    pub async fn devices(&self, merchant_id: &str) -> Result<Vec<CloverDevice>, PosError> {
+    pub async fn devices(
+        &self,
+        merchant_id: &CloverMerchantId,
+    ) -> Result<Vec<CloverDevice>, PosError> {
         let url = self.url(merchant_id, &["devices"], &[("limit", "1000")]);
         Ok(self.get::<Elements<CloverDevice>>(&url).await?.elements)
     }
 
     /// One order, with its line items.
-    pub async fn order(&self, merchant_id: &str, order_id: &str) -> Result<CloverOrder, PosError> {
+    pub async fn order(
+        &self,
+        merchant_id: &CloverMerchantId,
+        order_id: &CloverOrderId,
+    ) -> Result<CloverOrder, PosError> {
         let url = self.url(
             merchant_id,
-            &["orders", order_id],
+            &["orders", order_id.as_str()],
             &[("expand", "lineItems")],
         );
         self.get(&url).await
@@ -417,8 +483,8 @@ impl CloverApi {
             })
     }
 
-    fn url(&self, merchant_id: &str, path: &[&str], query: &[(&str, &str)]) -> String {
-        let mut segments = vec!["v3", "merchants", merchant_id];
+    fn url(&self, merchant_id: &CloverMerchantId, path: &[&str], query: &[(&str, &str)]) -> String {
+        let mut segments = vec!["v3", "merchants", merchant_id.as_str()];
         segments.extend_from_slice(path);
         http::url(self.config.api_base(), &segments, query)
     }

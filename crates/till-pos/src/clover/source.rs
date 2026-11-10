@@ -6,8 +6,8 @@ use async_trait::async_trait;
 use monokulo_client::{Clock, PointOfSale};
 
 use super::{
-    CloverApi, CloverConfig, CloverMerchant, CloverPayment, CloverTender, PaymentResult,
-    PaymentState, receipt,
+    CloverApi, CloverConfig, CloverMerchant, CloverMerchantId, CloverOrderId, CloverPayment,
+    CloverPaymentId, CloverTender, CloverTenderId, PaymentResult, PaymentState, receipt,
 };
 use crate::source::{OVERLAP_SECONDS, mark_handled};
 use crate::time::Rfc3339Instant;
@@ -21,9 +21,12 @@ pub trait TenderStore: Send + Sync {
     /// The tender's id at `merchant_id`, if one is remembered. A store that
     /// can't tell says so: taking that for "none" would look the tender up
     /// again, and could make a second one in Clover.
-    fn tender_id(&self, merchant_id: &str) -> Result<Option<String>, StoreError>;
+    fn tender_id(
+        &self,
+        merchant_id: &CloverMerchantId,
+    ) -> Result<Option<CloverTenderId>, StoreError>;
     /// Remembers `tender_id` at `merchant_id`; `None` forgets it.
-    fn save(&self, merchant_id: &str, tender_id: Option<&str>);
+    fn save(&self, merchant_id: &CloverMerchantId, tender_id: Option<&CloverTenderId>);
 }
 
 /// What the Monero tender is at the merchant, as the sign-in card shows it.
@@ -164,7 +167,9 @@ impl CloverSource {
             .payments(merchant, &tender_id, from_ms)
             .await?
             .into_iter()
-            .filter(|p| is_monero(p, &tender_id) && !handled.iter().any(|m| m.matches(&p.id, None)))
+            .filter(|p| {
+                is_monero(p, &tender_id) && !handled.iter().any(|m| m.matches(p.id.as_str(), None))
+            })
             .collect();
         payments.sort_by_key(|p| p.created_time);
         Ok(payments.into_iter().map(|p| self.found_sale(p)).collect())
@@ -172,11 +177,14 @@ impl CloverSource {
 
     fn found_sale(&self, payment: CloverPayment) -> FoundSale {
         let (order_id, title) = match payment.order {
-            Some(order) => (Some(order.id), order.title.filter(|t| !t.trim().is_empty())),
+            Some(order) => (
+                Some(order.id.0),
+                order.title.filter(|t| !t.trim().is_empty()),
+            ),
             None => (None, None),
         };
         FoundSale {
-            id: payment.id,
+            id: payment.id.0,
             amount: till_types::Money::new(payment.amount, self.merchant.currency),
             // Clover prints no receipt number on a payment (acceptance D7).
             reference: None,
@@ -195,10 +203,13 @@ impl CloverSource {
 
 /// Whether `payment` is a Monero sale: it succeeded with the Monero tender,
 /// and wasn't voided, nor refunded by a refund that wasn't voided.
-fn is_monero(payment: &CloverPayment, tender_id: &str) -> bool {
+fn is_monero(payment: &CloverPayment, tender_id: &CloverTenderId) -> bool {
     payment.result == PaymentResult::Success
         && !payment.voided
-        && payment.tender.as_ref().is_some_and(|t| t.id == tender_id)
+        && payment
+            .tender
+            .as_ref()
+            .is_some_and(|t| t.id == tender_id.as_str())
         && payment.refunds.elements.iter().all(|r| r.voided)
 }
 
@@ -242,7 +253,10 @@ impl SaleSource for CloverSource {
         if self.merchant.country.is_none() {
             return Ok(SaleOrder::default());
         }
-        let order = self.api.order(&self.merchant.id, order_id).await?;
+        let order = self
+            .api
+            .order(&self.merchant.id, &CloverOrderId::new(order_id.as_str()))
+            .await?;
         Ok(SaleOrder {
             receipt: receipt(&order, &self.merchant, sale),
             customer_name: None,
@@ -264,7 +278,10 @@ impl RefundInPos for CloverSource {
     /// payment was voided, or its order reads `REFUNDED`. A part refund
     /// isn't enough.
     async fn refunded(&self, sale: &FoundSale) -> Result<bool, PosError> {
-        let payment = self.api.payment(&self.merchant.id, &sale.id).await?;
+        let payment = self
+            .api
+            .payment(&self.merchant.id, &CloverPaymentId::new(sale.id.as_str()))
+            .await?;
         if payment.voided || payment.result == PaymentResult::Voided {
             return Ok(true);
         }
@@ -281,6 +298,7 @@ impl RefundInPos for CloverSource {
         let Some(order_id) = sale
             .order_id
             .clone()
+            .map(CloverOrderId::new)
             .or_else(|| payment.order.map(|o| o.id))
         else {
             return Ok(false);

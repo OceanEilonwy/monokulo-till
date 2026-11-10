@@ -10,7 +10,24 @@ use super::{SquareAuth, SquareConfig, answered};
 use crate::http;
 use crate::receipts::one_line;
 use crate::time::Rfc3339Instant;
-use crate::{PaymentStatus, PosError, RefundStatus};
+use crate::{PaymentStatus, PosError, RefundKey, RefundStatus};
+
+till_types::text_id!(
+    /// Square's id for a payment.
+    SquarePaymentId
+);
+till_types::text_id!(
+    /// Square's id for a location.
+    SquareLocationId
+);
+till_types::text_id!(
+    /// Square's id for an order.
+    SquareOrderId
+);
+till_types::text_id!(
+    /// Square's id for a refund.
+    SquareRefundId
+);
 
 /// An amount in a currency's minor unit, as Square writes it. The
 /// currency stays Square's text here: one that isn't a code is dropped
@@ -34,7 +51,7 @@ impl Money {
 /// The parts of a Square payment the till reads.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct SquarePayment {
-    pub id: String,
+    pub id: SquarePaymentId,
     pub created_at: Rfc3339Instant,
     /// When Square last changed the payment (a refund, a status change).
     #[serde(default)]
@@ -46,9 +63,9 @@ pub struct SquarePayment {
     #[serde(default)]
     pub total_money: Option<Money>,
     #[serde(default)]
-    pub location_id: Option<String>,
+    pub location_id: Option<SquareLocationId>,
     #[serde(default)]
-    pub order_id: Option<String>,
+    pub order_id: Option<SquareOrderId>,
     #[serde(default)]
     pub receipt_number: Option<String>,
     #[serde(default)]
@@ -101,8 +118,8 @@ pub struct Device {
 /// The parts of a Square order a receipt is made from.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct SquareOrder {
-    pub id: String,
-    pub location_id: String,
+    pub id: SquareOrderId,
+    pub location_id: SquareLocationId,
     /// RFC 3339, kept as text: an order whose time can't be read costs the
     /// sale only its receipt ([`receipt`](super::receipt)), never its read.
     pub created_at: String,
@@ -212,7 +229,7 @@ impl SquareOrder {
 /// A Square location: where the till takes payments.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SquareLocation {
-    pub id: String,
+    pub id: SquareLocationId,
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub business_name: Option<String>,
@@ -229,17 +246,17 @@ pub struct SquareLocation {
 /// answers a refund with.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct SquareRefund {
-    pub id: String,
+    pub id: SquareRefundId,
     pub status: RefundStatus,
     pub amount_money: Money,
-    pub payment_id: String,
+    pub payment_id: SquarePaymentId,
     /// Absent from some answers.
     #[serde(default)]
     pub created_at: Option<Rfc3339Instant>,
     #[serde(default)]
     pub updated_at: Option<Rfc3339Instant>,
     #[serde(default)]
-    pub location_id: Option<String>,
+    pub location_id: Option<SquareLocationId>,
 }
 
 #[derive(Deserialize)]
@@ -293,14 +310,14 @@ impl SquareApi {
     /// first: page after page until Square gives no cursor.
     pub async fn payments(
         &self,
-        location_id: &str,
+        location_id: &SquareLocationId,
         begin_time: &Rfc3339Instant,
     ) -> Result<Vec<SquarePayment>, PosError> {
         let mut all = Vec::new();
         let mut cursor: Option<String> = None;
         loop {
             let mut query = vec![
-                ("location_id", location_id),
+                ("location_id", location_id.as_str()),
                 ("begin_time", begin_time.as_str()),
                 ("sort_order", "ASC"),
                 ("limit", "100"),
@@ -324,14 +341,14 @@ impl SquareApi {
     /// them needs only `PAYMENTS_READ`.
     pub async fn refunds(
         &self,
-        location_id: &str,
+        location_id: &SquareLocationId,
         begin_time: &Rfc3339Instant,
     ) -> Result<Vec<SquareRefund>, PosError> {
         let mut all = Vec::new();
         let mut cursor: Option<String> = None;
         loop {
             let mut query = vec![
-                ("location_id", location_id),
+                ("location_id", location_id.as_str()),
                 ("begin_time", begin_time.as_str()),
                 ("sort_order", "ASC"),
                 ("limit", "100"),
@@ -350,8 +367,12 @@ impl SquareApi {
     }
 
     /// One order.
-    pub async fn order(&self, order_id: &str) -> Result<SquareOrder, PosError> {
-        let url = http::url(self.config.connect_base(), &["v2", "orders", order_id], &[]);
+    pub async fn order(&self, order_id: &SquareOrderId) -> Result<SquareOrder, PosError> {
+        let url = http::url(
+            self.config.connect_base(),
+            &["v2", "orders", order_id.as_str()],
+            &[],
+        );
         Ok(self.get::<OrderResult>(&url).await?.order)
     }
 
@@ -367,14 +388,14 @@ impl SquareApi {
     /// once. The refund as Square answered with it, when it did.
     pub async fn refund(
         &self,
-        payment_id: &str,
+        payment_id: &SquarePaymentId,
         amount: &Money,
-        idempotency_key: &str,
+        idempotency_key: &RefundKey,
         reason: &str,
     ) -> Result<Option<SquareRefund>, PosError> {
         let url = http::url(self.config.connect_base(), &["v2", "refunds"], &[]);
         let body = json!({
-            "idempotency_key": idempotency_key,
+            "idempotency_key": idempotency_key.as_str(),
             "payment_id": payment_id,
             "amount_money": {"amount": amount.amount, "currency": amount.currency},
             "reason": reason,

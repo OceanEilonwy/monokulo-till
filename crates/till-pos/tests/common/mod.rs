@@ -132,15 +132,22 @@ impl MemoryTenders {
 
 #[cfg(feature = "clover")]
 impl till_pos::clover::TenderStore for MemoryTenders {
-    fn tender_id(&self, merchant_id: &str) -> Result<Option<String>, StoreError> {
-        Ok(self.id(merchant_id))
+    fn tender_id(
+        &self,
+        merchant_id: &till_pos::clover::CloverMerchantId,
+    ) -> Result<Option<till_pos::clover::CloverTenderId>, StoreError> {
+        Ok(self.id(merchant_id.as_str()).map(Into::into))
     }
 
-    fn save(&self, merchant_id: &str, tender_id: Option<&str>) {
+    fn save(
+        &self,
+        merchant_id: &till_pos::clover::CloverMerchantId,
+        tender_id: Option<&till_pos::clover::CloverTenderId>,
+    ) {
         let mut ids = self.0.lock().unwrap();
         match tender_id {
-            Some(id) => ids.insert(merchant_id.into(), id.into()),
-            None => ids.remove(merchant_id),
+            Some(id) => ids.insert(merchant_id.to_string(), id.to_string()),
+            None => ids.remove(merchant_id.as_str()),
         };
     }
 }
@@ -192,11 +199,18 @@ impl CursorStore for Unreadable {
 
 #[cfg(feature = "clover")]
 impl till_pos::clover::TenderStore for Unreadable {
-    fn tender_id(&self, _: &str) -> Result<Option<String>, StoreError> {
+    fn tender_id(
+        &self,
+        _: &till_pos::clover::CloverMerchantId,
+    ) -> Result<Option<till_pos::clover::CloverTenderId>, StoreError> {
         self.refused()
     }
 
-    fn save(&self, _: &str, _: Option<&str>) {
+    fn save(
+        &self,
+        _: &till_pos::clover::CloverMerchantId,
+        _: Option<&till_pos::clover::CloverTenderId>,
+    ) {
         self.saved();
     }
 }

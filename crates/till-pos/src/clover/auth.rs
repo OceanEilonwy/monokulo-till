@@ -6,7 +6,7 @@ use monokulo_client::{Clock, PointOfSale};
 use serde::Deserialize;
 use serde_json::json;
 
-use super::{CloverConfig, clover_error, retry_after};
+use super::{CloverConfig, CloverMerchantId, clover_error, retry_after};
 use crate::http;
 use crate::tokens::{hold, no_lock};
 use crate::{Pkce, PosError, PosTokens, StoreError, TokenLock, TokenStore};
@@ -126,11 +126,11 @@ impl CloverAuth {
                 "Clover didn't say which merchant signed in. Try again.".into(),
             ));
         };
-        if !is_merchant_id(merchant_id) {
+        let Some(merchant_id) = CloverMerchantId::new(merchant_id) else {
             return Err(refused(
                 "Clover didn't say which merchant signed in. Try again.".into(),
             ));
-        }
+        };
         let answer = self
             .token(
                 "oauth/v2/token",
@@ -141,7 +141,7 @@ impl CloverAuth {
                 }),
             )
             .await?;
-        let tokens = self.tokens(answer, merchant_id);
+        let tokens = self.tokens(answer, merchant_id.as_str());
         let _turn = self.turn.lock().await;
         let _held = hold(&self.lock).await?;
         self.store.save(Some(tokens.clone()));
@@ -282,10 +282,4 @@ impl CloverAuth {
             )
         })
     }
-}
-
-/// A Clover merchant id: 13 letters and digits in practice, and at most 64
-/// here. It goes into every `/v3` path.
-pub(crate) fn is_merchant_id(id: &str) -> bool {
-    (1..=64).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_alphanumeric())
 }

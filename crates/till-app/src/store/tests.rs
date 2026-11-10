@@ -141,7 +141,7 @@ fn every_key_stores_kt_writes_reads_into_the_model() {
         model.clover_base_url.as_deref(),
         Some("http://10.0.2.2:8082")
     );
-    assert_eq!(model.clover_merchant.as_ref().unwrap().id, "MID1");
+    assert_eq!(model.clover_merchant.as_ref().unwrap().id.as_str(), "MID1");
     assert_eq!(model.place_name().as_deref(), Some("Lumen"));
 
     let log = quiet();
@@ -167,9 +167,10 @@ fn every_key_stores_kt_writes_reads_into_the_model() {
     assert_eq!(handled, ["pay_1", "pay_2"]);
     assert_eq!(
         Tenders::new(s.clone(), log.clone())
-            .tender_id("MID1")
+            .tender_id(&mid1())
             .unwrap()
-            .as_deref(),
+            .as_ref()
+            .map(|t| t.as_str()),
         Some("TND1")
     );
     let shift = s.shift_sales().unwrap();
@@ -197,7 +198,7 @@ fn the_model_writes_every_key_back_as_stores_kt_wrote_it() {
         PosCursor::new(write.clone(), pos, log.clone())
             .save(&from.since().unwrap().unwrap(), &from.handled().unwrap());
     }
-    Tenders::new(write.clone(), log.clone()).save("MID1", Some("TND1"));
+    Tenders::new(write.clone(), log.clone()).save(&mid1(), Some(&"TND1".into()));
     write.set_shift_sales(&read.shift_sales().unwrap()).unwrap();
 
     assert_eq!(rust.all(), kotlin.all(), "byte for byte, and no key more");
@@ -448,11 +449,14 @@ fn what_is_read_through_says_when_it_couldnt_be_read() {
     assert!(s.shift_sales().is_err());
     assert!(cursor.since().is_err());
     assert!(cursor.handled().is_err());
-    assert!(tenders.tender_id("MID1").is_err());
+    assert!(tenders.tender_id(&mid1()).is_err());
     assert_eq!(lines.lock().unwrap().len(), 3, "each logged");
     platform.fail(false);
     assert_eq!(s.shift_sales().unwrap().len(), 1, "and all still there");
-    assert_eq!(tenders.tender_id("MID1").unwrap().as_deref(), Some("TND1"));
+    assert_eq!(
+        tenders.tender_id(&mid1()).unwrap().map(|t| t.0),
+        Some("TND1".to_owned())
+    );
 }
 
 #[test]
@@ -487,4 +491,8 @@ fn a_sign_in_that_cant_be_read_is_an_error_never_signed_out() {
         tokens.load().unwrap().is_some(),
         "and nothing was saved over it"
     );
+}
+
+fn mid1() -> till_pos::clover::CloverMerchantId {
+    till_pos::clover::CloverMerchantId::new("MID1").unwrap()
 }

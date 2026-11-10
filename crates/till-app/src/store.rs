@@ -24,7 +24,7 @@ use monokulo_client::{Connection, PointOfSale};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use till_bell::{BellAddress, BellRegistration, WakeUpChoice, WakeUpStore};
-use till_pos::clover::{CloverMerchant, TenderStore};
+use till_pos::clover::{CloverMerchant, CloverMerchantId, CloverTenderId, TenderStore};
 use till_pos::square::SquareLocation;
 use till_pos::{
     CursorStore, HandledMarker, Pkce, PosTokens, Rfc3339Instant, StoreError, TokenStore,
@@ -574,7 +574,7 @@ impl Store {
             self.forget_cursor(pos)?;
         }
         if let Some(merchant) = &model.clover_merchant {
-            self.set_tender_id(&merchant.id, None)?;
+            self.set_tender_id(merchant.id.as_str(), None)?;
         }
         self.set_shift_sales(&[])?;
         Ok(forgotten)
@@ -896,19 +896,24 @@ impl Tenders {
 }
 
 impl TenderStore for Tenders {
-    fn tender_id(&self, merchant_id: &str) -> Result<Option<String>, StoreError> {
-        logged(
+    fn tender_id(
+        &self,
+        merchant_id: &CloverMerchantId,
+    ) -> Result<Option<CloverTenderId>, StoreError> {
+        let id = logged(
             &self.log,
             "read the tender id".into(),
-            self.store.tender_id(merchant_id),
-        )
+            self.store.tender_id(merchant_id.as_str()),
+        )?;
+        Ok(id.map(CloverTenderId::from))
     }
 
-    fn save(&self, merchant_id: &str, tender_id: Option<&str>) {
+    fn save(&self, merchant_id: &CloverMerchantId, tender_id: Option<&CloverTenderId>) {
         let _ = logged(
             &self.log,
             "keep the tender id".into(),
-            self.store.set_tender_id(merchant_id, tender_id),
+            self.store
+                .set_tender_id(merchant_id.as_str(), tender_id.map(CloverTenderId::as_str)),
         );
     }
 }

@@ -289,7 +289,7 @@ impl Side {
             }),
             PointOfSale::Clover => {
                 if let Some(merchant) = self.model().clover_merchant
-                    && let Err(e) = self.store().set_tender_id(&merchant.id, None)
+                    && let Err(e) = self.store().set_tender_id(merchant.id.as_str(), None)
                 {
                     self.log(format!("till-core: couldn't forget the tender id: {e}"));
                 }
@@ -399,7 +399,7 @@ impl PosSide for Side {
                             point_of_sale: PointOfSale::Square,
                             environment: config.environment().to_owned(),
                             application_id: config.application_id,
-                            location_id: location.id,
+                            location_id: location.id.0,
                         })
                     }
                     _ => None,
@@ -417,7 +417,7 @@ impl PosSide for Side {
                         point_of_sale: PointOfSale::Clover,
                         application_id: self.clover_config(None).application_id,
                         environment: self.clover_environment.wire().to_owned(),
-                        location_id: merchant.id,
+                        location_id: merchant.id.into(),
                     }),
                     _ => None,
                 }

@@ -29,7 +29,7 @@ struct Fixture {
 
 fn bean_room() -> CloverMerchant {
     CloverMerchant {
-        id: "MCLOVER00001".into(),
+        id: till_pos::clover::CloverMerchantId::new("MCLOVER00001").unwrap(),
         name: "The Bean Room".into(),
         currency: "USD".parse().unwrap(),
         timezone: Some("America/Los_Angeles".into()),
@@ -127,7 +127,7 @@ async fn the_merchant_is_read_with_its_address_and_properties_and_every_request_
     let f = Fixture::start().await;
     f.stand.enqueue(json(&fixture("clover/merchant.json")));
     f.stand.enqueue(json(&fixture("clover/properties.json")));
-    assert_eq!(f.api.merchant("MCLOVER00001").await.unwrap(), f.merchant);
+    assert_eq!(f.api.merchant(&f.merchant.id).await.unwrap(), f.merchant);
     let first = f.stand.take_request().await;
     assert_eq!(first.url.path(), "/v3/merchants/MCLOVER00001");
     assert_eq!(query(&first, "expand").as_deref(), Some("address"));
@@ -147,7 +147,7 @@ async fn a_merchant_answer_for_another_merchant_is_refused() {
     let f = Fixture::start().await;
     f.stand
         .enqueue(json(r#"{"id":"MOTHER000001","name":"Elsewhere"}"#));
-    let e = f.api.merchant("MCLOVER00001").await.unwrap_err();
+    let e = f.api.merchant(&f.merchant.id).await.unwrap_err();
     assert_eq!(e.pos(), Some(PointOfSale::Clover));
     assert!(e.sign_in_again());
 }
@@ -175,7 +175,7 @@ async fn the_monero_tender_is_found_by_its_label_whatever_its_case_and_spaces_an
     let TenderState::Ready(tender) = &found else {
         panic!("{found:?}");
     };
-    assert_eq!(tender.id, "T_MONERO");
+    assert_eq!(tender.id.as_str(), "T_MONERO");
     assert_eq!(f.tenders.id("MCLOVER00001").as_deref(), Some("T_MONERO"));
     f.stand.enqueue(json(&fixture("clover/tenders.json")));
     assert_eq!(f.source().ensure_tender().await.unwrap(), found);
@@ -195,7 +195,7 @@ async fn with_no_monero_tender_one_is_made_as_an_external_payment_and_remembered
     let TenderState::Ready(tender) = &made else {
         panic!("{made:?}");
     };
-    assert_eq!(tender.id, "T_NEW");
+    assert_eq!(tender.id.as_str(), "T_NEW");
     assert_eq!(f.tenders.id("MCLOVER00001").as_deref(), Some("T_NEW"));
     f.stand.take_request().await;
     let post = f.stand.take_request().await;
@@ -241,7 +241,7 @@ async fn a_remembered_tender_deleted_in_clover_is_found_again() {
     let TenderState::Ready(tender) = f.source().ensure_tender().await.unwrap() else {
         panic!("found again");
     };
-    assert_eq!(tender.id, "T_MONERO");
+    assert_eq!(tender.id.as_str(), "T_MONERO");
     assert_eq!(f.tenders.id("MCLOVER00001").as_deref(), Some("T_MONERO"));
 }
 
@@ -581,7 +581,7 @@ async fn the_merchants_devices_are_read_for_their_names() {
             {"id":"DEV_BARE"}
         ]}"#,
     ));
-    let devices = f.api.devices("MCLOVER00001").await.unwrap();
+    let devices = f.api.devices(&f.merchant.id).await.unwrap();
     assert_eq!(
         devices.iter().map(|d| d.label()).collect::<Vec<_>>(),
         [

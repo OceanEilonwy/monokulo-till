@@ -5,12 +5,15 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use monokulo_client::{Clock, PointOfSale};
 
-use super::{Money, SourceType, SquareApi, SquareConfig, SquareLocation, SquarePayment, receipt};
+use super::{
+    Money, SourceType, SquareApi, SquareConfig, SquareLocation, SquareOrderId, SquarePayment,
+    SquarePaymentId, receipt,
+};
 use crate::source::{OVERLAP_SECONDS, is_handled, mark_handled};
 use crate::time::Rfc3339Instant;
 use crate::{
-    CursorStore, FoundSale, ListedRefund, PaymentStatus, PosError, RefundByTill, Refunds,
-    SaleOrder, SaleSource,
+    CursorStore, FoundSale, ListedRefund, PaymentStatus, PosError, RefundByTill, RefundKey,
+    Refunds, SaleOrder, SaleSource,
 };
 
 /// Square as a [`SaleSource`]: the till's location's payments since it
@@ -112,7 +115,10 @@ impl SaleSource for SquareSource {
         let Some(order_id) = &sale.order_id else {
             return Ok(SaleOrder::default());
         };
-        let order = self.api.order(order_id).await?;
+        let order = self
+            .api
+            .order(&SquareOrderId::new(order_id.as_str()))
+            .await?;
         Ok(SaleOrder {
             receipt: receipt(&order, &self.location, sale),
             customer_name: order.customer_name(),
@@ -133,14 +139,16 @@ impl RefundByTill for SquareSource {
     /// A full refund through Square's API, once whatever the retries: the
     /// idempotency key is `till-refund-<payment id>` (decision 21).
     async fn refund(&self, sale: &FoundSale) -> Result<Option<ListedRefund>, PosError> {
-        let key: String = format!("till-refund-{}", sale.id)
-            .chars()
-            .take(45)
-            .collect();
+        let key = RefundKey::for_payment(&sale.id);
         let amount = Money::of(sale.amount);
         Ok(self
             .api
-            .refund(&sale.id, &amount, &key, "Not paid in Monero")
+            .refund(
+                &SquarePaymentId::new(sale.id.as_str()),
+                &amount,
+                &key,
+                "Not paid in Monero",
+            )
             .await?
             .map(listed_refund))
     }
@@ -148,8 +156,8 @@ impl RefundByTill for SquareSource {
 
 fn listed_refund(refund: super::SquareRefund) -> ListedRefund {
     ListedRefund {
-        id: refund.id,
-        payment_id: refund.payment_id,
+        id: refund.id.0,
+        payment_id: refund.payment_id.0,
         amount_minor: refund.amount_money.amount,
         status: refund.status,
         created_at: refund.created_at,
@@ -169,10 +177,10 @@ fn found_sale(payment: SquarePayment) -> Option<FoundSale> {
         .map(crate::receipts::one_line)
         .filter(|name| !name.is_empty());
     Some(FoundSale {
-        id: payment.id,
+        id: payment.id.0,
         amount,
         reference: payment.receipt_number,
-        order_id: payment.order_id,
+        order_id: payment.order_id.map(|id| id.0),
         created_at: payment.created_at,
         updated_at: payment.updated_at,
         status: Some(payment.status),

@@ -105,6 +105,36 @@ till_types::wire_enum!(
     }
 );
 
+/// The idempotency key of a refund the till makes through the point of
+/// sale (decision 21): `till-refund-<payment id>`, cut to Square's 45
+/// characters. Made only from the payment, so every retry, and every till,
+/// asks with the same one; it's also the refund's id in the ledger when
+/// the point of sale answers without one.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct RefundKey(String);
+
+impl RefundKey {
+    /// The key for refunding the payment `payment_id` ([`FoundSale::id`]).
+    pub fn for_payment(payment_id: &str) -> RefundKey {
+        RefundKey(
+            format!("till-refund-{payment_id}")
+                .chars()
+                .take(45)
+                .collect(),
+        )
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for RefundKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 /// A refund of a payment, as the point of sale lists it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ListedRefund {
@@ -366,6 +396,18 @@ mod tests {
         assert!(!json.contains("deviceId"), "{json}");
         assert!(!json.contains("cash"), "{json}");
         assert_eq!(serde_json::from_str::<FoundSale>(&json).unwrap(), clover);
+    }
+
+    #[test]
+    fn a_refund_key_is_the_payments_cut_to_45_characters() {
+        assert_eq!(
+            RefundKey::for_payment("pay_1").as_str(),
+            "till-refund-pay_1"
+        );
+        let long = "p".repeat(60);
+        let key = RefundKey::for_payment(&long);
+        assert_eq!(key.as_str().chars().count(), 45);
+        assert!(key.as_str().starts_with("till-refund-ppp"));
     }
 
     #[test]

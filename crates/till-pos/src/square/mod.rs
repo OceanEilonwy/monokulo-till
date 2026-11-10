@@ -11,7 +11,8 @@ mod source;
 
 pub use api::{
     Device, External, LineItem, LocationStatus, Modifier, Money, OrderTax, SourceType, SquareApi,
-    SquareLocation, SquareOrder, SquarePayment, SquareRefund,
+    SquareLocation, SquareLocationId, SquareOrder, SquareOrderId, SquarePayment, SquarePaymentId,
+    SquareRefund, SquareRefundId,
 };
 pub use auth::SquareAuth;
 pub use config::SquareConfig;

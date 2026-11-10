@@ -17,7 +17,7 @@ use till_pos::{FoundSale, PointOfSale, SaleSource};
 
 fn merchant() -> CloverMerchant {
     CloverMerchant {
-        id: "MCLOVER00001".into(),
+        id: till_pos::clover::CloverMerchantId::new("MCLOVER00001").unwrap(),
         name: "The Bean Room".into(),
         currency: "USD".parse().unwrap(),
         timezone: Some("America/Los_Angeles".into()),
