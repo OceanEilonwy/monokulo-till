@@ -257,9 +257,33 @@ Monokulo-Client: till/1.0.0
   as a sale event, which links its order (`mk:order`): that one is read
   there.
 
+### Renewing an order (New code)
+
+An order that expired with nothing paid to it carries the `renew-order`
+form (the order's own URL, `POST`), and New code sends it with the expiry of
+the code that ran out:
+
+```http
+POST https://pay.yourshop.com/api/v1/orders/order_…
+Authorization: Bearer ak_…
+{ "expires_at": 1761312000 }
+→ 200 { "order_id" (the same), "address" (the same), "xmr_amount_piconero" (priced
+        again), "expires_at" (new), "status": "pending", … }
+```
+
+- One point-of-sale payment is always one Monokulo order: the till never
+  makes a second one for a sale (core.md decisions 167 to 174).
+- Only the quote that ended at `expires_at` is renewed, so two tills tapping
+  New code at once get one renewal. Monokulo refuses (`409`
+  `order-not-renewable`) once a payment reached the order or it ended too
+  long ago; the till shows why.
+- The store's tills hear `sale.waiting` with the new amount and expiry.
+- An older Monokulo's orders carry no `renew-order`: the till offers no New
+  code there.
+
 ### What a connected app can do
 
-Make orders, read its store, its orders and its own connection, follow the
+Make orders, renew an expired one, read its store, its orders and its own connection, follow the
 store's sale events, disconnect itself, and subscribe to pushes. Never
 wallet changes, refunds or spending, and never the store's settings. The list
 is shown on both the web connect page and the app's confirm screen.

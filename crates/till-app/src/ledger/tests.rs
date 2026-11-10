@@ -115,7 +115,6 @@ fn order(payment: &str, order: &str) -> Fact {
     Fact::OrderCreated(OrderCreated {
         sale: till_ledger::SaleKey::pos(PointOfSale::Square, payment),
         order_id: OrderId::new(order),
-        attempt: 1,
         url: None,
         payment_uri: "monero:8Bx?tx_amount=0.08".into(),
         address: "8Bx".into(),
@@ -126,6 +125,7 @@ fn order(payment: &str, order: &str) -> Fact {
         expires_at: 1_893_456_000,
         confirmations_required: None,
         device_name: None,
+        renew: None,
     })
 }
 
@@ -137,6 +137,8 @@ fn observed(order: &str, phase: SalePhase) -> Fact {
         is_final: false,
         received: None,
         overpaid: false,
+        quote: None,
+        renew: None,
     })
 }
 
