@@ -635,7 +635,12 @@ fn a_new_code_renews_the_one_order_with_a_new_quote() {
     let v = l.sale(&sale("p1")).unwrap().unwrap();
     assert_eq!(
         (v.order_id.as_str(), v.payment, v.live, v.expires_at),
-        ("o1", Some(PaymentPhase::Waiting), true, UnixSeconds(renewed))
+        (
+            "o1",
+            Some(PaymentPhase::Waiting),
+            true,
+            UnixSeconds(renewed)
+        )
     );
     assert_eq!(v.xmr, "0.16");
     assert_eq!(v.code.uri, "monero:8o1?tx_amount=0.16");

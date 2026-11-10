@@ -2644,7 +2644,10 @@ async fn new_code_renews_the_one_order_with_its_form() {
     let till = f.till(FakeSource::new(vec![sale()]));
     f.enqueue(renewable_order());
     till.check().await;
-    assert!(till.new_code(&"ord_1".into()).await.is_err(), "not while it's live");
+    assert!(
+        till.new_code(&"ord_1".into()).await.is_err(),
+        "not while it's live"
+    );
     till.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::Expired));
     assert!(only(&till).may_new_code());
     let before = f.request_count();
@@ -2673,7 +2676,10 @@ async fn new_code_renews_the_one_order_with_its_form() {
         "an observation with no quote is the first's"
     );
     // Paid against either: the sale is paid.
-    till.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::Paid).settled(true));
+    till.on_status(
+        &"ord_1".into(),
+        OrderStatus::of(SalePhase::Paid).settled(true),
+    );
     assert_eq!(only(&till).phase, SalePhase::Paid);
 }
 

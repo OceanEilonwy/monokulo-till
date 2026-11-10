@@ -256,9 +256,7 @@ pub fn view(
     // as before the ledger (core.md decision 181). A refund made in the
     // POS's own app waits for completion, and a failed or rejected one
     // isn't one; [`SharedSale::ended`] waits for completion either way.
-    let refund_asked = marks
-        .actions
-        .get(&crate::facts::Action::Refund);
+    let refund_asked = marks.actions.get(&crate::facts::Action::Refund);
     let refund_done_at = refund_asked
         .filter(|a| a.outcome == Some(Outcome::Done))
         .and_then(|a| a.done_at);

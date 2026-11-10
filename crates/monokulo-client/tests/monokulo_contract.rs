@@ -526,7 +526,12 @@ async fn an_order_is_renewed_with_its_renew_order_form_as_monokulo_records_it() 
     };
     let made = stand
         .api
-        .create_order(&stand.connection(), &Money::new(2450, CurrencyCode::USD), Some("#1042"), "sq:abc")
+        .create_order(
+            &stand.connection(),
+            &Money::new(2450, CurrencyCode::USD),
+            Some("#1042"),
+            "sq:abc",
+        )
         .await
         .unwrap();
     let renew = made
