@@ -4,7 +4,8 @@ import TillCore
 /// The widest a page's content grows. Pages scroll across the whole
 /// window; only their content is held to this column, by the scroll view's
 /// content margins (docs/ipad-redesign.md, decision 24).
-let readableColumn: CGFloat = 560
+/// The one column the till draws in, on iPhone and iPad (round 4: 600 pt).
+let readableColumn: CGFloat = 600
 
 extension View {
     /// Holds a scroll view's or list's content to `width` in the middle of

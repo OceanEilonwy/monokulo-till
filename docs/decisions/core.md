@@ -1848,3 +1848,19 @@ still strings across the till, the ledger, the screens and the bridge.
      test sale. Android draws Till's own logo (`TillWidget`) wherever the
      mark stands for Till; Monokulo's round mark stays for the Monokulo
      store. On iPad, Close the sale is an X, as on iPhone and Android.
+227. **iOS follows Android's layout: one column, a sale full screen.**
+     (Owner, 2026-11-12, the canvas's Round 4 page.) The iPad drops the
+     sidebar: the shift is one 600 pt column in the middle at any width,
+     and a sale opens over the whole screen with Back, as on iPhone and
+     Android; the order is a page in the same stack. The shift's bar holds
+     the place (a menu of counters when there's a choice) and Settings;
+     "This shift" leads the page with since when and whether Till watches,
+     then the takings, New shift with a reset arrow, and the filter, whose
+     Needs action count is a chip. A live sale's code card carries the
+     status under a hairline, beside its ring; Copy address and a silver
+     Return to Square sit at its foot; on a wide landscape window the code
+     is on the left and the rest centred beside it. A sale's page leads with
+     a 56 pt glyph and the state in its colour (Paid green, Not paid amber).
+     Expired says one fact per line: "Not paid", the amount, "The code ran
+     out at 10:30 PM", one sentence, the timeline, and the late-payment rule
+     as small print (`SalePageView::footnote`).
