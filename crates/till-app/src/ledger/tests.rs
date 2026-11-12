@@ -122,6 +122,7 @@ fn order(payment: &str, order: &str) -> Fact {
         confirmations_required: None,
         device_name: None,
         renew: None,
+        price_used: None,
     })
 }
 

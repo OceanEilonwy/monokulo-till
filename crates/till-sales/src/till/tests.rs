@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use monokulo_client::{AppIdentity, FixedClock, PointOfSale};
+use monokulo_client::{AppIdentity, Connection, FixedClock, MonokuloApi, PointOfSale};
 use serde_json::{Value, json};
 use till_pos::{ListedRefund, RefundByTill, RefundInPos, SaleOrder};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate, matchers::any};
@@ -56,6 +56,7 @@ fn entry() -> ResponseTemplate {
 fn order() -> ResponseTemplate {
     ResponseTemplate::new(201).set_body_raw(
         r#"{"order_id":"ord_1","status":"pending","is_final":false,"address":"8Bx","xmr_amount_piconero":80000000000,
+           "amount_received_piconero":0,"confirmations":0,"confirmations_required":10,
            "amount":"13.88","currency":"USD","merchant_order_id":"bP9m","expires_at":1761312000,
            "_links":{"self":{"href":"/api/v1/orders/ord_1"}}}"#,
         "application/json",
@@ -65,11 +66,16 @@ fn order() -> ResponseTemplate {
 /// The order as Monokulo reads it back with `confirmations` of the 10 the
 /// store asks for.
 fn read_back(status: &str, confirmations: u32, code: u16) -> ResponseTemplate {
+    // What has arrived: nothing while it waits or once it ran out unpaid.
+    let received = match status {
+        "pending" | "expired" | "cancelled" => 0,
+        _ => 80_000_000_000_u64,
+    };
     ResponseTemplate::new(code).set_body_raw(
         format!(
             r#"{{"order_id":"ord_1","status":"{status}","is_final":false,"address":"8Bx","xmr_amount_piconero":80000000000,
            "amount":"13.88","currency":"USD","merchant_order_id":"bP9m","expires_at":1761312000,
-           "confirmations":{confirmations},"confirmations_required":10,"_links":{{"self":{{"href":"/api/v1/orders/ord_1"}}}}}}"#
+           "amount_received_piconero":{received},"confirmations":{confirmations},"confirmations_required":10,"_links":{{"self":{{"href":"/api/v1/orders/ord_1"}}}}}}"#
         ),
         "application/json",
     )
@@ -132,13 +138,10 @@ impl Fixture {
     /// A till over `source`, as a run of the app makes it: its books over
     /// the fixture's ledger, read as it starts.
     fn till(&self, source: Arc<dyn SaleSource>) -> Till {
-        let till = Till::new(
-            source,
-            self.monokulo.clone(),
-            self.connection.clone(),
-            self.books(),
-        )
-        .with_clock(Arc::new(clock(0)));
+        let backend =
+            till_payments::MonokuloBackend::new(self.monokulo.clone(), self.connection.clone());
+        let till =
+            Till::new(source, Arc::new(backend), self.books()).with_clock(Arc::new(clock(0)));
         till.books().refresh();
         till
     }
@@ -326,7 +329,10 @@ fn receipt() -> orf_codec::Receipt {
     .unwrap()
 }
 
-/// A `sale.*` event, its fields in the Kotlin constructor's order.
+/// The order stream's `order` event for what a `sale.*` event said (the
+/// Kotlin `SaleEvent` constructor's fields, in its order): the order as
+/// Monokulo reads it then, out of the store's 10 confirmations, with what
+/// that phase has received. `at` is when a double spend was found.
 #[expect(
     clippy::too_many_arguments,
     reason = "the Kotlin SaleEvent's constructor"
@@ -342,24 +348,39 @@ fn sale_event(
     expires_at: i64,
     device_name: &str,
     at: i64,
-) -> SaleEvent {
-    SaleEvent {
-        event: event.into(),
+) -> Order {
+    let (status, confirmations, received, double_spent) = match event {
+        "sale.waiting" => ("pending", 0, 0, None),
+        "sale.seen" => ("unconfirmed", 0, piconero, None),
+        "sale.confirming" => ("confirming", 1, piconero, None),
+        "sale.paid" => ("paid", 10, piconero, None),
+        "sale.partial" => ("partial", 0, piconero / 2, None),
+        "sale.expired" => ("expired", 0, 0, None),
+        "sale.double_spend" => ("pending", 0, 0, Some(at)),
+        other => panic!("no order status for {other}"),
+    };
+    Order {
         order_id: order_id.into(),
-        amount: amount.into(),
-        currency: currency.into(),
+        status: monokulo_client::OrderStatus::from(status),
+        is_final: false,
         address: address.into(),
         piconero,
+        amount: Some(amount.into()),
+        currency: Some(currency.into()),
         merchant_order_id: merchant_order_id.map(Into::into),
         expires_at,
-        device_name: device_name.into(),
-        at,
-        order_url: None,
+        received,
+        confirmations,
+        confirmations_required: 10,
+        device_name: Some(device_name.to_owned()).filter(|name| !name.is_empty()),
+        double_spend_detected_at: double_spent,
+        url: String::new(),
+        renew: None,
     }
 }
 
 /// `name` for this till's `ord_1`.
-fn ord_1(name: &str, at: i64) -> SaleEvent {
+fn ord_1(name: &str, at: i64) -> Order {
     sale_event(
         name,
         "ord_1",
@@ -376,7 +397,7 @@ fn ord_1(name: &str, at: i64) -> SaleEvent {
 
 /// `name` for `ord_1` expiring with its order, as the confirmations tests
 /// send it.
-fn event(name: &str) -> SaleEvent {
+fn event(name: &str) -> Order {
     sale_event(
         name,
         "ord_1",
@@ -849,7 +870,7 @@ async fn without_a_receipt_the_plain_code_is_shown() {
 /// The order for another sale, `ord_2`.
 fn second_order() -> ResponseTemplate {
     ResponseTemplate::new(201).set_body_raw(
-        r#"{"order_id":"ord_2","status":"pending","is_final":false,"address":"8Cz","xmr_amount_piconero":20000000000,
+        r#"{"order_id":"ord_2","status":"pending","is_final":false,"address":"8Cz","xmr_amount_piconero":20000000000,"amount_received_piconero":0,"confirmations":0,"confirmations_required":10,
            "amount":"5.00","currency":"USD","merchant_order_id":"p4Xr","expires_at":1761312000,
            "_links":{"self":{"href":"/api/v1/orders/ord_2"}}}"#,
         "application/json",
@@ -996,10 +1017,8 @@ async fn events_move_sales_along_and_other_tills_sales_appear_without_receipts()
     // A till with no point of sale shows it from the event.
     let f = fixture().await;
     let till = f.till_without_pos();
-    let event = |name: &str, order: &str| SaleEvent {
-        order_url: Some(format!(
-            "https://pay.example/monokulo/api/v1/orders/{order}"
-        )),
+    let event = |name: &str, order: &str| Order {
+        url: format!("https://pay.example/monokulo/api/v1/orders/{order}"),
         ..sale_event(
             name,
             order,
@@ -1027,7 +1046,7 @@ async fn events_move_sales_along_and_other_tills_sales_appear_without_receipts()
     assert_eq!(
         theirs.url.as_deref(),
         Some("https://pay.example/monokulo/api/v1/orders/ord_2"),
-        "read again at its event's mk:order link"
+        "read again at its event's self link"
     );
     till.on_event(&event("sale.paid", "ord_2"));
     assert_eq!(only(&till).phase, SalePhase::Paid);
@@ -2382,19 +2401,6 @@ async fn a_sale_keeps_the_stores_threshold_from_its_order_and_its_events_say_wha
 }
 
 #[tokio::test]
-async fn an_older_monokulo_that_gives_no_count_leaves_the_ring_to_fill_by_step() {
-    let f = fixture().await;
-    let till = f.till(FakeSource::new(vec![sale()]));
-    f.enqueue(order());
-    till.check().await;
-    assert_eq!(only(&till).confirmations_required, None);
-    till.on_status(&"ord_1".into(), OrderStatus::of(SalePhase::Confirming));
-    let shown = only(&till);
-    assert_eq!(shown.confirmations, Some(1));
-    assert_eq!(shown.confirmations_required, None, "nothing to count to");
-}
-
-#[tokio::test]
 async fn a_confirmations_read_that_lands_after_sale_paid_leaves_the_sale_paid_so_its_paid_note_sounds_once()
  {
     let f = fixture().await;
@@ -2422,66 +2428,36 @@ async fn a_confirmations_read_that_lands_after_sale_paid_leaves_the_sale_paid_so
     assert_eq!(after.paid_at, paid.paid_at, "nor pay it again");
 }
 
+/// Each confirmation comes on the order stream (Monokulo's
+/// `mk:orders-events`), so the ring follows the blocks with nothing read
+/// on a timer (core.md decision 237).
 #[tokio::test(start_paused = true)]
-async fn a_confirming_sale_is_read_again_at_once_and_then_every_20_s_until_its_paid() {
+async fn a_confirming_sales_ring_follows_the_stream_with_nothing_read_on_a_timer() {
     let f = fixture().await;
-    let till = Arc::new(f.till(FakeSource::new(vec![sale()])));
+    let till = f.till(FakeSource::new(vec![sale()]));
     f.enqueue(order());
     till.check().await;
-    f.take_request();
-    f.take_request();
-    let following = tokio::spawn({
-        let till = till.clone();
-        async move { till.follow_confirmations().await }
-    });
-    tokio::time::sleep(3 * Till::CONFIRMATIONS_READ).await;
-    assert_eq!(
-        f.request_count(),
-        2,
-        "nothing is read while no payment is on its way"
-    );
-    f.enqueue(read_back("confirming", 4, 200));
-    f.enqueue(read_back("confirming", 5, 200));
-    f.enqueue(read_back("paid", 10, 200));
+    let made = f.request_count();
     till.on_event(&event("sale.confirming"));
-    let mut rx = till.subscribe();
-    let counted = rx
-        .wait_for(|s| s.sales[0].confirmations == Some(4))
-        .await
-        .unwrap()
-        .sales[0]
-        .clone();
-    assert_eq!(
-        counted.confirmations_required,
-        Some(10),
-        "read at once: the event only says it's in a block"
-    );
-    let start = tokio::time::Instant::now();
-    rx.wait_for(|s| s.sales[0].confirmations == Some(5))
-        .await
-        .unwrap();
-    assert_eq!(
-        start.elapsed().as_millis(),
-        Till::CONFIRMATIONS_READ.as_millis(),
-        "the next read is a wait later"
-    );
-    let paid = rx
-        .wait_for(|s| s.sales[0].phase == SalePhase::Paid)
-        .await
-        .unwrap()
-        .sales[0]
-        .clone();
-    assert_eq!(paid.confirmations, Some(10));
-    for n in 1..=3 {
-        assert_eq!(
-            f.take_request().url.path(),
-            "/api/v1/orders/ord_1",
-            "read {n} at its self link"
-        );
+    assert_eq!(only(&till).confirmations, Some(1));
+    for n in [4, 5] {
+        till.on_event(&Order {
+            confirmations: n,
+            ..event("sale.confirming")
+        });
+        let shown = only(&till);
+        assert_eq!(shown.confirmations, Some(n), "{n} of 10, as sent");
+        assert_eq!(shown.confirmations_required, Some(10));
     }
-    tokio::time::sleep(10 * Till::CONFIRMATIONS_READ).await;
-    assert_eq!(f.request_count(), 5, "paid, it's read no more");
-    following.abort();
+    till.on_event(&Order {
+        is_final: true,
+        ..event("sale.paid")
+    });
+    let paid = only(&till);
+    assert_eq!(paid.phase, SalePhase::Paid);
+    assert_eq!(paid.confirmations, Some(10));
+    tokio::time::sleep(Duration::from_secs(600)).await;
+    assert_eq!(f.request_count(), made, "nothing is read on a timer");
 }
 
 /// Receipts on every till signed in to the point of sale (docs/ledger.md
@@ -2568,7 +2544,7 @@ async fn another_counters_cash_sale_is_listed_quietly_and_its_order_made_only_by
 /// `renew-order` form.
 fn renewable_order() -> ResponseTemplate {
     ResponseTemplate::new(201).set_body_raw(
-        r#"{"order_id":"ord_1","status":"pending","is_final":false,"address":"8Bx","xmr_amount_piconero":80000000000,
+        r#"{"order_id":"ord_1","status":"pending","is_final":false,"address":"8Bx","xmr_amount_piconero":80000000000,"amount_received_piconero":0,"confirmations":0,"confirmations_required":10,
            "amount":"13.88","currency":"USD","merchant_order_id":"bP9m","expires_at":1761312000,
            "_links":{"self":{"href":"/api/v1/orders/ord_1"}},
            "_templates":{"renew-order":{"method":"POST","target":"/api/v1/orders/ord_1","properties":[]}}}"#,
@@ -2580,7 +2556,7 @@ fn renewable_order() -> ResponseTemplate {
 /// again, with a later expiry.
 fn renewed_order() -> ResponseTemplate {
     ResponseTemplate::new(200).set_body_raw(
-        r#"{"order_id":"ord_1","status":"pending","is_final":false,"address":"8Bx","xmr_amount_piconero":90000000000,
+        r#"{"order_id":"ord_1","status":"pending","is_final":false,"address":"8Bx","xmr_amount_piconero":90000000000,"amount_received_piconero":0,"confirmations":0,"confirmations_required":10,
            "amount":"13.88","currency":"USD","merchant_order_id":"bP9m","expires_at":1761313200,
            "_links":{"self":{"href":"/api/v1/orders/ord_1"}},
            "_templates":{"renew-order":{"method":"POST","target":"/api/v1/orders/ord_1","properties":[]}}}"#,

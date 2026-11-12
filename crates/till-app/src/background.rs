@@ -17,8 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use futures_util::StreamExt;
-use monokulo_client::{Clock, MonokuloApi, PointOfSale, SystemClock, tor};
+use monokulo_client::{Clock, PointOfSale, SystemClock, tor};
 use till_ledger::{ClaimPolicy, Process};
 use till_pos::{FoundSale, ListedRefund, PosError, Refunds, Rfc3339Instant, SaleOrder, SaleSource};
 use till_sales::{Till, TillSale};
@@ -327,7 +326,7 @@ async fn look_kept(
     steps: &Steps,
 ) -> BackgroundCheck {
     let model = kept.model();
-    let Some(connection) = model.connection.clone() else {
+    let Some(link) = model.link() else {
         return BackgroundCheck::nothing();
     };
     if !model.shift_on {
@@ -350,9 +349,11 @@ async fn look_kept(
         steps: steps.clone(),
     });
     let books = side.books().clone();
-    let monokulo = MonokuloApi::new(http, side.identity(), clock.clone());
+    let Some(backend) = side.backend_reading(&link, REREADS_AT_ONCE) else {
+        return BackgroundCheck::nothing();
+    };
     let timer_steps = steps.clone();
-    let till = Till::new(source, monokulo.clone(), connection.clone(), books.clone())
+    let till = Till::new(source, backend.clone(), books.clone())
         .with_clock(clock)
         .with_timer(Arc::new(move |step, took| timer_steps.add(step, took)))
         .with_options(&model.till_options());
@@ -366,34 +367,24 @@ async fn look_kept(
     if let Err(e) = opened {
         return BackgroundCheck::failed(format!("Couldn't read the sales this till keeps: {e}"));
     }
-    // Monokulo's open orders, read again (docs/ledger.md §8): those the
-    // shift had before this look, read while the point of sale is asked,
-    // a few at once (decision 204). An order this look makes is known
-    // from Monokulo's answer to making it.
-    let urls: Vec<String> = till
-        .state()
-        .sales
-        .iter()
-        .filter(|sale| sale.open())
-        .filter_map(|sale| sale.url.clone())
-        .collect();
+    // The open orders, refreshed (docs/ledger.md §8): those the shift had
+    // before this look, read while the point of sale is asked, a few at
+    // once (decision 204). An order this look makes is known from the
+    // backend's answer to making it.
+    let refs = till.open_refs();
     let round = async {
         let reread = async {
-            futures_util::stream::iter(urls)
-                .map(|url| {
-                    let (monokulo, connection) = (&monokulo, &connection);
-                    async move { monokulo.order(connection, &url).await }
-                })
-                .buffer_unordered(REREADS_AT_ONCE)
-                .collect::<Vec<_>>()
-                .await
+            if refs.is_empty() {
+                return Vec::new();
+            }
+            backend.refresh(&refs).await.unwrap_or_default()
         };
-        let (_, orders) = tokio::join!(
+        let (_, payments) = tokio::join!(
             till.check_at_once(),
             steps.time_async("monokulo.reread", reread)
         );
-        for order in orders.into_iter().flatten() {
-            till.on_order(&order);
+        for payment in &payments {
+            till.on_payment(payment);
         }
     };
     let finished = tokio::time::timeout_at(deadline, steps.time_async("round", round))

@@ -180,8 +180,10 @@ mod tests {
         );
         Arc::new(Till::new(
             Arc::new(source),
-            monokulo,
-            Connection::new("ak_1", "http://127.0.0.1:1/api/v1"),
+            Arc::new(till_payments::MonokuloBackend::new(
+                monokulo,
+                Connection::new("ak_1", "http://127.0.0.1:1/api/v1"),
+            )),
             Arc::new(crate::Books::new(
                 crate::books::testing::TestHost::new(&tempfile::tempdir().unwrap().keep()),
                 None,

@@ -24,6 +24,7 @@ use monokulo_client::{Connection, PointOfSale};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use till_bell::{BellAddress, BellRegistration, WakeUpChoice, WakeUpStore};
+use till_payments::{Link, WalletLink};
 use till_pos::clover::{CloverMerchant, CloverMerchantId, CloverTenderId, TenderStore};
 use till_pos::square::SquareLocation;
 use till_pos::{
@@ -41,8 +42,9 @@ pub type Log = Arc<dyn Fn(String) + Send + Sync>;
 pub mod keys {
     use monokulo_client::PointOfSale;
 
-    /// `Connection.save`'s JSON: `{"app_key":…,"api":…}`, with `onion_api`
-    /// and `tor` only when set.
+    /// The till's link (`till_payments::Link`, core.md decision 238): for
+    /// Monokulo, `Connection.save`'s JSON, `{"app_key":…,"api":…}`, with
+    /// `onion_api` and `tor` only when set; for a wallet, `{"wallet":{…}}`.
     pub const CONNECTION: &str = "connection";
     /// `SquareLocation`'s JSON.
     pub const SQUARE_LOCATION: &str = "square.location";
@@ -244,17 +246,27 @@ impl Store {
         self.put(key, Some(if on { "true" } else { "false" }))
     }
 
-    pub fn connection(&self) -> Result<Option<Connection>, SecretError> {
+    /// How the till is paid, kept under `connection` (core.md decision
+    /// 238): a connection kept by an earlier build reads as a Monokulo
+    /// link.
+    pub fn link(&self) -> Result<Option<Link>, SecretError> {
         Ok(self
             .get(keys::CONNECTION)?
-            .and_then(|saved| Connection::restore(&saved)))
+            .and_then(|saved| Link::restore(&saved)))
+    }
+
+    /// A Monokulo link is written as the bare connection, as before.
+    pub fn set_link(&self, link: Option<&Link>) -> Result<(), SecretError> {
+        self.put(keys::CONNECTION, link.map(Link::save).as_deref())
+    }
+
+    /// The Monokulo connection, when the till is linked to Monokulo.
+    pub fn connection(&self) -> Result<Option<Connection>, SecretError> {
+        Ok(self.link()?.and_then(|link| link.monokulo().cloned()))
     }
 
     pub fn set_connection(&self, connection: Option<&Connection>) -> Result<(), SecretError> {
-        self.put(
-            keys::CONNECTION,
-            connection.map(Connection::save).as_deref(),
-        )
+        self.set_link(connection.cloned().map(Link::Monokulo).as_ref())
     }
 
     /// The point of sale chosen; a till from before there was a choice,
@@ -415,8 +427,14 @@ impl Store {
 
     /// Everything [`Model`] holds, read now.
     pub fn load(&self) -> Result<Model, SecretError> {
+        let (connection, wallet) = match self.link()? {
+            Some(Link::Monokulo(connection)) => (Some(connection), None),
+            Some(Link::Wallet(wallet)) => (None, Some(wallet)),
+            None => (None, None),
+        };
         Ok(Model {
-            connection: self.connection()?,
+            connection,
+            wallet,
             location: self.read(keys::SQUARE_LOCATION)?,
             point_of_sale: self.point_of_sale()?,
             without_pos: self.without_pos()?,
@@ -449,8 +467,8 @@ impl Store {
     /// Writes the keys whose values differ between `old` and `new`, as
     /// `Stores.kt`'s setters wrote them.
     pub fn save(&self, old: &Model, new: &Model) -> Result<(), SecretError> {
-        if old.connection != new.connection {
-            self.set_connection(new.connection.as_ref())?;
+        if old.link() != new.link() {
+            self.set_link(new.link().as_ref())?;
         }
         if old.location != new.location {
             self.write(keys::SQUARE_LOCATION, new.location.as_ref())?;
@@ -582,8 +600,11 @@ impl Store {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Model {
     /// The store's key and API, nothing else about it (decision 50 of
-    /// android.md).
+    /// android.md): the till's link when it's linked to Monokulo.
     pub connection: Option<Connection>,
+    /// The till's link when it's linked to the device's own wallet (core.md
+    /// decision 238); never set with `connection`.
+    pub wallet: Option<WalletLink>,
     /// The Square location this till watches.
     pub location: Option<SquareLocation>,
     /// The point of sale chosen, in setup or Settings (decision 126).
@@ -640,6 +661,7 @@ impl Default for Model {
     fn default() -> Model {
         Model {
             connection: None,
+            wallet: None,
             location: None,
             point_of_sale: None,
             without_pos: false,
@@ -671,6 +693,16 @@ impl Default for Model {
 }
 
 impl Model {
+    /// How the till is paid, as kept under `connection`: a Monokulo
+    /// connection, else a wallet.
+    pub fn link(&self) -> Option<Link> {
+        match (&self.connection, &self.wallet) {
+            (Some(connection), _) => Some(Link::Monokulo(connection.clone())),
+            (None, Some(wallet)) => Some(Link::Wallet(wallet.clone())),
+            (None, None) => None,
+        }
+    }
+
     /// How the till is set up (core.md decisions 113 and 116): this
     /// counter's device, and cash.
     pub fn till_options(&self) -> till_sales::TillOptions {

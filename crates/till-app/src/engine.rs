@@ -23,7 +23,7 @@ use till_ledger::{AlertKind, Claim, ClaimPolicy, Fact, Process, Scope, ShiftMark
 use till_pos::clover::TenderState;
 use till_pos::square::SquareLocation;
 use till_pos::{OAuthRedirect, Pkce, PosError};
-use till_sales::{Books, LiveStore, PosSwitch, Standing, TillRunner, TillSale};
+use till_sales::{Books, LiveStore, PosSwitch, RunnerSide, Standing, TillRunner, TillSale};
 use till_screens::bubble::PaidMoment;
 use till_screens::close::{self, CloseThen};
 use till_screens::onboarding::{
@@ -517,7 +517,7 @@ impl State {
         if let Ok(mut slot) = self.books_slot.lock() {
             *slot = Some(side.books().clone());
         }
-        let monokulo = MonokuloApi::new(http.clone(), side.identity(), self.clock.clone());
+        let monokulo = side.monokulo().clone();
         let monokulo_bell = BellAddress::parse(&self.config.bell_url, self.config.debug)
             .ok_or_else(|| {
                 format!(
@@ -529,7 +529,6 @@ impl State {
             let tx = self.tx.clone();
             let weak: Weak<Side> = Arc::downgrade(&side);
             Arc::new(LiveStore::new(
-                monokulo.clone(),
                 Arc::new(move || {
                     let _ = tx.send(Msg::Disconnected);
                 }),
@@ -566,7 +565,7 @@ impl State {
             self.clock.clone(),
         ));
         side.attach(&live, &wake_ups);
-        let runner = TillRunner::new(side.clone(), monokulo.clone(), self.clock.clone());
+        let runner = TillRunner::new(side.clone(), self.clock.clone());
         self.watch(live.subscribe());
         self.watch(wake_ups.status());
         self.watch(wake_ups.choice());
@@ -590,7 +589,7 @@ impl State {
     fn begin(&mut self) {
         let Some(p) = &self.parts else { return };
         let model = p.side.model();
-        p.live.read(model.connection.as_ref());
+        p.live.read(p.side.backend().as_ref());
         self.scope = Some(crate::ledger::scope_of(&model));
         self.keep_settings();
         if let Some(p) = &self.parts {
@@ -632,7 +631,7 @@ impl State {
     /// one's shift goes with it.
     fn new_runner(&mut self) {
         let Some(p) = &mut self.parts else { return };
-        p.runner = TillRunner::new(p.side.clone(), p.monokulo.clone(), self.clock.clone());
+        p.runner = TillRunner::new(p.side.clone(), self.clock.clone());
         let rx = p.runner.subscribe();
         self.watch(rx);
         self.listed = None;
@@ -872,7 +871,7 @@ impl State {
             }
             Action::ReadStore => {
                 if let Some(p) = &self.parts {
-                    p.live.read(p.side.model().connection.as_ref());
+                    p.live.read(p.side.backend().as_ref());
                 }
             }
             Action::SetBaseUrl { pos, url } => {
@@ -1213,7 +1212,7 @@ impl State {
             self.log(format!("till-core: the ledger's upkeep: {e}"));
         }
         let model = p.side.model();
-        p.live.read(model.connection.as_ref());
+        p.live.read(p.side.backend().as_ref());
         retry_wake_ups(&p.wake_ups);
         if !p.runner.state().running && model.shift_on && model.connection.is_some() {
             p.runner.start();
@@ -1550,7 +1549,7 @@ impl State {
             return;
         }
         p.live.forget();
-        p.live.read(Some(&connection));
+        p.live.read(Some(&p.side.monokulo_backend(&connection)));
         self.generation += 1;
         self.tender = None;
         self.pos_confirmed = false;
@@ -1965,7 +1964,7 @@ impl State {
     /// Settings, with the store read again as it opens.
     fn open_settings(&mut self) {
         let Some(p) = &self.parts else { return };
-        p.live.read(p.side.model().connection.as_ref());
+        p.live.read(p.side.backend().as_ref());
         retry_wake_ups(&p.wake_ups);
         self.before_settings = matches!(
             self.screen,
@@ -1996,7 +1995,7 @@ impl State {
         };
         if self.keep(|m| m.connection = Some(changed.clone())) {
             if let Some(p) = &self.parts {
-                p.live.read(Some(&changed));
+                p.live.read(Some(&p.side.monokulo_backend(&changed)));
             }
             self.restart();
             self.go(Screen::Settings);
@@ -2007,13 +2006,12 @@ impl State {
     /// A10.3), then everything is forgotten here.
     fn disconnect(&mut self) {
         let Some(p) = &self.parts else { return };
-        let (monokulo, wake_ups) = (p.monokulo.clone(), p.wake_ups.clone());
-        let connection = p.side.model().connection;
+        let (backend, wake_ups) = (p.side.backend(), p.wake_ups.clone());
         self.work(async move {
             wake_ups.unregister(true).await;
-            if let Some(connection) = connection {
+            if let Some(backend) = backend {
                 // The store may already have disconnected it.
-                let _ = monokulo.disconnect(&connection).await;
+                let _ = backend.disconnect().await;
             }
             apply(|s| s.forget_here())
         });

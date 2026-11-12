@@ -28,6 +28,7 @@ thiserror.workspace = true
 till-bell.workspace = true
 till-pos.workspace = true
 till-ledger.workspace = true
+till-payments.workspace = true
 till-sales.workspace = true
 till-screens.workspace = true
 till-types.workspace = true

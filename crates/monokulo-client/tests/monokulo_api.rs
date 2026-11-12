@@ -20,7 +20,7 @@ use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate, matchers::a
 /// The entry as Monokulo answers an app's key: relative links, and its forms.
 const ENTRY: &str = r#"{
     "_links":{"self":{"href":"/api/v1"},"mk:store":{"href":"/api/v1/store"},"mk:orders":{"href":"/api/v1/orders"},
-      "mk:events":{"href":"/api/v1/events","type":"text/event-stream"},"mk:app":{"href":"/api/v1/app"},
+      "mk:orders-events":{"href":"/api/v1/orders/events","type":"text/event-stream"},"mk:app":{"href":"/api/v1/app"},
       "curies":[{"name":"mk","href":"https://docs.monokulo.com/rels/{rel}","templated":true}]},
     "_templates":{"create-order":{"method":"POST","target":"/api/v1/orders","contentType":"application/json","properties":[]},
       "disconnect":{"method":"DELETE","target":"/api/v1/app","properties":[]}}}"#;
@@ -703,19 +703,23 @@ async fn a_form_the_key_may_not_use_isnt_tried() {
 }
 
 #[tokio::test]
-async fn the_event_stream_gives_ready_then_sales_skipping_what_it_doesnt_know() {
+async fn the_order_stream_gives_ready_then_orders_skipping_what_it_doesnt_know() {
     let stand = Stand::start().await;
-    let sale = r#"{"event":"sale.waiting","order_id":"order_1","amount":"1","currency":"XMR","address":"8Bx",
-        "xmr_amount_piconero":1000000000000,"expires_at":9,"device_name":"Till","at":1,
-        "_links":{"mk:order":{"href":"/api/v1/orders/order_1"}}}"#
+    let order = r##"{"order_id":"order_1","status":"confirming","is_final":false,"address":"8Bx",
+        "xmr_amount_piconero":1000000000000,"amount_received_piconero":1000000000000,"amount":"1",
+        "currency":"XMR","merchant_order_id":"#1042","device_name":"Front iPad","confirmations":3,
+        "confirmations_required":10,"created_at":1,"expires_at":9,
+        "_links":{"self":{"href":"/api/v1/orders/order_1"}},
+        "_templates":{"renew-order":{"method":"POST","target":"/api/v1/orders/order_1","properties":[]}}}"##
         .replace('\n', "");
-    stand.route("GET /api/v1/events", move |_| {
+    stand.route("GET /api/v1/orders/events", move |_| {
         ResponseTemplate::new(200).set_body_raw(
             format!(
                 "event: ready\ndata: {{\"at\":1}}\n\n\
                  : keep-alive\n\n\
                  event: something.new\ndata: {{}}\n\n\
-                 event: sale.waiting\ndata: {sale}\n\n\
+                 event: sale.waiting\ndata: {{}}\n\n\
+                 event: order\ndata: {order}\n\n\
                  event: lagged\ndata: {{\"missed\":3}}\n\n"
             ),
             "text/event-stream",
@@ -729,26 +733,35 @@ async fn the_event_stream_gives_ready_then_sales_skipping_what_it_doesnt_know() 
         .collect()
         .await;
     assert_eq!(events[0], StreamEvent::Ready);
-    let StreamEvent::Sale(sale) = &events[1] else {
-        panic!("a sale, not {:?}", events[1])
+    let StreamEvent::Order(order) = &events[1] else {
+        panic!("an order, not {:?}", events[1])
     };
-    assert_eq!(sale.order_id, "order_1");
+    assert_eq!(order.order_id, "order_1");
+    assert_eq!(order.phase(), SalePhase::Confirming);
+    assert_eq!((order.confirmations, order.confirmations_required), (3, 10));
+    assert_eq!(order.received, 1_000_000_000_000);
+    assert_eq!(order.device_name.as_deref(), Some("Front iPad"));
     assert_eq!(
-        sale.order_url.as_deref(),
+        order.url,
+        format!("{}/api/v1/orders/order_1", stand.base()),
+        "its self link, resolved"
+    );
+    assert_eq!(
+        order.renew.as_deref(),
         Some(format!("{}/api/v1/orders/order_1", stand.base()).as_str()),
-        "its mk:order, resolved"
+        "and its renew-order form"
     );
     assert_eq!(events[2], StreamEvent::Lagged);
     let seen = stand.seen();
     let stream = seen.last().unwrap();
-    assert_eq!(stream.url.path(), "/api/v1/events");
+    assert_eq!(stream.url.path(), "/api/v1/orders/events");
     assert_eq!(header(stream, "Authorization"), Some("Bearer ak_secret"));
 }
 
 #[tokio::test]
 async fn a_stream_refused_with_401_says_so() {
     let stand = Stand::start().await;
-    stand.route("GET /api/v1/events", |_| {
+    stand.route("GET /api/v1/orders/events", |_| {
         problem(401, "No valid key", "This app was disconnected.", "x", "")
     });
     let items: Vec<_> = stand.api.events(&stand.connection()).collect().await;
@@ -827,8 +840,8 @@ async fn a_silent_stream_ends_as_dead() {
     stand.route("GET /api/v1", move |_| {
         entry(
             &ENTRY.replace(
-                r#""/api/v1/events""#,
-                &format!(r#""http://127.0.0.1:{port}/api/v1/events""#),
+                r#""/api/v1/orders/events""#,
+                &format!(r#""http://127.0.0.1:{port}/api/v1/orders/events""#),
             ),
             "\"e1\"",
         )

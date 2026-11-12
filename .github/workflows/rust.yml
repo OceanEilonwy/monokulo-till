@@ -63,7 +63,7 @@ jobs:
       # (docs/ios-plan.md §2).
       - name: The leaf crates don't depend on UniFFI
         run: |
-          for crate in monokulo-client till-pos till-sales till-bell till-screens till-app; do
+          for crate in monokulo-client till-payments till-pos till-sales till-bell till-screens till-app; do
             if cargo tree --locked -p "$crate" -e normal --prefix none | grep -q '^uniffi '; then
               echo "::error::$crate depends on uniffi"; exit 1
             fi

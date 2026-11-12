@@ -69,9 +69,11 @@ impl SalePhase {
     }
 }
 
-/// One `sale.*` event from the store's event stream (`GET /api/v1/events`):
-/// an order a connected app made, and what just happened to it. Never
-/// anything about what was bought. It links its order (`mk:order`).
+/// One `sale.*` event from the store's sale events (`GET /api/v1/events`,
+/// deprecated in Monokulo for its order stream, which the client follows
+/// instead), as an `encrypted` push still carries it: an order a connected
+/// app made, and what just happened to it. Never anything about what was
+/// bought. It links its order (`mk:order`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SaleEvent {
     pub event: String,

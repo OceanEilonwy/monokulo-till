@@ -14,6 +14,7 @@ repository = "https://github.com/OceanEilonwy/monokular"
 monokulo-client = { path = "crates/monokulo-client" }
 till-pos = { path = "crates/till-pos" }
 till-sales = { path = "crates/till-sales" }
+till-payments = { path = "crates/till-payments" }
 till-bell = { path = "crates/till-bell" }
 till-app = { path = "crates/till-app" }
 till-screens = { path = "crates/till-screens" }

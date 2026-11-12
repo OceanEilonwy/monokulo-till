@@ -236,6 +236,20 @@ impl Price {
     }
 }
 
+/// The exchange rate a payment's XMR amount was worked out at, when the
+/// till worked it out itself (view-key mode, docs/view-key-mode.md §8):
+/// where the rate came from, one XMR in the sale's currency, and when the
+/// source gave it. A Monokulo order has none: Monokulo converts the price.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct PriceUsed {
+    /// The price source, as the till names it ("Kraken").
+    pub provider: String,
+    /// One XMR in the sale's currency ("162.40", "USD").
+    pub rate: Price,
+    /// When the source gave the rate.
+    pub at: crate::UnixSeconds,
+}
+
 /// `minor` with the decimal point `digits` places from the right: 5 with 2
 /// is "0.05", -5 is "-0.05".
 pub fn decimal(minor: i64, digits: u32) -> String {

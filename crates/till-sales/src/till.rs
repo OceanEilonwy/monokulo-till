@@ -1,23 +1,22 @@
 //! The till (Android: `Till.kt`), driving the ledger (docs/ledger.md §6 to
-//! §8): what the point of sale lists, what its orders read, what Monokulo's
-//! events and reads say and what the cashier does each become one fact,
-//! recorded in the [`Books`]. The till keeps no sales of its own: its
-//! state is the ledger's, read back after each write.
+//! §8): what the point of sale lists, what its orders read, what the
+//! payment backend's events and reads say and what the cashier does each
+//! become one fact, recorded in the [`Books`]. The till keeps no sales of
+//! its own: its state is the ledger's, read back after each write.
 
 use std::collections::HashSet;
 use std::future::pending;
 use std::sync::Arc;
 use std::time::Duration;
 
-use monokulo_client::{
-    Clock, Connection, MonokuloApi, MonokuloError, Order, SaleEvent, SalePhase, SystemClock,
-    UnixMillis, UnixSeconds, payment_uri, problems,
-};
+use monokulo_client::{Clock, Order, SalePhase, SystemClock, UnixMillis, UnixSeconds, payment_uri};
 use till_ledger::{
     Action, Fact, MarkKind, OrderCreated, OrderId, OrderKey, OrderObserved, OrderRead, Outcome,
     PaymentId, PaymentSeen, Quote, RefundSeen, RefundStatus, SaleKey, ShiftMark, Tender,
     may_make_order,
 };
+use till_payments::monokulo::payment_of_order;
+use till_payments::{BackendError, Payment, PaymentBackend, PaymentRef, PaymentRequest};
 use till_pos::{FoundSale, PosError, RefundInPos, Refunds, Rfc3339Instant, SaleSource};
 use tokio::sync::watch;
 
@@ -92,8 +91,8 @@ impl From<&Order> for OrderStatus {
         OrderStatus {
             phase: order.phase(),
             settled: order.is_final,
-            confirmations: order.confirmations,
-            required: order.confirmations_required,
+            confirmations: Some(order.confirmations),
+            required: Some(order.confirmations_required),
         }
     }
 }
@@ -117,8 +116,9 @@ struct Checking {
 /// sale, get the same order.
 pub struct Till {
     source: Arc<dyn SaleSource>,
-    monokulo: MonokuloApi,
-    connection: Connection,
+    /// Makes the orders and says where each stands: the store's Monokulo
+    /// today (core.md decision 238).
+    backend: Arc<dyn PaymentBackend>,
     /// Signed in to a point of sale: a Monokulo event never makes a sale
     /// here, it waits for its order (docs/ledger.md §3).
     with_pos: bool,
@@ -145,29 +145,21 @@ impl Till {
     /// in case the point of sale was slow to list them.
     pub const REFUNDS_OVERLAP_SECONDS: i64 = 120;
 
-    /// How often [`Till::follow_confirmations`] reads a seen or confirming
-    /// sale again: a Monero block comes about every two minutes, so a
-    /// confirmation shows within a sixth of one, for a request a sale every
-    /// 20 s while it's on its way.
-    pub const CONFIRMATIONS_READ: Duration = Duration::from_secs(20);
-
     /// How long [`Till::lapse_on_time`] waits to try again when the clock it
     /// lapsed by hadn't reached a code's end yet.
     pub const LAPSE_RETRY: Duration = Duration::from_secs(1);
 
-    /// A till over `source`, making orders at `connection`'s store and
-    /// keeping what it learns in `books`. It reads the device's clock until
-    /// told otherwise ([`Till::with_clock`]).
+    /// A till over `source`, making orders through `backend` and keeping
+    /// what it learns in `books`. It reads the device's clock until told
+    /// otherwise ([`Till::with_clock`]).
     pub fn new(
         source: Arc<dyn SaleSource>,
-        monokulo: MonokuloApi,
-        connection: Connection,
+        backend: Arc<dyn PaymentBackend>,
         books: Arc<Books>,
     ) -> Till {
         Till {
             source,
-            monokulo,
-            connection,
+            backend,
             with_pos: true,
             clock: Arc::new(SystemClock),
             books,
@@ -475,14 +467,14 @@ impl Till {
     /// Records the order made for `key`, and what it said of itself
     /// (another till may have made it already, and the store's events may
     /// have moved it on, or renewed it).
-    fn created(&self, key: &SaleKey, order: &Order, sale: &FoundSale) {
+    fn created(&self, key: &SaleKey, order: &Payment, sale: &FoundSale) {
         self.record(Fact::OrderCreated(OrderCreated {
             sale: key.clone(),
             order_id: OrderId::new(order.order_id.as_str()),
-            url: Some(order.url.clone()).filter(|url| !url.is_empty()),
-            payment_uri: order.payment_uri(),
+            url: url_of(&order.reference),
+            payment_uri: payment_uri::build(&order.address, order.xmr_piconero),
             address: order.address.clone(),
-            xmr: payment_uri::xmr(order.piconero),
+            xmr: payment_uri::xmr(order.xmr_piconero),
             price: till_types::Price::new(
                 order
                     .amount
@@ -493,13 +485,14 @@ impl Till {
                     .clone()
                     .unwrap_or_else(|| sale.amount.currency.to_string()),
             ),
-            reference: order.merchant_order_id.clone(),
-            expires_at: UnixSeconds(order.expires_at),
-            confirmations_required: order.confirmations_required,
+            reference: order.receipt.clone(),
+            expires_at: order.expires_at,
+            confirmations_required: Some(order.required),
             device_name: None,
             renew: order.renew.clone(),
+            price_used: order.price.clone(),
         }));
-        self.on_order(order);
+        self.on_payment(order);
     }
 
     /// Asks the POS whether the sales the cashier was told to refund there
@@ -546,40 +539,31 @@ impl Till {
         }
     }
 
-    /// What the store's event stream said. On a till with no point of sale,
-    /// a new sale's event makes the sale (with its plain code); on one with
-    /// a point of sale, an event for an order not yet made here waits in
-    /// the ledger for it.
-    pub fn on_event(&self, event: &SaleEvent) {
-        let Some(phase) = event.phase() else {
-            return;
-        };
-        let order_id = OrderId::new(event.order_id.as_str());
-        if !self.with_pos && phase == SalePhase::Waiting {
+    /// An order the store's order stream sent, in Monokulo's own words
+    /// ([`Till::on_change`]).
+    pub fn on_event(&self, order: &Order) {
+        self.on_change(&payment_of_order(order));
+    }
+
+    /// What the backend's event stream said about a payment. On a till with
+    /// no point of sale, a new payment another till made makes the sale
+    /// (with its plain code); on one with a point of sale, a change to an
+    /// order not yet made here waits in the ledger for it. An event carries
+    /// the quote the order had then: a renewal's `sale.waiting` carries its
+    /// new one (core.md decision 169).
+    pub fn on_change(&self, payment: &Payment) {
+        if !self.with_pos && payment.phase == SalePhase::Waiting {
+            let order_id = OrderId::new(payment.order_id.as_str());
             let known = self
                 .books
                 .with(|ledger| ledger.order(&order_id))
                 .ok()
                 .flatten();
             if known.is_none() {
-                self.record(Fact::OrderCreated(event_order(event)));
+                self.record(Fact::OrderCreated(event_order(payment)));
             }
         }
-        self.record(Fact::OrderObserved(OrderObserved {
-            order_id,
-            phase,
-            confirmations: stepped(phase),
-            is_final: false,
-            received: None,
-            overpaid: false,
-            // The quote the order had then: a renewal's `sale.waiting`
-            // carries its new one (core.md decision 169).
-            quote: Some(Quote {
-                expires_at: UnixSeconds(event.expires_at),
-                piconero: event.piconero,
-            }),
-            renew: None,
-        }));
+        self.on_payment(payment);
     }
 
     /// What a read of an order said about its sale (after the stream
@@ -598,32 +582,38 @@ impl Till {
         }));
     }
 
-    /// `order`, read again (or as a renewal answered): its phase, whether
-    /// it's settled, its confirmations, its quote and its `renew-order`
-    /// form.
+    /// A Monokulo order, read again (or as a renewal answered), in
+    /// Monokulo's own words ([`Till::on_payment`]).
     pub fn on_order(&self, order: &Order) {
-        let order_id = OrderId::new(order.order_id.as_str());
-        if let Some(required) = order.confirmations_required {
-            self.learn_required(&order_id, required);
-        }
+        self.on_payment(&payment_of_order(order));
+    }
+
+    /// A payment, as the backend made it, read it again, renewed it or
+    /// said it changed: its phase, whether it's settled, its confirmations,
+    /// what has arrived, its quote and its `renew-order` form, and the
+    /// confirmations it needs when the order was journalled without them
+    /// (by a build from before every order said).
+    pub fn on_payment(&self, payment: &Payment) {
+        let order_id = OrderId::new(payment.order_id.as_str());
+        self.learn_required(&order_id, payment.required);
         self.record(Fact::OrderObserved(OrderObserved {
             order_id,
-            phase: order.phase(),
-            confirmations: order.confirmations.or(stepped(order.phase())),
-            is_final: order.is_final,
-            received: None,
-            overpaid: order.status.overpaid(),
+            phase: payment.phase,
+            confirmations: Some(payment.confirmations),
+            is_final: payment.is_final,
+            received: Some(payment.received),
+            overpaid: payment.overpaid,
             quote: Some(Quote {
-                expires_at: UnixSeconds(order.expires_at),
-                piconero: order.piconero,
+                expires_at: payment.expires_at,
+                piconero: payment.xmr_piconero,
             }),
-            renew: order.renew.clone(),
+            renew: payment.renew.clone(),
         }));
     }
 
-    /// The store's threshold for an order made before Monokulo said it (an
-    /// older create-order answer): the order as made, with it, which the
-    /// ledger's merge takes over the one without.
+    /// The store's threshold for an order journalled without it (by an
+    /// older build, from an older create-order answer): the order as made,
+    /// with it, which the ledger's merge takes over the one without.
     fn learn_required(&self, order_id: &OrderId, required: u32) {
         let Ok(Some(key)) = self.books.with(|ledger| ledger.order(order_id)) else {
             return;
@@ -651,42 +641,37 @@ impl Till {
             confirmations_required: Some(required),
             device_name: o.device_name.clone(),
             renew: o.renew.clone(),
+            price_used: o.price_used.clone(),
         }));
     }
 
-    /// Reads every sale whose payment is seen or confirming
-    /// ([`TillSale::confirming`]) at once and then each
-    /// [`Till::CONFIRMATIONS_READ`], so its ring and its "4 of 10" follow
-    /// the blocks: the store's event stream says when a payment is seen and
-    /// when it's first in a block, never each confirmation after. One wait,
-    /// started again whenever which sales those are changes (a sale paid, a
-    /// new one seen); nothing is read while there are none. A read that
-    /// fails waits for the next; one that lands after the sale was paid
-    /// can't take it back (the ledger's merge). Runs until dropped.
-    pub async fn follow_confirmations(&self) {
-        let mut rx = self.books.subscribe();
-        let mut urls = confirming_urls(&rx.borrow_and_update());
-        loop {
-            urls = tokio::select! {
-                () = self.read_confirmations(&urls) => unreachable!("reading never ends by itself"),
-                urls = changed(&mut rx, &urls, confirming_urls) => urls,
-            };
+    /// Asks the backend where the payments `refs` name stand, and records
+    /// what it says; one it couldn't read waits for the next time.
+    pub async fn refresh(&self, refs: &[PaymentRef]) {
+        if refs.is_empty() {
+            return;
+        }
+        if let Ok(payments) = self.backend.refresh(refs).await {
+            for payment in &payments {
+                self.on_payment(payment);
+            }
         }
     }
 
-    /// Reads `urls` now and every [`Till::CONFIRMATIONS_READ`]; never ends.
-    async fn read_confirmations(&self, urls: &[String]) {
-        if urls.is_empty() {
-            return pending().await;
-        }
-        loop {
-            for url in urls {
-                if let Ok(order) = self.monokulo.order(&self.connection, url).await {
-                    self.on_order(&order);
-                }
-            }
-            tokio::time::sleep(Till::CONFIRMATIONS_READ).await;
-        }
+    /// The `self` links of the sales still open ([`TillSale::open`]): what
+    /// to refresh when the event stream (re)opens or a look begins.
+    pub fn open_refs(&self) -> Vec<PaymentRef> {
+        self.state()
+            .sales
+            .iter()
+            .filter(|sale| sale.open())
+            .filter_map(|sale| sale.url.as_deref().map(PaymentRef::new))
+            .collect()
+    }
+
+    /// The backend the till makes its orders through.
+    pub fn backend(&self) -> &Arc<dyn PaymentBackend> {
+        &self.backend
     }
 
     /// The cashier closed the sale for now: its code comes down and it goes
@@ -775,19 +760,18 @@ impl Till {
         }
     }
 
-    /// The Monokulo order for `sale`: its amount, currency and receipt
-    /// number, and the idempotency key, never whom it's for (names stay on
-    /// the device). What went wrong, in the till's words.
-    async fn create_order(&self, sale: &FoundSale) -> Result<Order, String> {
+    /// The order for `sale`, made by the backend: its amount, currency and
+    /// receipt number, and the idempotency key, never whom it's for (names
+    /// stay on the device). What went wrong, in the till's words.
+    async fn create_order(&self, sale: &FoundSale) -> Result<Payment, String> {
         let started = std::time::Instant::now();
         let made = self
-            .monokulo
-            .create_order(
-                &self.connection,
-                &sale.amount,
-                sale.reference.as_deref(),
-                &Till::idempotency_key(sale),
-            )
+            .backend
+            .create(PaymentRequest {
+                key: Till::idempotency_key(sale),
+                amount: sale.amount,
+                reference: sale.reference.clone(),
+            })
             .await
             .map_err(|e| creation_problem(&e));
         if let Some(timer) = &self.timer {
@@ -803,8 +787,8 @@ impl Till {
         &self,
         key: &SaleKey,
         action: Action,
-        act: impl Future<Output = Result<Order, String>>,
-    ) -> Result<Order, String> {
+        act: impl Future<Output = Result<Payment, String>>,
+    ) -> Result<Payment, String> {
         self.record(Fact::ActionAsked {
             sale: key.clone(),
             action,
@@ -879,13 +863,13 @@ impl Till {
             return Err(CANT_RENEW.into());
         };
         let renewing = async {
-            self.monokulo
-                .renew_order(&self.connection, &renew, expires_at.0)
+            self.backend
+                .renew(&renew, expires_at)
                 .await
                 .map_err(|e| renewal_problem(&e))
         };
         let order = self.acted(&key, Action::NewCode, renewing).await?;
-        self.on_order(&order);
+        self.on_payment(&order);
         Ok(order.order_id)
     }
 
@@ -1111,23 +1095,37 @@ impl WithReceipt for OrderRead {
     }
 }
 
-/// The order a `sale.waiting` event describes, for a till with no point of
-/// sale: the sale is known only from Monokulo, its code plain.
-fn event_order(event: &SaleEvent) -> OrderCreated {
+/// The order a new payment's event describes (Monokulo's `sale.waiting`),
+/// for a till with no point of sale: the sale is known only from the
+/// backend, its code plain.
+fn event_order(event: &Payment) -> OrderCreated {
     OrderCreated {
         sale: SaleKey::Order(OrderId::new(event.order_id.as_str())),
         order_id: OrderId::new(event.order_id.as_str()),
-        url: event.order_url.clone(),
-        payment_uri: payment_uri::build(&event.address, event.piconero),
+        url: url_of(&event.reference),
+        payment_uri: payment_uri::build(&event.address, event.xmr_piconero),
         address: event.address.clone(),
-        xmr: payment_uri::xmr(event.piconero),
-        price: till_types::Price::new(event.amount.as_str(), event.currency.as_str()),
-        reference: event.merchant_order_id.clone(),
-        expires_at: UnixSeconds(event.expires_at),
-        confirmations_required: None,
-        device_name: Some(event.device_name.clone()).filter(|name| !name.trim().is_empty()),
-        renew: None,
+        xmr: payment_uri::xmr(event.xmr_piconero),
+        price: till_types::Price::new(
+            event.amount.clone().unwrap_or_default(),
+            event.currency.clone().unwrap_or_default(),
+        ),
+        reference: event.receipt.clone(),
+        expires_at: event.expires_at,
+        confirmations_required: Some(event.required),
+        device_name: event
+            .device_name
+            .clone()
+            .filter(|name| !name.trim().is_empty()),
+        renew: event.renew.clone(),
+        price_used: event.price.clone(),
     }
+}
+
+/// Where a payment is read again, as the ledger keeps it (the order's
+/// `url`): none when the backend gave none.
+fn url_of(reference: &PaymentRef) -> Option<String> {
+    Some(reference.as_str().to_owned()).filter(|url| !url.is_empty())
 }
 
 /// `e` shown, unless the sign-in has already ended and `e` only says so
@@ -1152,7 +1150,7 @@ fn with_pos_problem(s: &TillState, e: &PosError) -> TillState {
 }
 
 /// What the till says when an order couldn't be made: what Monokulo's
-/// problem means and who can fix it ([`problems::say`]). No order was made,
+/// problem means and who can fix it ([`BackendError::say`]). No order was made,
 /// so the sale stays unhandled and the next check asks again with the same
 /// idempotency key.
 /// What New code says when the store's Monokulo can't renew an order
@@ -1163,20 +1161,20 @@ const CANT_RENEW: &str =
 /// What a failed renewal says: Monokulo's own words when it refused (a
 /// payment reached the order, say); [`CANT_RENEW`] when the form wasn't
 /// there to send.
-fn renewal_problem(e: &MonokuloError) -> String {
+fn renewal_problem(e: &BackendError) -> String {
     let gone = e.status() == 405 || (e.status() == 404 && e.problem() != Some("not-found"));
     if gone {
         CANT_RENEW.into()
     } else if e.answered() {
-        problems::say(e)
+        e.say()
     } else {
         format!("Couldn't make a new code: {e}")
     }
 }
 
-fn creation_problem(e: &MonokuloError) -> String {
+fn creation_problem(e: &BackendError) -> String {
     if e.answered() {
-        problems::say(e)
+        e.say()
     } else {
         format!("Couldn't make the payment code: {e}")
     }
@@ -1185,16 +1183,6 @@ fn creation_problem(e: &MonokuloError) -> String {
 /// Whether the POS shows `found` refunded; false when it couldn't be asked.
 async fn seen_refunded(refunds: &dyn RefundInPos, found: &FoundSale) -> bool {
     refunds.refunded(found).await.unwrap_or(false)
-}
-
-/// The `self` links of the sales worth following ([`TillSale::confirming`]).
-fn confirming_urls(state: &TillState) -> Vec<String> {
-    state
-        .sales
-        .iter()
-        .filter(|sale| sale.confirming())
-        .filter_map(|sale| sale.url.clone())
-        .collect()
 }
 
 /// Waits until `of` the state differs from `current`, and gives it. The
