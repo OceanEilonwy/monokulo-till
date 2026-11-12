@@ -83,6 +83,12 @@ struct OnboardingScreen: View {
             ShowSalesPage(view: view, send: send)
         case .ready(let heading, let lead, let checks):
             ReadyPage(heading: heading, lead: lead, checks: checks, start: onboarding.start, send: send)
+        // TODO(view-key mode): the wallet setup's pages (V1, V2, C1, B4/C4,
+        // D1 to D4), drawn from the engine's pages and actions
+        // (docs/view-key-mode.md §11.1).
+        case .paymentsMode, .walletEntry, .fobRequest, .fobConnected, .walletCode, .walletKeys,
+             .walletSeed, .thisTill:
+            EmptyView()
         }
     }
 }

@@ -1894,6 +1894,158 @@ still strings across the till, the ledger, the screens and the bridge.
 
 ## View-key mode: payment backends (2026-11-12)
 
+229. **The device's own wallet is Fob's, as a library, and one SQLCipher
+     links.** (Owner, 2026-11-12, docs/view-key-mode.md §3.5, §5.) The new
+     crate `till-wallet` depends on monokulo-fob's `fob-wallet`, `fob-keys`,
+     `fob-codes` and `fob-price` by git at one commit (the
+     `view-key-library` branch, `112c0ef`), with `fob-wallet`'s default
+     features off. Those defaults vendor OpenSSL for SQLCipher; Till keeps
+     its own way (decision 150: `till-ffi` vendors it on Android, Apple uses
+     CommonCrypto, Linux CI the system's), so one `libsqlite3-sys` and one
+     libcrypto are built. rusqlite moves from 0.41.1 to 0.42.0, the version
+     `fob-wallet` uses, since a build may link only one `libsqlite3-sys`.
+     The monero and curve crates, SQLCipher and Fob's key and scanner
+     crates are optimised in dev builds too (`[profile.dev.package]`):
+     unoptimised, a test that makes a wallet file takes minutes. Fob still
+     reads `orf-codec` from this repository at an older commit, a second
+     copy until monokulo-orf (§3.1) gives both one; nothing of it crosses
+     between them.
+230. **`WalletBackend`: Fob's keyed requests, judged by mokulo's status.**
+     (docs/view-key-mode.md §5.) One view-only wallet (`wallet.db` in the
+     data directory, opened with a random 32-byte key kept as the link's
+     `file_key`), Manual Sync always on, its receive account the till's
+     number. `create` converts the price with fob-price (never from a
+     price older than `AGED`, ten minutes: asked for first, and no code
+     made when it can't be had; XMR passes through), rounds it to a
+     millionth of an XMR so the wallet's amount tag has the digits below to
+     itself, and makes a keyed request with the payment's idempotency key:
+     the same key gives the same payment, so New code and a retried charge
+     never make a second one. The payment's reference and order id are
+     `w:<account>:<index>:<tag>:<request id>`. Where it stands is mokulo's
+     `derive_status` and `covering`, lifted with their 29 cases, over the
+     payments toward the request that weren't double spent, with Settled
+     Confirmations (10 to 720, the link's, default 10) as the confirmations
+     required and the request's own expiry; a double spend shows only when
+     what's left doesn't cover the amount, as in mokulo. It's final when
+     Paid at Settled Confirmations or cancelled, and Expired or double spent
+     only once the late window (24 hours) has passed, so a late payment is
+     still its own. The event stream is the loop of §5.5: `Ready` first
+     (the till refreshes, which catches up from the last block scanned),
+     then a turn every 2 s while a code is on screen (`focus`), every 10 s
+     while payments are open, else every 60 s for the newest block alone;
+     a new block means a catch-up, otherwise a look at the pool; each turn
+     emits `Changed` for every watched payment that changed, the clock's
+     expiries included; a failed turn ends the stream on its error and the
+     runner opens it again after its wait. `refresh` catches up first and
+     answers from what the wallet knows even when that fails, since expiry
+     is the clock's. `describe` names the node and carries `warnings` for
+     Settings: an amount tag this till never made (another till using the
+     same number), a payment of an unexpected amount, and a till number
+     past 50. `disconnect` removes the wallet file. The engine's side opens
+     the wallet once per link (`Side::wallet_backend`) and never twice in a
+     process. `WalletLink` now holds everything but the keys: Settled
+     Confirmations, the code's expiry in minutes, the price provider and
+     currency, and the Fob wallet it was connected to; links written
+     before read with the defaults. The light wallet server keeps its slot
+     (`light_server`) and is offered in V1 as "Coming soon".
+231. **With only this till's payments, other tills' sales never arrive,
+     and the wallet looks only in the foreground.** (docs/view-key-mode.md
+     §6, §10.) `PaymentBackend::sharing` says without waiting what
+     `describe` says. With `ThisTill`, `Till::check` drops a sale another
+     device took before any fact is written, once this counter's device is
+     known, and marks it handled; a sale naming no device stays. An order is
+     never made for another counter's sale, and a backend event never makes
+     a sale. Setup offers no "Set up later" (a till with no point of sale
+     would show nothing) and C4 no "Every sale at …". The ledger's
+     principle that every till on one POS account sees the same sales holds
+     for `Shared` only. The runner stops the shift's tasks, and with them
+     the stream, when the app leaves the foreground with such a backend
+     (`TillRunner::foreground`), and starts them as it comes back. A till
+     on its own wallet registers no Bell (`PosSide::signed_in` says there's
+     nothing to register), never runs `background_check`, and publishes no
+     foreground service to Android. Monokulo's shift is unchanged.
+232. **The wallet's setup is stages of setup, and its words are the
+     boards'.** (Owner, 2026-11-12, the canvas's View-key mode page;
+     docs/view-key-mode.md §11.1.) Welcome's Get started now goes to V1
+     (`Screen::PaymentsMode`), whose Continue waits for a choice; Monokulo
+     goes on to the connect code as before. The wallet's way is V2
+     (`WalletEntry`), then Connect to Fob (`FobRequest`, C1, then
+     `FobConnected`, B4 on a phone and C4 on iPad) or the wallet by hand
+     (`WalletCode` D1, `WalletKeys` D2, `WalletSeed` D3), then This till
+     (`ThisTill`, D4), whose Continue makes the wallet and goes on to the
+     point of sale. Each is a `Screen` and an `OnboardingPage` of its own,
+     drawn in setup's one column (decision 227), not the boards' older
+     rail; the iPad rail and iPhone bar count the wallet's steps (board
+     VkRail, but Prices, which isn't a step yet). Through Fob the till
+     number is Fob's account; This till is skipped when Fob shared its node,
+     and otherwise asks only for the node. Paid after and the code's
+     expiry are always Till's own, on B4/C4 under "Payments · set in Till"
+     and on D4, each stepping through a short ladder (10, 15, 20, 30, 45,
+     60, 90, 120, 180, 360, 720 confirmations; 10 to 120 minutes). D2 is
+     checked as it's typed (`Action::EditWalletKeys`): the network, a
+     subaddress, a key that isn't 64 hex digits, and a view key that doesn't
+     match its address each say so under their field, and Continue waits
+     for both. D3's words arrive once, on Continue, and are turned into the
+     view key at once; the words, the spend key and every copy are wiped
+     (fob-keys), and D1's codes are wiped the same way whatever they hold.
+     The view key typed in D2 is held, in a wiped buffer, only until the
+     wallet is made, and is never echoed back to the screen. A debug build
+     sets up on stagenet (where Fob starts), a release on mainnet; a seed
+     or a code without an address is read on that network. Section labels
+     are in sentence case, as setup's others are, and the platforms set them
+     in capitals.
+233. **Connect to Fob, Till's side.** (docs/view-key-mode.md §5.9.) C1
+     makes a `fob-codes` `Asker` request (app "Till", this device's name,
+     want node and prices, no callback) and shows its URI as the QR code
+     with its identicon's 25 cells and two colours; every Fob answer
+     (scanned with "Scan Fob's code", or on Android the result of opening
+     Fob with the request by an explicit intent) comes as
+     `Action::FobAnswer` and opens only with that request's one-time key,
+     which is dropped once it has. The grant's view key is checked against
+     its address, and account 0 is refused. A test runs the protocol's
+     shared vectors (`connect::check_vectors`). The request isn't kept
+     across a restart yet: an Android till killed while Fob is open starts
+     over at C1.
+234. **Settings for a till on its own wallet replaces the store with the
+     wallet.** (docs/view-key-mode.md §5.3, §5.6, §8, §9, §11.)
+     `SettingsView::wallet` (`till_screens::wallet_settings`), with no
+     store section: how Till sees payments ("Your own wallet"), "Connected
+     to Fob · Corner Café · Till (Corner Café)" when it was, the wallet's
+     address (short, and whole for Copy) and network; the till number with
+     − and + and "In your wallet: account n" (or, through Fob, which chose
+     the account, only "In your wallet · Account n"), and a warning past
+     the 50 accounts wallets look at, which moved here from the backend's
+     warnings; the node with Fob's checks, run as Settings opens, and
+     Change; Paid after and the code's expiry, the same steppers and
+     ladders as setup's; the price source, offering only the providers
+     that price the point of sale's currency (fob-price's
+     `providers_for`); the backend's warnings; and "Disconnect this
+     wallet", asking "Disconnect this wallet?" with what it does (keys
+     forgotten, the wallet's file deleted, money untouched) and what it
+     can't (a view key can't be taken back: move the money to take it
+     back). The page's own Disconnect words say the wallet's too. The
+     steppers and the node send setup's actions (`StepTillNumber`,
+     `StepPaidAfter`, `StepCodeExpiry`, `SetNode`), and the price source
+     `ChoosePriceProvider`; on Settings they change the link: the open
+     wallet is set up the new way first (`WalletBackend::update`; a node
+     that doesn't answer on the wallet's network is refused and nothing
+     changes), then the link is kept and the open wallet re-held under it,
+     never opened twice. Changing what Fob handed over clears its "from
+     Fob". A new till number takes effect for new payments only.
+235. **Connect to Fob's request survives a restart.** C1's request, its
+     one-time key with it, is kept as the `fob.request` secret while it
+     waits (`FobRequest::keep`, `Asker::with` to restore) and forgotten
+     once answered, when another wallet is chosen, or once linked. A till
+     started again with one kept opens on C1 with the same code, and an
+     answer arriving after a restart (Android's activity result) still
+     opens. This replaces decision 233's last sentence.
+236. **New code stays Monokulo's for now.** A wallet payment is a keyed
+     request on a pooled address; a fresh request for the same sale gets
+     another address and another order id, while the ledger's renewal
+     (decisions 167 to 172) keeps one order and one address with a new
+     quote. Making New code work for the wallet needs the ledger to take a
+     sale's next order, so the backend still gives no `renew` and the
+     till never offers New code for a wallet payment.
 237. **Till follows Monokulo's order stream, and an order's counts are plain
      numbers.** (Owner, 2026-11-12.) Monokulo's sale events (`mk:events`)
      carried no confirmations, threshold or amount received, so `Payment`
@@ -1955,3 +2107,4 @@ still strings across the till, the ledger, the screens and the bridge.
      older build put back still reads it; a wallet link is
      `{"wallet":{…}}`. `WalletLink` is a first shape for the wallet backend
      to fill in, and a wallet link makes no backend yet.
+     Decisions 229 to 231 fill it in.

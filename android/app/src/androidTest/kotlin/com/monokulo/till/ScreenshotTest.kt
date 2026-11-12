@@ -249,6 +249,11 @@ class ScreenshotTest {
             is OnboardingPage.Ready -> ReadyScreen(page, bubble = false, onStart = {})
             is OnboardingPage.Counter -> CounterScreen(page.view, onPick = {}, onNext = {}, onBack = {})
             is OnboardingPage.ShowSales -> ShowSalesScreen(page.view, onPick = {}, onNext = {}, onBack = {})
+            // TODO(view-key mode): the wallet setup's screens, under the
+            // engine previews' names (vk-mode, vk-wallet, …).
+            is OnboardingPage.PaymentsMode, is OnboardingPage.WalletEntry, is OnboardingPage.FobRequest,
+            is OnboardingPage.FobConnected, is OnboardingPage.WalletCode, is OnboardingPage.WalletKeys,
+            is OnboardingPage.WalletSeed, is OnboardingPage.ThisTill -> Unit
         }
     }
 }

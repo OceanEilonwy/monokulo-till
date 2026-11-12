@@ -39,7 +39,61 @@ wiremock = "0.6.5"
 # library, never the system's SQLite. On Apple targets it encrypts with
 # CommonCrypto; elsewhere with OpenSSL's libcrypto, which till-ffi vendors
 # for Android (docs/decisions/core.md 150).
-rusqlite = { version = "0.41.1", default-features = false, features = ["bundled-sqlcipher"] }
+rusqlite = { version = "0.42.0", default-features = false, features = ["bundled-sqlcipher"] }
+# Fob as a library (docs/view-key-mode.md §3, §5): the device's own wallet
+# in Manual Sync, its keys, its codes (wallet codes and Connect to Fob) and
+# its prices, at one commit of monokulo-fob. fob-wallet's default features
+# vendor OpenSSL for SQLCipher; Till brings its own (till-ffi on Android,
+# CommonCrypto on Apple: core.md decisions 150 and 229), so they're off.
+# fob-wallet's rusqlite and Till's must be one version: one SQLCipher links.
+fob-wallet = { git = "https://github.com/OceanEilonwy/monokulo-fob", rev = "112c0efab84d3a4557bf7af94af79ea3bf0de96b", default-features = false }
+fob-keys = { git = "https://github.com/OceanEilonwy/monokulo-fob", rev = "112c0efab84d3a4557bf7af94af79ea3bf0de96b" }
+fob-codes = { git = "https://github.com/OceanEilonwy/monokulo-fob", rev = "112c0efab84d3a4557bf7af94af79ea3bf0de96b" }
+fob-price = { git = "https://github.com/OceanEilonwy/monokulo-fob", rev = "112c0efab84d3a4557bf7af94af79ea3bf0de96b" }
+till-wallet = { path = "crates/till-wallet" }
+zeroize = "1.8"
+
+# monero-oxide's curve arithmetic and SQLCipher's key derivation are slow
+# unoptimised: a test that makes a wallet file takes minutes without this.
+# Fob's workspace optimises every dependency the same way.
+[profile.dev.package.curve25519-dalek]
+opt-level = 3
+[profile.dev.package.monero-oxide]
+opt-level = 3
+[profile.dev.package.monero-wallet]
+opt-level = 3
+[profile.dev.package.monero-io]
+opt-level = 3
+[profile.dev.package.monero-primitives]
+opt-level = 3
+[profile.dev.package.monero-ed25519]
+opt-level = 3
+[profile.dev.package.monero-bulletproofs-generators]
+opt-level = 3
+[profile.dev.package.monero-address]
+opt-level = 3
+[profile.dev.package.monero-borromean]
+opt-level = 3
+[profile.dev.package.monero-mlsag]
+opt-level = 3
+[profile.dev.package.monero-clsag]
+opt-level = 3
+[profile.dev.package.monero-bulletproofs]
+opt-level = 3
+[profile.dev.package.sha3]
+opt-level = 3
+[profile.dev.package.keccak]
+opt-level = 3
+[profile.dev.package.libsqlite3-sys]
+opt-level = 3
+[profile.dev.package.fob-scanner]
+opt-level = 3
+[profile.dev.package.fob-keys]
+opt-level = 3
+[profile.dev.package.polyseed]
+opt-level = 3
+[profile.dev.package.pbkdf2]
+opt-level = 3
 
 # orf-codec-ffi's library as the Android app ships it, once per ABI: small.
 # (Release builds for this machine keep the defaults: UniFFI's bindgen reads

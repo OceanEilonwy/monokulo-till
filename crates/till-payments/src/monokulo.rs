@@ -74,6 +74,7 @@ impl PaymentBackend for MonokuloBackend {
                 device,
                 onion_api,
             }),
+            warnings: Vec::new(),
         })
     }
 
@@ -140,6 +141,10 @@ impl PaymentBackend for MonokuloBackend {
                 })
             })
             .boxed()
+    }
+
+    fn sharing(&self) -> Sharing {
+        Sharing::Shared
     }
 
     /// Monokulo watches every order itself.

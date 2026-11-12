@@ -41,6 +41,7 @@ use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio::sync::watch;
 
 mod till;
+mod wallet;
 
 use crate::phases::Money;
 use crate::push::PlatformPush;
@@ -296,6 +297,8 @@ pub(crate) struct State {
     heartbeat: u64,
     books_slot: BooksSlot,
     published: Published,
+    /// Setting up a till on the shop's own wallet (decision 232).
+    wallet: wallet::WalletForm,
 }
 
 impl State {
@@ -309,6 +312,7 @@ impl State {
         options: Options,
     ) -> State {
         State {
+            wallet: wallet::WalletForm::new(config.debug),
             tx,
             runtime,
             utc_offset: config.utc_offset,
@@ -605,7 +609,7 @@ impl State {
             }
         }
         let Some(p) = &self.parts else { return };
-        if model.shift_on && model.connection.is_some() {
+        if model.shift_on && model.link().is_some() {
             p.runner.start();
         } else {
             p.runner.show_saved();
@@ -620,6 +624,11 @@ impl State {
             });
         }
         self.screen = self.home();
+        // A Connect to Fob request kept from before a restart: back on C1,
+        // so Fob's answer still opens.
+        if self.screen == Screen::Welcome && self.restore_fob_request() {
+            self.screen = Screen::FobRequest;
+        }
         // The sales already live as the app starts were told of then: none
         // rises out of the shift on its own.
         self.live_before = till_screens::till_nav::live_ids(&self.sales_now());
@@ -661,7 +670,7 @@ impl State {
         let Some(model) = self.model() else {
             return Screen::Welcome;
         };
-        if model.connection.is_none() {
+        if model.link().is_none() {
             Screen::Welcome
         } else if model.setup_done {
             Screen::Till
@@ -711,7 +720,7 @@ impl State {
         let Some(p) = &self.parts else { return };
         p.runner.stop();
         let model = p.side.model();
-        if model.shift_on && model.connection.is_some() {
+        if model.shift_on && model.link().is_some() {
             p.runner.start();
         }
     }
@@ -722,6 +731,10 @@ impl State {
             Action::Backgrounded => {
                 self.visible = false;
                 self.heartbeat += 1;
+                // The shop's own wallet stops looking (decision 231).
+                if let Some(p) = &self.parts {
+                    p.runner.foreground(false);
+                }
                 // Behind now: a payment is a notice, not the paid moment.
                 let now = self.now_ms();
                 self.record(Fact::Foreground { until: now });
@@ -851,11 +864,12 @@ impl State {
             }
             Action::CopyWalletAddress => {
                 let address = self.parts.as_ref().and_then(|p| {
-                    p.live
-                        .now()
-                        .store
+                    let now = p.live.now();
+                    now.store
                         .and_then(|store| store.wallet)
                         .map(|wallet| wallet.address)
+                        // The shop's own wallet says its address itself.
+                        .or(now.backend.map(|b| b.address).filter(|a| !a.is_empty()))
                 });
                 if let Some(text) = address {
                     self.effect(Effect::CopyText {
@@ -864,7 +878,10 @@ impl State {
                     });
                 }
             }
-            Action::OpenSettings => self.open_settings(),
+            Action::OpenSettings => {
+                self.open_settings();
+                self.check_wallet_node();
+            }
             Action::OpenPointOfSale => {
                 self.from_settings = true;
                 self.go(Screen::PointOfSale);
@@ -999,6 +1016,26 @@ impl State {
                     p.runner.keep_as_cash(&order_id);
                 }
             }
+            Action::ChoosePaymentsMode { mode } => self.choose_payments_mode(mode),
+            Action::ConnectFob => self.connect_fob(),
+            Action::GetFob => self.get_fob(),
+            Action::ChooseWalletWay { way } => self.choose_wallet_way(way),
+            Action::FobAnswer { text } => self.fob_answer(text),
+            Action::UseAnotherWallet => self.use_another_wallet(),
+            Action::ScanWalletCode { text } => self.wallet_code(Some(text)),
+            Action::PasteWalletCode { text } => self.wallet_code(text),
+            Action::EditWalletKeys {
+                network,
+                address,
+                view_key,
+            } => self.edit_wallet_keys(network, address, view_key),
+            Action::ChooseSeedLength { words } => self.choose_seed_length(words),
+            Action::EnterSeed { words } => self.enter_seed(words),
+            Action::StepTillNumber { up } => self.step_till_number(up),
+            Action::StepPaidAfter { up } => self.step_paid_after(up),
+            Action::StepCodeExpiry { up } => self.step_code_expiry(up),
+            Action::SetNode { url } => self.set_node(url),
+            Action::ChoosePriceProvider { name } => self.choose_price_provider(name),
             Action::PaidInCash { order_id } => {
                 if let Some(p) = &self.parts {
                     p.runner.paid_in_cash(&order_id);
@@ -1212,9 +1249,11 @@ impl State {
             self.log(format!("till-core: the ledger's upkeep: {e}"));
         }
         let model = p.side.model();
+        // The shop's own wallet looks again, catching up first (decision 231).
+        p.runner.foreground(true);
         p.live.read(p.side.backend().as_ref());
         retry_wake_ups(&p.wake_ups);
-        if !p.runner.state().running && model.shift_on && model.connection.is_some() {
+        if !p.runner.state().running && model.shift_on && model.link().is_some() {
             p.runner.start();
         }
         p.runner.wake();
@@ -1366,7 +1405,14 @@ impl State {
                 self.go(Screen::Sale { order_id })
             }
             Screen::Settings => self.close_settings(),
-            Screen::Scan => self.go(Screen::Welcome),
+            Screen::PaymentsMode => self.go(Screen::Welcome),
+            Screen::Scan | Screen::WalletEntry => self.go(Screen::PaymentsMode),
+            Screen::FobRequest
+            | Screen::FobConnected
+            | Screen::WalletCode
+            | Screen::WalletKeys
+            | Screen::WalletSeed => self.use_another_wallet(),
+            Screen::ThisTill => self.this_till_back(),
             Screen::Confirm => self.go(Screen::Scan),
             Screen::Locations => self.go(Screen::PointOfSale),
             Screen::PointOfSale if setup_done => {
@@ -1408,7 +1454,11 @@ impl State {
     /// then "Continue" (or "Done", opened from Settings).
     fn next(&mut self) {
         match self.screen {
-            Screen::Welcome => self.go(Screen::Scan),
+            Screen::Welcome => self.go(Screen::PaymentsMode),
+            Screen::PaymentsMode => self.payments_mode_next(),
+            Screen::WalletKeys => self.wallet_keys_next(),
+            Screen::FobConnected => self.fob_connected_next(),
+            Screen::ThisTill => self.finish_wallet(),
             Screen::Connected => self.go(Screen::PointOfSale),
             Screen::PointOfSale => match self.pos_connected() {
                 (None, _) => {}
@@ -1824,7 +1874,7 @@ impl State {
         }
         let Some(p) = &self.parts else { return };
         if on {
-            if !p.runner.state().running && side.model().connection.is_some() {
+            if !p.runner.state().running && side.model().link().is_some() {
                 p.runner.start();
             }
         } else {
@@ -2036,6 +2086,8 @@ impl State {
             return;
         }
         p.live.forget();
+        p.side.forget_wallet();
+        self.wallet = wallet::WalletForm::new(self.config.debug);
         self.tender = None;
         self.pos_confirmed = false;
         self.finding = None;
@@ -2208,6 +2260,7 @@ impl State {
             live_activity: self.live_activity_on(&model),
             code_in_island: self.code_in_island_on(&model),
             choices: self.sale_choices(p, &model),
+            wallet: self.wallet_settings(p, &model),
         }
     }
 
@@ -2294,6 +2347,7 @@ impl State {
                     can_change_location: self.locations.len() > 1,
                     setup: !model.setup_done,
                     confirmed: self.pos_confirmed,
+                    this_till_only: p.side.wallet_mode(),
                 })
             }
             Screen::Counter => {
@@ -2309,6 +2363,7 @@ impl State {
                     }),
                     place: model.place_name(),
                     every_device: model.alert_every,
+                    this_till_only: p.side.wallet_mode(),
                 })
             }
             Screen::ShowSales => Step::ShowSales {
@@ -2341,16 +2396,28 @@ impl State {
                     .store
                     .as_ref()
                     .map(|s| s.name.clone())
+                    .or_else(|| {
+                        // The shop's own wallet: Fob's name for it.
+                        let wallet = model.wallet.as_ref()?;
+                        Some(
+                            wallet
+                                .fob
+                                .as_ref()
+                                .map_or("Your wallet".to_owned(), |f| f.wallet_name.clone()),
+                        )
+                    })
                     .unwrap_or_default(),
                 location: model.place_name(),
                 alerts: self.alerts_allowed,
                 bubble: model.bubble_on && self.bubble_allowed,
             },
-            _ => return None,
+            _ => self.wallet_step()?,
         };
         Some(OnboardingInput {
             step,
             pos: model.point_of_sale,
+            wallet: p.side.wallet_mode()
+                || self.wallet.mode == Some(till_screens::wallet_setup::PaymentsMode::Wallet),
         })
     }
 
@@ -2428,7 +2495,8 @@ impl State {
         let Some(p) = &self.parts else { return };
         let device = self.config.device;
         let clock = self.device_clock();
-        let running = p.runner.state().running;
+        // No foreground service for the shop's own wallet (decision 231).
+        let running = p.runner.state().running && !p.side.wallet_mode();
         let onboarding = self
             .onboarding_input(p)
             .map(|input| onboarding::onboarding(&input, device, &Money(self.platform.clone())));

@@ -55,13 +55,17 @@ pub use preview::{TillPreview, preview_close, preview_panel, preview_sale, previ
 pub use preview_sales::{
     PreviewPhase, PreviewSale, preview_phase_step, preview_sale_live, preview_sales_json,
 };
-pub use preview_setup::{PreviewStep, preview_onboarding, preview_settings, preview_wake_ups};
+pub use preview_setup::{
+    PreviewSettings, PreviewStep, preview_onboarding, preview_settings, preview_settings_of,
+    preview_wake_ups,
+};
 pub use till_screens::Device;
 use till_screens::bubble::{BubbleLook, BubbleTap, PanelView};
 use till_screens::notification::Notice;
 use till_screens::order_text::OrderPageView;
 use till_screens::shift::ShiftFilter;
 use till_screens::view::Press;
+use till_screens::wallet_setup::{PaymentsMode, WalletNetwork, WalletWay};
 use till_screens::{
     CloseView, CodeView, LiveActivityState, NotificationView, OnboardingView, SalePageView,
     SaleView, SettingsView, ShiftView, WakeUpsView,
@@ -353,6 +357,23 @@ pub use till_screens::settings::ShowSales;
 pub enum Screen {
     /// 1: what Till does.
     Welcome,
+    /// V1: how Till sees payments, Monokulo or the shop's own wallet
+    /// (docs/view-key-mode.md §11.1).
+    PaymentsMode,
+    /// V2: Connect to Fob, or enter the wallet yourself.
+    WalletEntry,
+    /// C1: the request's code and pattern, for Fob on a phone.
+    FobRequest,
+    /// B4 (phone) or C4 (iPad): connected to Fob.
+    FobConnected,
+    /// D1: scan or paste a wallet code.
+    WalletCode,
+    /// D2: the address and view key.
+    WalletKeys,
+    /// D3: a seed phrase, wiped after.
+    WalletSeed,
+    /// D4: this till's number, node, confirmations and expiry.
+    ThisTill,
     /// 2: scan or paste the store's connect code.
     Scan,
     /// 3: connect to the server, then check the store it is.
@@ -676,6 +697,79 @@ pub enum Action {
     PushToken {
         token: Option<String>,
     },
+    /// V1: how Till sees payments.
+    ChoosePaymentsMode {
+        mode: PaymentsMode,
+    },
+    /// V2's "Connect to Fob": C1, with a new request. On Android the
+    /// platform may also open Fob on this device with the request (C1's
+    /// `qr`), by an explicit intent, and send Fob's answer back as
+    /// [`Action::FobAnswer`].
+    ConnectFob,
+    /// V2's "Don't have Fob? Get it for Android": Fob's page opens as
+    /// [`Effect::OpenUrl`].
+    GetFob,
+    /// V2: one of the ways to enter the wallet yourself (D1, D2, D3).
+    ChooseWalletWay {
+        way: WalletWay,
+    },
+    /// Fob's answer to C1's request: its code scanned ("Scan Fob's code"),
+    /// a link back, or (Android, same device) the activity's result.
+    FobAnswer {
+        text: String,
+    },
+    /// C4's "Use another wallet": back to V2, what Fob handed over
+    /// forgotten.
+    UseAnotherWallet,
+    /// D1's camera read a code.
+    ScanWalletCode {
+        text: String,
+    },
+    /// D1's "Paste a code instead": the clipboard's text, `None` when it
+    /// held none.
+    PasteWalletCode {
+        text: Option<String>,
+    },
+    /// D2 as typed so far: each change sends both fields, and the engine
+    /// says what's wrong as it's typed. The view key is held only until
+    /// the wallet is made.
+    EditWalletKeys {
+        network: WalletNetwork,
+        address: String,
+        view_key: String,
+    },
+    /// D3's "25 words" or "16 words (Polyseed)".
+    ChooseSeedLength {
+        words: u8,
+    },
+    /// D3's Continue: the words, space separated. The engine takes the view
+    /// key from them and wipes them at once; the platform clears its fields
+    /// and drops its copy as soon as it has sent them.
+    EnterSeed {
+        words: String,
+    },
+    /// D4's till number, − or +; in Settings, the wallet's (decision 234).
+    StepTillNumber {
+        up: bool,
+    },
+    /// D4's, B4's and C4's Paid after, − or +: Settled Confirmations. In
+    /// Settings, the wallet's, as do the next two.
+    StepPaidAfter {
+        up: bool,
+    },
+    /// D4's, B4's and C4's "A code runs out after", − or +.
+    StepCodeExpiry {
+        up: bool,
+    },
+    /// D4's Change: the node's address, typed or one of `choices`. It's
+    /// checked at once.
+    SetNode {
+        url: String,
+    },
+    /// Settings' price source, one of its choices' labels ("CoinGecko").
+    ChoosePriceProvider {
+        name: String,
+    },
 }
 
 impl Action {
@@ -759,6 +853,22 @@ impl Action {
             Action::ExtraRefunded { .. } => "ExtraRefunded",
             Action::NewCode { .. } => "NewCode",
             Action::PushToken { .. } => "PushToken",
+            Action::ChoosePaymentsMode { .. } => "ChoosePaymentsMode",
+            Action::ConnectFob => "ConnectFob",
+            Action::GetFob => "GetFob",
+            Action::ChooseWalletWay { .. } => "ChooseWalletWay",
+            Action::FobAnswer { .. } => "FobAnswer",
+            Action::UseAnotherWallet => "UseAnotherWallet",
+            Action::ScanWalletCode { .. } => "ScanWalletCode",
+            Action::PasteWalletCode { .. } => "PasteWalletCode",
+            Action::EditWalletKeys { .. } => "EditWalletKeys",
+            Action::ChooseSeedLength { .. } => "ChooseSeedLength",
+            Action::EnterSeed { .. } => "EnterSeed",
+            Action::StepTillNumber { .. } => "StepTillNumber",
+            Action::StepPaidAfter { .. } => "StepPaidAfter",
+            Action::StepCodeExpiry { .. } => "StepCodeExpiry",
+            Action::SetNode { .. } => "SetNode",
+            Action::ChoosePriceProvider { .. } => "ChoosePriceProvider",
         }
     }
 }

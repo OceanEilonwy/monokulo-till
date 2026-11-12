@@ -32,10 +32,16 @@ till-payments.workspace = true
 till-sales.workspace = true
 till-screens.workspace = true
 till-types.workspace = true
+# The device's own wallet (docs/view-key-mode.md §5).
+till-wallet.workspace = true
 tokio.workspace = true
+zeroize.workspace = true
 uniffi = { workspace = true, optional = true }
 
 [dev-dependencies]
+# Fob's side of Connect to Fob, and wallets made for the tests.
+fob-codes.workspace = true
+fob-keys.workspace = true
 tempfile = "3.27.0"
 tokio = { workspace = true, features = ["test-util"] }
 wiremock = "0.6.5"

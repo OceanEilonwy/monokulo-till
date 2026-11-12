@@ -20,7 +20,8 @@ enum Route: Hashable {
         guard let screen else { return .starting }
         switch screen {
         case .welcome, .scan, .confirm, .connected, .pointOfSale, .locations, .counter, .alerts, .float,
-             .showSales, .ready:
+             .showSales, .ready, .paymentsMode, .walletEntry, .fobRequest, .fobConnected, .walletCode,
+             .walletKeys, .walletSeed, .thisTill:
             return .onboarding
         case .till:
             return .shift

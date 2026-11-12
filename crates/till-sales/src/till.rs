@@ -16,7 +16,7 @@ use till_ledger::{
     may_make_order,
 };
 use till_payments::monokulo::payment_of_order;
-use till_payments::{BackendError, Payment, PaymentBackend, PaymentRef, PaymentRequest};
+use till_payments::{BackendError, Payment, PaymentBackend, PaymentRef, PaymentRequest, Sharing};
 use till_pos::{FoundSale, PosError, RefundInPos, Refunds, Rfc3339Instant, SaleSource};
 use tokio::sync::watch;
 
@@ -333,6 +333,7 @@ impl Till {
             .filter(|sale| !last_found.contains(&sale.id))
             .count();
         *last_found = found.iter().map(|sale| sale.id.clone()).collect();
+        let found = self.only_this_tills(found);
         let mut problem = None;
         for sale in &found {
             match self.take(sale).await {
@@ -346,6 +347,37 @@ impl Till {
             ..s.clone()
         });
         Some(fresh)
+    }
+
+    /// Whether this till knows only the payments it made (the device's own
+    /// wallet, docs/view-key-mode.md §6): another device's sale is then
+    /// never this till's.
+    pub fn this_till_only(&self) -> bool {
+        self.backend.sharing() == Sharing::ThisTill
+    }
+
+    /// `found`, less the sales another device took when this till knows
+    /// only its own payments and its device is known (§6): they're dropped
+    /// before any fact is written, so they're never listed, alerted or
+    /// offered, and handled at once so the point of sale doesn't list them
+    /// again. A sale that names no device stays: it can't be told apart.
+    fn only_this_tills(&self, found: Vec<FoundSale>) -> Vec<FoundSale> {
+        if !self.this_till_only() {
+            return found;
+        }
+        let Some(mine) = self.books.view_settings().device else {
+            return found;
+        };
+        let (mine, others): (Vec<FoundSale>, Vec<FoundSale>) =
+            found.into_iter().partition(|sale| {
+                sale.device_id
+                    .as_ref()
+                    .is_none_or(|device| device.as_str() == mine.as_str())
+            });
+        for sale in &others {
+            self.source.handled(sale);
+        }
+        mine
     }
 
     /// Reads the refunds the point of sale lists since this till's refunds
@@ -455,6 +487,11 @@ impl Till {
         if view.has_order() || view.offered {
             return Ok(());
         }
+        if self.this_till_only() && view.other_counter {
+            // Never another counter's order: it would be a second payment
+            // for one sale, at another address (§6).
+            return Ok(());
+        }
         if !may_make_order(&view, &self.books.view_settings(), false) {
             // Another counter's cash sale: its own till makes the order.
             return Ok(());
@@ -552,7 +589,9 @@ impl Till {
     /// the quote the order had then: a renewal's `sale.waiting` carries its
     /// new one (core.md decision 169).
     pub fn on_change(&self, payment: &Payment) {
-        if !self.with_pos && payment.phase == SalePhase::Waiting {
+        // A backend that knows only this till's payments never tells of
+        // another till's (docs/view-key-mode.md §6): no sale from an event.
+        if !self.with_pos && !self.this_till_only() && payment.phase == SalePhase::Waiting {
             let order_id = OrderId::new(payment.order_id.as_str());
             let known = self
                 .books
