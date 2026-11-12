@@ -52,9 +52,6 @@ final class Core {
     /// The iPhone's Live Activity (`Update.liveActivity`). Its push token
     /// goes to `registerLiveActivityPushToken` (phase I5).
     let liveActivity = LiveActivityController()
-    /// The iPad's floating window (docs/ipad-redesign.md decision 2), drawn
-    /// from the same state; nil where Picture in Picture isn't offered.
-    let pip: PipWindow? = PipWindow.supported ? PipWindow() : nil
 
     init(secrets: Platform = DevicePlatform(), push: PushPlatform = ApnsPush()) {
         config = Core.config()
@@ -79,12 +76,6 @@ final class Core {
             self?.registerLiveActivityPushToken(token)
         }
         UNUserNotificationCenter.current().delegate = taps
-        pip?.onRestore = { [weak self] orderId in
-            self?.send(.openSale(orderId: orderId))
-        }
-        pip?.onTakeInMonero = { [weak self] orderId in
-            self?.send(.takeInMonero(orderId: orderId))
-        }
         memoryWarnings = NotificationCenter.default.addObserver(
             forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -113,10 +104,8 @@ final class Core {
     /// says how close the app is to being ended.
     private func memoryWarning() {
         let left = MemoryHeadroom.described
-        let window = pip?.isActive == true ? "up" : "down"
-        TillLog.memory.error("memory warning: \(left, privacy: .public) left, floating window \(window, privacy: .public)")
+        TillLog.memory.error("memory warning: \(left, privacy: .public) left")
         QRImages.empty()
-        pip?.memoryWarning()
     }
 
     /// How a new sale shows up on this iPad, as Settings has it.
@@ -153,16 +142,14 @@ final class Core {
         send(.opened)
         if let engine { lifecycle.resume(engine) }
         liveActivity.resume()
-        pip?.appInFront()
         Task { await readPermissions() }
     }
 
     /// The app went to the background: the engine hears it, then closes
     /// its ledger before iOS may suspend the app (`Engine.suspend`).
     func backgrounded() {
-        let window = pip == nil ? "none" : (pip?.isActive == true ? "up" : "ready")
         let left = MemoryHeadroom.described
-        TillLog.lifecycle.notice("to the back: floating window \(window, privacy: .public), memory left \(left, privacy: .public)")
+        TillLog.lifecycle.notice("to the back: memory left \(left, privacy: .public)")
         send(.backgrounded)
         if let engine { lifecycle.suspend(engine) }
     }
@@ -195,10 +182,6 @@ final class Core {
         case .nav(let byItself, _, _, _, _): self.byItself = byItself
         case .shift(let view):
             shift = view
-            pip?.shift(
-                place: TillActivityAttributes.location(place: view.top.place),
-                cash: PipCashOffer.of(view.offeredCash)
-            )
         case .sale(let orderId, let view, let page, let code, let order):
             sale = SaleScreens(orderId: orderId, view: view, page: page, code: code, order: order)
         case .closeSheet(let orderId, let view):
@@ -210,9 +193,6 @@ final class Core {
         case .refundSheet(let view): refundSheet = view
         case .settings(let view): settings = view
         case .wakeUps(let view): wakeUps = view
-        case .liveActivity(let state) where pip != nil:
-            // On iPad the engine sends it only for the floating window.
-            pip?.show(state.map { TillActivityAttributes.ContentState($0) })
         case .liveActivity(let state):
             liveActivity.show(
                 state.map { TillActivityAttributes.ContentState($0) },
@@ -221,9 +201,8 @@ final class Core {
         case .notification(let view):
             // Set in one update only, once the engine has claimed the
             // sale's alert (core.md 123), as it arrives with Till in the
-            // back. While the floating window is up it shows the sale
-            // instead, and the claim counts it as told (core.md 125).
-            if let alert = view.alert, !(pip?.isActive ?? false) {
+            // back.
+            if let alert = view.alert {
                 Task { await SaleAlerts.post(alert) }
             }
         default: break
@@ -231,7 +210,7 @@ final class Core {
         // The update's name only: `String(describing:)` of the whole update
         // reflected over every sale of a shift each second the countdown
         // ran, on the main thread, and kept 50 such dumps, so the app's
-        // memory and work grew with the shift (the floating-window crash).
+        // memory and work grew with the shift (the 2026-11-10 crash).
         updates.append(Self.name(of: update))
         if updates.count > Self.keptUpdates {
             updates.removeFirst(updates.count - Self.keptUpdates)

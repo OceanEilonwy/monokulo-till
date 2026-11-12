@@ -3,7 +3,7 @@ import UIKit
 
 /// Paid's "Back to Square" on iPad and iPhone (docs/ipad-redesign.md
 /// decision 1, board A3; core.md decision 94): with a sale shown full
-/// screen over Square (from its alert or the floating window's ⤢), the
+/// screen over Square (from its alert), the
 /// button opens Square Point of Sale again by its URL scheme. The owner checked on an iPad that
 /// `square-commerce-v1://` opens it, with no prompt from an app. Till
 /// then goes back to the shift, so the next sale opens fresh.

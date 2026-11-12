@@ -939,8 +939,7 @@ struct ShowSalesRow: View {
 }
 
 /// OnbShow's skeleton of a way a sale shows up, on a 56-point tile: an
-/// alert's pill, a floating window in the corner of the point of sale, or
-/// the two side by side. A picture only; the row says it in words.
+/// alert's pill, or the two side by side. A picture only; the row says it in words.
 struct ShowSalesPicture: View {
     let mode: ShowSales
 
@@ -959,16 +958,6 @@ struct ShowSalesPicture: View {
             Capsule()
                 .fill(Palette.ink)
                 .frame(width: 36, height: 14)
-        case .floatingWindow:
-            RoundedRectangle(cornerRadius: 4)
-                .fill(Palette.border)
-                .frame(width: 40, height: 30)
-                .overlay(alignment: .bottomTrailing) {
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(Palette.ink)
-                        .frame(width: 14, height: 14)
-                        .padding(3)
-                }
         case .sideBySide:
             HStack(spacing: 3) {
                 RoundedRectangle(cornerRadius: 4)

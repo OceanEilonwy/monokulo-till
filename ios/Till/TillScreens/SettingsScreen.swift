@@ -222,8 +222,7 @@ struct ShiftSettings: View {
     }
 }
 
-/// Settings › How sales show up, on iPad: an alert, a floating window, or
-/// side by side, each led by O4's picture (``ShowSalesRow``), with how to
+/// Settings › How sales show up, on iPad: an alert or side by side, each led by O4's picture (``ShowSalesRow``), with how to
 /// arrange side by side while it's chosen.
 struct ShowSalesSettings: View {
     let section: ShowSalesSection

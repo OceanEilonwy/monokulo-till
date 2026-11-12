@@ -3,9 +3,8 @@
 //! pushes set the same fields through the relay; the widget draws its own
 //! words from them ("Seen", "1/2", "Tap to show code").
 //!
-//! iPhone's Live Activity, and the iPad's Picture in Picture window when
-//! a new sale shows up in a floating window (docs/ipad-redesign.md
-//! decision 2): the same state draws both. Android has its ongoing
+//! iPhone only: the iPad's Picture in Picture window, which drew the same
+//! state, was dropped (core.md decision 225). Android has its ongoing
 //! notification ([`crate::notification`]).
 
 use monokulo_client::OrderId;
@@ -53,8 +52,7 @@ pub struct LiveActivityState {
     /// The till's own sales still waiting for a payment, this one included
     /// while it is: "+1 more" at 2.
     pub waiting_count: u32,
-    /// Only with "Show code in island" on (always in the iPad's floating
-    /// window), and only while the sale waits for its first payment: the
+    /// Only with "Show code in island" on, and only while the sale waits for its first payment: the
     /// sale's code, with its receipt when the state is drawn on the device
     /// alone, and the plain payment URI where it would go through the relay
     /// (design.md §4; core.md decision 140).
@@ -81,8 +79,7 @@ pub struct LiveActivityInput {
     /// Settings › Dynamic Island › "Show code in island" (off by default).
     pub code_in_island: bool,
     /// The code keeps its receipt: the state is drawn on this device alone
-    /// (the iPad's floating window, or a Live Activity with no push token
-    /// in use), never sent through the relay (core.md decision 140).
+    /// (a Live Activity with no push token in use), never sent through the relay (core.md decision 140).
     pub receipt: bool,
 }
 
@@ -98,10 +95,9 @@ fn label(sale: &TillSale) -> Option<String> {
     }
 }
 
-/// The content state on `device`: `None` on Android. The engine asks on
-/// iPad only while its Picture in Picture window is chosen.
+/// The content state on `device`: `None` but on iPhone.
 pub fn live_activity(input: &LiveActivityInput, device: Device) -> Option<LiveActivityState> {
-    if !device.is_ios() {
+    if device != Device::Iphone {
         return None;
     }
     let own: Vec<&TillSale> = input
@@ -219,11 +215,7 @@ mod tests {
                 name: None,
             }
         );
-        assert_eq!(
-            live_activity(&input(vec![]), Device::Ipad),
-            Some(state),
-            "the iPad's floating window draws the same state"
-        );
+        assert_eq!(live_activity(&input(vec![]), Device::Ipad), None);
         assert_eq!(live_activity(&input(vec![]), Device::Android), None);
     }
 
@@ -268,7 +260,7 @@ mod tests {
                 receipt: true,
                 ..input(vec![sale("o2", SalePhase::Waiting, true)])
             },
-            Device::Ipad,
+            Device::Iphone,
         )
         .unwrap();
         assert_eq!(
