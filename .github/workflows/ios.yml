@@ -84,9 +84,9 @@ jobs:
               key=version, reverse=(major != "26"))
           for runtime in runtimes:
               for device in devices[runtime]:
-                  # A foldable's unfolded screen is neither a phone's nor an
-                  # iPad's: the newest ordinary iPhone, for the tests and the
-                  # screenshots alike.
+                  # Not a foldable: unfolded, its screen is neither a phone
+                  # nor an iPad, so the tests and the screenshots take the
+                  # newest iPhone that does not fold.
                   if device["name"].startswith(family) and not re.search(r"Duo|Fold|Flip", device["name"]):
                       print(device["udid"]); sys.exit(0)
           sys.exit(1)' "$1" "$2"
