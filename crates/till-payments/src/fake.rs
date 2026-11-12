@@ -118,6 +118,10 @@ impl FakeBackend {
 
 #[async_trait]
 impl PaymentBackend for FakeBackend {
+    fn sharing(&self) -> Sharing {
+        self.sharing
+    }
+
     async fn describe(&self) -> Result<BackendInfo, BackendError> {
         self.failure()?;
         Ok(BackendInfo {
@@ -126,6 +130,7 @@ impl PaymentBackend for FakeBackend {
             currency: Some("USD".into()),
             sharing: self.sharing,
             monokulo: None,
+            warnings: Vec::new(),
         })
     }
 

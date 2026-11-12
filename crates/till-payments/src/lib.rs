@@ -25,7 +25,7 @@ pub mod monokulo;
 
 pub use error::BackendError;
 pub use fake::FakeBackend;
-pub use link::{Link, WalletLink};
+pub use link::{DEFAULT_CONFIRMATIONS, DEFAULT_EXPIRY_MINUTES, FobWallet, Link, WalletLink};
 pub use monokulo::MonokuloBackend;
 pub use monokulo_client::OrderId;
 
@@ -76,6 +76,11 @@ pub trait PaymentBackend: Send + Sync {
     /// [`BackendError::disconnected`] is true means stop asking.
     fn events(&self) -> BoxStream<'static, Result<BackendEvent, BackendError>>;
 
+    /// Whether other tills share this till's payments, as
+    /// [`PaymentBackend::describe`] says, without waiting: the till drops
+    /// other devices' sales by it (docs/view-key-mode.md §6).
+    fn sharing(&self) -> Sharing;
+
     /// A hint: the cashier is looking at this payment's code (`None`: at
     /// nothing), so a backend that has to look for payments itself looks
     /// more often. It never waits. Monokulo ignores it.
@@ -99,6 +104,10 @@ pub struct BackendInfo {
     /// What a Monokulo store says of itself and of this device, which
     /// Settings shows as it always has; `None` for any other backend.
     pub monokulo: Option<MonokuloStore>,
+    /// What Settings should warn of, in the backend's words: the device's
+    /// own wallet's "Another till may be using till number 2."; none from
+    /// Monokulo.
+    pub warnings: Vec<String>,
 }
 
 /// A Monokulo store and this device as the store has it, read now.

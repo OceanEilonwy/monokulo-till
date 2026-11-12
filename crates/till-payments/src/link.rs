@@ -23,8 +23,9 @@ pub enum Link {
 /// server (docs/view-key-mode.md §5). The keys themselves are in the
 /// wallet's encrypted file; this keeps only the key that opens it.
 ///
-/// A first shape, for the saved link to carry: the wallet backend fills it
-/// in.
+/// Everything but the keys is here, so the wallet backend (till-wallet)
+/// opens the wallet and sets it up the same way each time; this is also
+/// what Settings changes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WalletLink {
     /// `mainnet`, `stagenet` or `testnet`.
@@ -40,6 +41,73 @@ pub struct WalletLink {
     /// The light wallet server it asks, when it uses one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub light_server: Option<String>,
+    /// Paid at this many confirmations: Fob's Settled Confirmations, 10 to
+    /// 720 (docs/view-key-mode.md §5.6). Till's own setting, never Fob's.
+    #[serde(default = "default_confirmations")]
+    pub settled_confirmations: u32,
+    /// How long a payment code lasts, in minutes.
+    #[serde(default = "default_expiry")]
+    pub expiry_minutes: u32,
+    /// Whose prices convert the sale's currency to XMR ("Kraken"), when
+    /// chosen or handed over by Fob; else the first provider that prices
+    /// the currency (docs/view-key-mode.md §8).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub price_provider: Option<String>,
+    /// The currency Fob's prices were in when it handed them over.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub price_currency: Option<String>,
+    /// The wallet in Fob this till was connected to, when it was connected
+    /// through Fob (docs/view-key-mode.md §5.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fob: Option<FobWallet>,
+}
+
+/// The wallet in Fob a till was connected to: what Till says of it
+/// ("Connected to Fob · Corner Café · Till (Corner Café)"), and how Fob
+/// knows it on a reconnect.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FobWallet {
+    pub wallet_id: String,
+    pub wallet_name: String,
+    /// The account's label: "Till (Corner Café)".
+    pub label: String,
+    /// What Fob handed over besides the keys.
+    #[serde(default)]
+    pub node_from_fob: bool,
+    #[serde(default)]
+    pub prices_from_fob: bool,
+}
+
+/// Fob's default Settled Confirmations.
+pub const DEFAULT_CONFIRMATIONS: u32 = 10;
+/// A code lasts 30 minutes unless Settings says otherwise.
+pub const DEFAULT_EXPIRY_MINUTES: u32 = 30;
+
+fn default_confirmations() -> u32 {
+    DEFAULT_CONFIRMATIONS
+}
+
+fn default_expiry() -> u32 {
+    DEFAULT_EXPIRY_MINUTES
+}
+
+impl WalletLink {
+    /// A link with Till's defaults for everything but the network, the
+    /// till's number and the file's key.
+    pub fn new(network: &str, till_number: u32, file_key: Secret) -> WalletLink {
+        WalletLink {
+            network: network.to_owned(),
+            till_number,
+            file_key,
+            node: None,
+            light_server: None,
+            settled_confirmations: DEFAULT_CONFIRMATIONS,
+            expiry_minutes: DEFAULT_EXPIRY_MINUTES,
+            price_provider: None,
+            price_currency: None,
+            fob: None,
+        }
+    }
 }
 
 /// The JSON a link is kept as.
@@ -132,16 +200,21 @@ mod tests {
     #[test]
     fn a_wallet_link_comes_back_as_it_went() {
         let link = Link::Wallet(WalletLink {
-            network: "mainnet".into(),
-            till_number: 2,
-            file_key: Secret::from("k_1"),
             node: Some("https://node.example:18089".into()),
-            light_server: None,
+            ..WalletLink::new("mainnet", 2, Secret::from("k_1"))
         });
         let saved = link.save();
         assert_eq!(
             saved,
-            r#"{"wallet":{"network":"mainnet","till_number":2,"file_key":"k_1","node":"https://node.example:18089"}}"#
+            r#"{"wallet":{"network":"mainnet","till_number":2,"file_key":"k_1","node":"https://node.example:18089","settled_confirmations":10,"expiry_minutes":30}}"#
+        );
+        // What the first wallet links were written as reads with the
+        // defaults.
+        assert_eq!(
+            Link::restore(
+                r#"{"wallet":{"network":"mainnet","till_number":2,"file_key":"k_1","node":"https://node.example:18089"}}"#
+            ),
+            Some(link.clone())
         );
         assert_eq!(Link::restore(&saved), Some(link.clone()));
         assert_eq!(link.monokulo(), None);

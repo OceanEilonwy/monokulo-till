@@ -1,0 +1,289 @@
+//! What XMR is worth in the sale's currency, for making a code
+//! (docs/view-key-mode.md §8): fob-price's providers, held to a stricter
+//! freshness than Fob's own. A code is never made from a price older than
+//! [`AGED`] (10 minutes): the price is asked for first, and if that fails no
+//! code is made.
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+use async_trait::async_trait;
+use fob_price::{Provider, Source, Transport};
+use monokulo_client::Clock;
+use till_types::{Money, Price, PriceUsed, UnixSeconds};
+
+/// The oldest price a code is made from, in seconds: fob-price's `AGED`.
+pub const AGED: u64 = fob_price::AGED;
+
+/// Piconero in one XMR.
+const ATOMIC_PER_XMR: u128 = 1_000_000_000_000;
+/// Millionths: how a provider's price is counted.
+const MICRO: u128 = 1_000_000;
+
+/// Where a price comes from: a fob-price provider, or a stand-in in tests.
+#[async_trait]
+pub trait PriceSource: Send + Sync {
+    /// "Kraken".
+    fn name(&self) -> String;
+    /// Whether it prices XMR in `currency` at all.
+    fn prices(&self, currency: &str) -> bool;
+    /// One XMR now, in millionths of `currency`.
+    async fn current(&self, currency: &str) -> Result<u64, String>;
+}
+
+/// A provider of fob-price's, over the internet.
+pub struct ProviderSource(pub Provider);
+
+#[async_trait]
+impl PriceSource for ProviderSource {
+    fn name(&self) -> String {
+        self.0.name().to_owned()
+    }
+
+    fn prices(&self, currency: &str) -> bool {
+        self.0.prices(currency)
+    }
+
+    async fn current(&self, currency: &str) -> Result<u64, String> {
+        self.0
+            .current(currency, Transport::Web)
+            .await
+            .map_err(|e| fob_wallet::FobError::Price(e).to_string())
+    }
+}
+
+/// The provider named `name`, else the first that prices `currency`
+/// (fob-price's `providers_for`), else Kraken.
+pub fn provider_for(name: Option<&str>, currency: Option<&str>) -> Provider {
+    name.and_then(Provider::named)
+        .filter(|p| currency.is_none_or(|c| p.prices(c)))
+        .or_else(|| currency.and_then(|c| fob_price::providers_for(c).first().copied()))
+        .unwrap_or_default()
+}
+
+/// The prices asked for so far, by currency, each with when it was given.
+pub struct Prices {
+    source: Arc<dyn PriceSource>,
+    clock: Arc<dyn Clock>,
+    known: Mutex<HashMap<String, (u64, i64)>>,
+}
+
+/// A fiat amount worked out in XMR.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Converted {
+    /// Piconero, before the wallet adds its tag.
+    pub atomic: u64,
+    /// The rate it was worked out at; `None` for an amount already in XMR.
+    pub price: Option<PriceUsed>,
+}
+
+impl Prices {
+    pub fn new(source: Arc<dyn PriceSource>, clock: Arc<dyn Clock>) -> Prices {
+        Prices {
+            source,
+            clock,
+            known: Mutex::new(HashMap::new()),
+        }
+    }
+
+    pub fn source_name(&self) -> String {
+        self.source.name()
+    }
+
+    /// One XMR in `currency`, in millionths, and when it was given: the one
+    /// known if it's under [`AGED`] old, else asked for now.
+    pub async fn fresh(&self, currency: &str) -> Result<(u64, i64), String> {
+        let now = self.clock.now().0;
+        let known = self
+            .known
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(currency)
+            .copied();
+        if let Some((rate, at)) = known
+            && now.saturating_sub(at) <= AGED as i64
+        {
+            return Ok((rate, at));
+        }
+        let rate = self.source.current(currency).await?;
+        if rate == 0 {
+            return Err(format!("{} gave no price", self.source.name()));
+        }
+        self.known
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(currency.to_owned(), (rate, now));
+        Ok((rate, now))
+    }
+
+    /// `amount` in piconero, rounded to a millionth of an XMR so the
+    /// wallet's tag has the digits under it to itself (§5.3). An amount in
+    /// XMR is taken as it is; any other is converted at a fresh price, and
+    /// refused when none can be had.
+    pub async fn convert(&self, amount: &Money) -> Result<Converted, String> {
+        let code = amount.currency.as_str();
+        if amount.minor <= 0 {
+            return Err("There's nothing to pay.".into());
+        }
+        let minor = amount.minor as u128;
+        let digits = amount.currency.minor_digits();
+        if code == "XMR" {
+            let atomic = minor * 10u128.pow(12u32.saturating_sub(digits));
+            return Ok(Converted {
+                atomic: round_for_tag(atomic),
+                price: None,
+            });
+        }
+        if !self.source.prices(code) {
+            return Err(format!(
+                "{} has no price of XMR in {code}.",
+                self.source.name()
+            ));
+        }
+        let (rate, at) = self.fresh(code).await.map_err(|why| {
+            format!(
+                "Couldn't get the price of XMR in {code} from {}, so no code was made: {why}",
+                self.source.name()
+            )
+        })?;
+        // minor / 10^digits currency = minor * 10^6 / (rate * 10^digits) XMR.
+        let numerator = minor * MICRO * ATOMIC_PER_XMR;
+        let denominator = rate as u128 * 10u128.pow(digits);
+        let atomic = (numerator + denominator / 2) / denominator;
+        Ok(Converted {
+            atomic: round_for_tag(atomic),
+            price: Some(PriceUsed {
+                provider: self.source.name(),
+                rate: Price::new(micro_decimal(rate, digits), code),
+                at: UnixSeconds(at),
+            }),
+        })
+    }
+}
+
+/// Piconero rounded half up to a millionth of an XMR, and never below one.
+fn round_for_tag(atomic: u128) -> u64 {
+    let step = fob_wallet::wallet::TAG_MODULUS as u128;
+    let rounded = (atomic + step / 2) / step * step;
+    u64::try_from(rounded.max(step)).unwrap_or(u64::MAX - u64::MAX % step as u64)
+}
+
+/// A price in millionths written with the currency's own digits: 162400000
+/// with 2 is "162.40".
+fn micro_decimal(micro: u64, digits: u32) -> String {
+    let scale = 10u128.pow(6u32.saturating_sub(digits));
+    let minor = (micro as u128 + scale / 2) / scale;
+    till_types::money::decimal(i64::try_from(minor).unwrap_or(i64::MAX), digits)
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
+    use till_types::CurrencyCode;
+
+    /// A clock the test moves.
+    pub struct TestClock(pub AtomicI64);
+
+    impl Clock for TestClock {
+        fn now_ms(&self) -> till_types::UnixMillis {
+            till_types::UnixMillis(self.0.load(Ordering::SeqCst) * 1000)
+        }
+    }
+
+    /// 160 of anything for an XMR, counting how often it's asked; fails
+    /// when told to.
+    pub struct FixedSource {
+        pub asked: AtomicUsize,
+        pub failing: std::sync::atomic::AtomicBool,
+    }
+
+    impl FixedSource {
+        pub fn new() -> FixedSource {
+            FixedSource {
+                asked: AtomicUsize::new(0),
+                failing: false.into(),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl PriceSource for FixedSource {
+        fn name(&self) -> String {
+            "Kraken".into()
+        }
+        fn prices(&self, currency: &str) -> bool {
+            currency != "XYZ"
+        }
+        async fn current(&self, _: &str) -> Result<u64, String> {
+            self.asked.fetch_add(1, Ordering::SeqCst);
+            if self.failing.load(Ordering::SeqCst) {
+                return Err("no answer".into());
+            }
+            Ok(160_000_000)
+        }
+    }
+
+    fn usd(minor: i64) -> Money {
+        Money::new(minor, CurrencyCode::USD)
+    }
+
+    #[tokio::test]
+    async fn a_price_is_used_for_ten_minutes_then_asked_again_and_a_failure_makes_no_code() {
+        let source = Arc::new(FixedSource::new());
+        let clock = Arc::new(TestClock(AtomicI64::new(1_000)));
+        let prices = Prices::new(source.clone(), clock.clone());
+
+        let converted = prices.convert(&usd(2450)).await.unwrap();
+        // $24.50 at $160 is 0.153125 XMR.
+        assert_eq!(converted.atomic, 153_125_000_000);
+        let price = converted.price.unwrap();
+        assert_eq!(price.provider, "Kraken");
+        assert_eq!(price.rate, Price::new("160.00", "USD"));
+        assert_eq!(price.at, UnixSeconds(1_000));
+
+        clock.0.store(1_000 + AGED as i64, Ordering::SeqCst);
+        prices.convert(&usd(100)).await.unwrap();
+        assert_eq!(source.asked.load(Ordering::SeqCst), 1, "still fresh");
+
+        clock.0.store(1_001 + AGED as i64, Ordering::SeqCst);
+        source.failing.store(true, Ordering::SeqCst);
+        let refused = prices.convert(&usd(100)).await.unwrap_err();
+        assert!(refused.contains("no code was made"), "{refused}");
+        assert_eq!(source.asked.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn amounts_round_to_a_millionth_and_xmr_needs_no_price() {
+        let source = Arc::new(FixedSource::new());
+        let clock = Arc::new(TestClock(AtomicI64::new(0)));
+        let prices = Prices::new(source.clone(), clock);
+        // 1 cent at $160 is 62.5 µXMR: rounded half up.
+        assert_eq!(prices.convert(&usd(1)).await.unwrap().atomic, 63_000_000);
+        let yen = Money::new(1200, CurrencyCode::new("JPY").unwrap());
+        assert_eq!(
+            prices.convert(&yen).await.unwrap().price.unwrap().rate,
+            Price::new("160", "JPY")
+        );
+        let xmr = Money::new(150, CurrencyCode::new("XMR").unwrap());
+        let converted = prices.convert(&xmr).await.unwrap();
+        assert_eq!(
+            (converted.atomic, converted.price),
+            (1_500_000_000_000, None)
+        );
+        assert_eq!(source.asked.load(Ordering::SeqCst), 2, "dollars, then yen");
+        assert!(prices.convert(&usd(0)).await.is_err());
+        let unpriced = Money::new(100, CurrencyCode::new("XYZ").unwrap());
+        assert!(prices.convert(&unpriced).await.is_err());
+    }
+
+    #[test]
+    fn a_provider_is_the_one_named_if_it_prices_the_currency() {
+        assert_eq!(
+            provider_for(Some("CoinGecko"), Some("USD")),
+            Provider::CoinGecko
+        );
+        assert_eq!(provider_for(None, Some("USD")), Provider::Kraken);
+        assert_eq!(provider_for(Some("Nobody"), None), Provider::Kraken);
+    }
+}

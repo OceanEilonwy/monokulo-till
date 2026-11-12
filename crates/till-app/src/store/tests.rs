@@ -433,11 +433,8 @@ fn the_connection_key_holds_the_tills_link_monokulo_or_wallet() {
     let platform = Arc::new(FakePlatform::default());
     let s = store(&platform);
     let wallet = WalletLink {
-        network: "stagenet".into(),
-        till_number: 1,
-        file_key: Secret::from("k_1"),
-        node: None,
         light_server: Some("https://lws.example".into()),
+        ..WalletLink::new("stagenet", 1, Secret::from("k_1"))
     };
     let linked = Model {
         wallet: Some(wallet.clone()),
@@ -447,7 +444,7 @@ fn the_connection_key_holds_the_tills_link_monokulo_or_wallet() {
     assert_eq!(
         platform.all().get("connection").map(String::as_str),
         Some(
-            r#"{"wallet":{"network":"stagenet","till_number":1,"file_key":"k_1","light_server":"https://lws.example"}}"#
+            r#"{"wallet":{"network":"stagenet","till_number":1,"file_key":"k_1","light_server":"https://lws.example","settled_confirmations":10,"expiry_minutes":30}}"#
         )
     );
     let read = s.load().unwrap();
