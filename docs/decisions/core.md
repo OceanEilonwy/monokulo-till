@@ -2026,3 +2026,43 @@ still strings across the till, the ledger, the screens and the bridge.
      shared vectors (`connect::check_vectors`). The request isn't kept
      across a restart yet: an Android till killed while Fob is open starts
      over at C1.
+234. **Settings for a till on its own wallet replaces the store with the
+     wallet.** (docs/view-key-mode.md §5.3, §5.6, §8, §9, §11.)
+     `SettingsView::wallet` (`till_screens::wallet_settings`), with no
+     store section: how Till sees payments ("Your own wallet"), "Connected
+     to Fob · Corner Café · Till (Corner Café)" when it was, the wallet's
+     address (short, and whole for Copy) and network; the till number with
+     − and + and "In your wallet: account n" (or, through Fob, which chose
+     the account, only "In your wallet · Account n"), and a warning past
+     the 50 accounts wallets look at, which moved here from the backend's
+     warnings; the node with Fob's checks, run as Settings opens, and
+     Change; Paid after and the code's expiry, the same steppers and
+     ladders as setup's; the price source, offering only the providers
+     that price the point of sale's currency (fob-price's
+     `providers_for`); the backend's warnings; and "Disconnect this
+     wallet", asking "Disconnect this wallet?" with what it does (keys
+     forgotten, the wallet's file deleted, money untouched) and what it
+     can't (a view key can't be taken back: move the money to take it
+     back). The page's own Disconnect words say the wallet's too. The
+     steppers and the node send setup's actions (`StepTillNumber`,
+     `StepPaidAfter`, `StepCodeExpiry`, `SetNode`), and the price source
+     `ChoosePriceProvider`; on Settings they change the link: the open
+     wallet is set up the new way first (`WalletBackend::update`; a node
+     that doesn't answer on the wallet's network is refused and nothing
+     changes), then the link is kept and the open wallet re-held under it,
+     never opened twice. Changing what Fob handed over clears its "from
+     Fob". A new till number takes effect for new payments only.
+235. **Connect to Fob's request survives a restart.** C1's request, its
+     one-time key with it, is kept as the `fob.request` secret while it
+     waits (`FobRequest::keep`, `Asker::with` to restore) and forgotten
+     once answered, when another wallet is chosen, or once linked. A till
+     started again with one kept opens on C1 with the same code, and an
+     answer arriving after a restart (Android's activity result) still
+     opens. This replaces decision 233's last sentence.
+236. **New code stays Monokulo's for now.** A wallet payment is a keyed
+     request on a pooled address; a fresh request for the same sale gets
+     another address and another order id, while the ledger's renewal
+     (decisions 167 to 172) keeps one order and one address with a new
+     quote. Making New code work for the wallet needs the ledger to take a
+     sale's next order, so the backend still gives no `renew` and the
+     till never offers New code for a wallet payment.
