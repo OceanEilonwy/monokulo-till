@@ -292,6 +292,12 @@ class MainActivity : ComponentActivity() {
                 onNext = { send(Action.Next) },
                 onBack = { send(Action.Back) },
             )
+            // TODO(view-key mode): the wallet setup's screens (V1, V2, C1,
+            // B4/C4, D1 to D4), drawn from the engine's pages and actions
+            // (docs/view-key-mode.md §11.1).
+            is OnboardingPage.PaymentsMode, is OnboardingPage.WalletEntry, is OnboardingPage.FobRequest,
+            is OnboardingPage.FobConnected, is OnboardingPage.WalletCode, is OnboardingPage.WalletKeys,
+            is OnboardingPage.WalletSeed, is OnboardingPage.ThisTill -> Unit
         }
     }
 
@@ -438,4 +444,12 @@ private fun OnboardingPage.isFor(screen: Screen): Boolean = when (this) {
     is OnboardingPage.Ready -> screen == Screen.Ready
     is OnboardingPage.Counter -> screen == Screen.Counter
     is OnboardingPage.ShowSales -> screen == Screen.ShowSales
+    is OnboardingPage.PaymentsMode -> screen == Screen.PaymentsMode
+    is OnboardingPage.WalletEntry -> screen == Screen.WalletEntry
+    is OnboardingPage.FobRequest -> screen == Screen.FobRequest
+    is OnboardingPage.FobConnected -> screen == Screen.FobConnected
+    is OnboardingPage.WalletCode -> screen == Screen.WalletCode
+    is OnboardingPage.WalletKeys -> screen == Screen.WalletKeys
+    is OnboardingPage.WalletSeed -> screen == Screen.WalletSeed
+    is OnboardingPage.ThisTill -> screen == Screen.ThisTill
 }
