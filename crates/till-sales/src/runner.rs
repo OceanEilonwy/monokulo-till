@@ -6,9 +6,8 @@ use std::time::Duration;
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use monokulo_client::OrderId;
-use monokulo_client::{
-    Clock, Connection, MonokuloApi, PointOfSale, StreamEvent, SystemClock, problems,
-};
+use monokulo_client::{Clock, PointOfSale, SystemClock};
+use till_payments::{BackendEvent, PaymentBackend};
 use till_pos::{FoundSale, PosError, RefundByTill, Refunds, SaleOrder, SaleSource};
 use tokio::runtime::Handle;
 use tokio::sync::watch;
@@ -87,12 +86,13 @@ impl RefundByTill for NoSource {
 /// its stores, the Bell's wake-ups and the live store). The engine
 /// implements it.
 pub trait RunnerSide: Send + Sync {
-    /// The store's connection, while this device has one.
-    fn connection(&self) -> Option<Connection>;
+    /// The payment backend this till is linked to, made from the link as
+    /// it's kept now, while it has one (core.md decision 228).
+    fn backend(&self) -> Option<Arc<dyn PaymentBackend>>;
 
     /// Reads the store live again ([`crate::LiveStore::read`]): a shift is
     /// starting.
-    fn read_store(&self, connection: &Connection);
+    fn read_store(&self, backend: &Arc<dyn PaymentBackend>);
 
     /// Notes now as when the shift started, unless one has started already:
     /// the first run, in setup (or after an update from before shifts were
@@ -146,7 +146,6 @@ struct Parts {
 
 struct Inner {
     side: Arc<dyn RunnerSide>,
-    monokulo: MonokuloApi,
     clock: Arc<dyn Clock>,
     runtime: Handle,
     state: watch::Sender<RunnerState>,
@@ -165,22 +164,17 @@ impl TillRunner {
     /// The longest wait before the event stream is opened again.
     const MOST_STREAM_WAIT: Duration = Duration::from_secs(30);
 
-    /// A runner over `side`, its tills making orders through `monokulo` and
-    /// stamping times from `clock`, its tasks run on the tokio runtime it
-    /// is made in.
+    /// A runner over `side`, its tills making orders through the side's
+    /// payment backend ([`RunnerSide::backend`]) and stamping times from
+    /// `clock`, its tasks run on the tokio runtime it is made in.
     ///
     /// # Panics
     ///
     /// When made outside a tokio runtime.
-    pub fn new(
-        side: Arc<dyn RunnerSide>,
-        monokulo: MonokuloApi,
-        clock: Arc<dyn Clock>,
-    ) -> TillRunner {
+    pub fn new(side: Arc<dyn RunnerSide>, clock: Arc<dyn Clock>) -> TillRunner {
         TillRunner {
             inner: Arc::new(Inner {
                 side,
-                monokulo,
                 clock,
                 runtime: Handle::current(),
                 state: watch::Sender::new(RunnerState::default()),
@@ -218,12 +212,12 @@ impl TillRunner {
         {
             return;
         }
-        let Some(connection) = inner.side.connection() else {
+        let Some(backend) = inner.side.backend() else {
             return;
         };
-        inner.side.read_store(&connection);
+        inner.side.read_store(&backend);
         inner.side.start_shift();
-        let till = inner.new_till(connection);
+        let till = inner.new_till(backend);
         inner.show(till.clone());
         let interval = {
             let side = inner.side.clone();
@@ -271,10 +265,10 @@ impl TillRunner {
         if self.inner.parts().till.is_some() {
             return;
         }
-        let Some(connection) = self.inner.side.connection() else {
+        let Some(backend) = self.inner.side.backend() else {
             return;
         };
-        let till = self.inner.new_till(connection);
+        let till = self.inner.new_till(backend);
         self.inner.show(till);
     }
 
@@ -415,13 +409,13 @@ impl Inner {
 
     /// The till for the point of sale the cashier chose and signed in to,
     /// or one that only shows other tills' sales.
-    fn new_till(&self, connection: Connection) -> Arc<Till> {
+    fn new_till(&self, backend: Arc<dyn PaymentBackend>) -> Arc<Till> {
         let source = self.side.source();
         let with_pos = source.is_some();
         let source = source.unwrap_or_else(|| Arc::new(NoSource));
         let pos = source.point_of_sale();
         self.state.send_modify(|s| s.source = pos);
-        let till = Till::new(source, self.monokulo.clone(), connection, self.side.books())
+        let till = Till::new(source, backend, self.side.books())
             .with_clock(self.clock.clone())
             .with_options(&self.side.till_options());
         till.books().refresh();
@@ -461,15 +455,15 @@ impl Inner {
     /// fails, the wait doubling to 30 s, and back to a second once it's
     /// open. A 401 is the store having disconnected this device.
     async fn follow(&self, till: &Till) {
-        let Some(connection) = self.side.connection() else {
+        let Some(backend) = self.side.backend() else {
             return;
         };
         let mut wait = Duration::from_secs(1);
         loop {
-            let mut events = self.monokulo.events(&connection);
+            let mut events = backend.events();
             while let Some(event) = events.next().await {
                 match event {
-                    Ok(StreamEvent::Ready | StreamEvent::Lagged) => {
+                    Ok(BackendEvent::Ready | BackendEvent::Lagged) => {
                         wait = Duration::from_secs(1);
                         self.state.send_modify(|s| {
                             s.live = true;
@@ -477,14 +471,14 @@ impl Inner {
                         });
                         self.resync(till).await;
                     }
-                    Ok(StreamEvent::Sale(event)) => till.on_event(&event),
+                    Ok(BackendEvent::Changed(payment)) => till.on_change(&payment),
                     Err(e) => {
-                        if e.status() == 401 {
+                        if e.disconnected() {
                             self.disconnected();
                             return;
                         }
                         if e.problem().is_some() {
-                            let said = problems::say(&e);
+                            let said = e.say();
                             self.state.send_modify(|s| s.stream_problem = Some(said));
                         }
                         break;
@@ -497,22 +491,20 @@ impl Inner {
         }
     }
 
-    /// Re-reads the sales on screen, after the stream (re)opens: an expired
-    /// sale too, until Monokulo stops watching it for a late payment.
+    /// Refreshes the sales on screen, after the stream (re)opens: an
+    /// expired sale too, until the backend stops watching it for a late
+    /// payment. Through the link as it's kept now.
     async fn resync(&self, till: &Till) {
-        let Some(connection) = self.side.connection() else {
+        let Some(backend) = self.side.backend() else {
             return;
         };
-        let urls: Vec<String> = till
-            .state()
-            .sales
-            .iter()
-            .filter(|sale| sale.open())
-            .filter_map(|sale| sale.url.clone())
-            .collect();
-        for url in urls {
-            if let Ok(order) = self.monokulo.order(&connection, &url).await {
-                till.on_order(&order);
+        let refs = till.open_refs();
+        if refs.is_empty() {
+            return;
+        }
+        if let Ok(payments) = backend.refresh(&refs).await {
+            for payment in &payments {
+                till.on_payment(payment);
             }
         }
     }
@@ -522,9 +514,12 @@ impl Inner {
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use monokulo_client::{AppIdentity, FixedClock, UnixSeconds};
+    use monokulo_client::{
+        AppIdentity, Connection, FixedClock, MonokuloApi, SalePhase, UnixSeconds,
+    };
 
     use till_ledger::{Fact, OrderCreated, OrderId, SaleKey};
+    use till_payments::{BackendError, FakeBackend, MonokuloBackend, Payment, PaymentRef, Sharing};
 
     use super::*;
     use crate::books::testing::TestHost;
@@ -532,7 +527,7 @@ mod tests {
     /// The engine's side, counting what the runner asked of it. Not part of
     /// the Kotlin oracle: `TillRunner` had no unit tests.
     struct Side {
-        connection: Option<Connection>,
+        backend: Option<Arc<dyn PaymentBackend>>,
         books: Arc<Books>,
         _dir: tempfile::TempDir,
         reads: AtomicUsize,
@@ -541,10 +536,10 @@ mod tests {
     }
 
     impl RunnerSide for Arc<Side> {
-        fn connection(&self) -> Option<Connection> {
-            self.connection.clone()
+        fn backend(&self) -> Option<Arc<dyn PaymentBackend>> {
+            self.backend.clone()
         }
-        fn read_store(&self, _: &Connection) {
+        fn read_store(&self, _: &Arc<dyn PaymentBackend>) {
             self.reads.fetch_add(1, Ordering::SeqCst);
         }
         fn start_shift(&self) {
@@ -565,33 +560,8 @@ mod tests {
         }
     }
 
-    fn runner(connection: Option<Connection>) -> (TillRunner, Arc<Side>) {
-        let dir = tempfile::tempdir().unwrap();
-        let books = Arc::new(Books::new(TestHost::new(dir.path()), None));
-        books.set_clock(Arc::new(FixedClock::at(60)));
-        // Another till's sale, waiting, known from Monokulo alone.
-        books.record(Fact::OrderCreated(OrderCreated {
-            sale: SaleKey::Order(OrderId::new("ord_2")),
-            order_id: OrderId::new("ord_2"),
-            url: None,
-            payment_uri: "monero:8Cy?tx_amount=0.03".into(),
-            address: "8Cy".into(),
-            xmr: "0.03".into(),
-            price: till_types::Price::new("5.00", "USD"),
-            reference: None,
-            expires_at: UnixSeconds(0),
-            confirmations_required: None,
-            device_name: None,
-            renew: None,
-        }));
-        let side = Arc::new(Side {
-            connection,
-            books,
-            _dir: dir,
-            reads: AtomicUsize::new(0),
-            starts: AtomicUsize::new(0),
-            rechecks: AtomicUsize::new(0),
-        });
+    /// The store's Monokulo at `api`, as the engine makes it.
+    fn monokulo(api: String) -> Arc<dyn PaymentBackend> {
         let monokulo = MonokuloApi::new(
             reqwest::Client::new(),
             AppIdentity {
@@ -603,12 +573,65 @@ mod tests {
             },
             Arc::new(FixedClock::at(1_761_000_000)),
         );
-        let runner = TillRunner::new(
-            Arc::new(side.clone()),
-            monokulo,
-            Arc::new(FixedClock::at(70)),
-        );
+        Arc::new(MonokuloBackend::new(monokulo, Connection::new("ak_1", api)))
+    }
+
+    /// The url the saved sale `ord_2` is read again at.
+    const ORD_2: &str = "fake:ord_2";
+
+    fn runner(backend: Option<Arc<dyn PaymentBackend>>) -> (TillRunner, Arc<Side>) {
+        let dir = tempfile::tempdir().unwrap();
+        let books = Arc::new(Books::new(TestHost::new(dir.path()), None));
+        books.set_clock(Arc::new(FixedClock::at(60)));
+        // Another till's sale, waiting, known from Monokulo alone.
+        books.record(Fact::OrderCreated(OrderCreated {
+            sale: SaleKey::Order(OrderId::new("ord_2")),
+            order_id: OrderId::new("ord_2"),
+            url: Some(ORD_2.into()),
+            payment_uri: "monero:8Cy?tx_amount=0.03".into(),
+            address: "8Cy".into(),
+            xmr: "0.03".into(),
+            price: till_types::Price::new("5.00", "USD"),
+            reference: None,
+            expires_at: UnixSeconds(0),
+            confirmations_required: None,
+            device_name: None,
+            renew: None,
+            price_used: None,
+        }));
+        let side = Arc::new(Side {
+            backend,
+            books,
+            _dir: dir,
+            reads: AtomicUsize::new(0),
+            starts: AtomicUsize::new(0),
+            rechecks: AtomicUsize::new(0),
+        });
+        let runner = TillRunner::new(Arc::new(side.clone()), Arc::new(FixedClock::at(70)));
         (runner, side)
+    }
+
+    /// `ord_2` as a backend says it stands.
+    fn ord_2(phase: SalePhase) -> Payment {
+        Payment {
+            reference: PaymentRef::new(ORD_2),
+            order_id: "ord_2".into(),
+            address: "8Cy".into(),
+            xmr_piconero: 30_000_000_000,
+            expires_at: UnixSeconds(0),
+            phase,
+            confirmations: None,
+            required: None,
+            is_final: false,
+            received: None,
+            overpaid: false,
+            price: None,
+            amount: Some("5.00".into()),
+            currency: Some("USD".into()),
+            receipt: None,
+            device_name: None,
+            renew: None,
+        }
     }
 
     async fn until(runner: &TillRunner, what: impl FnMut(&RunnerState) -> bool) -> RunnerState {
@@ -634,10 +657,7 @@ mod tests {
     async fn a_shift_shows_the_saved_sales_and_watching_stopped_closes_the_live_ones() {
         // A Monokulo that answers nothing: the event stream fails and waits to try again.
         let server = wiremock::MockServer::builder().start().await;
-        let (runner, side) = runner(Some(Connection::new(
-            "ak_1",
-            format!("{}/api/v1", server.uri()),
-        )));
+        let (runner, side) = runner(Some(monokulo(format!("{}/api/v1", server.uri()))));
         runner.start();
         assert!(runner.state().running);
         assert_eq!(runner.state().source, PointOfSale::Square, "NoSource's");
@@ -668,6 +688,41 @@ mod tests {
         assert!(!runner.state().running);
         runner.reopen(&"ord_2".into());
         until(&runner, |s| s.till.sales[0].closed_at.is_none()).await;
+    }
+
+    /// Any backend drives the shift as Monokulo's stream did (core.md
+    /// decision 228): its stream opening refreshes the open sales, a
+    /// change reaches the sale, and a disconnection stops the shift.
+    #[tokio::test]
+    async fn a_backends_events_and_refreshes_move_the_shift_on_and_its_disconnection_stops_it() {
+        let backend = Arc::new(FakeBackend::new(Sharing::ThisTill));
+        backend.set(ord_2(SalePhase::Seen));
+        let (runner, _side) = runner(Some(backend.clone()));
+        runner.start();
+        let seen = until(&runner, |s| {
+            s.live && s.till.sales.first().map(|sale| sale.phase) == Some(SalePhase::Seen)
+        })
+        .await;
+        assert!(!seen.disconnected);
+        assert!(backend.refreshes() >= 1, "the stream's Ready refreshed");
+        backend.emit(BackendEvent::Changed(Payment {
+            is_final: true,
+            ..ord_2(SalePhase::Paid)
+        }));
+        until(&runner, |s| {
+            s.till.sales.first().map(|sale| sale.phase) == Some(SalePhase::Paid)
+        })
+        .await;
+        backend.fail_streams(|| {
+            BackendError::Monokulo(monokulo_client::MonokuloError::Refused {
+                status: 401,
+                detail: "This key was not accepted.".into(),
+                problem: None,
+                retry_after: None,
+            })
+        });
+        let stopped = until(&runner, |s| s.disconnected).await;
+        assert!(!stopped.live);
     }
 
     /// Ported from the Android app's `NoSourceTest`: the source of a till

@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use monokulo_client::{AppIdentity, FixedClock, PointOfSale};
+use monokulo_client::{AppIdentity, Connection, FixedClock, MonokuloApi, PointOfSale};
 use serde_json::{Value, json};
 use till_pos::{ListedRefund, RefundByTill, RefundInPos, SaleOrder};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate, matchers::any};
@@ -132,13 +132,10 @@ impl Fixture {
     /// A till over `source`, as a run of the app makes it: its books over
     /// the fixture's ledger, read as it starts.
     fn till(&self, source: Arc<dyn SaleSource>) -> Till {
-        let till = Till::new(
-            source,
-            self.monokulo.clone(),
-            self.connection.clone(),
-            self.books(),
-        )
-        .with_clock(Arc::new(clock(0)));
+        let backend =
+            till_payments::MonokuloBackend::new(self.monokulo.clone(), self.connection.clone());
+        let till =
+            Till::new(source, Arc::new(backend), self.books()).with_clock(Arc::new(clock(0)));
         till.books().refresh();
         till
     }

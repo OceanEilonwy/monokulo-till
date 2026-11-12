@@ -420,6 +420,43 @@ fn forgetting_everything_forgets_what_stores_kt_forgot() {
     assert_eq!(model.connection, None);
 }
 
+/// The `connection` key holds the till's link (core.md decision 228): a
+/// connection kept by an earlier build is a Monokulo link, and a wallet
+/// link is kept under the same key, read back, and forgotten with the
+/// rest.
+#[test]
+fn the_connection_key_holds_the_tills_link_monokulo_or_wallet() {
+    let model = store(&FakePlatform::with(KOTLIN)).load().unwrap();
+    assert!(matches!(model.link(), Some(Link::Monokulo(c)) if c.tor));
+    assert_eq!(model.wallet, None);
+
+    let platform = Arc::new(FakePlatform::default());
+    let s = store(&platform);
+    let wallet = WalletLink {
+        network: "stagenet".into(),
+        till_number: 1,
+        file_key: Secret::from("k_1"),
+        node: None,
+        light_server: Some("https://lws.example".into()),
+    };
+    let linked = Model {
+        wallet: Some(wallet.clone()),
+        ..Model::default()
+    };
+    s.save(&Model::default(), &linked).unwrap();
+    assert_eq!(
+        platform.all().get("connection").map(String::as_str),
+        Some(
+            r#"{"wallet":{"network":"stagenet","till_number":1,"file_key":"k_1","light_server":"https://lws.example"}}"#
+        )
+    );
+    let read = s.load().unwrap();
+    assert_eq!((read.connection, read.wallet), (None, Some(wallet)));
+    let kept = Kept::load(s, quiet()).unwrap();
+    kept.forget_all().unwrap();
+    assert!(!platform.all().contains_key("connection"));
+}
+
 #[test]
 fn a_store_that_cant_answer_is_an_error_never_none() {
     let platform = FakePlatform::with(KOTLIN);

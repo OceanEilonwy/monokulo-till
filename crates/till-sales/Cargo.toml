@@ -22,6 +22,8 @@ sha2.workspace = true
 till-pos.workspace = true
 # The sales are facts in the ledger (docs/ledger.md §14).
 till-ledger.workspace = true
+# Makes the orders and says where each stands (core.md decision 228).
+till-payments.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]

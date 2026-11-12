@@ -9,9 +9,10 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use monokulo_client::{AppIdentity, Clock, Connection, PointOfSale};
+use monokulo_client::{AppIdentity, Clock, Connection, MonokuloApi, PointOfSale};
 use till_bell::{BellWakeUps, DeviceError, PosSide, PosSignIn};
 use till_ledger::{ClaimPolicy, Process};
+use till_payments::{Link, MonokuloBackend, PaymentBackend};
 use till_pos::clover::{
     CloverApi, CloverAuth, CloverConfig, CloverEnvironment, CloverMerchant, CloverSource,
 };
@@ -33,6 +34,7 @@ pub(crate) struct Side {
     lock: Arc<dyn TokenLock>,
     ledger: Arc<AppLedger>,
     books: Arc<Books>,
+    monokulo: MonokuloApi,
     live: OnceLock<Weak<LiveStore>>,
     wake_ups: OnceLock<Weak<BellWakeUps>>,
 }
@@ -58,12 +60,14 @@ impl Side {
         let claims = (process == Process::App).then_some(ClaimPolicy::All);
         let books = Arc::new(Books::new(ledger.clone(), claims));
         books.set_clock(clock.clone());
+        let monokulo = MonokuloApi::new(http.clone(), identity_of(&config), clock.clone());
         Side {
             lock: Arc::new(FileLock::new(
                 PathBuf::from(&config.data_dir).join("sign-in.lock"),
             )),
             ledger,
             books,
+            monokulo,
             config,
             kept,
             http,
@@ -115,13 +119,41 @@ impl Side {
 
     /// What the app says about itself to Monokulo.
     pub fn identity(&self) -> AppIdentity {
-        AppIdentity {
-            slug: "till".into(),
-            name: "Monokulo Till".into(),
-            version: self.config.app_version.clone(),
-            platform: self.config.platform().to_owned(),
-            device_name: self.config.device_name.chars().take(40).collect(),
+        identity_of(&self.config)
+    }
+
+    /// The client every Monokulo request goes through: one HTTP client and
+    /// one set of kept entries for the process.
+    pub fn monokulo(&self) -> &MonokuloApi {
+        &self.monokulo
+    }
+
+    /// The payment backend a link names (core.md decision 228): the
+    /// store's Monokulo, through the process's client. A wallet link has
+    /// no backend yet.
+    pub fn backend_of(&self, link: &Link) -> Option<Arc<dyn PaymentBackend>> {
+        self.backend_reading(link, 1)
+    }
+
+    /// [`Side::backend_of`], refreshing up to `at_once` payments at once:
+    /// for a look someone waits on (iOS's extension, core.md decision 204).
+    pub fn backend_reading(&self, link: &Link, at_once: usize) -> Option<Arc<dyn PaymentBackend>> {
+        match link {
+            Link::Monokulo(connection) => Some(Arc::new(
+                MonokuloBackend::new(self.monokulo.clone(), connection.clone())
+                    .reading_at_once(at_once),
+            )),
+            // TODO(view-key mode): the wallet backend (docs/view-key-mode.md §5).
+            Link::Wallet(_) => None,
         }
+    }
+
+    /// The payment backend for `connection`, the store's Monokulo.
+    pub fn monokulo_backend(&self, connection: &Connection) -> Arc<dyn PaymentBackend> {
+        Arc::new(MonokuloBackend::new(
+            self.monokulo.clone(),
+            connection.clone(),
+        ))
     }
 
     /// The ledger as this process opens it.
@@ -304,14 +336,27 @@ impl Side {
     }
 }
 
+/// What the app says about itself to Monokulo, as `config` builds it.
+fn identity_of(config: &EngineConfig) -> AppIdentity {
+    AppIdentity {
+        slug: "till".into(),
+        name: "Monokulo Till".into(),
+        version: config.app_version.clone(),
+        platform: config.platform().to_owned(),
+        device_name: config.device_name.chars().take(40).collect(),
+    }
+}
+
 impl RunnerSide for Side {
-    fn connection(&self) -> Option<Connection> {
-        self.kept.with(|m| m.connection.clone())
+    fn backend(&self) -> Option<Arc<dyn PaymentBackend>> {
+        self.kept
+            .with(|m| m.link())
+            .and_then(|link| self.backend_of(&link))
     }
 
-    fn read_store(&self, connection: &Connection) {
+    fn read_store(&self, backend: &Arc<dyn PaymentBackend>) {
         if let Some(live) = self.live.get().and_then(Weak::upgrade) {
-            live.read(Some(connection));
+            live.read(Some(backend));
         }
     }
 
