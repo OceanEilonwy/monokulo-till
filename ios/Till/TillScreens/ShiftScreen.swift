@@ -217,7 +217,7 @@ struct ShiftHeaderCard: View {
             }
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(header.total)
-                    .display(34, tracking: -0.8)
+                    .display(30, tracking: -0.7)
                     .minimumScaleFactor(0.6)
                     .lineLimit(1)
                 Text("· \(header.paid)")
@@ -555,7 +555,7 @@ struct EmptyTill: View {
                             .frame(maxWidth: 360)
                     }
                     Spacer(minLength: 0)
-                    TillWidget(state: .idle, size: 128, decorative: true)
+                    TillWidget(state: .idle, size: 80, decorative: true)
                     Text(words.title)
                         .font(.title.weight(.bold))
                         .multilineTextAlignment(.center)
