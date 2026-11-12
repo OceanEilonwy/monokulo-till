@@ -25,6 +25,14 @@ object MkIcons {
         }.build()
 
     val Back = icon("back", 24f, "M20 12H5M11 5l-7 7 7 7" to 2.2f)
+    /** V2's ways to enter a wallet: a code in a frame, a key, and lines of words (the boards' VkWallet). */
+    val WalletCode = icon(
+        "wallet code", 24f,
+        "M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3" to 1.8f,
+        "M9 8h6a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z" to 1.8f,
+    )
+    val Key = icon("key", 24f, "M8 8a4 4 0 1 0 0.01 0Z" to 1.8f, "M12 12h9M18 12v3M21 12v2" to 1.8f)
+    val SeedWords = icon("seed words", 24f, "M5 6h14M5 10h14M5 14h9M5 18h6" to 1.8f)
     /** A chevron to the right: a row or a line that opens something. */
     val Chevron = icon("chevron", 24f, "M9 5l7 7-7 7" to 2.4f)
     /** A chevron pointing down: the waiting tray's fold, turned over when it is open. */

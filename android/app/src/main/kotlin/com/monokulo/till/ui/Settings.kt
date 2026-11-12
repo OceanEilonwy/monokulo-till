@@ -16,7 +16,9 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import uniffi.till_screens.WalletSection
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -80,8 +82,10 @@ fun SettingsScreen(s: SettingsView, a: SettingsActions) = Page(
 ) {
     Heading("Settings", Modifier.padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 8.dp), size = 34)
 
-    SectionLabel("Store")
-    s.store?.let { store ->
+    // The shop's own wallet in place of the store (core.md decision 234).
+    s.wallet?.let { WalletSettings(it, a) }
+    if (s.wallet == null) SectionLabel("Store")
+    s.store?.takeIf { s.wallet == null }?.let { store ->
         Notice(store.problem, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
         Group(
             rows = listOf<@Composable () -> Unit>(
@@ -177,7 +181,8 @@ fun SettingsScreen(s: SettingsView, a: SettingsActions) = Page(
         Footnote(bubble.footnote)
     }
 
-    (s.wakeUps as? WakeUpsPlace.Inline)?.let { WakeUpsSection(it.view, a) }
+    // A till on its own wallet hears payments only while it's open: no Bell to wake it.
+    if (s.wallet == null) (s.wakeUps as? WakeUpsPlace.Inline)?.let { WakeUpsSection(it.view, a) }
 
     if (s.standIns.isNotEmpty()) {
         SectionLabel("Developer (debug builds)")
@@ -191,9 +196,101 @@ fun SettingsScreen(s: SettingsView, a: SettingsActions) = Page(
     }
 
     Spacer(Modifier.height(22.dp))
-    Group(rows = listOf({ ActionRow("Disconnect this device", { a.send(Action.Disconnect) }, mk.danger) }))
-    Footnote("Removes Till from the store's Apps: its key stops working at once. Payments already made aren't affected.")
+    val wallet = s.wallet
+    if (wallet != null) {
+        WalletDisconnect(wallet, a)
+    } else {
+        Group(rows = listOf({ ActionRow("Disconnect this device", { a.send(Action.Disconnect) }, mk.danger) }))
+        Footnote("Removes Till from the store's Apps: its key stops working at once. Payments already made aren't affected.")
+    }
     Spacer(Modifier.height(32.dp))
+}
+
+/**
+ * Settings › Payments for a till on the shop's own wallet (core.md decisions 234 to 236): how Till sees payments,
+ * the wallet with Copy, this till's number or Fob's account, the node, Paid after and the code's expiry, the price
+ * source and what the wallet warns of. The steppers, node row and its Change are D4's own, so both send the same.
+ */
+@Composable
+private fun WalletSettings(w: WalletSection, a: SettingsActions) {
+    var changingNode by remember { mutableStateOf(false) }
+    SectionLabel(w.title)
+    Notice(w.problem, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
+    Group(
+        rows = buildList<@Composable () -> Unit> {
+            add { FactRow(w.mode.label, w.mode.value, valueColor = valueColor(w.mode)) }
+            w.fob?.let { fob -> add { FactRow(fob.label, fob.value, valueColor = valueColor(fob)) } }
+            w.facts.forEach { fact ->
+                add {
+                    if (fact.mono && w.walletAddress.isNotEmpty()) {
+                        FactRow(
+                            fact.label, fact.value, mono = true,
+                            trailing = { RoundIconButton(MkIcons.Copy, "Copy wallet address", a.onCopyAddress, Modifier.intoRowPadding(), iconSize = 20.dp) },
+                        )
+                    } else {
+                        FactRow(fact.label, fact.value, mono = fact.mono, valueColor = valueColor(fact))
+                    }
+                }
+            }
+            w.account?.let { account -> add { FactRow(account.label, account.value, valueColor = valueColor(account)) } }
+        },
+    )
+    w.tillNumber?.let { number ->
+        Spacer(Modifier.height(16.dp))
+        Group(rows = listOf({ StepperRow(number) { up -> a.send(Action.StepTillNumber(up)) } }))
+    }
+    w.lookahead?.let { WarningLine(it) }
+    w.node?.let { node ->
+        Spacer(Modifier.height(16.dp))
+        NodeCard(node) { changingNode = true }
+        if (changingNode) NodeDialog(node) { url -> changingNode = false; url?.let { a.send(Action.SetNode(it)) } }
+    }
+    Spacer(Modifier.height(16.dp))
+    Group(
+        rows = listOf(
+            { StepperRow(w.paidAfter) { up -> a.send(Action.StepPaidAfter(up)) } },
+            { StepperRow(w.expiry) { up -> a.send(Action.StepCodeExpiry(up)) } },
+        ),
+    )
+    w.warnings.forEach { WarningLine(it) }
+    Footnote(w.footnote)
+
+    SectionLabel(w.prices.label)
+    Group(
+        Modifier.selectableGroup(),
+        rows = w.prices.choices.map { choice ->
+            { ChoiceRow(choice.label, choice.selected, { if (choice.enabled) a.send(Action.ChoosePriceProvider(choice.label)) }, choice.detail) }
+        },
+    )
+    Footnote(w.prices.footnote)
+}
+
+/** A line the wallet warns of, in the warning tone, under the card it's about. */
+@Composable
+private fun WarningLine(text: String) = Row(
+    Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp),
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
+) {
+    Icon(MkIcons.Warning, contentDescription = null, tint = mk.warn, modifier = Modifier.size(16.dp).padding(top = 2.dp))
+    Text(text, color = mk.warn, fontSize = 13.sp, lineHeight = 18.sp)
+}
+
+/** Disconnect this wallet, asked first: a view key can't be taken back. */
+@Composable
+private fun WalletDisconnect(w: WalletSection, a: SettingsActions) {
+    var asking by remember { mutableStateOf(false) }
+    Group(rows = listOf({ ActionRow(w.disconnect.label, { if (w.disconnect.enabled) asking = true }, mk.danger) }))
+    Footnote(w.disconnectFootnote)
+    if (asking) {
+        AlertDialog(
+            onDismissRequest = { asking = false },
+            title = { Text(w.disconnectAsk) },
+            text = { Text(w.disconnectAskDetail) },
+            confirmButton = { LinkButton(w.disconnectConfirm, { asking = false; a.send(Action.Disconnect) }, color = mk.danger) },
+            dismissButton = { LinkButton("Cancel", { asking = false }, color = mk.ink) },
+            containerColor = mk.ground,
+        )
+    }
 }
 
 /** A fact's value colour: its tone, the muted secondary ink when plain. */

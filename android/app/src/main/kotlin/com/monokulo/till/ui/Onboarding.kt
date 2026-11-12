@@ -214,7 +214,7 @@ fun ScanScreen(page: OnboardingPage.Scan, stepLabel: String?, onPaste: (String?)
 
 /** The four white corners of the camera's viewfinder. */
 @Composable
-private fun Viewfinder(modifier: Modifier) = Box(
+internal fun Viewfinder(modifier: Modifier) = Box(
     modifier.clearAndSetSemantics {}.drawBehind {
         val w = 4.dp.toPx()
         val arm = 34.dp.toPx()

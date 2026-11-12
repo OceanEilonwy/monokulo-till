@@ -299,9 +299,21 @@ pub struct EngineConfig {
     /// whose [`PushPlatform`] is UnifiedPush.
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub relay_url: Option<String>,
+    /// Android: a tablet's screen (smallest width 600dp or more), so the
+    /// pages that are the iPad's own on iOS are drawn as on an iPad (C4,
+    /// connected to Fob). False on a phone, and ignored on iOS, whose
+    /// [`Self::device`] says it.
+    #[cfg_attr(feature = "uniffi", uniffi(default = false))]
+    pub large_screen: bool,
 }
 
 impl EngineConfig {
+    /// Whether pages with a tablet's form draw it: on an iPad, or an
+    /// Android tablet.
+    pub fn tablet(&self) -> bool {
+        self.device == Device::Ipad || (self.device == Device::Android && self.large_screen)
+    }
+
     /// `android` or `ios`, as Monokulo's apps list shows it: the device's.
     pub fn platform(&self) -> &'static str {
         if self.device.is_ios() {

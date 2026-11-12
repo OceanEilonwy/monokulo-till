@@ -4704,3 +4704,81 @@ names the environment. Refines 95, 96 and 132.
      `APPLE_TEAM_ID`. For now the build runs in the `sandbox` environment
      for the deployment's ids and hosts, the same one TestFlight builds in
      (core.md decision 228), with no approval gate.
+
+## App: view-key mode's setup (2026-11-12)
+
+317. **The wallet setup's steps are drawn in round 4's one column, from
+     the engine's pages** (core.md 229 to 233; `docs/view-key-mode.md`
+     §11.1; the canvas's Vk* boards, which still show the older step
+     rail). `ui/WalletSetup.kt` draws V1 (three cards, the chosen one
+     ringed in ink with a filled tick, the light wallet server greyed with
+     "Coming soon"), V2 (Fob's card with Fob's mark, `ic_fob_mark` from
+     Fob's brand SVG, its button under its words on a phone width; then
+     the three ways as a grouped list), C1, B4 and C4 (facts, then
+     "Payments · set in Till"), D1 (the camera, Paste a code instead), D2
+     (a Mainnet/Stagenet segmented control, the address in a monospace
+     field, each field's note in green with a tick or in red), D3 and D4
+     (the till number and Paid after with the value between − and +, the
+     node on one line, cut at its start if it must be, with Change and
+     Fob's checks under it). Every word is the engine's, but for C1's
+     "Open Fob" (below) and the camera's "Allow the camera" where the
+     step gives none. Section labels arrive in sentence case and are set
+     in capitals by `SectionLabel`. "A code runs out after" is a stepper
+     on B4, C4 and D4, where the boards show its value alone: the engine
+     offers − and + there (`Action::StepCodeExpiry`), and Settings is the
+     only other place to change it. On a phone B4's Paid after keeps the
+     board's form, its value as the line under the label; D4's and a
+     tablet's value sit between the buttons.
+     Secrets are typed into platform `EditText`s, not Compose fields: a
+     password field with `TYPE_TEXT_FLAG_NO_SUGGESTIONS` and
+     `IME_FLAG_NO_PERSONALIZED_LEARNING` (which Compose's
+     `KeyboardOptions` can't set), kept out of autofill, its text held in
+     an `Editable` that's cleared in place. D3's Continue joins the words,
+     sends `EnterSeed` and clears every field at once; no copy is kept.
+     D3's grid is five columns where 520dp fit (tablets), else three. D2's
+     view key goes with each change (`EditWalletKeys` carries both
+     fields), as the engine judges it as it's typed. The screenshot test
+     draws these under the iOS tests' names (`vk-mode` … `vk-this-till`;
+     `vk-connected` on a phone, `vk-pad-connected` on a tablet, which is
+     C4 since decision 319).
+
+318. **C1 on Android: Fob on this device opens by itself; the two codes
+     stay for Fob on another phone.** The engine's C1 is the two-device
+     way ("Connect to Fob on another phone"). When Fob is installed
+     (`com.monokulo.fob`, else `com.monokulo.fob.debug`, both listed in
+     the manifest's `<queries>`), C1 opens it at once, once for each
+     request, with Fob's same-device contract (Fob's decision 423): an
+     explicit intent, action `com.monokulo.fob.action.CONNECT`, the
+     request (`FobRequestStep.qr`) as its data, by
+     `registerForActivityResult`; the result's data, the sealed answer or
+     the declined one, goes to the engine as `FobAnswer`. Back from Fob
+     finds C1 with "Open Fob" as its main button and "Scan Fob's code"
+     under it, for a person who'd rather use another phone; without Fob,
+     C1 is the board's: the code and pattern on a white card (at most
+     320dp, so the steps show on a phone), the numbered steps, and Scan
+     Fob's code, which turns the card into the camera. The same layout on
+     a tablet, in setup's one column. `FobApp.trusted` checks the
+     installed Fob's signing certificate against Fob's release one once
+     it's listed; until the owner adds it any installed Fob is opened,
+     which risks little, the answer being sealed for this till's request
+     and holding no spend key.
+
+319. **Settings on the shop's own wallet: the Payments section in the
+     store's place, drawn with D4's controls** (core.md 234 to 236 and 239). With
+     `SettingsView.wallet`, Settings opens on the engine's Payments
+     section instead of Store: how Till sees payments, Fob's wallet and
+     account when connected through it, the address (short, monospace,
+     with the same Copy as the store's), Network; the till number's
+     stepper, or Fob's account as a fact; the node card with its checks
+     and Change; Paid after and the code's expiry. These are D4's
+     `StepperRow`, `NodeCard` and `NodeDialog`, so they look and act the
+     same in both places. Prices from is a radio group like Wake-ups', a
+     row per provider. The lookahead line and each of the wallet's
+     warnings sit under the card they're about, in the warning colour
+     with a warning mark, as footnotes do. Wake-ups is left out (nothing
+     wakes a till that only hears payments while open), and Disconnect
+     this wallet replaces Disconnect this device, asking first with the
+     engine's question, which says a view key can't be taken back. An
+     Android tablet passes `large_screen` (smallest width 600dp), so
+     Connected to Fob is C4 there as on an iPad; its screenshot is
+     `vk-pad-connected` from `PreviewStep::VkPadConnected`.

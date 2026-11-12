@@ -63,6 +63,20 @@ import com.monokulo.till.ui.TillActions
 import com.monokulo.till.ui.WorkBar
 import com.monokulo.till.ui.TillTheme
 import com.monokulo.till.ui.WelcomeScreen
+import com.monokulo.till.ui.FobConnectedScreen
+import com.monokulo.till.ui.FobRequestScreen
+import com.monokulo.till.ui.PaymentsModeScreen
+import com.monokulo.till.ui.StepperActions
+import com.monokulo.till.ui.ThisTillActions
+import com.monokulo.till.ui.ThisTillScreen
+import com.monokulo.till.ui.WalletCodeScreen
+import com.monokulo.till.ui.WalletEntryScreen
+import com.monokulo.till.ui.WalletKeysScreen
+import com.monokulo.till.ui.WalletSeedScreen
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import uniffi.till_screens.WalletWay
 import com.monokulo.till.ui.confirm
 import com.monokulo.till.ui.mk
 import com.monokulo.till.ui.pos
@@ -98,6 +112,20 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun send(action: Action) = model.send(action)
+
+    /** Fob on this device, answering C1's request (Fob's decision 423): its result's data is the answer. */
+    private val fob = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        result.data?.dataString?.let { send(Action.FobAnswer(it)) }
+    }
+
+    /** Fob's package on this device, the release before a debug build, when one is installed and trusted. */
+    private fun fobPackage(): String? = FobApp.packages.firstOrNull { FobApp.trusted(this, it) }
+
+    /** Opens Fob with the request, for a result (decision 318). */
+    private fun openFob(request: String) {
+        val pkg = fobPackage() ?: return
+        runCatching { fob.launch(Intent(FobApp.ACTION_CONNECT, request.toUri()).setPackage(pkg)) }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -292,13 +320,66 @@ class MainActivity : ComponentActivity() {
                 onNext = { send(Action.Next) },
                 onBack = { send(Action.Back) },
             )
-            // TODO(view-key mode): the wallet setup's screens (V1, V2, C1,
-            // B4/C4, D1 to D4), drawn from the engine's pages and actions
-            // (docs/view-key-mode.md §11.1).
-            is OnboardingPage.PaymentsMode, is OnboardingPage.WalletEntry, is OnboardingPage.FobRequest,
-            is OnboardingPage.FobConnected, is OnboardingPage.WalletCode, is OnboardingPage.WalletKeys,
-            is OnboardingPage.WalletSeed, is OnboardingPage.ThisTill -> Unit
+            is OnboardingPage.PaymentsMode -> PaymentsModeScreen(
+                page.view, view.heading, view.lead, step,
+                onChoose = { send(Action.ChoosePaymentsMode(it)) }, onNext = { send(Action.Next) }, onBack = { send(Action.Back) },
+            )
+            is OnboardingPage.WalletEntry -> WalletEntryScreen(
+                page.view, view.heading, view.lead, step,
+                onConnect = { send(Action.ConnectFob) }, onWay = { send(Action.ChooseWalletWay(it)) },
+                onGetFob = { send(Action.GetFob) }, onBack = { send(Action.Back) },
+            )
+            is OnboardingPage.FobRequest -> {
+                val request = page.view.qr
+                val here = remember { fobPackage() != null }
+                // Fob on this device opens by itself, once for each request; the page stays for Fob on another phone.
+                var opened by rememberSaveable { mutableStateOf<String?>(null) }
+                LaunchedEffect(request) {
+                    if (here && opened != request) {
+                        opened = request
+                        openFob(request)
+                    }
+                }
+                FobRequestScreen(
+                    page.view, view.heading, view.lead, step, fobHere = here,
+                    onOpenFob = { openFob(request) }, onAnswer = { send(Action.FobAnswer(it)) }, onBack = { send(Action.Back) },
+                )
+            }
+            is OnboardingPage.FobConnected -> FobConnectedScreen(
+                page.view, view.heading, view.lead, step, stepperActions,
+                onNext = { send(Action.Next) }, onOtherWallet = { send(Action.UseAnotherWallet) },
+            )
+            is OnboardingPage.WalletCode -> WalletCodeScreen(
+                page.view, view.heading, view.lead, step,
+                onScan = { send(Action.ScanWalletCode(it)) }, onPaste = { send(Action.PasteWalletCode(it)) }, onBack = { send(Action.Back) },
+            )
+            is OnboardingPage.WalletKeys -> WalletKeysScreen(
+                page.view, view.heading, view.lead, step,
+                onEdit = { network, address, viewKey -> send(Action.EditWalletKeys(network, address, viewKey)) },
+                onNext = { send(Action.Next) }, onBack = { send(Action.Back) },
+            )
+            is OnboardingPage.WalletSeed -> WalletSeedScreen(
+                page.view, view.heading, view.lead, step,
+                onLength = { send(Action.ChooseSeedLength(it)) },
+                onScanInstead = { send(Action.ChooseWalletWay(WalletWay.SCAN_CODE)) },
+                onEnter = { send(Action.EnterSeed(it)) },
+                onBack = { send(Action.Back) },
+            )
+            is OnboardingPage.ThisTill -> ThisTillScreen(
+                page.view, view.heading, view.lead, step,
+                ThisTillActions(
+                    stepperActions,
+                    onNumber = { send(Action.StepTillNumber(it)) },
+                    onNode = { send(Action.SetNode(it)) },
+                    onNext = { send(Action.Next) },
+                    onBack = { send(Action.Back) },
+                ),
+            )
         }
+    }
+
+    private val stepperActions by lazy {
+        StepperActions(onPaidAfter = { send(Action.StepPaidAfter(it)) }, onExpiry = { send(Action.StepCodeExpiry(it)) })
     }
 
     private val settingsActions by lazy {

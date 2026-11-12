@@ -2108,3 +2108,15 @@ still strings across the till, the ledger, the screens and the bridge.
      `{"wallet":{…}}`. `WalletLink` is a first shape for the wallet backend
      to fill in, and a wallet link makes no backend yet.
      Decisions 229 to 231 fill it in.
+239. **An Android tablet draws C4, as an iPad does.** `EngineConfig`
+     gains `large_screen` (default false, so the Swift side is
+     unchanged), which Android sets for a smallest width of 600dp or more;
+     `EngineConfig::tablet()` is true on an iPad or such an Android
+     device. `Device` stays as it is, because it also chooses the words
+     ("this iPad", "this device") and the platform's other ways, which an
+     Android tablet keeps. Only Connected to Fob differs by form so far:
+     `FobConnectedSetup::tablet` makes it C4 (Use another wallet, the
+     account as "account 1", Paid after's value between its buttons, the
+     lead saying the next steps are skipped). The preview
+     `PreviewStep::VkPadConnected` draws C4 on any device, for Android's
+     `vk-pad-connected` screenshot.

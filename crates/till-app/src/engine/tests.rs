@@ -61,6 +61,7 @@ fn config(square: Option<&MockServer>) -> EngineConfig {
         },
         bell_url: "https://bell.monokulo.com".into(),
         relay_url: None,
+        large_screen: false,
     }
 }
 
@@ -78,6 +79,23 @@ fn the_platform_is_the_devices() {
         ..config(None)
     };
     assert_eq!(android.platform(), "android");
+}
+
+#[test]
+fn an_android_tablet_draws_the_ipads_pages_and_a_phone_doesnt() {
+    let on = |device, large_screen| {
+        EngineConfig {
+            device,
+            large_screen,
+            ..config(None)
+        }
+        .tablet()
+    };
+    assert!(on(Device::Ipad, false));
+    assert!(on(Device::Android, true));
+    assert!(!on(Device::Android, false));
+    // iOS says which it is by its device: the flag is Android's.
+    assert!(!on(Device::Iphone, true));
 }
 
 /// A client that keeps no idle connections (decision 32).

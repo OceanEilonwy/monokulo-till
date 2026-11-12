@@ -50,6 +50,7 @@ fn config(square: &MockServer) -> EngineConfig {
         },
         bell_url: "https://bell.monokulo.com".into(),
         relay_url: None,
+        large_screen: false,
     }
 }
 
