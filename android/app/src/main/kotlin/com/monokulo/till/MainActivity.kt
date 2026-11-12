@@ -265,6 +265,7 @@ class MainActivity : ComponentActivity() {
                     onSkip = { send(Action.Skip) },
                     onBack = { send(Action.Back) },
                 ),
+                heading = view.heading, lead = view.lead,
             )
             is OnboardingPage.Locations -> LocationsScreen(page, step, onPick = { send(Action.ChooseLocation(it)) }, onBack = { send(Action.Back) })
             is OnboardingPage.Alerts -> AlertsScreen(page, step, onAllow = ::allowNotifications, onSkip = { send(Action.Skip) }, onBack = { send(Action.Back) })

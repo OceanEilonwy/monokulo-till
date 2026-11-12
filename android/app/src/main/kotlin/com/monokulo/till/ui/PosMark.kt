@@ -31,7 +31,7 @@ import uniffi.till_screens.PosMark
  * the name beside it is what TalkBack reads.
  */
 @Composable
-fun PosMark(pos: PosMark, size: Dp, modifier: Modifier = Modifier) = Icon(
+fun PosMark(pos: PosMark, size: Dp, modifier: Modifier = Modifier, tint: Color? = null) = Icon(
     painterResource(
         when (pos) {
             PosMark.SQUARE -> R.drawable.ic_pos_square
@@ -40,7 +40,7 @@ fun PosMark(pos: PosMark, size: Dp, modifier: Modifier = Modifier) = Icon(
     ),
     contentDescription = null,
     modifier = modifier.size(size),
-    tint = if (pos == PosMark.SQUARE) mk.ink else Color.Unspecified,
+    tint = tint ?: if (pos == PosMark.SQUARE) mk.ink else Color.Unspecified,
 )
 
 /** The mark on its 40 dp inset tile, leading a point of sale's row (the design's Logos board, A). */
@@ -72,7 +72,7 @@ fun LinkedMarks(pos: PosMark, modifier: Modifier = Modifier) = Row(
     horizontalArrangement = Arrangement.spacedBy(10.dp),
 ) {
     val card = mk.card
-    Box(Modifier.size(56.dp).clip(LinkTileShape).background(card), contentAlignment = Alignment.Center) { Logo(40.dp) }
+    Box(Modifier.size(56.dp).clip(LinkTileShape).background(card), contentAlignment = Alignment.Center) { TillWidget(42.dp) }
     val outline = mk.outline
     Spacer(
         Modifier.size(40.dp, 12.dp).drawWithCache {

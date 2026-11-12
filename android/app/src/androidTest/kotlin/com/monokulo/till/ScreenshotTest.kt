@@ -129,7 +129,8 @@ class ScreenshotTest {
                     rule.mainClock.advanceTimeBy(100)
                     rule.waitForIdle()
                 }
-                Thread.sleep(600)
+                // The first screen also waits for the activity's first frame.
+                Thread.sleep(if (shot === shots.first() && !mode) 2_500 else 600)
                 val picture = instrumentation.uiAutomation.takeScreenshot() ?: error("no screenshot of ${shot.name}")
                 File(folder, "${shot.name}-${if (mode) "dark" else "light"}.png").outputStream().use {
                     picture.compress(Bitmap.CompressFormat.PNG, 100, it)
@@ -241,7 +242,7 @@ class ScreenshotTest {
             is OnboardingPage.Scan -> ScanScreen(page, step, onPaste = {}, onScan = {}, onBack = {})
             is OnboardingPage.Confirm -> ConfirmScreen(page, step, onConnect = {}, onCancel = {})
             is OnboardingPage.Connected -> ConnectedScreen(page, step, onNext = {}, onRetry = {}, onWrong = {})
-            is OnboardingPage.PointOfSale -> PointOfSaleScreen(page.view, step, posActions)
+            is OnboardingPage.PointOfSale -> PointOfSaleScreen(page.view, step, posActions, heading = view.heading, lead = view.lead)
             is OnboardingPage.Locations -> LocationsScreen(page, step, onPick = {}, onBack = {})
             is OnboardingPage.Alerts -> AlertsScreen(page, step, onAllow = {}, onSkip = {}, onBack = {})
             is OnboardingPage.Float -> FloatScreen(page, onOpenSettings = {}, onNotificationsOnly = {}, onContinue = {}, onBack = {})

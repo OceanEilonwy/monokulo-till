@@ -48,6 +48,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -67,7 +68,9 @@ import uniffi.till_screens.OnboardingPage
 import uniffi.till_screens.PosCard
 import uniffi.till_screens.PosChoice
 import uniffi.till_screens.PosMark
+import uniffi.till_screens.PosStage
 import uniffi.till_screens.PosStep
+import uniffi.till_screens.TestStatus
 import uniffi.till_screens.SampleAlert
 import uniffi.till_screens.BubbleLook
 
@@ -96,7 +99,7 @@ fun WelcomeScreen(page: OnboardingPage.Welcome, stepLabel: String?, onStart: () 
         Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 48.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        LoadingMark(148.dp, label = "Monokulo Till")
+        TillWidget(88.dp, label = "Monokulo Till")
         Spacer(Modifier.height(26.dp))
         Heading("Monokulo Till", size = 34, align = TextAlign.Center)
         Spacer(Modifier.height(18.dp))
@@ -308,33 +311,83 @@ class PosSetupActions(
 )
 
 /**
- * Step 4 (OnbSquare, for every point of sale: acceptance T1.1, decision
- * 136), as the engine wrote it: Square or Clover as one radio group,
- * nothing chosen until a tap, then the chosen one's card: its sign-in, its
- * location or merchant, and what to do at the point of sale itself.
+ * Step 4 (OnbPos, OnbSquare, OnbTest; docs/decisions/core.md 121), in the
+ * engine's stages, as iOS draws them: the choice alone, then the chosen
+ * one's sign-in, then the test sale with its status under the steps it
+ * waits on. From Settings there's no stage: the choice and the card
+ * together. [heading] and [lead] are the engine's words for the stage.
  */
 @Composable
-fun PointOfSaleScreen(step: PosStep, stepLabel: String?, a: PosSetupActions) = Page(
+fun PointOfSaleScreen(step: PosStep, stepLabel: String?, a: PosSetupActions, heading: String = "Connect your point of sale", lead: String = "") = Page(
     top = { BackBar(a.onBack.takeIf { step.back }) },
     bottom = {
-        // The test sale's status (docs/decisions/core.md 121), drawn plainly.
-        step.status?.let { status ->
-            Text(status.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-            Muted(status.detail)
-        }
         step.next?.let { next -> PrimaryButton(next.label, a.onNext, Modifier.fillMaxWidth(), enabled = next.enabled) }
         step.skip?.let { skip -> LinkButton(skip.label, a.onSkip, enabled = skip.enabled, size = 15) }
         step.skipFootnote?.let { Muted(it, align = TextAlign.Center) }
         StepLabel(stepLabel)
     },
 ) {
-    Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Heading("Connect your point of sale")
+    when (step.stage) {
+        PosStage.CHOOSE -> {
+            PageHead(heading, lead)
+            SectionLabel("Point of sale")
+            PosChoices(step.choices, onChoose = a.onChoose)
+        }
+        PosStage.SIGN_IN -> step.card?.let { card -> PosAccount(card, a, heading, lead) }
+        PosStage.TEST_SALE -> step.card?.let { card ->
+            step.connected?.let { ConnectedLine(it, card.changeLocation, a.onChangeLocation) }
+            PageHead(heading, lead)
+            PosAtTheTill(card, a, testRow = false)
+            step.status?.let { TestStatusCard(it) }
+        }
+        null -> {
+            PageHead(heading, "")
+            SectionLabel("Point of sale")
+            PosChoices(step.choices, onChoose = a.onChoose)
+            step.card?.let { card ->
+                PosAccount(card, a)
+                PosAtTheTill(card, a, testRow = true)
+            }
+        }
     }
-    SectionLabel("Point of sale")
-    PosChoices(step.choices, onChoose = a.onChoose)
-    step.card?.let { PosCardView(it, a) }
     Spacer(Modifier.height(16.dp))
+}
+
+/** A page's heading and, when it has one, its lead. */
+@Composable
+private fun PageHead(heading: String, lead: String) = Column(
+    Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp),
+    verticalArrangement = Arrangement.spacedBy(10.dp),
+) {
+    Heading(heading)
+    if (lead.isNotEmpty()) Lead(lead)
+}
+
+/** The test sale's line over its heading: connected, to whom and where, and Change when the location can change. */
+@Composable
+private fun ConnectedLine(line: String, changeLocation: Boolean, onChange: () -> Unit) = Row(
+    Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 8.dp),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(10.dp),
+) {
+    PaidTick(22.dp)
+    Text(line, Modifier.weight(1f), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    if (changeLocation) LinkButton("Change", onChange, size = 15)
+}
+
+/** The test sale's status, as the last card under the steps it waits on: found, it turns to a tick. */
+@Composable
+private fun TestStatusCard(status: TestStatus) = Row(
+    Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(mk.card)
+        .padding(horizontal = 16.dp, vertical = 12.dp).semantics(mergeDescendants = true) {},
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(12.dp),
+) {
+    if (status.found) PaidTick(24.dp) else LoadingMark(24.dp, label = "Waiting for a test sale")
+    Column {
+        Text(status.title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        Muted(status.detail)
+    }
 }
 
 /** Square and Clover as one radio group (T1.1): a row each, at least 48 dp, led by its mark on a tile; the mark and tick decorative. */
@@ -348,17 +401,6 @@ fun PosChoices(choices: List<PosChoice>, onChoose: (PosMark) -> Unit) = Group(
         }
     },
 )
-
-/** The heading and lead of a point of sale's card, under Till's mark linked to the point of sale's. */
-@Composable
-private fun CardTop(card: PosCard) = Column(
-    Modifier.padding(start = 20.dp, end = 20.dp, top = 24.dp),
-    verticalArrangement = Arrangement.spacedBy(10.dp),
-) {
-    LinkedMarks(card.mark)
-    Heading(card.heading, size = 24)
-    Lead(card.lead, size = 17)
-}
 
 /** Signed in: a tick, "Connected" and who. */
 @Composable
@@ -381,15 +423,17 @@ private fun NumberedSteps(steps: List<String>, from: Int = 1) = Column(verticalA
 }
 
 /**
- * The chosen point of sale's card (acceptance T2.6, T3.2, T3.3): its
- * account, its location or merchant once signed in; a titled card of
- * numbered steps at the point of sale, with Clover's Look again after the
- * first when Clover didn't let the till add the payment type; the test
- * sale; and, for Clover, how a sale never paid is refunded.
+ * The chosen point of sale's account (acceptance T2.6): its heading, its
+ * sign-in or who is signed in, and its location or merchant. [heading] and
+ * [lead] replace the card's own when the stage has words of its own.
  */
 @Composable
-private fun PosCardView(card: PosCard, a: PosSetupActions) {
-    CardTop(card)
+private fun PosAccount(card: PosCard, a: PosSetupActions, heading: String? = null, lead: String? = null) {
+    Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LinkedMarks(card.mark)
+        Heading(heading ?: card.heading, size = 24)
+        Lead(lead?.takeIf { it.isNotEmpty() } ?: card.lead, size = 17)
+    }
     SectionLabel(card.accountTitle)
     when (val account = card.account) {
         is Account.Connected -> Group(
@@ -407,6 +451,16 @@ private fun PosCardView(card: PosCard, a: PosSetupActions) {
     }
     Footnote(card.permissions)
     Notice(card.problem, Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp))
+}
+
+/**
+ * What to do at the point of sale itself (T3.2, T3.3): a titled card of
+ * numbered steps, with Clover's Look again after the first when Clover
+ * didn't let the till add the payment type; the test sale's row when
+ * [testRow] (Settings); and, for Clover, how a sale never paid is refunded.
+ */
+@Composable
+private fun PosAtTheTill(card: PosCard, a: PosSetupActions, testRow: Boolean) {
     SectionLabel(card.atTheTill)
     Column(
         Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(mk.card)
@@ -422,7 +476,7 @@ private fun PosCardView(card: PosCard, a: PosSetupActions) {
         } else {
             NumberedSteps(card.steps)
         }
-        card.testSale?.let { test ->
+        card.testSale?.takeIf { testRow }?.let { test ->
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(mk.inset).padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -474,7 +528,7 @@ private fun NotificationMock(title: String, text: String?, time: String, faint: 
     horizontalArrangement = Arrangement.spacedBy(12.dp),
     verticalAlignment = if (text == null) Alignment.CenterVertically else Alignment.Top,
 ) {
-    Box(Modifier.size(38.dp).clip(RoundedCornerShape(9.dp)).background(mk.ground), contentAlignment = Alignment.Center) { Logo(28.dp) }
+    Box(Modifier.size(38.dp).clip(RoundedCornerShape(9.dp)).background(mk.ground), contentAlignment = Alignment.Center) { TillWidget(30.dp) }
     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         if (text != null) {
             Row {
@@ -587,7 +641,16 @@ fun CounterScreen(view: CounterStep, onPick: (everyDevice: Boolean) -> Unit, onN
         Lead(view.lead)
     }
     Spacer(Modifier.height(16.dp))
-    Group(rows = view.choices.mapIndexed { index, choice -> { ChoiceRow(choice.label, choice.selected, { onPick(index == 1) }, choice.detail) } })
+    // This device, then the whole location: each led by its icon.
+    Group(
+        rows = view.choices.mapIndexed { index, choice ->
+            {
+                ChoiceRow(choice.label, choice.selected, { onPick(index == 1) }, choice.detail) {
+                    Icon(if (index == 1) MkIcons.Store else MkIcons.Device, null, Modifier.size(24.dp), tint = mk.ink)
+                }
+            }
+        },
+    )
     Footnote(view.footnote)
 }
 
@@ -659,7 +722,7 @@ private fun PhoneTop(bubble: Boolean, modifier: Modifier) = Box(
         .border(1.dp, Color(0xFFDCD5C7), RoundedCornerShape(topStart = 44.dp, topEnd = 44.dp)),
 ) {
     Box(Modifier.align(Alignment.TopCenter).padding(top = 12.dp).size(18.dp).clip(CircleShape).background(Color.Black))
-    if (!bubble) Logo(16.dp, Modifier.padding(start = 30.dp, top = 13.dp), ring = Fixed.Ink)
+    if (!bubble) TillWidget(16.dp, Modifier.padding(start = 30.dp, top = 13.dp))
     Column(Modifier.padding(start = 22.dp, end = 22.dp, top = 56.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         repeat(2) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
