@@ -1600,6 +1600,9 @@ fn the_till_and_the_sales_screens_map_to_places_and_back() {
 }
 
 /// Waits up to 10 s for `server` to have a request that `pick` takes.
+/// Pick by method and path, never any request: wiremock lends its
+/// servers from a pool, so a request an earlier test's engine still had in
+/// flight can land on this test's server.
 async fn request_to(
     server: &MockServer,
     pick: impl Fn(&wiremock::Request) -> bool,
@@ -1663,13 +1666,15 @@ async fn on_ios_the_apns_token_goes_through_the_relay_to_the_bell_and_a_relayed_
         },
     });
 
-    let registered = request_to(&relay, |_| true).await;
+    let registers =
+        |r: &wiremock::Request| r.method.as_str() == "POST" && r.url.path() == "/v1/register";
+    let registered = request_to(&relay, registers).await;
     let sent: serde_json::Value = serde_json::from_slice(&registered.body).unwrap();
     assert_eq!(
         sent,
         serde_json::json!({"platform": "apns", "token": APNS, "app": "till", "vapid_public_key": VAPID})
     );
-    let rung = request_to(&bell, |r| r.method.as_str() == "POST").await;
+    let rung = request_to(&bell, registers).await;
     let sent: serde_json::Value = serde_json::from_slice(&rung.body).unwrap();
     let subscription = &sent["subscription"];
     assert_eq!(
