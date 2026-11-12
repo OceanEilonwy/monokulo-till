@@ -73,7 +73,7 @@ struct ShiftScreen: View {
             if let header = view.header {
                 Section {
                     ShiftHeaderCard(label: view.summaryLabel, header: header, state: view.top.state) { askNewShift = true }
-                        .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 6, trailing: 4))
+                        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 6, trailing: 20))
                 }
                 .listRowBackground(Color.clear)
             }
@@ -110,7 +110,7 @@ struct ShiftScreen: View {
                         .listRowSeparator(.hidden)
                 }
                 .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
             }
             ForEach(Array(ShiftSections.of(view.entries).enumerated()), id: \.offset) { _, section in
                 Section {
@@ -501,6 +501,10 @@ struct PlaceMenu: View {
             }
         }
         .foregroundStyle(Palette.ink)
+        .padding(.horizontal, 6)
+        // Its whole name: the bar's leading slot squeezes it to a letter
+        // otherwise.
+        .fixedSize()
     }
 
     private func pick(_ item: CounterItem) -> some View {
