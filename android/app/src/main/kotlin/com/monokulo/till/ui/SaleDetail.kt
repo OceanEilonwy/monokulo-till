@@ -96,7 +96,7 @@ fun SaleDetail(
                             page.heading, style = display(26, 0.0), textAlign = TextAlign.Center,
                             // The state in its colour, as iOS has it: Paid in green.
                             color = when {
-                                page.headingWarn -> mk.warn
+                                page.headingWarn || page.icon == StateIcon.CLOCK -> mk.warn
                                 page.icon == StateIcon.TICK -> mk.paid
                                 else -> mk.ink
                             },
@@ -115,6 +115,8 @@ fun SaleDetail(
                     }
                     page.order?.let { Box(words) { OrderCard(it, room) } }
                     if (page.facts.isNotEmpty()) Box(words) { Facts(page.facts) }
+                    // Small print under the timeline (round 4): the late-payment rule on an expired sale.
+                    page.footnote?.let { Text(it, fontSize = 13.sp, lineHeight = 18.sp, color = mk.muted, modifier = words.padding(horizontal = 4.dp)) }
                 }
                 if (page.buttons.isNotEmpty()) {
                     Column(words.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
