@@ -61,9 +61,25 @@ pub fn provider_for(name: Option<&str>, currency: Option<&str>) -> Provider {
         .unwrap_or_default()
 }
 
+/// The providers that price XMR in `currency` (fob-price's
+/// `providers_for`), or every provider without a currency, by name: what
+/// Settings offers.
+pub fn provider_names(currency: Option<&str>) -> Vec<String> {
+    let providers = match currency {
+        Some(code) => fob_price::providers_for(code),
+        None => Provider::ALL.to_vec(),
+    };
+    providers.iter().map(|p| p.name().to_owned()).collect()
+}
+
+/// The name of the provider [`provider_for`] picks.
+pub fn provider_name(name: Option<&str>, currency: Option<&str>) -> String {
+    provider_for(name, currency).name().to_owned()
+}
+
 /// The prices asked for so far, by currency, each with when it was given.
 pub struct Prices {
-    source: Arc<dyn PriceSource>,
+    source: Mutex<Arc<dyn PriceSource>>,
     clock: Arc<dyn Clock>,
     known: Mutex<HashMap<String, (u64, i64)>>,
 }
@@ -80,14 +96,28 @@ pub struct Converted {
 impl Prices {
     pub fn new(source: Arc<dyn PriceSource>, clock: Arc<dyn Clock>) -> Prices {
         Prices {
-            source,
+            source: Mutex::new(source),
             clock,
             known: Mutex::new(HashMap::new()),
         }
     }
 
+    fn source(&self) -> Arc<dyn PriceSource> {
+        self.source
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
     pub fn source_name(&self) -> String {
-        self.source.name()
+        self.source().name()
+    }
+
+    /// Prices from `source` from now on; what the last one gave is
+    /// forgotten.
+    pub fn set_source(&self, source: Arc<dyn PriceSource>) {
+        *self.source.lock().unwrap_or_else(|e| e.into_inner()) = source;
+        self.known.lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
     /// One XMR in `currency`, in millionths, and when it was given: the one
@@ -105,9 +135,10 @@ impl Prices {
         {
             return Ok((rate, at));
         }
-        let rate = self.source.current(currency).await?;
+        let source = self.source();
+        let rate = source.current(currency).await?;
         if rate == 0 {
-            return Err(format!("{} gave no price", self.source.name()));
+            return Err(format!("{} gave no price", source.name()));
         }
         self.known
             .lock()
@@ -134,16 +165,14 @@ impl Prices {
                 price: None,
             });
         }
-        if !self.source.prices(code) {
-            return Err(format!(
-                "{} has no price of XMR in {code}.",
-                self.source.name()
-            ));
+        let source = self.source();
+        if !source.prices(code) {
+            return Err(format!("{} has no price of XMR in {code}.", source.name()));
         }
         let (rate, at) = self.fresh(code).await.map_err(|why| {
             format!(
                 "Couldn't get the price of XMR in {code} from {}, so no code was made: {why}",
-                self.source.name()
+                source.name()
             )
         })?;
         // minor / 10^digits currency = minor * 10^6 / (rate * 10^digits) XMR.
@@ -153,7 +182,7 @@ impl Prices {
         Ok(Converted {
             atomic: round_for_tag(atomic),
             price: Some(PriceUsed {
-                provider: self.source.name(),
+                provider: source.name(),
                 rate: Price::new(micro_decimal(rate, digits), code),
                 at: UnixSeconds(at),
             }),

@@ -113,6 +113,54 @@ impl FobRequest {
         .map_err(|e| e.to_string())
     }
 
+    /// The request kept as text, its one-time key in it, so it outlives the
+    /// process (in the platform's secure storage): an answer that comes
+    /// back to a restarted till still opens. Wiped when it goes.
+    pub fn keep(&self) -> Zeroizing<String> {
+        let request = self.asker.request();
+        let secret = self.asker.secret();
+        let hex = |bytes: &[u8]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        let kept = serde_json::json!({
+            "secret": hex(&secret[..]),
+            "state": hex(&request.state),
+            "name": request.name,
+            "device": request.device,
+            "network": request.network.name(),
+        });
+        Zeroizing::new(kept.to_string())
+    }
+
+    /// The request [`FobRequest::keep`] kept, or `None` for anything else.
+    pub fn restore(kept: &str) -> Option<FobRequest> {
+        let value: serde_json::Value = serde_json::from_str(kept).ok()?;
+        let bytes = |key: &str| -> Option<Zeroizing<Vec<u8>>> {
+            let text = value.get(key)?.as_str()?;
+            (0..text.len())
+                .step_by(2)
+                .map(|i| {
+                    text.get(i..i + 2)
+                        .and_then(|b| u8::from_str_radix(b, 16).ok())
+                })
+                .collect::<Option<Vec<u8>>>()
+                .map(Zeroizing::new)
+        };
+        let secret: [u8; 32] = bytes("secret")?.as_slice().try_into().ok()?;
+        let secret = Zeroizing::new(secret);
+        let state: [u8; 16] = bytes("state")?.as_slice().try_into().ok()?;
+        let network = match value.get("network")?.as_str()? {
+            "stagenet" => Network::Stagenet,
+            _ => Network::Mainnet,
+        };
+        let text = |key: &str| {
+            value
+                .get(key)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_owned()
+        };
+        FobRequest::with_key(&secret, state, &text("name"), &text("device"), network).ok()
+    }
+
     /// The request as a link, and what its QR code holds.
     pub fn uri(&self) -> String {
         self.asker.request().to_uri()
@@ -252,6 +300,12 @@ mod tests {
         assert_eq!(granted.wallet_name, "Corner Café");
         assert_eq!(granted.node.unwrap().url, "https://node.example.com:38089");
         assert_eq!(granted.prices, Some(("Kraken".into(), "AUD".into())));
+
+        // Kept and restored, as across a restart, it opens the same answer.
+        let restored = FobRequest::restore(&request.keep()).unwrap();
+        assert_eq!(restored.uri(), request.uri());
+        assert_eq!(restored.open(&answer).unwrap().account, 3);
+        assert!(FobRequest::restore("{}").is_none());
 
         let other = FobRequest::new("Corner Café", "Front iPad", Network::Stagenet, None).unwrap();
         assert_eq!(
