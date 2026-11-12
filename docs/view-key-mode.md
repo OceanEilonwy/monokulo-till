@@ -565,10 +565,17 @@ comes back with everything set up.
 2. Fob opens on **Choose a wallet for Till**:
 
    > **Which wallet should Till's payments go to?**
-   > ○ My wallet · 1.204 XMR
-   > ○ Corner Café · 0.381 XMR · already has Till (Corner Café)
    > ○ **New wallet for Corner Café**
+   > ● Corner Café · `12 tills` · 0.381 XMR
+   >     Already connected: Till (Front counter), Till (Back bar), Till (Kiosk), and 9 more
+   > ○ My wallet · 1.204 XMR
    > [Continue]
+
+   - Each row stays one line however many tills a wallet serves: its name,
+     an "N tills" chip and its balance. Choosing a wallet opens its tills
+     under it, three names and then "and N more".
+   - "New wallet" stays first. With more than about six wallets, a search
+     field sits above the list and recently used wallets come first.
 
    - **An existing wallet**: any wallet in Fob, including a view-only one
      (view access is all Till gets) and a Trezor one (Fob already holds its
