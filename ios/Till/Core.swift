@@ -83,6 +83,23 @@ final class Core {
         }
     }
 
+    /// A core with no engine, drawing only the updates it's handed
+    /// (``show(_:)``): the engine's previews (`previewShift`, `previewSale`,
+    /// `previewOnboarding`…), for the screenshots of every screen
+    /// (TillTests/ScreenshotTests.swift). What the cashier does goes nowhere.
+    init(showing updates: [Update]) {
+        config = Core.config()
+        signIn = SignInSession()
+        for update in updates {
+            receive(update)
+        }
+    }
+
+    /// An update as if the engine had published it; for ``init(showing:)``.
+    func show(_ update: Update) {
+        receive(update)
+    }
+
     /// iOS is short of memory: what can be made again goes, and the log
     /// says how close the app is to being ended.
     private func memoryWarning() {

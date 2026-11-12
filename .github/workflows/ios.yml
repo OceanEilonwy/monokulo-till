@@ -7,9 +7,9 @@ name: iOS
 on:
   push:
     branches: [main]
-    paths: ["ios/**", "crates/**", "Cargo.toml", "Cargo.lock", ".github/workflows/ios.yml"]
+    paths: ["ios/**", "crates/**", "Cargo.toml", "Cargo.lock", "tools/screenshot-compare/src/**", "tools/screenshot-compare/Cargo.toml", ".github/workflows/ios.yml"]
   pull_request:
-    paths: ["ios/**", "crates/**", "Cargo.toml", "Cargo.lock", ".github/workflows/ios.yml"]
+    paths: ["ios/**", "crates/**", "Cargo.toml", "Cargo.lock", "tools/screenshot-compare/src/**", "tools/screenshot-compare/Cargo.toml", ".github/workflows/ios.yml"]
   workflow_dispatch:
 
 permissions:
@@ -64,7 +64,7 @@ jobs:
       - name: Generate Till.xcodeproj
         working-directory: ios
         run: xcodegen generate
-      # The newest iPhone on an iOS 27 runtime, and an iPad on the oldest
+      # The newest iPhone (not a foldable) on an iOS 27 runtime, and an iPad on the oldest
       # runtime Till supports (iOS 26.7 or a newer 26.x), so a call into an
       # iOS 27-only API fails here as well as at compile time. Without a 26.x
       # runtime on the image the iPad falls back to iOS 27, with a warning.
@@ -84,7 +84,10 @@ jobs:
               key=version, reverse=(major != "26"))
           for runtime in runtimes:
               for device in devices[runtime]:
-                  if device["name"].startswith(family):
+                  # Not a foldable: unfolded, its screen is neither a phone
+                  # nor an iPad, so the tests and the screenshots take the
+                  # newest iPhone that does not fold.
+                  if device["name"].startswith(family) and not re.search(r"Duo|Fold|Flip", device["name"]):
                       print(device["udid"]); sys.exit(0)
           sys.exit(1)' "$1" "$2"
           }
@@ -95,19 +98,21 @@ jobs:
           fi
           echo "iphone=$iphone" >> "$GITHUB_OUTPUT"
           echo "ipad=$ipad" >> "$GITHUB_OUTPUT"
-      # The layout's pictures (TillTests/LayoutSnapshotTests.swift): each
-      # iPad window size, drawn on the iPad simulator, kept as an artifact.
+      # Screenshots for a reviewer without a device, kept as the
+      # till-ios-screenshots artifact: the key screens and states on each
+      # simulator (TillTests/ScreenshotTests.swift), and the live sale in
+      # every iPad window size (TillTests/LayoutSnapshotTests.swift).
       # Once more when the simulator, not a test, failed: "The test runner
       # hung before establishing connection" and the like (main, 2026-11-12).
       # A test that fails fails the step the first time.
       - name: Test on iPhone and iPad
         working-directory: ios
         run: |
-          mkdir -p "$RUNNER_TEMP/layout-snapshots"
+          mkdir -p "$RUNNER_TEMP/screenshots"
           run() {
             rm -rf "$RUNNER_TEMP/Till.xcresult"
             set -o pipefail
-            TEST_RUNNER_SNAPSHOT_DIR="$RUNNER_TEMP/layout-snapshots" \
+            TEST_RUNNER_SNAPSHOT_DIR="$RUNNER_TEMP/screenshots" \
             xcodebuild test \
               -project Till.xcodeproj -scheme Till \
               -destination "id=${{ steps.simulators.outputs.iphone }}" \
@@ -131,10 +136,26 @@ jobs:
           path: ${{ runner.temp }}/Till.xcresult
           retention-days: 14
           if-no-files-found: ignore
+      # One page of them all, to open from the unzipped artifact.
+      - name: Index the screenshots
+        if: always()
+        run: cargo run --locked -q -p screenshot-compare -- "$RUNNER_TEMP/screenshots"
       - uses: actions/upload-artifact@v7
+        id: screenshots
         if: always()
         with:
-          name: till-ios-layout-snapshots
-          path: ${{ runner.temp }}/layout-snapshots
+          name: till-ios-screenshots
+          path: ${{ runner.temp }}/screenshots
           retention-days: 14
           if-no-files-found: ignore
+      - name: Link the screenshots in the run's summary
+        if: always() && steps.screenshots.outputs.artifact-url != ''
+        env:
+          URL: ${{ steps.screenshots.outputs.artifact-url }}
+        run: |
+          count="$(find "$RUNNER_TEMP/screenshots" -name '*.png' | wc -l | tr -d ' ')"
+          {
+            echo "### iPhone and iPad screenshots"
+            echo
+            echo "[Download till-ios-screenshots]($URL) ($count pictures), unzip it and open index.html."
+          } >> "$GITHUB_STEP_SUMMARY"

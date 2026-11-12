@@ -8,8 +8,9 @@ import UIKit
 /// light and dark (docs/ipad-redesign.md, decisions 27–31). Each window is
 /// drawn for real, its system bars and lists included, and must come out
 /// the size it was given. When `SNAPSHOT_DIR` is set (CI sets it through
-/// `TEST_RUNNER_SNAPSHOT_DIR`), each picture is written there as a PNG, so
-/// the layout can be looked at without a device.
+/// `TEST_RUNNER_SNAPSHOT_DIR`), each picture is written to its "iPad window
+/// sizes" folder as a PNG, beside ScreenshotTests' screens, so the layout
+/// can be looked at without a device.
 @MainActor
 struct LayoutSnapshotTests {
     struct Window {
@@ -44,7 +45,9 @@ struct LayoutSnapshotTests {
         guard UIDevice.current.userInterfaceIdiom == .pad,
               let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first
         else { return }
-        let folder = ProcessInfo.processInfo.environment["SNAPSHOT_DIR"].map { URL(fileURLWithPath: $0) }
+        let folder = ProcessInfo.processInfo.environment["SNAPSHOT_DIR"].map {
+            URL(fileURLWithPath: $0).appendingPathComponent("iPad window sizes", isDirectory: true)
+        }
         if let folder {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         }
