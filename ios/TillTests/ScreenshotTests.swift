@@ -148,9 +148,33 @@ enum Screenshots {
         let close = previewClose(preview: full, orderId: "w1", platform: platform)
             .map { Update.closeSheet(orderId: "w1", view: $0) }
         let settingsUp = till(.settings, shift, settings, .wakeUps(view: wakeUps))
-        /// Settings for a till on the shop's own wallet (core.md decision 234).
-        func walletSettings(_ look: PreviewSettings) -> [Update] {
-            till(.settings, shift, .settings(view: previewSettingsOf(look: look, device: device, now: now)))
+        /// Settings for a till on the shop's own wallet (core.md decision
+        /// 234): its Payments sections and Disconnect, as Settings draws them,
+        /// without the sections above that a window shows first.
+        func walletSettings(_ look: PreviewSettings) -> @MainActor () -> AnyView {
+            let view = previewSettingsOf(look: look, device: device, now: now)
+            return {
+                AnyView(NavigationStack {
+                    List {
+                        if let wallet = view.wallet {
+                            WalletSettings(wallet: wallet, send: { _ in })
+                        }
+                        Section {
+                            Button(view.disconnect, role: .destructive) {}
+                                .foregroundStyle(Palette.danger)
+                        } footer: {
+                            Text(view.disconnectFootnote)
+                        }
+                    }
+                    .listStyle(.insetGrouped)
+                    .scrollContentBackground(.hidden)
+                    .readableWidth(640)
+                    .background(Palette.ground)
+                    .navigationTitle(view.title)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .tint(Palette.link)
+                })
+            }
         }
 
         var shots: [Shot] = [
@@ -181,8 +205,8 @@ enum Screenshots {
             Shot(name: "vk-keys-error", updates: step(.vkKeysError, .walletKeys)),
             Shot(name: "vk-seed", updates: step(.vkSeed, .walletSeed)),
             Shot(name: "vk-this-till", updates: step(.vkThisTill, .thisTill)),
-            Shot(name: "vk-settings", updates: walletSettings(.vkSettings)),
-            Shot(name: "vk-settings-warning", updates: walletSettings(.vkSettingsWarning)),
+            Shot(name: "vk-settings", screen: walletSettings(.vkSettings)),
+            Shot(name: "vk-settings-warning", screen: walletSettings(.vkSettingsWarning)),
         ]
         shots += [
             Shot(name: "setup-6-ready", updates: step(.ready, .ready)),

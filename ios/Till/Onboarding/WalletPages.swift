@@ -567,7 +567,6 @@ struct StepperRow: View {
                     .monospacedDigit()
                     .fixedSize()
                     .frame(minWidth: 32)
-                    .padding(.horizontal, 4)
             }
             button(stepper.plus, symbol: "plus", up: true)
         }
@@ -581,7 +580,7 @@ struct StepperRow: View {
         } label: {
             Image(systemName: symbol)
                 .font(.body.weight(.medium))
-                .frame(width: 48, height: minimumTarget)
+                .frame(width: minimumTarget, height: minimumTarget)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
