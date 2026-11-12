@@ -257,7 +257,6 @@ impl TillRunner {
                     shift.run(),
                     inner.follow(&till),
                     till.lapse_on_time(|| SystemClock.now_ms()),
-                    till.follow_confirmations(),
                 );
             })
         };
@@ -661,10 +660,10 @@ mod tests {
             xmr_piconero: 30_000_000_000,
             expires_at: UnixSeconds(0),
             phase,
-            confirmations: None,
-            required: None,
+            confirmations: 0,
+            required: 10,
             is_final: false,
-            received: None,
+            received: 0,
             overpaid: false,
             price: None,
             amount: Some("5.00".into()),

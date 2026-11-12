@@ -158,16 +158,14 @@ pub struct Payment {
     /// When the code it has now runs out.
     pub expires_at: UnixSeconds,
     pub phase: SalePhase,
-    /// The confirmations its payment has; `None` when the backend didn't
-    /// say (an event, an older Monokulo), and the phase stands for a count.
-    pub confirmations: Option<u32>,
-    /// The confirmations it needs to count as paid; `None` when the
-    /// backend didn't say.
-    pub required: Option<u32>,
+    /// The confirmations its payment has.
+    pub confirmations: u32,
+    /// The confirmations it needs to count as paid.
+    pub required: u32,
     /// The backend says nothing more will happen to it.
     pub is_final: bool,
-    /// Piconero received, for a partly paid payment, when the backend says.
-    pub received: Option<u64>,
+    /// Piconero received so far.
+    pub received: u64,
     /// Paid more than asked.
     pub overpaid: bool,
     /// The rate its XMR was worked out at, when the till's own backend
@@ -179,8 +177,8 @@ pub struct Payment {
     pub currency: Option<String>,
     /// The receipt number it was made with ([`PaymentRequest::reference`]).
     pub receipt: Option<String>,
-    /// The device that made it, as the backend names it, for a payment
-    /// another till made (Monokulo's events).
+    /// The device that made it, as the backend names it (Monokulo: for an
+    /// order one of the store's apps made).
     pub device_name: Option<String>,
     /// Handed back to [`PaymentBackend::renew`] for a new code, when the
     /// backend can make one: Monokulo's `renew-order` form.
@@ -199,6 +197,6 @@ pub enum BackendEvent {
     /// Some changes were missed: refresh the payments on screen.
     Lagged,
     /// A payment changed, or (with [`Sharing::Shared`]) another till made
-    /// one.
+    /// one: it as it stands now, its confirmations included.
     Changed(Payment),
 }

@@ -9,15 +9,13 @@ use std::future::pending;
 use std::sync::Arc;
 use std::time::Duration;
 
-use monokulo_client::{
-    Clock, Order, SaleEvent, SalePhase, SystemClock, UnixMillis, UnixSeconds, payment_uri,
-};
+use monokulo_client::{Clock, Order, SalePhase, SystemClock, UnixMillis, UnixSeconds, payment_uri};
 use till_ledger::{
     Action, Fact, MarkKind, OrderCreated, OrderId, OrderKey, OrderObserved, OrderRead, Outcome,
     PaymentId, PaymentSeen, Quote, RefundSeen, RefundStatus, SaleKey, ShiftMark, Tender,
     may_make_order,
 };
-use till_payments::monokulo::{payment_of_event, payment_of_order};
+use till_payments::monokulo::payment_of_order;
 use till_payments::{BackendError, Payment, PaymentBackend, PaymentRef, PaymentRequest, Sharing};
 use till_pos::{FoundSale, PosError, RefundInPos, Refunds, Rfc3339Instant, SaleSource};
 use tokio::sync::watch;
@@ -93,8 +91,8 @@ impl From<&Order> for OrderStatus {
         OrderStatus {
             phase: order.phase(),
             settled: order.is_final,
-            confirmations: order.confirmations,
-            required: order.confirmations_required,
+            confirmations: Some(order.confirmations),
+            required: Some(order.confirmations_required),
         }
     }
 }
@@ -146,12 +144,6 @@ impl Till {
     /// Refunds made this long before the refunds cursor are listed again,
     /// in case the point of sale was slow to list them.
     pub const REFUNDS_OVERLAP_SECONDS: i64 = 120;
-
-    /// How often [`Till::follow_confirmations`] reads a seen or confirming
-    /// sale again: a Monero block comes about every two minutes, so a
-    /// confirmation shows within a sixth of one, for a request a sale every
-    /// 20 s while it's on its way.
-    pub const CONFIRMATIONS_READ: Duration = Duration::from_secs(20);
 
     /// How long [`Till::lapse_on_time`] waits to try again when the clock it
     /// lapsed by hadn't reached a code's end yet.
@@ -532,7 +524,7 @@ impl Till {
             ),
             reference: order.receipt.clone(),
             expires_at: order.expires_at,
-            confirmations_required: order.required,
+            confirmations_required: Some(order.required),
             device_name: None,
             renew: order.renew.clone(),
             price_used: order.price.clone(),
@@ -584,12 +576,10 @@ impl Till {
         }
     }
 
-    /// What the store's event stream said, in Monokulo's own words
-    /// ([`Till::on_change`]); an event this build doesn't know says nothing.
-    pub fn on_event(&self, event: &SaleEvent) {
-        if let Some(payment) = payment_of_event(event) {
-            self.on_change(&payment);
-        }
+    /// An order the store's order stream sent, in Monokulo's own words
+    /// ([`Till::on_change`]).
+    pub fn on_event(&self, order: &Order) {
+        self.on_change(&payment_of_order(order));
     }
 
     /// What the backend's event stream said about a payment. On a till with
@@ -637,22 +627,20 @@ impl Till {
         self.on_payment(&payment_of_order(order));
     }
 
-    /// A payment, as the backend made it, read it again or renewed it (or
-    /// as an event described it): its phase, whether it's settled, its
-    /// confirmations (the phase's step when the backend gave none), its
-    /// quote and its `renew-order` form, and the confirmations it needs
-    /// when the order was made without them.
+    /// A payment, as the backend made it, read it again, renewed it or
+    /// said it changed: its phase, whether it's settled, its confirmations,
+    /// what has arrived, its quote and its `renew-order` form, and the
+    /// confirmations it needs when the order was journalled without them
+    /// (by a build from before every order said).
     pub fn on_payment(&self, payment: &Payment) {
         let order_id = OrderId::new(payment.order_id.as_str());
-        if let Some(required) = payment.required {
-            self.learn_required(&order_id, required);
-        }
+        self.learn_required(&order_id, payment.required);
         self.record(Fact::OrderObserved(OrderObserved {
             order_id,
             phase: payment.phase,
-            confirmations: payment.confirmations.or(stepped(payment.phase)),
+            confirmations: Some(payment.confirmations),
             is_final: payment.is_final,
-            received: payment.received,
+            received: Some(payment.received),
             overpaid: payment.overpaid,
             quote: Some(Quote {
                 expires_at: payment.expires_at,
@@ -662,9 +650,9 @@ impl Till {
         }));
     }
 
-    /// The store's threshold for an order made before Monokulo said it (an
-    /// older create-order answer): the order as made, with it, which the
-    /// ledger's merge takes over the one without.
+    /// The store's threshold for an order journalled without it (by an
+    /// older build, from an older create-order answer): the order as made,
+    /// with it, which the ledger's merge takes over the one without.
     fn learn_required(&self, order_id: &OrderId, required: u32) {
         let Ok(Some(key)) = self.books.with(|ledger| ledger.order(order_id)) else {
             return;
@@ -694,39 +682,6 @@ impl Till {
             renew: o.renew.clone(),
             price_used: o.price_used.clone(),
         }));
-    }
-
-    /// Reads every sale whose payment is seen or confirming
-    /// ([`TillSale::confirming`]) at once and then each
-    /// [`Till::CONFIRMATIONS_READ`], so its ring and its "4 of 10" follow
-    /// the blocks: the store's event stream says when a payment is seen and
-    /// when it's first in a block, never each confirmation after. One wait,
-    /// started again whenever which sales those are changes (a sale paid, a
-    /// new one seen); nothing is read while there are none. A read that
-    /// fails waits for the next; one that lands after the sale was paid
-    /// can't take it back (the ledger's merge). Runs until dropped.
-    pub async fn follow_confirmations(&self) {
-        let mut rx = self.books.subscribe();
-        let mut urls = confirming_urls(&rx.borrow_and_update());
-        loop {
-            urls = tokio::select! {
-                () = self.read_confirmations(&urls) => unreachable!("reading never ends by itself"),
-                urls = changed(&mut rx, &urls, confirming_urls) => urls,
-            };
-        }
-    }
-
-    /// Refreshes `urls` now and every [`Till::CONFIRMATIONS_READ`]; never
-    /// ends.
-    async fn read_confirmations(&self, urls: &[String]) {
-        if urls.is_empty() {
-            return pending().await;
-        }
-        let refs: Vec<PaymentRef> = urls.iter().map(PaymentRef::new).collect();
-        loop {
-            self.refresh(&refs).await;
-            tokio::time::sleep(Till::CONFIRMATIONS_READ).await;
-        }
     }
 
     /// Asks the backend where the payments `refs` name stand, and records
@@ -1196,7 +1151,7 @@ fn event_order(event: &Payment) -> OrderCreated {
         ),
         reference: event.receipt.clone(),
         expires_at: event.expires_at,
-        confirmations_required: event.required,
+        confirmations_required: Some(event.required),
         device_name: event
             .device_name
             .clone()
@@ -1267,16 +1222,6 @@ fn creation_problem(e: &BackendError) -> String {
 /// Whether the POS shows `found` refunded; false when it couldn't be asked.
 async fn seen_refunded(refunds: &dyn RefundInPos, found: &FoundSale) -> bool {
     refunds.refunded(found).await.unwrap_or(false)
-}
-
-/// The `self` links of the sales worth following ([`TillSale::confirming`]).
-fn confirming_urls(state: &TillState) -> Vec<String> {
-    state
-        .sales
-        .iter()
-        .filter(|sale| sale.confirming())
-        .filter_map(|sale| sale.url.clone())
-        .collect()
 }
 
 /// Waits until `of` the state differs from `current`, and gives it. The

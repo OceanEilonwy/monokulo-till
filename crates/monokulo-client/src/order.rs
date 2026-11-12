@@ -33,13 +33,21 @@ pub struct Order {
     #[serde(default)]
     pub merchant_order_id: Option<String>,
     pub expires_at: i64,
-    /// Confirmations its payment has; `None` from a Monokulo that doesn't say.
-    #[serde(default)]
-    pub confirmations: Option<u32>,
+    /// What has arrived so far, in piconero.
+    #[serde(rename = "amount_received_piconero")]
+    pub received: u64,
+    /// Confirmations its payment has.
+    pub confirmations: u32,
     /// Confirmations it needs to count as paid: the store's threshold for its
-    /// amount. `None` from a Monokulo that doesn't say.
+    /// amount, as the order was made with it.
+    pub confirmations_required: u32,
+    /// The device that made it, for an order one of the store's apps made.
     #[serde(default)]
-    pub confirmations_required: Option<u32>,
+    pub device_name: Option<String>,
+    /// When a payment to it was found spent twice (Unix seconds), if one
+    /// was.
+    #[serde(default)]
+    pub double_spend_detected_at: Option<i64>,
     /// Its `self` link, absolute: where to read it again.
     #[serde(skip)]
     pub url: String,
@@ -103,9 +111,15 @@ impl Order {
         payment_uri::build(&self.address, self.piconero)
     }
 
-    /// The phase it puts a sale in.
+    /// The phase it puts a sale in: a payment spent twice reverses it
+    /// until it's paid after all (a double spend stays once seen, as the
+    /// ledger keeps it).
     pub fn phase(&self) -> SalePhase {
-        self.status.phase()
+        match self.status {
+            OrderStatus::Paid | OrderStatus::Overpaid => SalePhase::Paid,
+            _ if self.double_spend_detected_at.is_some() => SalePhase::DoubleSpend,
+            _ => self.status.phase(),
+        }
     }
 
     /// The phase an order's `status` text puts a sale in
