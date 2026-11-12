@@ -2,7 +2,7 @@ import Foundation
 
 /// The build's settings for the points of sale, as Android's Gradle
 /// properties are (docs/development.md): the `TILL_*` build settings,
-/// which release-ios.yml fills from the testflight environment's variables
+/// which release-ios.yml fills from the sandbox environment's variables
 /// (docs/release.md), reach here through Info.plist. Both ids are public:
 /// the till signs in with PKCE, so no secret is ever in the app. Compiled
 /// into the app and the Notification Service Extension, whose Info.plists

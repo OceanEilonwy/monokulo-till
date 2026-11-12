@@ -1878,3 +1878,16 @@ still strings across the till, the ledger, the screens and the bridge.
      Expired says one fact per line: "Not paid", the amount, "The code ran
      out at 10:30 PM", one sentence, the timeline, and the late-payment rule
      as small print (`SalePageView::footnote`).
+
+## TestFlight: the sandbox environment (2026-11-12)
+
+228. **The release's configuration lives in a `sandbox` environment, and
+     `testflight` is only the approval gate** (revising decision 85's
+     place for the secrets). A GitHub job runs in one environment, so `release-ios.yml`
+     has two jobs: `approve`, on a Linux runner in `testflight`, which has
+     required reviewers and holds nothing, and `testflight`, which needs it
+     and builds on macOS in `sandbox`, which holds the App Store Connect
+     key's three secrets and the `TILL_*` variables (today sandbox Square
+     and Clover ids). Approval still comes before any macOS minutes. A
+     production configuration can later be an environment of its own
+     behind the same gate.
