@@ -102,17 +102,33 @@ jobs:
       # till-ios-screenshots artifact: the key screens and states on each
       # simulator (TillTests/ScreenshotTests.swift), and the live sale in
       # every iPad window size (TillTests/LayoutSnapshotTests.swift).
+      # Once more when the simulator, not a test, failed: "The test runner
+      # hung before establishing connection" and the like (main, 2026-11-12).
+      # A test that fails fails the step the first time.
       - name: Test on iPhone and iPad
         working-directory: ios
         run: |
           mkdir -p "$RUNNER_TEMP/screenshots"
-          TEST_RUNNER_SNAPSHOT_DIR="$RUNNER_TEMP/screenshots" \
-          xcodebuild test \
-            -project Till.xcodeproj -scheme Till \
-            -destination "id=${{ steps.simulators.outputs.iphone }}" \
-            -destination "id=${{ steps.simulators.outputs.ipad }}" \
-            -resultBundlePath "$RUNNER_TEMP/Till.xcresult" \
-            CODE_SIGNING_ALLOWED=NO
+          run() {
+            rm -rf "$RUNNER_TEMP/Till.xcresult"
+            set -o pipefail
+            TEST_RUNNER_SNAPSHOT_DIR="$RUNNER_TEMP/screenshots" \
+            xcodebuild test \
+              -project Till.xcodeproj -scheme Till \
+              -destination "id=${{ steps.simulators.outputs.iphone }}" \
+              -destination "id=${{ steps.simulators.outputs.ipad }}" \
+              -resultBundlePath "$RUNNER_TEMP/Till.xcresult" \
+              CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$RUNNER_TEMP/xcodebuild.log"
+          }
+          if run; then exit 0; fi
+          if grep -qE "hung before establishing connection|never began executing|lost connection to the test|Early unexpected exit|Unable to boot|failed to boot" "$RUNNER_TEMP/xcodebuild.log" \
+            && ! grep -qE "\) failed after|Test Case .* failed|recorded an issue" "$RUNNER_TEMP/xcodebuild.log"; then
+            echo "::warning::The simulator failed, not a test: running the tests once more"
+            xcrun simctl shutdown all || true
+            run
+          else
+            exit 1
+          fi
       - uses: actions/upload-artifact@v7
         if: always()
         with:
