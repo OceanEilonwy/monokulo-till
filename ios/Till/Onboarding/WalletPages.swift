@@ -266,9 +266,11 @@ struct FobRequestPage: View {
             QRCodeView(text: step.qr, label: step.patternCaption, size: codeSide, padding: 0, cornerRadius: 0)
             HStack(spacing: 14) {
                 FobPatternView(pattern: step.pattern, size: 64)
+                // On the code's white card in either theme: the light
+                // theme's secondary ink.
                 Text(step.patternCaption)
                     .font(.subheadline)
-                    .foregroundStyle(Palette.secondary)
+                    .foregroundStyle(Color(hex: 0x5A564C))
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: 160, alignment: .leading)
             }
