@@ -267,7 +267,12 @@ private fun LiveSale(sale: SaleFace, actions: TillActions, ground: GroundTrack) 
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         if (view.showsCode) {
-                            Code(sale, min(this@BoxWithConstraints.maxHeight - 120.dp, 440.dp), card, ground, onEnlarge = enlarge)
+                            // The status is the code card's foot here too (owner, round 4), as on a phone and on iOS.
+                            val side = min(this@BoxWithConstraints.maxHeight - 190.dp, 440.dp)
+                            Column(Modifier.width(side)) {
+                                Code(sale, side, card, ground, footed = true, onEnlarge = enlarge)
+                                Box(words) { StatusFoot(view) }
+                            }
                         } else {
                             Box(words) { StatusHero(view) }
                         }
@@ -281,7 +286,7 @@ private fun LiveSale(sale: SaleFace, actions: TillActions, ground: GroundTrack) 
                             horizontalAlignment = Alignment.Start,
                         ) {
                             Box(words) { Amount(sale, actions, start = true) }
-                            Box(words) { StatusPill(view) }
+                            if (!view.showsCode) Box(words) { StatusPill(view) }
                             view.order?.let { Box(orderWords) { Late(late) { OrderCard(it, room, onOpen = showOrder, shared = "order/${sale.orderId}") } } }
                             Box(words) { Buttons(sale, actions) }
                         }
