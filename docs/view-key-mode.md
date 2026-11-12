@@ -565,7 +565,6 @@ comes back with everything set up.
 2. Fob opens on **Choose a wallet for Till**:
 
    > Till ✓ · Pixel 8
-   > Asks to view payments to a new account: **Till (Corner Café)**
    >
    > **Choose a wallet for Till**
    > ○ **New wallet**
@@ -576,10 +575,10 @@ comes back with everything set up.
    > ○ My wallet
    > [Continue]
 
-   - **The account asked for is shown before anything is chosen**: the
-     name comes from the request. Choosing a wallet then shows the exact
-     account Fob would make in it ("Account 13 · Till (Corner Café)"), so
-     the person knows where the app's payments will land.
+   - **Choosing a wallet shows the exact account Fob would make in it**
+     ("Account 13 · Till (Corner Café)", the name from the request), so the
+     person knows where the app's payments will land. The access itself is
+     explained once, on the consent screen.
    - Nothing is preselected, and Continue stays off until a wallet is
      chosen.
 
