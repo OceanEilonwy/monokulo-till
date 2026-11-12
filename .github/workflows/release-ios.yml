@@ -8,8 +8,12 @@ name: iOS release
 # The build number is this workflow's run number; the version is
 # project.yml's MARKETING_VERSION, which a v* tag must match.
 #
-# Needs, in the "testflight" environment: the secrets ASC_KEY_ID,
-# ASC_ISSUER_ID and ASC_KEY_P8 (the .p8 file's text as it is), and the
+# A job runs in one environment, so there are two: "approve" waits in the
+# "testflight" environment, which holds nothing and is only the approval
+# gate (its required reviewers), and "testflight" builds in the "sandbox"
+# environment, which holds the deployment's configuration. Needs, in the
+# "sandbox" environment: the secrets ASC_KEY_ID, ASC_ISSUER_ID and ASC_KEY_P8
+# (the .p8 file's text as it is) and the TILL_* variables; and the
 # repository variable APPLE_TEAM_ID (docs/release.md).
 on:
   push:
@@ -29,18 +33,28 @@ defaults:
     shell: bash
 
 jobs:
+  # The approval gate: the testflight environment's required reviewers
+  # approve here, on a cheap Linux runner, before any macOS minutes are spent.
+  approve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: testflight
+    steps:
+      - run: echo "Approved for TestFlight"
+
   testflight:
+    needs: approve
     runs-on: xcode-27
     timeout-minutes: 90
     environment:
-      name: testflight
+      name: sandbox
       url: https://appstoreconnect.apple.com/apps
     env:
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
       # The points of sale's public application ids and environments:
-      # variables of the testflight environment (docs/release.md).
+      # variables of the sandbox environment (docs/release.md).
       TILL_SQUARE_APPLICATION_ID: ${{ vars.TILL_SQUARE_APPLICATION_ID }}
       TILL_SQUARE_SANDBOX: ${{ vars.TILL_SQUARE_SANDBOX || 'false' }}
       TILL_CLOVER_APPLICATION_ID: ${{ vars.TILL_CLOVER_APPLICATION_ID }}
@@ -68,17 +82,17 @@ jobs:
               missing=1
             fi
           }
-          need ASC_KEY_ID "$ASC_KEY_ID" "a secret of the testflight environment" '^[A-Z0-9]{10}$' "an App Store Connect key ID (10 letters and digits)"
-          need ASC_ISSUER_ID "$ASC_ISSUER_ID" "a secret of the testflight environment" '^[0-9a-f-]{36}$' "an App Store Connect issuer ID (a UUID)"
-          need ASC_KEY_P8 "$ASC_KEY_P8" "a secret of the testflight environment" 'BEGIN PRIVATE KEY' "the text of an AuthKey_….p8 file"
+          need ASC_KEY_ID "$ASC_KEY_ID" "a secret of the sandbox environment" '^[A-Z0-9]{10}$' "an App Store Connect key ID (10 letters and digits)"
+          need ASC_ISSUER_ID "$ASC_ISSUER_ID" "a secret of the sandbox environment" '^[0-9a-f-]{36}$' "an App Store Connect issuer ID (a UUID)"
+          need ASC_KEY_P8 "$ASC_KEY_P8" "a secret of the sandbox environment" 'BEGIN PRIVATE KEY' "the text of an AuthKey_….p8 file"
           need APPLE_TEAM_ID "$APPLE_TEAM_ID" "a repository variable (Settings › Secrets and variables › Actions › Variables)" '^[A-Z0-9]{10}$' "an Apple Developer team ID (10 letters and digits)"
-          need TILL_SQUARE_APPLICATION_ID "$TILL_SQUARE_APPLICATION_ID" "a variable of the testflight environment" '^(sandbox-)?sq0id[a-z]-[A-Za-z0-9_-]+$' "a Square application id (sq0idp-… or sandbox-sq0idb-…)"
-          need TILL_SQUARE_SANDBOX "$TILL_SQUARE_SANDBOX" "a variable of the testflight environment" '^(true|false)$' "true or false"
-          need TILL_CLOVER_APPLICATION_ID "$TILL_CLOVER_APPLICATION_ID" "a variable of the testflight environment" '^[A-Z0-9]{10,16}$' "a Clover App ID (letters and digits)"
-          need TILL_CLOVER_ENVIRONMENT "$TILL_CLOVER_ENVIRONMENT" "a variable of the testflight environment" '^(north_america|europe|latin_america|sandbox)$' "north_america, europe, latin_america or sandbox"
-          need TILL_RELAY_URL "$TILL_RELAY_URL" "a variable of the testflight environment" '^https://[A-Za-z0-9.-]+(:[0-9]+)?$' "an https address with no path, such as https://push.example.org"
-          need TILL_BELL_URL "$TILL_BELL_URL" "a variable of the testflight environment" '^https://[A-Za-z0-9.-]+(:[0-9]+)?$' "an https address with no path, such as https://bell.example.org"
-          need TILL_LINK_HOST "$TILL_LINK_HOST" "a variable of the testflight environment" '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$' "a host name alone, such as till.example.org"
+          need TILL_SQUARE_APPLICATION_ID "$TILL_SQUARE_APPLICATION_ID" "a variable of the sandbox environment" '^(sandbox-)?sq0id[a-z]-[A-Za-z0-9_-]+$' "a Square application id (sq0idp-… or sandbox-sq0idb-…)"
+          need TILL_SQUARE_SANDBOX "$TILL_SQUARE_SANDBOX" "a variable of the sandbox environment" '^(true|false)$' "true or false"
+          need TILL_CLOVER_APPLICATION_ID "$TILL_CLOVER_APPLICATION_ID" "a variable of the sandbox environment" '^[A-Z0-9]{10,16}$' "a Clover App ID (letters and digits)"
+          need TILL_CLOVER_ENVIRONMENT "$TILL_CLOVER_ENVIRONMENT" "a variable of the sandbox environment" '^(north_america|europe|latin_america|sandbox)$' "north_america, europe, latin_america or sandbox"
+          need TILL_RELAY_URL "$TILL_RELAY_URL" "a variable of the sandbox environment" '^https://[A-Za-z0-9.-]+(:[0-9]+)?$' "an https address with no path, such as https://push.example.org"
+          need TILL_BELL_URL "$TILL_BELL_URL" "a variable of the sandbox environment" '^https://[A-Za-z0-9.-]+(:[0-9]+)?$' "an https address with no path, such as https://bell.example.org"
+          need TILL_LINK_HOST "$TILL_LINK_HOST" "a variable of the sandbox environment" '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$' "a host name alone, such as till.example.org"
           case "$TILL_SQUARE_APPLICATION_ID:$TILL_SQUARE_SANDBOX" in
             sandbox-*:false|sq0id*:true)
               echo "::error::TILL_SQUARE_SANDBOX ($TILL_SQUARE_SANDBOX) doesn't match the application id's environment (docs/release.md)"

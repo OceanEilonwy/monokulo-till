@@ -42,7 +42,7 @@ pub type Log = Arc<dyn Fn(String) + Send + Sync>;
 pub mod keys {
     use monokulo_client::PointOfSale;
 
-    /// The till's link (`till_payments::Link`, core.md decision 228): for
+    /// The till's link (`till_payments::Link`, core.md decision 238): for
     /// Monokulo, `Connection.save`'s JSON, `{"app_key":…,"api":…}`, with
     /// `onion_api` and `tor` only when set; for a wallet, `{"wallet":{…}}`.
     pub const CONNECTION: &str = "connection";
@@ -247,7 +247,7 @@ impl Store {
     }
 
     /// How the till is paid, kept under `connection` (core.md decision
-    /// 228): a connection kept by an earlier build reads as a Monokulo
+    /// 238): a connection kept by an earlier build reads as a Monokulo
     /// link.
     pub fn link(&self) -> Result<Option<Link>, SecretError> {
         Ok(self
@@ -603,7 +603,7 @@ pub struct Model {
     /// android.md): the till's link when it's linked to Monokulo.
     pub connection: Option<Connection>,
     /// The till's link when it's linked to the device's own wallet (core.md
-    /// decision 228); never set with `connection`.
+    /// decision 238); never set with `connection`.
     pub wallet: Option<WalletLink>,
     /// The Square location this till watches.
     pub location: Option<SquareLocation>,

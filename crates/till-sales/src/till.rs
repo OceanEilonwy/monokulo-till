@@ -117,7 +117,7 @@ struct Checking {
 pub struct Till {
     source: Arc<dyn SaleSource>,
     /// Makes the orders and says where each stands: the store's Monokulo
-    /// today (core.md decision 228).
+    /// today (core.md decision 238).
     backend: Arc<dyn PaymentBackend>,
     /// Signed in to a point of sale: a Monokulo event never makes a sale
     /// here, it waits for its order (docs/ledger.md §3).

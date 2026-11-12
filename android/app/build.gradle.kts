@@ -8,6 +8,13 @@ plugins {
 // deployment's, from -Ptill.link.host (or ~/.gradle/gradle.properties),
 // never in the source; a host that never resolves otherwise.
 val linkHost: String = providers.gradleProperty("till.link.host").getOrElse("till.invalid")
+// The ABIs the Rust core is built for (ffi's default): phones, old 32-bit
+// phones, and the emulator.
+val abis = listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+// A release (-Ptill.splits, from CI's release workflow) comes as an APK for
+// each ABI, smaller, and a universal one holding all three. Any other build is
+// one APK holding them all.
+val splitting = providers.gradleProperty("till.splits").isPresent
 
 android {
     namespace = "com.monokulo.till"
@@ -18,7 +25,9 @@ android {
         applicationId = "com.monokulo.till"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
+        // The version a v* tag must name. CI's release workflow passes the
+        // version code it computes from it (.github/workflows/release-android.yml).
+        versionCode = providers.gradleProperty("till.versionCode").map { it.toInt() }.getOrElse(1)
         versionName = "0.1.0"
         manifestPlaceholders["tillLinkHost"] = linkHost
         // The project's Square application (docs/design.md §1). Public: the
@@ -47,6 +56,40 @@ android {
         // never answers otherwise.
         buildConfigField("String", "BELL_URL", "\"${providers.gradleProperty("till.bell.url").getOrElse("https://bell.invalid")}\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    // Only the ABIs till-ffi is built for, in the universal APK too: with the
+    // other ABIs' libraries the dependencies carry (JNA's), a 32-bit x86 device
+    // would install it and crash at the first call into Rust, not be refused
+    // at install.
+    packaging {
+        jniLibs {
+            excludes += listOf("lib/armeabi/**", "lib/x86/**", "lib/mips/**", "lib/mips64/**")
+        }
+    }
+
+    // One versionCode for all of them: an APK of another ABI, or the
+    // universal one, installs over any other.
+    splits {
+        abi {
+            isEnable = splitting
+            reset()
+            include(*abis.toTypedArray())
+            isUniversalApk = true
+        }
+    }
+
+    // Only a build given the keystore (CI's release secrets) is signed; any
+    // other release build stays unsigned.
+    signingConfigs {
+        System.getenv("TILL_KEYSTORE")?.let { keystore ->
+            create("release") {
+                storeFile = file(keystore)
+                storePassword = System.getenv("TILL_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("TILL_KEY_ALIAS")
+                keyPassword = System.getenv("TILL_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
@@ -79,6 +122,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 

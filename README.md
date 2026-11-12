@@ -64,6 +64,26 @@ Till runs on Android 8 and newer. Every CI run on `main` builds a debug APK (the
 [build it yourself](#build-from-source). Wake-ups from a Bell come over UnifiedPush, so the phone needs a
 distributor such as [ntfy](https://ntfy.sh/).
 
+#### Installing and updating with Obtainium
+
+Every `v*` tag publishes signed APKs on the
+[Releases](https://github.com/OceanEilonwy/monokulo-till/releases) page, with a `SHA256SUMS` file, so
+[Obtainium](https://obtainium.imranr.dev/) can install Till and keep it up to date from there, with no store:
+
+- `till-<version>-arm64-v8a.apk`: for phones and tablets, a fraction of the universal one's size. This is the one
+  most people want.
+- `till-<version>-armeabi-v7a.apk`: for old 32-bit phones.
+- `till-<version>-x86_64.apk`: for the emulator and x86 Chromebooks.
+- `till-<version>-universal.apk`: all three in one, for when you don't know.
+
+In Obtainium, tap **Add App**, paste `https://github.com/OceanEilonwy/monokulo-till` as the source, and add. Or open
+this link on the phone:
+[obtainium://add/https://github.com/OceanEilonwy/monokulo-till](obtainium://add/https://github.com/OceanEilonwy/monokulo-till).
+With four APKs on a release, Obtainium asks which; set the APK filter to `arm64-v8a` in the app's settings to pick
+the phone one every time. The tag (`v0.1.0`) is the version, as the app's own is. Every release is signed with the
+same key and the APKs share a version code, so any installs over another (package `com.monokulo.till`). The debug
+build is a different package (`com.monokulo.till.debug`) and sits beside it.
+
 ### iPhone and iPad
 
 Till needs iOS or iPadOS 26.7 or newer. TestFlight builds come from the
