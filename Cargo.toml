@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "tools/receipt-qr", "tools/square-sandbox"]
+members = ["crates/*", "tools/receipt-qr", "tools/screenshot-compare", "tools/square-sandbox"]
 
 [workspace.package]
 edition = "2024"
