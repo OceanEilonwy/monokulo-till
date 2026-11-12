@@ -34,29 +34,34 @@ for attempt in $(seq 1 110); do
     sleep 60
 done
 
+has_screenshots() {
+    gh api "repos/$repo/actions/runs/$1/artifacts" --jq '.artifacts[].name' | grep -qx till-ios-screenshots
+}
+
+if [ -n "$run" ] && ! has_screenshots "$run"; then
+    echo "::warning::iOS run $run for $sha left no screenshots"
+    run=""
+fi
 if [ -z "$run" ]; then
     for fallback in $branch main; do
-        # Finished runs only, newest first; the first whose artifact is there.
+        # Finished runs only, newest first; the first that left screenshots.
         for id in $(gh run list -R "$repo" --workflow ios.yml --branch "$fallback" --status completed --limit 10 \
             --json databaseId --jq '.[].databaseId'); do
-            if gh api "repos/$repo/actions/runs/$id/artifacts" --jq '.artifacts[].name' | grep -qx till-ios-screenshots; then
+            if has_screenshots "$id"; then
                 run="$id"
                 break 2
             fi
         done
     done
     if [ -z "$run" ]; then
-        echo "::warning::No iOS screenshots: no iOS run for $sha, nor one with screenshots on ${branch:-main}"
+        echo "::warning::No iOS screenshots: none for $sha, nor on ${branch:-main} or main"
         exit 0
     fi
-    echo "::notice::No iOS run for $sha: the iOS screenshots are from run $run"
+    echo "::notice::The iOS screenshots are from run $run, not one for $sha"
 fi
 
 work="$(mktemp -d)"
-if gh run download "$run" -R "$repo" -n till-ios-screenshots -D "$work"; then
-    rm -f "$work/index.html"
-    cp -R "$work"/. "$out/"
-else
-    echo "::warning::iOS run $run has no till-ios-screenshots artifact"
-fi
+gh run download "$run" -R "$repo" -n till-ios-screenshots -D "$work"
+rm -f "$work/index.html"
+cp -R "$work"/. "$out/"
 rm -rf "$work"

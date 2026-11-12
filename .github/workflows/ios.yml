@@ -7,9 +7,9 @@ name: iOS
 on:
   push:
     branches: [main]
-    paths: ["ios/**", "crates/**", "Cargo.toml", "Cargo.lock", "tools/screenshot-compare/**", ".github/workflows/ios.yml"]
+    paths: ["ios/**", "crates/**", "Cargo.toml", "Cargo.lock", "tools/screenshot-compare/src/**", "tools/screenshot-compare/Cargo.toml", ".github/workflows/ios.yml"]
   pull_request:
-    paths: ["ios/**", "crates/**", "Cargo.toml", "Cargo.lock", "tools/screenshot-compare/**", ".github/workflows/ios.yml"]
+    paths: ["ios/**", "crates/**", "Cargo.toml", "Cargo.lock", "tools/screenshot-compare/src/**", "tools/screenshot-compare/Cargo.toml", ".github/workflows/ios.yml"]
   workflow_dispatch:
 
 permissions:
