@@ -55,7 +55,10 @@ pub use preview::{TillPreview, preview_close, preview_panel, preview_sale, previ
 pub use preview_sales::{
     PreviewPhase, PreviewSale, preview_phase_step, preview_sale_live, preview_sales_json,
 };
-pub use preview_setup::{PreviewStep, preview_onboarding, preview_settings, preview_wake_ups};
+pub use preview_setup::{
+    PreviewSettings, PreviewStep, preview_onboarding, preview_settings, preview_settings_of,
+    preview_wake_ups,
+};
 pub use till_screens::Device;
 use till_screens::bubble::{BubbleLook, BubbleTap, PanelView};
 use till_screens::notification::Notice;
@@ -745,11 +748,12 @@ pub enum Action {
     EnterSeed {
         words: String,
     },
-    /// D4's till number, − or +.
+    /// D4's till number, − or +; in Settings, the wallet's (decision 234).
     StepTillNumber {
         up: bool,
     },
-    /// D4's, B4's and C4's Paid after, − or +: Settled Confirmations.
+    /// D4's, B4's and C4's Paid after, − or +: Settled Confirmations. In
+    /// Settings, the wallet's, as do the next two.
     StepPaidAfter {
         up: bool,
     },
@@ -761,6 +765,10 @@ pub enum Action {
     /// checked at once.
     SetNode {
         url: String,
+    },
+    /// Settings' price source, one of its choices' labels ("CoinGecko").
+    ChoosePriceProvider {
+        name: String,
     },
 }
 
@@ -860,6 +868,7 @@ impl Action {
             Action::StepPaidAfter { .. } => "StepPaidAfter",
             Action::StepCodeExpiry { .. } => "StepCodeExpiry",
             Action::SetNode { .. } => "SetNode",
+            Action::ChoosePriceProvider { .. } => "ChoosePriceProvider",
         }
     }
 }

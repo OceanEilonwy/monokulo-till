@@ -46,6 +46,10 @@ pub mod keys {
     /// Monokulo, `Connection.save`'s JSON, `{"app_key":…,"api":…}`, with
     /// `onion_api` and `tor` only when set; for a wallet, `{"wallet":{…}}`.
     pub const CONNECTION: &str = "connection";
+    /// Connect to Fob's request while it waits for Fob's answer
+    /// (`till_wallet::FobRequest::keep`, its one-time key in it): absent
+    /// otherwise. Not part of the model; forgotten once answered.
+    pub const FOB_REQUEST: &str = "fob.request";
     /// `SquareLocation`'s JSON.
     pub const SQUARE_LOCATION: &str = "square.location";
     /// `square` or `clover`; absent on a till from before there was a

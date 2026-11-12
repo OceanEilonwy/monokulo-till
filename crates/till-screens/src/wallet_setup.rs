@@ -550,6 +550,17 @@ fn paid_after(confirmations: u32, merged: bool) -> SetupStepper {
     }
 }
 
+/// A stepper at `at` on `steps`, its − and + off at either end.
+pub fn step_stepper(label: &str, value: String, at: u32, steps: &[u32]) -> SetupStepper {
+    SetupStepper {
+        label: label.into(),
+        value,
+        detail: None,
+        minus: Press::new("−").enabled(steps.first().is_some_and(|s| at > *s)),
+        plus: Press::new("+").enabled(steps.last().is_some_and(|s| at < *s)),
+    }
+}
+
 fn expiry(minutes: u32) -> SetupStepper {
     SetupStepper {
         label: "A code runs out after".into(),

@@ -62,6 +62,7 @@ pub mod time;
 pub mod view;
 pub mod wake_ups;
 pub mod wake_ups_text;
+pub mod wallet_settings;
 pub mod wallet_setup;
 
 pub use close::{CloseInput, CloseView, close};

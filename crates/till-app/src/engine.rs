@@ -624,6 +624,11 @@ impl State {
             });
         }
         self.screen = self.home();
+        // A Connect to Fob request kept from before a restart: back on C1,
+        // so Fob's answer still opens.
+        if self.screen == Screen::Welcome && self.restore_fob_request() {
+            self.screen = Screen::FobRequest;
+        }
         // The sales already live as the app starts were told of then: none
         // rises out of the shift on its own.
         self.live_before = till_screens::till_nav::live_ids(&self.sales_now());
@@ -859,11 +864,12 @@ impl State {
             }
             Action::CopyWalletAddress => {
                 let address = self.parts.as_ref().and_then(|p| {
-                    p.live
-                        .now()
-                        .store
+                    let now = p.live.now();
+                    now.store
                         .and_then(|store| store.wallet)
                         .map(|wallet| wallet.address)
+                        // The shop's own wallet says its address itself.
+                        .or(now.backend.map(|b| b.address).filter(|a| !a.is_empty()))
                 });
                 if let Some(text) = address {
                     self.effect(Effect::CopyText {
@@ -872,7 +878,10 @@ impl State {
                     });
                 }
             }
-            Action::OpenSettings => self.open_settings(),
+            Action::OpenSettings => {
+                self.open_settings();
+                self.check_wallet_node();
+            }
             Action::OpenPointOfSale => {
                 self.from_settings = true;
                 self.go(Screen::PointOfSale);
@@ -1026,6 +1035,7 @@ impl State {
             Action::StepPaidAfter { up } => self.step_paid_after(up),
             Action::StepCodeExpiry { up } => self.step_code_expiry(up),
             Action::SetNode { url } => self.set_node(url),
+            Action::ChoosePriceProvider { name } => self.choose_price_provider(name),
             Action::PaidInCash { order_id } => {
                 if let Some(p) = &self.parts {
                     p.runner.paid_in_cash(&order_id);
@@ -2250,6 +2260,7 @@ impl State {
             live_activity: self.live_activity_on(&model),
             code_in_island: self.code_in_island_on(&model),
             choices: self.sale_choices(p, &model),
+            wallet: self.wallet_settings(p, &model),
         }
     }
 

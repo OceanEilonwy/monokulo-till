@@ -184,8 +184,20 @@ impl Side {
 
     /// Holds the wallet setup just made, for its link.
     pub fn adopt_wallet(&self, backend: WalletBackend) {
-        let link = backend.link().clone();
+        let link = backend.link();
         *self.wallet.lock().unwrap_or_else(|e| e.into_inner()) = Some((link, Arc::new(backend)));
+    }
+
+    /// The open wallet is now held for `link`: Settings changed it.
+    pub fn rekey_wallet(&self, link: &WalletLink) {
+        if let Some((held, _)) = self
+            .wallet
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_mut()
+        {
+            *held = link.clone();
+        }
     }
 
     /// Lets the wallet go: the till was disconnected from it.

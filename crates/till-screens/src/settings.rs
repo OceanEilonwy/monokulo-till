@@ -114,6 +114,9 @@ pub struct SettingsInput {
     pub code_in_island: bool,
     /// Counters, cash and how a new sale shows up.
     pub choices: SaleChoices,
+    /// A till on the shop's own wallet: its wallet section (core.md
+    /// decision 234); `None` for a Monokulo till.
+    pub wallet: Option<crate::wallet_settings::WalletSettingsInput>,
 }
 
 /// How a new sale shows up on iOS (O4 and Settings; core.md decision 120):
@@ -362,6 +365,13 @@ pub struct SettingsView {
     pub disconnect_ask: String,
     #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
     pub disconnect_confirm: String,
+    /// A till on the shop's own wallet: in place of [`Self::store`], how
+    /// Till sees payments, the wallet, this till, the node, Paid after,
+    /// expiry, prices, warnings and the wallet's Disconnect (core.md
+    /// decision 234). The page's Disconnect words above say the wallet's
+    /// then too.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub wallet: Option<crate::wallet_settings::WalletSection>,
 }
 
 /// "9 Nov": a day on the device's clock.
@@ -623,7 +633,7 @@ pub fn settings(input: &SettingsInput, device: Device, clock: DeviceClock) -> Se
     // Square names the device that took each payment and has a cash
     // tender; Clover's payments are read by their Monero tender alone.
     let square_connected = pos == Some(PointOfSale::Square) && input.pos.connected();
-    SettingsView {
+    let mut view = SettingsView {
         store: input
             .connection
             .as_ref()
@@ -704,7 +714,18 @@ pub fn settings(input: &SettingsInput, device: Device, clock: DeviceClock) -> Se
         disconnect_footnote: DISCONNECT_FOOTNOTE.into(),
         disconnect_ask: "Disconnect this device?".into(),
         disconnect_confirm: "Disconnect".into(),
+        wallet: None,
+    };
+    if let Some(wallet) = &input.wallet {
+        let section = crate::wallet_settings::wallet_section(wallet);
+        view.disconnect = section.disconnect.label.clone();
+        view.disconnect_footnote = section.disconnect_footnote.clone();
+        view.disconnect_ask = section.disconnect_ask.clone();
+        view.disconnect_confirm = section.disconnect_confirm.clone();
+        view.store_title = section.title.clone();
+        view.wallet = Some(section);
     }
+    view
 }
 
 /// Under Disconnect.
@@ -1002,6 +1023,7 @@ mod tests {
             live_activity: true,
             code_in_island: false,
             choices: SaleChoices::default(),
+            wallet: None,
         }
     }
 
