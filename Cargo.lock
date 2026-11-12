@@ -2582,6 +2582,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "till-payments"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "futures-util",
+ "monokulo-client",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "till-types",
+ "tokio",
+ "wiremock",
+]
+
+[[package]]
 name = "till-pos"
 version = "0.1.0"
 dependencies = [

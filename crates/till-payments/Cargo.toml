@@ -1,0 +1,27 @@
+[package]
+name = "till-payments"
+version = "0.1.0"
+description = "How Till is paid: the PaymentBackend trait in front of Monokulo and the device's own wallet, its Monokulo backend, the saved link, and a fake for tests"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+# PaymentBackend is a trait object with async methods, as till-pos's are.
+async-trait.workspace = true
+futures-util.workspace = true
+# The types the core shares (SalePhase, OrderId, Connection), and the
+# Monokulo backend's client.
+monokulo-client.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+till-types.workspace = true
+# FakeBackend's event streams.
+tokio.workspace = true
+
+[dev-dependencies]
+reqwest.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+wiremock.workspace = true
