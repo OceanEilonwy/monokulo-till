@@ -53,6 +53,9 @@ pub enum PreviewStep {
     /// B4 on a phone, C4 on iPad: connected to Fob (`vk-connected`,
     /// `vk-pad-connected`).
     VkConnected,
+    /// C4 on any device, as an Android tablet draws it
+    /// (`EngineConfig::large_screen`; Android's `vk-pad-connected`).
+    VkPadConnected,
     /// D1: scan a wallet code (`vk-scan-code`).
     VkScanCode,
     /// D2 with a view key that doesn't match its address (`vk-keys-error`).
@@ -227,7 +230,7 @@ fn wallet_step(step: PreviewStep, device_name: &str) -> WalletStep {
                 busy: false,
             }
         }
-        PreviewStep::VkConnected => WalletStep::FobConnected(FobConnectedSetup {
+        PreviewStep::VkConnected | PreviewStep::VkPadConnected => WalletStep::FobConnected(FobConnectedSetup {
             wallet_name: "Corner Café".into(),
             label: "Till (Corner Café)".into(),
             account: 1,
@@ -237,6 +240,7 @@ fn wallet_step(step: PreviewStep, device_name: &str) -> WalletStep {
             expiry_minutes: 30,
             busy: false,
             problem: None,
+            tablet: step == PreviewStep::VkPadConnected,
         }),
         PreviewStep::VkScanCode => WalletStep::Code { problem: None },
         PreviewStep::VkKeysError => WalletStep::Keys(KeysSetup {
@@ -419,7 +423,7 @@ mod tests {
     use crate::testing::FakePlatform;
     use till_screens::onboarding::OnboardingPage;
 
-    const STEPS: [PreviewStep; 21] = [
+    const STEPS: [PreviewStep; 22] = [
         PreviewStep::Welcome,
         PreviewStep::Scan,
         PreviewStep::Confirm,
@@ -437,6 +441,7 @@ mod tests {
         PreviewStep::VkWallet,
         PreviewStep::VkPadRequest,
         PreviewStep::VkConnected,
+        PreviewStep::VkPadConnected,
         PreviewStep::VkScanCode,
         PreviewStep::VkKeysError,
         PreviewStep::VkSeed,
@@ -493,6 +498,12 @@ mod tests {
             panic!("C4")
         };
         assert!(connected.other_wallet.is_some());
+        // An Android tablet draws the iPad's C4.
+        let tablet = view(PreviewStep::VkPadConnected, Device::Android);
+        let OnboardingPage::FobConnected { view: connected } = tablet.page else {
+            panic!("C4")
+        };
+        assert!(connected.other_wallet.is_some() && connected.eyebrow.is_none());
         let phone = view(PreviewStep::VkConnected, Device::Iphone);
         let OnboardingPage::FobConnected { view: connected } = phone.page else {
             panic!("B4")

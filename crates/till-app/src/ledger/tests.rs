@@ -40,6 +40,7 @@ fn config(data_dir: &str) -> EngineConfig {
         },
         bell_url: "https://bell.monokulo.com".into(),
         relay_url: None,
+        large_screen: false,
     }
 }
 

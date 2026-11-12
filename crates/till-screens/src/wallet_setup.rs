@@ -128,6 +128,10 @@ pub struct FobConnectedSetup {
     pub expiry_minutes: u32,
     pub busy: bool,
     pub problem: Option<String>,
+    /// Drawn as C4, the tablet's page, on any device: an iPad, or an
+    /// Android tablet (till-app's `EngineConfig::large_screen`). B4 on a
+    /// phone.
+    pub tablet: bool,
 }
 
 /// D2 as typed.
@@ -586,9 +590,9 @@ fn node_host(url: &str) -> String {
     }
 }
 
-/// What B4 (phone) or C4 (iPad) shows.
+/// What B4 (phone) or C4 (iPad, Android tablet) shows.
 pub fn fob_connected_step(c: &FobConnectedSetup, device: Device) -> FobConnectedStep {
-    let pad = device == Device::Ipad;
+    let pad = c.tablet || device == Device::Ipad;
     let mut facts = vec![
         Fact::new("Wallet", &c.wallet_name),
         Fact::new(
@@ -636,7 +640,7 @@ pub fn fob_connected_lead(c: &FobConnectedSetup, device: Device) -> String {
         (false, true) => " Fob set up the prices too",
         (false, false) => "",
     };
-    let skipped = if device == Device::Ipad && both {
+    let skipped = if (c.tablet || device == Device::Ipad) && both {
         ", so the next steps are skipped."
     } else if set_up.is_empty() {
         ""
@@ -812,6 +816,7 @@ mod tests {
             expiry_minutes: 30,
             busy: false,
             problem: None,
+            tablet: false,
         }
     }
 
@@ -875,6 +880,28 @@ mod tests {
         assert_eq!(
             fob_connected_lead(&bare, Device::Ipad),
             "Till can see payments to its own account."
+        );
+    }
+
+    #[test]
+    fn an_android_tablet_gets_the_ipads_c4() {
+        let c = FobConnectedSetup {
+            tablet: true,
+            ..connected()
+        };
+        let tablet = fob_connected_step(&c, Device::Android);
+        assert_eq!(tablet, fob_connected_step(&c, Device::Ipad));
+        assert!(tablet.eyebrow.is_none());
+        assert_eq!(tablet.facts[1].value, "Till (Corner Café) · account 1");
+        assert_eq!(tablet.paid_after.value, "10 confirmations");
+        assert_eq!(
+            tablet.paid_after.detail.as_deref(),
+            Some("About 20 minutes")
+        );
+        assert_eq!(tablet.other_wallet.unwrap().label, "Use another wallet");
+        assert_eq!(
+            fob_connected_lead(&c, Device::Android),
+            fob_connected_lead(&c, Device::Ipad)
         );
     }
 

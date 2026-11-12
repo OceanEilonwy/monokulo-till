@@ -710,6 +710,7 @@ impl State {
                     expiry_minutes: form.expiry_minutes,
                     busy: self.busy,
                     problem: self.problem.clone(),
+                    tablet: self.config.tablet(),
                 })
             }
             Screen::WalletCode => WalletStep::Code {
