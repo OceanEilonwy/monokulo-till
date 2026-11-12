@@ -564,16 +564,20 @@ comes back with everything set up.
    the rest).
 2. Fob opens on **Choose a wallet for Till**:
 
-   > **Which wallet should Till's payments go to?**
-   > ○ **New wallet for Corner Café**
-   > ● Corner Café · `12 tills` · 0.381 XMR
-   >     Already connected: Till (Front counter), Till (Back bar), Till (Kiosk), and 9 more
+   > **Choose a wallet for Till**
+   > ○ **New wallet**
+   > ● Corner Café · `Suggested` · `12 connected` · 0.381 XMR
+   >     Connected apps: Till (Front counter), Till (Back bar), Till (Kiosk), and 9 more
    > ○ My wallet · 1.204 XMR
    > [Continue]
 
-   - Each row stays one line however many tills a wallet serves: its name,
-     an "N tills" chip and its balance. Choosing a wallet opens its tills
-     under it, three names and then "and N more".
+   - **Fob's connect screens are generic.** Nothing on them is Till's or a
+     shop's own: the requesting app's name and icon come from the request
+     (`app=`), so any app using the connect protocol gets the same screens.
+   - Each row stays one line however many apps a wallet serves: its name,
+     a "Suggested" badge where Fob suggests it, an "N connected" chip and
+     its balance. Choosing a wallet opens its connected apps under it,
+     three names and then "and N more".
    - "New wallet" stays first. With more than about six wallets, a search
      field sits above the list and recently used wallets come first.
 
