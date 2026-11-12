@@ -75,10 +75,15 @@ device:
 12. **Seed phrases may be entered**, and are wiped as soon as the view key is
     taken from them (§5.2).
 13. **No cap on the number of tills.**
-14. **Addresses are never reused** (§5.3).
+14. **Addresses may be reused.** Each till cycles a small pool of addresses in
+    its own account, and every payment's amount carries a tag, so two
+    payments on one address are told apart (§5.3).
 15. **Another till's sales aren't visible** in wallet and light modes (§6).
 16. **"Till" is a point of sale**: a keypad on the device, with prices in
     the fiat currency unless the shop chose none (§7).
+17. **"Connect to Fob"**: Fob grants Till view access in an OAuth-like
+    flow. It makes a named account for the till ("Till (Corner Café)") and
+    hands Till everything it needs (§5.9).
 
 ## 3. Cross-repo groundwork
 
@@ -346,8 +351,9 @@ Light}`), so one adapter serves both modes.
 
 ### 5.2 Keys
 
-Three ways in, all ending in `Wallet::restore_view_only`:
+Four ways in, all ending in `Wallet::restore_view_only`:
 
+0. **Connect to Fob** (§5.9): the easiest, and the first one offered.
 1. **Scan a view-only wallet code**: `monero_wallet:` (Feather, Cake, Fob),
    through `fob_codes::uri::parse_wallet_code` → `WalletCode::ViewOnly`.
 2. **Type or paste** the primary address and the private view key.
@@ -367,29 +373,78 @@ Three ways in, all ending in `Wallet::restore_view_only`:
 The restore height in a code is ignored. Till never looks back before its
 first sale (§5.4).
 
-### 5.3 Subaddresses
+### 5.3 Subaddresses and amount tags
 
-- **One account per till.** Onboarding asks for the till number (1, 2, …;
-  **no cap**), and that till's requests use account `n`.
-  - Two tills with the same keys never give out the same address.
-  - Account 0 stays the merchant's own.
-  - The merchant's wallet shows each till's takings as its own account.
-  - `fob-wallet` gets a **receive account** setting (§5.8).
-- **Never reused.** Each payment takes the account's next index, as each
-  of Fob's requests does today.
-- **The merchant's wallet lookahead.** A wallet only finds money within its
-  subaddress lookahead: by default 50 accounts × 200 indexes in wallet2,
-  Feather and Cake. Wallets widen it as indexes are used, but:
-  - **Payments that expire unpaid leave gaps.** With addresses never reused,
-    a run of 200 unpaid codes in a row hides every payment after it until
-    the merchant widens the lookahead.
-  - **Till numbers above 50** are outside the default account lookahead.
-  - Settings shows "In your wallet: account n, addresses up to i". It warns
-    once the unpaid run since the last paid index nears 200, or the till
-    number is above 50, and says how to widen the lookahead in common
-    wallets.
-- **`OrderId`** is `w:<account>:<index>`, unique since indexes are never
-  reused. `PaymentRef` is the same string.
+Two tills on the same wallet must never take each other's payments, even
+if both end up handing out the same address at the same time. Three layers
+handle that.
+
+**1. One account per till keeps tills apart.**
+
+- Every Monero subaddress is a pair `(account, index)`, computed from the
+  view key and public spend key. `(0, 0)` is the primary address.
+- Till n uses account n:
+  - Connected through Fob (§5.9), Fob picks the next free account and names
+    it.
+  - Set up by hand, onboarding asks for the till number (1, 2, …; **no
+    cap**).
+- Account 0 stays the merchant's own. Their wallet shows each till's
+  takings as its own account.
+- `fob-wallet` gets a **receive account** setting (§5.8).
+- Tills never talk to each other. They stay apart only because their
+  accounts differ, and a till typed in by hand twice would share one. Layers
+  2 and 3 make that safe and visible.
+
+**2. A small pool of addresses per till.**
+
+- Till n cycles `(n, 1) … (n, K)`, with K = 50 by default.
+- A new payment takes the address in the pool that has been free the
+  longest. An address is free once its last payment is final and its late
+  window (24 hours) has passed. If none is free, it takes one more index,
+  so the pool grows with the busiest hour.
+- The pool lives in the wallet file, so a reinstalled or wiped till simply
+  starts its pool again: reusing an address is allowed (decision 14).
+- **The merchant's wallet always finds the money.** A wallet only looks
+  about 200 indexes past the last used one in an account (wallet2, Feather
+  and Cake), and with a pool there's never a gap that long. Only one
+  warning is left in Settings: a till whose account is above 50, past the
+  default account lookahead.
+- **Privacy**: two customers can see the same address. Nobody else can,
+  since the chain never shows the address itself.
+
+**3. An amount tag on every payment.**
+
+- `xmr = the converted amount, rounded + tag`, where `tag = hash(till id,
+  payment key) mod 10⁶` piconero. That's under 0.000001 XMR, a fraction of
+  a cent.
+  - The till id is random, made at onboarding, and kept in the wallet file.
+  - The payment URI asks for the exact amount, tag included.
+- **Matching.** An output to a pool address counts toward a payment:
+  - **exactly**, when its amount is that payment's amount, tag and all
+  - **as a partial payment**, when its amount matches no payment, the
+    output is smaller than the asked amount, and this till has exactly one
+    open payment on that address. "New code" for the rest gets its own
+    tag.
+  - **never otherwise.** Anything else shows as "A payment of an unexpected
+    amount: check it", never as Paid.
+- **A late payment** matches its old payment's tag, not the new sale that
+  took the address since.
+- **Two tills sharing an account** each find only their own customers'
+  money. Two payments open at once on one address share a tag one time in a
+  million.
+- **Detecting a shared account.** An output whose amount carries a tag this
+  till never made, on one of its addresses, is the sign another till uses
+  the same account. Settings warns: "Another till may be using till
+  number n."
+- **Wallets that round.** A wallet that rounds the URI's amount before
+  sending would erase the tag. Before building, test Cake, Feather,
+  Monerujo, Fob and the official wallets. If some round, put the tag in
+  the digits they keep (10⁻⁶ to 10⁻⁸ XMR, a tag of 100) and accept more
+  collisions; the matching rules don't change.
+
+**`OrderId`** is `w:<account>:<index>:<tag>:<n>`, with `n` counting that
+address's payments, so it stays unique when an address is reused.
+`PaymentRef` is the same string.
 
 ### 5.4 What's scanned
 
@@ -402,8 +457,8 @@ first sale (§5.4).
     reached.
 - The wallet's restore height is the tip at onboarding, so there's no
   history to scan.
-- A scan only finds money to registered subaddresses: the till's account,
-  up to its highest index. In `fob-wallet` that's the receive account
+- A scan only finds money to registered subaddresses: the till's pool
+  (§5.3), plus a margin of 10. In `fob-wallet` that's the receive account
   (§5.8).
 
 ### 5.5 When it syncs (foreground only)
@@ -430,8 +485,9 @@ starts a turn early and lengthens the intervals, as in Fob.
   `fob_screens::manual::SETTLED_MIN`/`SETTLED_MAX`). A payment is Paid at
   that many. Settings shows and sets it as Fob's Manual Sync screen does.
 - Lift mokulo's `derive_status` and `covering` (`engine/src/status.rs`) into
-  `till-wallet` as one pure function over a request's incoming payments,
-  with its test cases as fixtures, so both products agree:
+  `till-wallet` as one pure function over the outputs matched to a payment
+  (§5.3, layer 3), with its test cases as fixtures, so both products
+  agree:
 
 | Phase | When |
 |---|---|
@@ -466,26 +522,153 @@ against hashes from a node.
 
 ### 5.8 What `fob-wallet` needs, to be Till's library
 
-1. **A receive account.** `set_receive_account(n)`: requests take indexes in
-   account `n`, scans register its subaddresses, and the light server is told
-   about them. Fob itself stays on 0.
+1. **A receive account.** `set_receive_account(n)`: requests take addresses
+   in account `n`, scans register its subaddresses, and the light server is
+   told about them. Fob itself stays on 0 unless it has accounts (§5.9).
 2. **Requests made with a key.** `make_request` with an idempotency key
    returns the existing request for a key it has seen, so Till's New code
-   (decision 145) and a retried Charge (§7) don't make a second address. It
+   (decision 145) and a retried Charge (§7) don't make a second payment. It
    also takes an expiry, kept with the request.
-3. **A request's incoming payments, in full.** `request_payments(id) ->
+3. **Pooled addresses and amount tags** (§5.3):
+   - a request takes the longest-free address in the account's pool, and
+     grows the pool when none is free
+   - its amount gets the tag
+   - outputs are matched to requests by subaddress **and** amount, with the
+     partial and unexpected-amount rules
+   - outputs carrying a tag this wallet never made are reported, for the
+     shared-account warning
+   - Fob's own requests keep a fresh address each and no tag
+4. **A request's incoming payments, in full.** `request_payments(id) ->
    Vec<Incoming { tx, atomic, height: Option<u64>, confirmations, double_spent }>`.
    `requests::Received` has only the total today, and `derive_status` needs
    each payment.
-4. **Telling what changed.** `SyncListener` has only `on_status`. Add
+5. **Telling what changed.** `SyncListener` has only `on_status`. Add
    `on_requests(ids)` after a scan that touched requests, which the adapter
    turns into `Changed`.
-5. **A library build.** No Trezor or USB, no price alerts, and its words
+6. **A library build.** No Trezor or USB, no price alerts, and its words
    (`fob-words`) only where Till shows them. Keep it to features rather than
    new crates.
-6. **View-only from a seed** through `fob-keys` (§3.2).
+7. **View-only from a seed** through `fob-keys` (§3.2).
 
 Each change is Fob's own, in Fob's repository, with Fob's tests.
+
+### 5.9 Connect to Fob
+
+The easiest way in. The shop already has Fob, and it should feel like
+"Sign in with …": Till asks, Fob opens and asks one question, and Till
+comes back with everything set up.
+
+**What the person sees**
+
+1. In Till's onboarding: **Connect to Fob** (above "Scan a wallet code" and
+   the rest).
+2. Fob opens and asks which wallet, if it has more than one, and unlocks it
+   as usual.
+3. One consent screen:
+
+   > **Give Till access to view payments?**
+   > Till on "Corner Café iPad" will get its own account in **My wallet**:
+   > **Till (Corner Café)**.
+   > Till can see money this wallet receives. It can't spend anything.
+   > [Give access] [Not now]
+
+   - The name comes from Till ("Corner Café", the store or POS location
+     name), and can be edited here.
+   - The screen must say plainly that the **view key is wallet-wide**:
+     Till can see payments to every account in this wallet, not only its
+     own. The same screen offers **Make a separate wallet for Till
+     instead**: a fresh wallet in Fob for the shop, so Till sees nothing
+     else. That's the better choice for a personal wallet.
+4. Fob returns to Till, which shows "Connected to Fob · Till (Corner Café)"
+   and moves on to the point-of-sale step. The node and prices come from
+   Fob too, unless changed (below).
+
+**What Fob does**
+
+- **Makes the account.** The next free account, labelled "Till (Corner
+  Café)". Fob knows every account it has handed out, so tills connected
+  through the same Fob never share an account: the shared-account case in
+  §5.3 only happens with tills set up by hand.
+- **Remembers the connection** under Settings → Connected apps: "Till
+  (Corner Café) · account 2 · connected 12 Nov".
+  - **Forget** removes the entry and the label, not the access. A view key
+    can't be taken back, and the screen says so: the only real revocation
+    is moving the money to a new wallet.
+- **Reconnecting** (a reinstalled till, or a second phone for the same
+  counter): Fob offers the existing "Till (Corner Café)" account, or a new
+  one.
+
+**What's handed over**
+
+All in one sealed message:
+- the primary address and private view key
+- the network
+- the account number and its label
+- the restore height (Fob's tip now)
+- a Fob wallet id, so Till can say "Connected to Fob" and Fob can recognise
+  a reconnect
+- **optionally**, Fob's node (or light server, and pinned certificate),
+  and its price provider and currency. Shown as switches on the consent
+  screen, on by default, so Till needs no node or price setup at all.
+
+**The protocol** (`fob-codes/src/connect.rs`, a shared module both apps
+use; versioned, `v=1`):
+
+1. **Request.** Till makes an ephemeral X25519 key pair and a random
+   `state`, then opens:
+   `fob://connect?v=1&app=Till&name=Corner%20Caf%C3%A9&device=Corner%20Caf%C3%A9%20iPad&net=mainnet&pk=<x25519>&state=<16 bytes>&want=view,node,prices&cb=<callback>`
+2. **Consent** in Fob, as above.
+3. **Response.** Fob makes its own ephemeral key and seals the payload
+   (JSON, zeroized after) with ChaCha20-Poly1305, under a key from the
+   X25519 shared secret (HKDF-SHA256, with `state` as the salt). It opens
+   `<callback>#v=1&state=…&epk=…&box=…`. The **fragment** keeps it out of
+   any server's logs, if the callback is a web link.
+4. **Till** checks `state`, opens the box, drops the ephemeral key, and
+   restores the view-only wallet (§5.2). If Fob says no, it gets
+   `#v=1&state=…&error=declined`.
+
+The payload is sealed because a link can be caught by another app that
+registered the same scheme, or end up in a log. Only the till that made
+the request can open it.
+
+**Per platform**
+
+- **Android, same device**: an explicit intent to Fob's package, with
+  Fob's signing certificate checked first. The answer comes back as an
+  activity result, not a link. Fob checks the calling package
+  (`getCallingActivity`) and shows the caller's verified app name on the
+  consent screen.
+- **iOS, same device**: universal links both ways (a `connect` path on
+  Fob's domain, and a callback path on Till's), with the custom schemes
+  only as a fallback. iOS can't tell Fob who called, which is why the
+  answer is sealed. **Fob has no iOS app yet**, so on iOS this waits for
+  one. Until then the iPad uses the two-device way.
+- **Two devices** (Fob on a phone, Till on the counter iPad: the usual
+  case):
+  1. Till shows the request as a QR code.
+  2. Fob scans it ("Scan" already reads codes), asks the same consent, and
+     shows the sealed answer as a QR code.
+  3. Till scans that.
+  4. NFC can carry both ways instead, through Fob's existing NFC framing
+     (`fob-codes` `nfc.rs`, `ndef.rs`).
+  5. Both screens show the same **four words** derived from the request's
+     key. A request QR swapped by someone nearby then shows different words.
+- **Fob not installed**: "Connect to Fob" says where to get it, and the
+  other three ways stay one tap away.
+
+**What Fob needs** (in Fob's repository):
+
+1. **Accounts.** Today Fob uses account 0 only (fob decision 19). It needs:
+   - labelled accounts
+   - each account's balance and activity
+   - a way to move a till's takings to the main account: **Sweep to main**,
+     or a send from any account
+   
+   Built on the receive-account work in point 1 of the list above.
+2. **The connect screen and Connected apps** in Settings.
+3. **`fob://connect`**: the Android intent and universal links, plus
+   reading a connect request from its QR scanner and over NFC.
+4. **`connect.rs`** in `fob-codes`, with test vectors both apps run.
 
 ## 6. Another till's sales: `Sharing::ThisTill`
 
@@ -683,18 +866,20 @@ the foreground:
    wallet server.
 2. **Monokulo**: today's connect code, unchanged.
    **Your own wallet** or **light wallet server**:
-   1. The wallet: scan its view-only code, type the address and view key,
-      or enter the seed phrase (wiped after, §5.2).
-   2. The till number.
+   1. The wallet: **Connect to Fob** (§5.9), or scan its view-only code,
+      type the address and view key, or enter the seed phrase (wiped
+      after, §5.2).
+   2. The till number. Skipped when connected through Fob, which chose the
+      account.
    3. The node, with its checks. For a light server: its URL and check,
-      and a node for proofs.
+      and a node for proofs. Skipped when Fob handed over its own.
    4. Settled Confirmations and expiry, with the defaults shown.
 3. **Point of sale**: Square, Clover or Till.
    - Square or Clover: sign in, then **this till's device**. In wallet
      modes there's no "every device" (§6).
    - Till: the currency, or None (XMR only).
 4. **Prices** (wallet modes with a fiat currency): the provider, with Fob's
-   checks.
+   checks. Skipped when Fob handed over its own.
 5. **Foreground only** (wallet modes): the one screen that says Till hears
    payments while open.
 
@@ -706,22 +891,27 @@ the foreground:
 | 2 | Fob, Till | Dependency alignment (§3.5) | Both on the latest `rusqlite` and `reqwest`, one OpenSSL way, `proptest` dev-only |
 | 3 | Fob | `fob-keys` (accounts, view-only from words) | `fob-vault` depends on it, Fob's tests pass |
 | 4 | Fob | `fob-sync`, and `fob-wallet`'s node sync over it | Fob's sync, reorg and Manual Sync tests pass unchanged |
-| 5 | Fob | `fob-wallet` as a library (§5.8) | Receive account, keyed requests with expiry, `request_payments`, `on_requests`, a build without USB |
+| 5 | Fob | `fob-wallet` as a library (§5.8) | Receive account, keyed requests with expiry, address pool and amount tags, `request_payments`, `on_requests`, a build without USB |
+| 5a | Fob | Accounts, Connected apps, `fob://connect`, `connect.rs` (§5.9) | Labelled accounts with balances and Sweep to main; the connect protocol's vectors pass in both repos; a QR connect on Android |
+| 5b | Till, wallets | Amount tag survey | The tag's digits picked from what Cake, Feather, Monerujo, Fob and the official wallets actually send |
 | 6 | monokulo-8ar | Native Metal backend | Vectors pass on an iPad; MSL checked against `scan.comp` in CI; the background falls back to the CPU without retiring the GPU |
 | 7 | Till | `till-payments` + `MonokuloBackend`, threaded through | No behaviour change; every existing test passes |
 | 8 | Till | Keypad point of sale (§7) | Charge → code → paid against Monokulo, on Android and iOS |
 | 9 | Till | `till-wallet` over `fob-wallet`, `Sharing::ThisTill`, foreground only | Regtest: Waiting → Seen → Confirming → Paid; Partial, Overpaid, Expired, DoubleSpend, reorg; a backgrounded till catches up on return |
-| 10 | Till | Onboarding, Settings, prices and nodes screens | A keypad sale and a Square sale paid end to end on stagenet, on both apps |
+| 10 | Till | Onboarding (with Connect to Fob), Settings, prices and nodes screens | A keypad sale and a Square sale paid end to end on stagenet, on both apps; an iPad connected from Fob on a phone by QR |
 | 11 | Till | The light wallet server setting | The same tests against monokulo-lws |
 
-Steps 1, 3 and 6 can start at once. Step 7 needs only step 1, and step 8
-only step 7. Step 9 needs 2, 3, 5 and 7. Step 4 runs beside the others:
+Steps 1, 3, 5b and 6 can start at once. Step 5a needs 5. Step 7 needs only
+step 1, and step 8 only step 7. Step 9 needs 2, 3, 5, 5b and 7. Step 10
+needs 5a for Connect to Fob. Step 4 runs beside the others:
 Till doesn't wait for it, since it reaches `fob-sync` through `fob-wallet`.
 
 ## 13. Open questions
 
-1. **Till numbers and the lookahead**: is a warning enough (§5.3), or
-   should onboarding suggest numbers from 1 and explain accounts?
+1. **Connect to Fob's default**: a named account in the existing wallet
+   (as written), or a separate wallet for Till? The separate wallet keeps
+   the shop's other money private from the till, and costs a second wallet
+   to look after.
 2. **Expiry and late payments while closed**: a payment that arrives after
    expiry, while Till was closed, is found on the next open and shown as a
    late payment. Is that the right standing, or should it be flagged for a
