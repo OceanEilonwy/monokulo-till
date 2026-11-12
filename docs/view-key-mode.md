@@ -562,31 +562,51 @@ comes back with everything set up.
 
 1. In Till's onboarding: **Connect to Fob** (above "Scan a wallet code" and
    the rest).
-2. Fob opens and asks which wallet, if it has more than one, and unlocks it
-   as usual.
+2. Fob opens on **Choose a wallet for Till**:
+
+   > **Which wallet should Till's payments go to?**
+   > ○ My wallet · 1.204 XMR
+   > ○ Corner Café · 0.381 XMR · already has Till (Corner Café)
+   > ○ **New wallet for Corner Café**
+   > [Continue]
+
+   - **An existing wallet**: any wallet in Fob, including a view-only one
+     (view access is all Till gets) and a Trezor one (Fob already holds its
+     view key: `Keys::trezor`). Choosing one unlocks it as usual.
+   - **A new wallet**: Fob's own create flow, named after the shop ("Corner
+     Café"; editable). It shows the seed backup as for any new wallet, so
+     the shop's money is never in a wallet nobody wrote down. The till
+     still gets account 1 of it, not account 0, so a second till fits
+     beside it and the shop can still use account 0 itself.
+   - **Suggested choice**: the new wallet when Fob has only one wallet, or
+     the wallet already serving this shop's tills (recognised by an
+     earlier connection with the same shop name). Otherwise nothing is
+     preselected.
 3. One consent screen:
 
    > **Give Till access to view payments?**
-   > Till on "Corner Café iPad" will get its own account in **My wallet**:
-   > **Till (Corner Café)**.
+   > Till on "Corner Café iPad" will get its own account in **Corner
+   > Café**: **Till (Corner Café)**.
    > Till can see money this wallet receives. It can't spend anything.
    > [Give access] [Not now]
 
-   - The name comes from Till ("Corner Café", the store or POS location
-     name), and can be edited here.
-   - The screen must say plainly that the **view key is wallet-wide**:
-     Till can see payments to every account in this wallet, not only its
-     own. The same screen offers **Make a separate wallet for Till
-     instead**: a fresh wallet in Fob for the shop, so Till sees nothing
-     else. That's the better choice for a personal wallet.
-4. Fob returns to Till, which shows "Connected to Fob · Till (Corner Café)"
-   and moves on to the point-of-sale step. The node and prices come from
-   Fob too, unless changed (below).
+   - The account's name comes from Till ("Corner Café", the store or POS
+     location name), and can be edited here.
+   - With an existing wallet the screen must say plainly that the **view
+     key is wallet-wide**: Till can see payments to every account in this
+     wallet, not only its own. That's why a new wallet is offered first
+     when the chosen one looks personal: it has an account 0 history and
+     no earlier connections.
+4. Fob returns to Till, which shows "Connected to Fob · Corner Café ·
+   Till (Corner Café)" and moves on to the point-of-sale step. The node and
+   prices come from Fob too, unless changed (below).
 
 **What Fob does**
 
-- **Makes the account.** The next free account, labelled "Till (Corner
-  Café)". Fob knows every account it has handed out, so tills connected
+- **Makes the wallet**, if a new one was chosen, through its normal create
+  flow, seed backup included.
+- **Makes the account.** The next free account in the chosen wallet,
+  labelled "Till (Corner Café)". Fob knows every account it has handed out, so tills connected
   through the same Fob never share an account: the shared-account case in
   §5.3 only happens with tills set up by hand.
 - **Remembers the connection** under Settings → Connected apps: "Till
@@ -665,7 +685,9 @@ the request can open it.
      or a send from any account
    
    Built on the receive-account work in point 1 of the list above.
-2. **The connect screen and Connected apps** in Settings.
+2. **The connect screens**: Choose a wallet for Till (existing, or new
+   through the create flow), the consent screen, and Connected apps in
+   each wallet's Settings.
 3. **`fob://connect`**: the Android intent and universal links, plus
    reading a connect request from its QR scanner and over NFC.
 4. **`connect.rs`** in `fob-codes`, with test vectors both apps run.
@@ -908,10 +930,9 @@ Till doesn't wait for it, since it reaches `fob-sync` through `fob-wallet`.
 
 ## 13. Open questions
 
-1. **Connect to Fob's default**: a named account in the existing wallet
-   (as written), or a separate wallet for Till? The separate wallet keeps
-   the shop's other money private from the till, and costs a second wallet
-   to look after.
+1. **A new wallet's seed backup during Connect to Fob**: required before
+   Fob hands over (as written), or "Back up later" as Fob's create flow may
+   allow? Required is safer but makes setting up at the counter longer.
 2. **Expiry and late payments while closed**: a payment that arrives after
    expiry, while Till was closed, is found on the next open and shown as a
    late payment. Is that the right standing, or should it be flagged for a
