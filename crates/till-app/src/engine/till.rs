@@ -555,8 +555,7 @@ impl State {
     /// shift is on (one activity a shift, design.md §6).
     pub(super) fn live_activity_state(&self, p: &Parts) -> Option<LiveActivityState> {
         let model = p.side.model();
-        let pip = self.pip_on(&model);
-        if !((self.live_activity_on(&model) || pip) && model.setup_done && model.shift_on) {
+        if !(self.live_activity_on(&model) && model.setup_done && model.shift_on) {
             return None;
         }
         live_activity::live_activity(
@@ -564,12 +563,10 @@ impl State {
                 sales: self.loud_sales(&p.runner.state().till.sales),
                 just_paid: self.just_paid.clone(),
                 just_ended: self.just_ended.clone(),
-                // The floating window shows the code while the sale waits.
-                code_in_island: self.code_in_island_on(&model) || pip,
-                // Drawn on this device alone: the window always, the Live
-                // Activity while no push token updates it through the
-                // relay (core.md decision 140).
-                receipt: pip || !LIVE_ACTIVITY_PUSHED,
+                code_in_island: self.code_in_island_on(&model),
+                // Drawn on this device alone while no push token updates it
+                // through the relay (core.md decision 140).
+                receipt: !LIVE_ACTIVITY_PUSHED,
             },
             self.config.device,
         )

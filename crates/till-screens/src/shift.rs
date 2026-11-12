@@ -640,7 +640,6 @@ pub fn waiting_hint(pos: Option<PointOfSale>, device: Device, show: ShowSales) -
     };
     let then = match (device, show) {
         (Device::Ipad, ShowSales::Alert) => "An alert brings you straight to the code.",
-        (Device::Ipad, ShowSales::FloatingWindow) => "The floating window shows the code.",
         _ => "The code appears here.",
     };
     format!("{} {then}", ring_it_up(pos, "Ring it up"))
@@ -763,39 +762,6 @@ pub struct ShiftReady {
     /// "The last one was paid 4 minutes ago. Ring up the next in Square
     /// and choose Monero."
     pub line: Option<String>,
-}
-
-/// The cash sale the floating window offers in Monero (K1, core.md
-/// decision 128).
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-pub struct OfferedCash {
-    pub order_id: OrderId,
-    /// "Sam · $9.00".
-    pub title: String,
-    /// "Cash · paying in Monero?".
-    pub line: String,
-}
-
-/// The newest of `sales` offered in Monero and not kept as cash that
-/// alerts on this counter, whatever the list's filter or counter shows.
-pub fn offered_cash(
-    sales: &[TillSale],
-    counters: &Counters,
-    money: &dyn MoneyFormat,
-) -> Option<OfferedCash> {
-    let sale = sales
-        .iter()
-        .find(|sale| is_offered(sale) && !counters.quiet(sale))?;
-    Some(OfferedCash {
-        order_id: sale.order_id.clone(),
-        title: format!(
-            "{} · {}",
-            sale_text::heading(sale),
-            sale_text::amount(sale, money)
-        ),
-        line: CASH_HEADER.into(),
-    })
 }
 
 /// What the shift shows.
@@ -958,10 +924,6 @@ pub struct ShiftView {
     /// the list where no sale is open.
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub ready: Option<ShiftReady>,
-    /// The cash sale the floating window offers in Monero (core.md
-    /// decision 128).
-    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
-    pub offered_cash: Option<OfferedCash>,
     /// The shift's header with its New shift button, while a shift is on.
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub header: Option<ShiftHeader>,
@@ -1039,7 +1001,6 @@ pub fn shift(
             summary_label: SUMMARY_LABEL.into(),
             status: Vec::new(),
             ready: None,
-            offered_cash: None,
             header: None,
         };
     }
@@ -1163,7 +1124,6 @@ pub fn shift(
         summary_label: SUMMARY_LABEL.into(),
         status: status_chips(input),
         ready,
-        offered_cash: offered_cash(all, &input.counters, money),
         header: input
             .running
             .then(|| header(sales, input.started_at, clock, money)),
@@ -2117,17 +2077,17 @@ pub(crate) mod tests {
             idle.hint,
             "Ring it up in Square and choose Monero. An alert brings you straight to the code."
         );
-        let floating = ShiftInput {
-            show_sales: ShowSales::FloatingWindow,
+        let side = ShiftInput {
+            show_sales: ShowSales::SideBySide,
             till: Some(PointOfSale::Clover),
             ..input(vec![])
         };
         assert_eq!(
-            shift(&floating, Device::Ipad, la(at()), &money)
+            shift(&side, Device::Ipad, la(at()), &money)
                 .idle
                 .unwrap()
                 .hint,
-            "Ring it up on the Clover device and choose Monero. The floating window shows the code."
+            "Ring it up on the Clover device and choose Monero. The code appears here."
         );
         assert_eq!(
             shift(&input(vec![]), Device::Iphone, la(at()), &money)
@@ -2212,66 +2172,6 @@ pub(crate) mod tests {
             found.cash = true;
         }
         sale
-    }
-
-    /// Decision 128: the floating window's cash sale is the engine's to
-    /// say, whatever the list shows, and never another counter's.
-    #[test]
-    fn the_offered_cash_sale_is_published_for_the_floating_window() {
-        use crate::counters::CounterDevice;
-        let offered = |id: &str, device: &str| {
-            let mut sale = TillSale {
-                offered: true,
-                order_id: format!("cash:{id}").into(),
-                ..cash(sale_of(id).build())
-            };
-            sale.found.as_mut().unwrap().device_id = Some(device.into());
-            sale
-        };
-        let kept = TillSale {
-            kept_as_cash_at: Some(UnixSeconds(at())),
-            ..offered("k", "dev_front")
-        };
-        let sales = vec![
-            sale_of("live").build(),
-            kept,
-            offered("bar", "dev_bar"),
-            offered("front", "dev_front"),
-        ];
-        let counters = Counters {
-            device: Some(CounterDevice {
-                id: "dev_front".into(),
-                name: Some("Front iPad".into()),
-            }),
-            every_device: false,
-            show_others: true,
-            names: Default::default(),
-        };
-        let paid_only = ShiftInput {
-            counters: counters.clone(),
-            filter: ShiftFilter::Paid,
-            ..input(sales.clone())
-        };
-        let view = shift(&paid_only, Device::Ipad, la(at()), &money);
-        assert_eq!(
-            view.offered_cash,
-            Some(OfferedCash {
-                order_id: "cash:front".into(),
-                title: "Sale #front · $8.40".into(),
-                line: "Cash · paying in Monero?".into(),
-            }),
-            "not the kept one, nor the bar's, whatever the filter"
-        );
-        let every = Counters {
-            every_device: true,
-            ..counters
-        };
-        assert_eq!(
-            offered_cash(&sales, &every, &money).unwrap().order_id,
-            "cash:bar",
-            "every device's sales alert here: the newest"
-        );
-        assert_eq!(offered_cash(&sales[..2], &every, &money), None);
     }
 
     /// Decision 127: the empty till's chips come from the till's state.

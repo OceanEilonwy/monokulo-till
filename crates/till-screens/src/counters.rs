@@ -1,8 +1,7 @@
 //! Counters (boards CounterMenu, CounterScope, CounterSettings; core.md
 //! decisions 113 to 115): the point of sale names the device that took
 //! each payment, the onboarding test sale names this counter's, and only
-//! this counter's sales alert, start a Live Activity or grow the floating
-//! window, unless the cashier chose every device. Every counter's sales
+//! this counter's sales alert or start a Live Activity, unless the cashier chose every device. Every counter's sales
 //! stay in the shift, and the title menu chooses whose the list shows.
 
 use till_pos::PosDeviceId;
@@ -55,7 +54,7 @@ impl Counters {
     }
 
     /// Whether `sale` stays quiet here: no alert, no Live Activity, no
-    /// growing floating window, no rising out of the shift. Only another
+    /// rising out of the shift. Only another
     /// counter's, and only while alerts are for this device.
     pub fn quiet(&self, sale: &TillSale) -> bool {
         !self.every_device && self.other_counter(sale)

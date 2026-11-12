@@ -24,15 +24,6 @@ struct RootView: View {
                         .background(core.shownProblem == nil ? Color.clear : Palette.ground)
                 }
             }
-            // The floating window's layer, small and under the screens: iOS
-            // starts Picture in Picture from a layer on screen.
-            .background(alignment: .bottomTrailing) {
-                if let pip = core.pip {
-                    PipSourceView(pip: pip)
-                        .frame(width: 8, height: 8)
-                        .accessibilityHidden(true)
-                }
-            }
             // Universal links on the build's link host and the monokulo-till scheme.
             .onOpenURL { url in core.open(url) }
             .onChange(of: scenePhase) { _, phase in

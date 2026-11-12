@@ -331,7 +331,7 @@ fn counters_cash_and_how_sales_show_up_are_kept_and_the_device_goes_with_the_sto
         alert_every: true,
         show_others: false,
         cash_as_monero: false,
-        show_sales: crate::ShowSales::FloatingWindow,
+        show_sales: crate::ShowSales::SideBySide,
         ..Model::default()
     };
     s.save(&Model::default(), &set).unwrap();
@@ -342,20 +342,20 @@ fn counters_cash_and_how_sales_show_up_are_kept_and_the_device_goes_with_the_sto
     assert_eq!(platform.get("counter.every").as_deref(), Some("true"));
     assert_eq!(platform.get("counter.others").as_deref(), Some("false"));
     assert_eq!(platform.get("cash.monero").as_deref(), Some("false"));
-    assert_eq!(platform.get("sales.show").as_deref(), Some("pip"));
+    assert_eq!(platform.get("sales.show").as_deref(), Some("side"));
     assert_eq!(s.load().unwrap(), set);
     let side = Model {
-        show_sales: crate::ShowSales::SideBySide,
+        show_sales: crate::ShowSales::Alert,
         ..set.clone()
     };
     s.save(&set, &side).unwrap();
-    assert_eq!(platform.get("sales.show").as_deref(), Some("side"));
+    assert_eq!(platform.get("sales.show"), None, "the alert is the default");
 
     let forgotten = s.forget_all(&side).unwrap();
     assert_eq!(forgotten.counter_device, None, "the device is the store's");
     assert!(!forgotten.alert_every);
     assert!(!forgotten.show_others && !forgotten.cash_as_monero);
-    assert_eq!(forgotten.show_sales, crate::ShowSales::SideBySide);
+    assert_eq!(forgotten.show_sales, crate::ShowSales::Alert);
     assert_eq!(platform.get("counter.device"), None);
 }
 

@@ -774,12 +774,10 @@ async fn the_live_activity_follows_the_tills_own_sale_and_the_islands_switches()
     assert_eq!(live_activity(&rx), None, "no activity with the switch off");
 }
 
-/// The iPad's floating window (ipad-redesign.md decision 2) draws the Live
-/// Activity's state, with the code while the sale waits, only while a new
-/// sale shows up in a floating window.
+/// An iPad that kept the dropped floating window (core.md decision 225)
+/// reads it as the alert, and has no Live Activity.
 #[tokio::test(flavor = "multi_thread")]
-async fn the_ipads_floating_window_follows_the_sale_only_while_chosen() {
-    use till_screens::live_activity::ActivityPhase;
+async fn an_ipad_that_kept_the_floating_window_shows_sales_by_alert() {
     let monokulo = monokulo().await;
     let square = square().await;
     let platform = signed_in_till(&monokulo);
@@ -788,25 +786,8 @@ async fn the_ipads_floating_window_follows_the_sale_only_while_chosen() {
         device: Device::Ipad,
         ..config(Some(&square))
     };
-    let (engine, rx, _) = start(ipad, platform);
-    let waiting = wait_for(&rx, |heard| match heard {
-        Heard::Update(Update::LiveActivity { state: Some(state) })
-            if state.phase == ActivityPhase::Waiting =>
-        {
-            Some(state.clone())
-        }
-        _ => None,
-    });
-    assert_eq!(waiting.amount.as_deref(), Some("13.88"));
-    assert_eq!(
-        waiting.payment_uri.as_deref(),
-        Some("monero:8Bx?tx_amount=0.08"),
-        "the window shows the code"
-    );
-    engine.send(Action::ChooseShowSales {
-        mode: crate::ShowSales::Alert,
-    });
-    assert_eq!(live_activity(&rx), None, "no window with alerts chosen");
+    let (_engine, rx, _) = start(ipad, platform);
+    assert_eq!(live_activity(&rx), None, "no Live Activity on iPad");
 }
 
 /// Android's ongoing notification alerts a sale that arrives while the app
@@ -1886,9 +1867,9 @@ async fn the_test_sale_names_this_counters_device_and_c4_asks_which_sales_alert(
     engine.send(Action::Next);
     screen(&rx, Screen::ShowSales);
     engine.send(Action::ChooseShowSales {
-        mode: crate::ShowSales::FloatingWindow,
+        mode: crate::ShowSales::SideBySide,
     });
-    wait_for(&rx, |_| platform.get("sales.show").filter(|v| v == "pip"));
+    wait_for(&rx, |_| platform.get("sales.show").filter(|v| v == "side"));
     engine.send(Action::Next);
     screen(&rx, Screen::Ready);
 }
