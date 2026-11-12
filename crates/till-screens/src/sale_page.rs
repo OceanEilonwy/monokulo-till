@@ -620,13 +620,8 @@ pub fn sale_page(
     let sale = &input.sale;
     let header = header(sale, input.till, input.location.as_deref());
     let model = page(sale, header.pos, clock, header.elsewhere);
-    // The time before the place, so a narrow bar's ellipsis takes "this
-    // till" first, not the time.
-    let subtitle = if sale.created_at > UnixSeconds(0) {
-        format!("{} · {}", time(sale.created_at, clock), header.place)
-    } else {
-        header.place.clone()
-    };
+    // When it was rung up; where from only for another till's sale.
+    let rung_up = (sale.created_at > UnixSeconds(0)).then(|| time(sale.created_at, clock));
     let amount = sale_text::amount(sale, money);
     let buttons = model
         .actions
@@ -644,7 +639,7 @@ pub fn sale_page(
         .collect();
     SalePageView {
         title: sale_text::heading(sale),
-        title_line: sale_text::heading_line(sale, &subtitle),
+        title_line: sale_text::sale_line(sale, &header.place, rung_up.as_deref()),
         icon: model.icon,
         ground: model.ground,
         heading: model.heading,
@@ -1089,7 +1084,7 @@ mod tests {
         };
         let view = sale_page(&input(sale), la(at), &money);
         assert_eq!(view.title, "Sale #closedHere");
-        assert_eq!(view.title_line, "3:48 PM · Front Counter · this till");
+        assert_eq!(view.title_line, "3:48 PM");
         assert_eq!(view.heading, "Closed · not paid");
         assert_eq!(view.icon, StateIcon::Clock);
         assert_eq!(view.ground, Ground::Warn);
@@ -1150,7 +1145,7 @@ mod tests {
             &money,
         );
         assert_eq!(theirs.order, None);
-        assert_eq!(theirs.title_line, "3:48 PM · From Back till");
+        assert_eq!(theirs.title_line, "From Back till · 3:48 PM");
         let named = sale_page(
             &input(TillSale {
                 customer_name: Some("Ana López".into()),
@@ -1160,10 +1155,7 @@ mod tests {
             &money,
         );
         assert_eq!(named.title, "Ana López");
-        assert_eq!(
-            named.title_line,
-            "Sale #m2Qe · 3:48 PM · Front Counter · this till"
-        );
+        assert_eq!(named.title_line, "Sale #m2Qe · 3:48 PM");
     }
 
     fn cash(sale: TillSale) -> TillSale {
