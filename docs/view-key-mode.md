@@ -564,20 +564,31 @@ comes back with everything set up.
    the rest).
 2. Fob opens on **Choose a wallet for Till**:
 
+   > Till ✓ · Pixel 8
+   > Asks to view payments to a new account: **Till (Corner Café)**
+   >
    > **Choose a wallet for Till**
    > ○ **New wallet**
    > ● **Corner Café**
-   >     Suggested · 12 connected
+   >     12 connected
+   >     New account: Account 13 · Till (Corner Café)
    >     Connected apps: Till (Front counter), Till (Back bar), Till (Kiosk), and 9 more
    > ○ My wallet
    > [Continue]
+
+   - **The account asked for is shown before anything is chosen**: the
+     name comes from the request. Choosing a wallet then shows the exact
+     account Fob would make in it ("Account 13 · Till (Corner Café)"), so
+     the person knows where the app's payments will land.
+   - Nothing is preselected, and Continue stays off until a wallet is
+     chosen.
 
    - **Fob's connect screens are generic.** Nothing on them is Till's or a
      shop's own: the requesting app's name and icon come from the request
      (`app=`), so any app using the connect protocol gets the same screens.
    - The wallet's name has its line to itself, so it's never squeezed.
-     Under it, one quiet line says "Suggested" where Fob suggests it and
-     "N connected" for the apps already using it. No balance is shown: the
+     Under it, one quiet line says "N connected" for the apps already
+     using it. No balance is shown: the
      requesting app has no business seeing it, and nor does anyone looking
      over the counter. Choosing a wallet opens its connected apps under it,
      three names and then "and N more".
@@ -592,10 +603,8 @@ comes back with everything set up.
      the shop's money is never in a wallet nobody wrote down. The till
      still gets account 1 of it, not account 0, so a second till fits
      beside it and the shop can still use account 0 itself.
-   - **Suggested choice**: the new wallet when Fob has only one wallet, or
-     the wallet already serving this shop's tills (recognised by an
-     earlier connection with the same shop name). Otherwise nothing is
-     preselected.
+   - **No suggested choice.** Fob doesn't guess: the person picks, and the
+     account shown under each wallet makes the result plain.
 3. One consent screen:
 
    > **Give Till access to view payments?**
