@@ -1833,3 +1833,17 @@ still strings across the till, the ledger, the screens and the bridge.
      window's strip is 124 × 44 pt by default with "Watching", "Confirming"
      or "Paid" over the amount and no names, its frames drawn at twice the
      window's pixel density (the blur on an iPad).
+225. **The iPad's floating window is dropped.** (Owner, 2026-11-12.) The
+     Picture in Picture window took too much of the screen, was awkward to
+     use, and iOS's playback controls over it meant nothing on a till, with
+     no public way to hide them. `ShowSales` is `Alert` or `SideBySide`; a
+     kept `pip` (or the old `FloatingWindow`) reads as the alert, the
+     default. The Live Activity's state is for iPhone alone again
+     (`live_activity` is `None` on iPad), and `ShiftView.offered_cash`
+     (decision 128) is gone with the window that drew it: since decision
+     221 no offered cash sale reached it anyway. A cash sale offered in
+     Monero is still taken from its page. On iOS the window's code, its
+     source layer, its log category and the "Audio, AirPlay, and Picture in
+     Picture" background mode went with it; an alert always posts now.
+     This replaces decisions 125 and 128, and the floating window's parts
+     of 120 and 224.

@@ -37,8 +37,8 @@ pub mod setting {
     pub const TRADING_DAY_START: &str = "shift.day_start";
     /// "false" to list only this counter's sales.
     pub const COUNTER_OTHERS: &str = "counter.others";
-    /// How a new sale shows up: `ShowSales::wire`'s `pip` or `side`;
-    /// absent for an alert.
+    /// How a new sale shows up: `ShowSales::wire`'s `side`; absent for an
+    /// alert.
     pub const SHOW_SALES: &str = "sales.show";
 }
 

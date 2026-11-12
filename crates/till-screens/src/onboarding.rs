@@ -2238,7 +2238,6 @@ mod tests {
                 .collect::<Vec<_>>(),
             [
                 (ShowSales::Alert, "An alert (recommended)", false),
-                (ShowSales::FloatingWindow, "A floating window", false),
                 (ShowSales::SideBySide, "Side by side", true),
             ]
         );

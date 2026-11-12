@@ -33,7 +33,10 @@ The board names below (A1, P2, O3 …) are the canvas's.
    engine offers it on iPhone too (core.md decision 141). There is no Back to
    Clover: Clover runs on its own device, with Till on a phone or iPad
    beside it (core.md decision 142).
-2. **Picture in Picture is the second mode** (P1–P4), chosen in onboarding
+2. **Dropped** (owner, 2026-11-12; core.md decision 225): the window took
+   too much of the screen and was awkward to use, and its playback controls
+   meant nothing on a till. Kept below as it was decided.
+   **Picture in Picture is the second mode** (P1–P4), chosen in onboarding
    (O4) or Settings. iOS draws the window; Till supplies its picture through
    `AVPictureInPictureController` with an `AVSampleBufferDisplayLayer`
    content source, rendering frames of its own. Till has no buttons of its
@@ -115,7 +118,8 @@ The board names below (A1, P2, O3 …) are the canvas's.
     disabled Continue. While the store is read, Continue shows the progress
     itself.
 14. After the test sale, C4 names the device; then O4 asks how a sale shows
-    up: An alert (recommended) / A floating window / Side by side, with
+    up: An alert (recommended) / Side by side (the floating window was
+    dropped, core.md decision 225), with
     "Send a test alert".
 
 ### Screens
@@ -275,3 +279,10 @@ decisions:
   heroes and its floating bubble stay Android's own design.
 - **Not checked:** none of the Swift was compiled when it was written (CI is
   the check), and Square's usage rules for its mark on its own in a button.
+
+### Picture in Picture dropped (2026-11-12)
+
+The owner dropped the floating window (decision 2): it took too much of the
+screen and was awkward, and iOS's playback controls over it meant nothing on
+a till. An alert is the way a sale shows up on iPad, with side by side the
+other choice. Core.md decision 225 has what went.

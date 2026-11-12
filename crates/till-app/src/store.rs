@@ -111,8 +111,9 @@ pub mod keys {
     /// "Treat cash sales as Monero" (core.md decision 116): `true` or
     /// `false`; absent is on.
     pub const CASH_AS_MONERO: &str = "cash.monero";
-    /// How a new sale shows up (core.md decision 120): `alert`, `pip` or
-    /// `side`; absent is `alert`.
+    /// How a new sale shows up (core.md decision 120): `side`; absent is
+    /// `alert`, and so is the dropped floating window's `pip` (decision
+    /// 225).
     pub const SHOW_SALES: &str = "sales.show";
     /// What Clover calls the merchant's devices (core.md decision 142): a
     /// JSON object of names by device id; absent until read.

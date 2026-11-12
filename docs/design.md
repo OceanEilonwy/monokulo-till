@@ -413,7 +413,7 @@ the customer.
    Paying never depends on the receipt.
 
 Only what the device draws itself shows the receipt code: the app's own
-screens, the iPad's floating window, and the Live Activity's "Show code in
+screens and the Live Activity's "Show code in
 island" (§6) while the app is the only thing updating it. Anything that comes
 through the relay (a Live Activity push from Monokulo, once its push token is
 registered) uses the plain payment URI, and then so do the app's own updates

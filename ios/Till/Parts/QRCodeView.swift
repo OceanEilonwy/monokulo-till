@@ -133,8 +133,8 @@ struct QRCodeView: View {
 }
 
 /// The codes' images by their text, made once each: SwiftUI makes a
-/// ``QRCodeView`` again with every body it's in, which for a sale's page or
-/// the floating window is once a second while the countdown runs. The
+/// ``QRCodeView`` again with every body it's in, which for a sale's page is
+/// once a second while the countdown runs. The
 /// system empties it under memory pressure.
 enum QRImages {
     private final class Box: @unchecked Sendable {

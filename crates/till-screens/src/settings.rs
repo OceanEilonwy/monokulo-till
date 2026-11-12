@@ -117,42 +117,37 @@ pub struct SettingsInput {
 }
 
 /// How a new sale shows up on iOS (O4 and Settings; core.md decision 120):
-/// an alert over the point of sale, a floating Picture in Picture window,
-/// or Till and the point of sale side by side. The engine keeps the
+/// an alert over the point of sale, or Till and the point of sale side by
+/// side. The floating Picture in Picture window was dropped (core.md
+/// decision 225). The engine keeps the
 /// choice; the platform does the showing.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum ShowSales {
     #[default]
     Alert,
-    FloatingWindow,
     SideBySide,
 }
 
 impl ShowSales {
-    pub const ALL: [ShowSales; 3] = [
-        ShowSales::Alert,
-        ShowSales::FloatingWindow,
-        ShowSales::SideBySide,
-    ];
+    pub const ALL: [ShowSales; 2] = [ShowSales::Alert, ShowSales::SideBySide];
 
     /// The choice as it is kept, by the platform's store and in the
-    /// ledger's settings alike: `pip`, `side`, or nothing for the default
-    /// alert (decision 214).
+    /// ledger's settings alike: `side`, or nothing for the default alert
+    /// (decision 214).
     pub fn wire(self) -> Option<&'static str> {
         match self {
             ShowSales::Alert => None,
-            ShowSales::FloatingWindow => Some("pip"),
             ShowSales::SideBySide => Some("side"),
         }
     }
 
     /// The choice `kept` says. The ledger's settings once held the variant's
-    /// own name (`FloatingWindow`, `SideBySide`, `Alert`), which reads as
-    /// the same choice; anything else is the alert.
+    /// own name (`SideBySide`, `Alert`), which reads as the same choice;
+    /// anything else is the alert, the dropped floating window (`pip`,
+    /// `FloatingWindow`) among them (decision 225).
     pub fn from_wire(kept: Option<&str>) -> ShowSales {
         match kept {
-            Some("pip" | "FloatingWindow") => ShowSales::FloatingWindow,
             Some("side" | "SideBySide") => ShowSales::SideBySide,
             _ => ShowSales::Alert,
         }
@@ -162,7 +157,6 @@ impl ShowSales {
     pub fn label(self) -> &'static str {
         match self {
             ShowSales::Alert => "An alert (recommended)",
-            ShowSales::FloatingWindow => "A floating window",
             ShowSales::SideBySide => "Side by side",
         }
     }
@@ -173,9 +167,6 @@ impl ShowSales {
         match self {
             ShowSales::Alert => format!(
                 "A time-sensitive alert over {name}. Tap it and the code fills the screen; Return to {name} when it's paid."
-            ),
-            ShowSales::FloatingWindow => format!(
-                "A small window stays over {name} and shows the code and payment as they happen. Pinch to resize, drag to any corner."
             ),
             ShowSales::SideBySide => {
                 format!("Till and {name} in two windows, arranged by hand.")
@@ -916,13 +907,14 @@ mod tests {
         for mode in ShowSales::ALL {
             assert_eq!(ShowSales::from_wire(mode.wire()), mode);
         }
-        assert_eq!(ShowSales::FloatingWindow.wire(), Some("pip"));
         assert_eq!(ShowSales::SideBySide.wire(), Some("side"));
         assert_eq!(ShowSales::Alert.wire(), None);
+        // The dropped floating window reads back as the alert.
+        assert_eq!(ShowSales::from_wire(Some("pip")), ShowSales::Alert);
         // What the ledger's settings were given before (its Debug).
         assert_eq!(
             ShowSales::from_wire(Some("FloatingWindow")),
-            ShowSales::FloatingWindow
+            ShowSales::Alert
         );
         assert_eq!(
             ShowSales::from_wire(Some("SideBySide")),
@@ -1594,7 +1586,7 @@ mod tests {
         assert_eq!(alerts.row, Fact::new("New sales and payments", "On"));
         assert_eq!(alerts.open_settings, "Open Notification Settings");
         let show = view.show_sales.expect("iPad");
-        assert!(show.choices[2].choice.selected);
+        assert!(show.choices[1].choice.selected);
         assert!(show.side_by_side.is_some());
 
         let off = settings(
