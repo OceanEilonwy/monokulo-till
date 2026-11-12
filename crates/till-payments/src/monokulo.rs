@@ -7,7 +7,7 @@
 use async_trait::async_trait;
 use futures_util::stream::BoxStream;
 use futures_util::{StreamExt, future};
-use monokulo_client::{Connection, MonokuloApi, Order, SaleEvent, StreamEvent};
+use monokulo_client::{Connection, MonokuloApi, Order, StreamEvent};
 use till_types::UnixSeconds;
 
 use crate::{
@@ -124,8 +124,8 @@ impl PaymentBackend for MonokuloBackend {
         Ok(payment_of_order(&order))
     }
 
-    /// The store's event stream: its sale events as changed payments, an
-    /// event this build doesn't know left out.
+    /// The store's order stream (`mk:orders-events`): each order as it
+    /// changes, a new confirmation included, as a changed payment.
     fn events(&self) -> BoxStream<'static, Result<BackendEvent, BackendError>> {
         self.api
             .events(&self.connection)
@@ -133,8 +133,8 @@ impl PaymentBackend for MonokuloBackend {
                 future::ready(match event {
                     Ok(StreamEvent::Ready) => Some(Ok(BackendEvent::Ready)),
                     Ok(StreamEvent::Lagged) => Some(Ok(BackendEvent::Lagged)),
-                    Ok(StreamEvent::Sale(sale)) => {
-                        payment_of_event(&sale).map(|p| Ok(BackendEvent::Changed(p)))
+                    Ok(StreamEvent::Order(order)) => {
+                        Some(Ok(BackendEvent::Changed(payment_of_order(&order))))
                     }
                     Err(e) => Some(Err(e.into())),
                 })
@@ -163,40 +163,15 @@ pub fn payment_of_order(order: &Order) -> Payment {
         confirmations: order.confirmations,
         required: order.confirmations_required,
         is_final: order.is_final,
-        received: None,
+        received: order.received,
         overpaid: order.status.overpaid(),
         price: None,
         amount: order.amount.clone(),
         currency: order.currency.clone(),
         receipt: order.merchant_order_id.clone(),
-        device_name: None,
+        device_name: order.device_name.clone(),
         renew: order.renew.clone(),
     }
-}
-
-/// A `sale.*` event as the payment it describes, or `None` for an event
-/// this build doesn't know. An event gives no count, no threshold and no
-/// `renew-order` form, and never settles an order: a read does.
-pub fn payment_of_event(event: &SaleEvent) -> Option<Payment> {
-    Some(Payment {
-        reference: PaymentRef::new(event.order_url.clone().unwrap_or_default()),
-        order_id: event.order_id.clone(),
-        address: event.address.clone(),
-        xmr_piconero: event.piconero,
-        expires_at: UnixSeconds(event.expires_at),
-        phase: event.phase()?,
-        confirmations: None,
-        required: None,
-        is_final: false,
-        received: None,
-        overpaid: false,
-        price: None,
-        amount: Some(event.amount.clone()),
-        currency: Some(event.currency.clone()),
-        receipt: event.merchant_order_id.clone(),
-        device_name: Some(event.device_name.clone()),
-        renew: None,
-    })
 }
 
 #[cfg(test)]
@@ -225,39 +200,6 @@ mod tests {
             api,
             Connection::new("ak_1", format!("{}/api/v1", server.uri())),
         )
-    }
-
-    fn sale_event(name: &str) -> SaleEvent {
-        SaleEvent {
-            event: name.into(),
-            order_id: "ord_2".into(),
-            amount: "5.00".into(),
-            currency: "USD".into(),
-            address: "8Cy".into(),
-            piconero: 30_000_000_000,
-            merchant_order_id: Some("bP9m".into()),
-            expires_at: 1_761_312_000,
-            device_name: "Front iPad".into(),
-            at: 1_761_311_000,
-            order_url: Some("https://pay.example/api/v1/orders/ord_2".into()),
-        }
-    }
-
-    #[test]
-    fn an_event_is_the_payment_it_describes_and_one_this_build_doesnt_know_is_none() {
-        let payment = payment_of_event(&sale_event("sale.seen")).unwrap();
-        assert_eq!(payment.phase, SalePhase::Seen);
-        assert_eq!(
-            payment.reference.as_str(),
-            "https://pay.example/api/v1/orders/ord_2"
-        );
-        assert_eq!(
-            (payment.confirmations, payment.required, payment.is_final),
-            (None, None, false)
-        );
-        assert_eq!(payment.device_name.as_deref(), Some("Front iPad"));
-        assert_eq!(payment.price, None, "Monokulo converts the price");
-        assert_eq!(payment_of_event(&sale_event("sale.refunded")), None);
     }
 
     #[tokio::test]
@@ -296,35 +238,45 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_event_stream_says_ready_then_each_sale_as_a_changed_payment() {
+    async fn the_order_stream_says_ready_then_each_order_as_a_changed_payment_counted() {
         let server = MockServer::start().await;
         Mock::given(path("/api/v1"))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_string(r#"{"_links":{"mk:events":{"href":"/api/v1/events"}}}"#),
-            )
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{"_links":{"mk:orders-events":{"href":"/api/v1/orders/events"}}}"#,
+            ))
             .mount(&server)
             .await;
         let body = concat!(
             "event: ready\ndata: {}\n\n",
-            "event: sale.refunded\ndata: {}\n\n",
-            "event: sale.paid\ndata: {\"event\":\"sale.paid\",\"order_id\":\"ord_2\",\"amount\":\"5.00\",",
-            "\"currency\":\"USD\",\"address\":\"8Cy\",\"xmr_amount_piconero\":30000000000,",
-            "\"expires_at\":1761312000,\"at\":1761311000,",
-            "\"_links\":{\"mk:order\":{\"href\":\"/api/v1/orders/ord_2\"}}}\n\n",
+            "event: sale.paid\ndata: {}\n\n",
+            "event: order\ndata: {\"order_id\":\"ord_2\",\"status\":\"confirming\",\"is_final\":false,",
+            "\"address\":\"8Cy\",\"xmr_amount_piconero\":30000000000,\"amount_received_piconero\":30000000000,",
+            "\"amount\":\"5.00\",\"currency\":\"USD\",\"device_name\":\"Front iPad\",",
+            "\"confirmations\":4,\"confirmations_required\":10,\"created_at\":1761311000,",
+            "\"expires_at\":1761312000,\"_links\":{\"self\":{\"href\":\"/api/v1/orders/ord_2\"}}}\n\n",
         );
-        Mock::given(path("/api/v1/events"))
+        Mock::given(path("/api/v1/orders/events"))
             .respond_with(ResponseTemplate::new(200).set_body_raw(body, "text/event-stream"))
             .mount(&server)
             .await;
         let events: Vec<_> = backend(&server).events().collect().await;
         assert!(matches!(events[0], Ok(BackendEvent::Ready)), "{events:?}");
-        let Ok(BackendEvent::Changed(paid)) = &events[1] else {
+        let Ok(BackendEvent::Changed(confirming)) = &events[1] else {
             panic!("a changed payment next: {events:?}");
         };
-        assert_eq!(paid.phase, SalePhase::Paid);
+        assert_eq!(confirming.phase, SalePhase::Confirming);
         assert_eq!(
-            paid.reference.as_str(),
+            (
+                confirming.confirmations,
+                confirming.required,
+                confirming.received
+            ),
+            (4, 10, 30_000_000_000)
+        );
+        assert_eq!(confirming.device_name.as_deref(), Some("Front iPad"));
+        assert_eq!(confirming.price, None, "Monokulo converts the price");
+        assert_eq!(
+            confirming.reference.as_str(),
             format!("{}/api/v1/orders/ord_2", server.uri())
         );
         assert!(

@@ -1892,13 +1892,12 @@ still strings across the till, the ledger, the screens and the bridge.
      stay in the client. A backend says what it knows as a `Payment`, which
      the till records as the same `OrderCreated` and `OrderObserved` facts
      as before, so the ledger's merge (decisions 144, 162) is untouched;
-     the stream's `Changed` is what a `sale.*` event was, and `refresh`
-     replaces each read of an order's `self` link (`resync`,
-     `follow_confirmations`, the background look, which still reads four
-     at once, decision 204). `Payment` follows the proposal with what the
-     ledger already keeps: confirmations and the threshold stay optional (an
-     event or an older Monokulo gives none), `received` optional and
-     `overpaid` a flag, as `OrderObserved` has them, and it also carries the
+     the stream's `Changed` is a changed payment, and `refresh` replaces
+     each read of an order's `self` link (`resync`, the background look,
+     which still reads four at once, decision 204). `Payment` follows the
+     proposal: its confirmations, threshold and `received` are plain
+     numbers, as every order Monokulo sends carries them (decision 237),
+     and `overpaid` is a flag, as `OrderObserved` has it; it also carries the
      asked amount and currency, the receipt number, the making device's name
      and the `renew-order` form, which the ledger keeps for Monokulo. A
      backend that converts the price itself says at what rate
@@ -1913,3 +1912,30 @@ still strings across the till, the ledger, the screens and the bridge.
      older build put back still reads it; a wallet link is
      `{"wallet":{…}}`. `WalletLink` is a first shape for the wallet backend
      to fill in, and a wallet link makes no backend yet.
+237. **Till follows Monokulo's order stream, and an order's counts are plain
+     numbers.** (Owner, 2026-11-12.) Monokulo's sale events (`mk:events`)
+     carried no confirmations, threshold or amount received, so `Payment`
+     kept them optional and the till read every confirming sale again every
+     20 s. The owner had Monokulo send the order instead: its store-wide
+     order stream, `mk:orders-events` (`GET /api/v1/orders/events`,
+     Monokulo's `docs/decisions/order-stream.md`, PR OceanEilonwy/monokulo
+     #300), whose `order` events are the order as reading it answers, one
+     per change, a new confirmation included, with the device that made it
+     and when a payment to it was spent twice. Everyone runs the latest
+     Monokulo, so the client follows only that stream (the entry's link; no
+     fallback to `mk:events`, which Monokulo keeps, deprecated, for older
+     tills), `StreamEvent::Order` replaces `Sale`, and `Order` reads
+     `amount_received_piconero` (as `received`), `confirmations` and
+     `confirmations_required` as plain numbers, `device_name` and
+     `double_spend_detected_at` optional; a double spend is the
+     `DoubleSpend` phase until the order is paid after all, as the ledger
+     keeps one. `Payment`'s `confirmations` and `required` are `u32`,
+     `received` `u64`; `MonokuloBackend::events` gives `Changed` straight
+     from each order, and `follow_confirmations` and its 20 s read are
+     gone: `refresh` stays for `Ready`, `Lagged`, the background look and
+     pull to refresh. The ledger's facts keep their optional fields
+     (`serde` defaults), so journals written before read as they did; new
+     facts always carry the counts. The contract tests run against the
+     OpenAPI document of Monokulo's commit `monokulo.sha` names
+     (`android/gradle.properties`), the branch's commit until that PR
+     merges, then its commit on Monokulo's `main`.
