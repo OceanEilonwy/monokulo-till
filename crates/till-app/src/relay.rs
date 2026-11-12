@@ -284,7 +284,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_token_is_registered_for_the_bell_and_answered_with_the_endpoint_and_keys() {
-        let server = MockServer::start().await;
+        let server = MockServer::builder().start().await;
         registers(
             &server,
             ResponseTemplate::new(201).set_body_raw(
@@ -327,7 +327,7 @@ mod tests {
             (429, PushFailure::Network),
             (503, PushFailure::Network),
         ] {
-            let server = MockServer::start().await;
+            let server = MockServer::builder().start().await;
             registers(&server, ResponseTemplate::new(status)).await;
             let (push, _, mut rx) = relay(&server);
             push.token(DeviceToken::Have(TOKEN.into()));
@@ -335,7 +335,7 @@ mod tests {
             assert_eq!(answered(&mut rx).await, Action::PushFailed { failure });
         }
         // An endpoint the relay didn't give.
-        let server = MockServer::start().await;
+        let server = MockServer::builder().start().await;
         registers(
             &server,
             ResponseTemplate::new(201).set_body_raw("{}", "application/json"),
@@ -354,7 +354,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_token_from_ios_fails_the_subscription_and_keys_that_cant_be_kept_too() {
-        let server = MockServer::start().await;
+        let server = MockServer::builder().start().await;
         let (push, platform, mut rx) = relay(&server);
         push.token(DeviceToken::Failed);
         push.subscribe(VAPID.into());
@@ -377,7 +377,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_answer_after_unsubscribing_is_dropped() {
-        let server = MockServer::start().await;
+        let server = MockServer::builder().start().await;
         registers(
             &server,
             ResponseTemplate::new(201)
