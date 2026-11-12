@@ -5,13 +5,18 @@ import UIKit
 
 /// Screenshots of the key screens and states on whichever simulator the
 /// tests run on, so a pull request's UI can be looked over without an
-/// iPhone or an iPad to hand: ios.yml collects them as an artifact.
+/// iPhone or an iPad to hand: ios.yml collects them as an artifact, and
+/// screenshots.yml sets them beside Android's (tools/screenshot-compare).
 ///
 /// Every screen is the app's own, drawn from the engine's previews
 /// (`previewShift`, `previewSale`, `previewOnboarding`, `previewSettings`…)
 /// through a ``Core`` with no engine, so the words and states are the ones
-/// a till would show. Each lands in `$SNAPSHOT_DIR/<device>/` as a PNG of
-/// the whole window, beside LayoutSnapshotTests' window sizes; the test
+/// a till would show. Android's ScreenshotTest draws the same sample till
+/// under the same names.
+///
+/// Each screen lands in `$SNAPSHOT_DIR/iphone/` or `…/ipad/` as
+/// `<name>-light.png` and `<name>-dark.png`, the whole window; `shots.txt`
+/// lists the names in order and `device.txt` names the simulator. The test
 /// runs only when that folder is named (CI sets it through
 /// `TEST_RUNNER_SNAPSHOT_DIR`).
 @MainActor
@@ -19,22 +24,28 @@ import UIKit
 struct ScreenshotTests {
     @Test func everyKeyScreen() async throws {
         let root = try #require(Screenshots.root)
-        let folder = root.appendingPathComponent(Screenshots.deviceFolder, isDirectory: true)
+        let folder = root.appendingPathComponent(Screenshots.ipad ? "ipad" : "iphone", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let scene = try #require(
             UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first,
             "the test host has a window scene"
         )
-        for (index, shot) in Screenshots.shots(ipad: Screenshots.ipad).enumerated() {
-            try await Screenshots.take(shot, number: index + 1, scene: scene, into: folder)
+        let shots = Screenshots.shots(ipad: Screenshots.ipad)
+        for shot in shots {
+            for dark in [false, true] {
+                try await Screenshots.take(shot, dark: dark, scene: scene, into: folder)
+            }
         }
+        try (shots.map(\.name).joined(separator: "\n") + "\n")
+            .write(to: folder.appendingPathComponent("shots.txt"), atomically: true, encoding: .utf8)
+        try (Screenshots.deviceName + "\n")
+            .write(to: folder.appendingPathComponent("device.txt"), atomically: true, encoding: .utf8)
     }
 }
 
 /// One screenshot: the app's window showing what the engine published.
 struct Shot {
     let name: String
-    var dark = false
     var landscape = false
     /// What the engine would have published, in order.
     var updates: [Update] = []
@@ -51,18 +62,15 @@ enum Screenshots {
 
     static var ipad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
 
-    /// "iPhone 17 Pro (iOS 27.0)": the simulator's name and its system.
-    static var deviceFolder: String {
-        let environment = ProcessInfo.processInfo.environment
-        let name = environment["SIMULATOR_DEVICE_NAME"] ?? (ipad ? "iPad" : "iPhone")
-        let folder = "\(name) (iOS \(UIDevice.current.systemVersion))"
-        return folder.replacingOccurrences(of: "/", with: "-")
+    /// "iPhone 17 Pro · iOS 27.0": the simulator's name and its system.
+    static var deviceName: String {
+        let name = ProcessInfo.processInfo.environment["SIMULATOR_DEVICE_NAME"] ?? (ipad ? "iPad" : "iPhone")
+        return "\(name) · iOS \(UIDevice.current.systemVersion)"
     }
 
-    // MARK: The sample till
+    // MARK: The sample till (Android's ScreenshotTest has the same)
 
-    /// The clock the sample sales are read at: ten minutes after the
-    /// previews' sales are made.
+    /// The clock the sample sales are read at.
     static let now: Int64 = 1_761_000_600
     static let platform = MemoryPlatform()
 
@@ -139,6 +147,7 @@ enum Screenshots {
         }
         let close = previewClose(preview: full, orderId: "w1", platform: platform)
             .map { Update.closeSheet(orderId: "w1", view: $0) }
+        let settingsUp = till(.settings, shift, settings, .wakeUps(view: wakeUps))
 
         var shots: [Shot] = [
             Shot(name: "setup-1-welcome", updates: step(.welcome, .welcome)),
@@ -169,18 +178,12 @@ enum Screenshots {
             Shot(name: "sale-code", updates: till(.code(orderId: "w1"), shift, sale("w1"))),
             Shot(name: "sale-order", updates: till(.order(orderId: "p1"), shift, sale("p1"))),
             Shot(name: "sale-close-sheet", updates: till(.sale(orderId: "w1"), shift, sale("w1"), close)),
-            Shot(name: "settings", updates: till(.settings, shift, settings, .wakeUps(view: wakeUps))),
+            Shot(name: "settings", updates: settingsUp),
             Shot(name: "settings-wake-ups", screen: {
                 AnyView(NavigationStack {
                     WakeUpsScreen(view: wakeUps, title: "Wake-ups", send: { _ in })
                 })
             }),
-            Shot(name: "dark-setup-1-welcome", dark: true, updates: step(.welcome, .welcome)),
-            Shot(name: "dark-till-shift", dark: true, updates: till(.till, shift)),
-            Shot(name: "dark-sale-waiting", dark: true, updates: till(.sale(orderId: "w1"), shift, sale("w1"))),
-            Shot(name: "dark-sale-paid", dark: true, updates: till(.sale(orderId: "p1"), shift, sale("p1"))),
-            Shot(name: "dark-sale-code", dark: true, updates: till(.code(orderId: "w1"), shift, sale("w1"))),
-            Shot(name: "dark-settings", dark: true, updates: till(.settings, shift, settings, .wakeUps(view: wakeUps))),
         ]
         if ipad {
             shots += [
@@ -191,7 +194,7 @@ enum Screenshots {
                 Shot(name: "landscape-sale-waiting", landscape: true, updates: till(.sale(orderId: "w1"), shift, sale("w1"))),
                 Shot(name: "landscape-sale-paid", landscape: true, updates: till(.sale(orderId: "p1"), shift, sale("p1"))),
                 Shot(name: "landscape-sale-code", landscape: true, updates: till(.code(orderId: "w1"), shift, sale("w1"))),
-                Shot(name: "landscape-settings", landscape: true, updates: till(.settings, shift, settings, .wakeUps(view: wakeUps))),
+                Shot(name: "landscape-settings", landscape: true, updates: settingsUp),
             ]
         }
         return shots
@@ -202,7 +205,7 @@ enum Screenshots {
     /// Draws `shot` in a window over the test host's own, the screen's
     /// size (turned on its side for a landscape shot), lets its sheets and
     /// covers go up and settle, and writes the window as a PNG.
-    static func take(_ shot: Shot, number: Int, scene: UIWindowScene, into folder: URL) async throws {
+    static func take(_ shot: Shot, dark: Bool, scene: UIWindowScene, into folder: URL) async throws {
         let core = Core(showing: shot.updates)
         let content = shot.screen?() ?? AnyView(RootView(core: core))
         let window = UIWindow(windowScene: scene)
@@ -213,19 +216,19 @@ enum Screenshots {
             size: shot.landscape ? CGSize(width: long, height: short) : CGSize(width: short, height: long)
         )
         window.windowLevel = .normal + 1
-        window.overrideUserInterfaceStyle = shot.dark ? .dark : .light
+        window.overrideUserInterfaceStyle = dark ? .dark : .light
         window.rootViewController = UIHostingController(rootView: content)
         window.makeKeyAndVisible()
         window.layoutIfNeeded()
         // Sheets and covers go up after the first frame, with the system's
         // animation; the codes draw off the main thread.
-        try await Task.sleep(for: .seconds(2.5))
+        try await Task.sleep(for: .seconds(2))
         let format = UIGraphicsImageRendererFormat(for: window.traitCollection)
         format.opaque = true
         let image = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { _ in
             _ = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         }
-        let file = folder.appendingPathComponent(String(format: "%02ld-%@.png", number, shot.name))
+        let file = folder.appendingPathComponent("\(shot.name)-\(dark ? "dark" : "light").png")
         try #require(image.pngData()).write(to: file)
         window.rootViewController?.dismiss(animated: false)
         window.isHidden = true

@@ -1,0 +1,132 @@
+name: Screenshots
+
+# The key screens and states on Android beside the iPhone's and the iPad's,
+# light and dark, as one page in the till-screenshots artifact
+# (tools/screenshot-compare): a reviewer can look over a pull request's UI
+# on every device without one to hand. Android's are taken here on an
+# emulator, a phone and a tablet (android/scripts/screenshots.sh); the iOS
+# ones come from the same commit's iOS run (ios.yml), or main's last when
+# this change doesn't run it.
+on:
+  pull_request:
+    paths:
+      - "android/**"
+      - "ios/**"
+      - "crates/**"
+      - "Cargo.*"
+      - "tools/screenshot-compare/**"
+      - ".github/workflows/screenshots.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: screenshots-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - device: phone
+            profile: pixel_7
+            flag: ""
+          - device: tablet
+            profile: pixel_tablet
+            flag: "--tablet"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Install Android SDK platform and NDK
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.2" "ndk;27.0.12077973" > /dev/null
+      - name: Rust for Android
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: android-x86_64
+      - name: cargo-ndk
+        run: command -v cargo-ndk || cargo install cargo-ndk --version 4.1.2 --locked
+      # The emulator's ABI only.
+      - name: Build the app and its tests
+        working-directory: android
+        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest -Ptill.rust.abis=x86_64 -Ptill.rust.profile=release
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Screenshots on the ${{ matrix.device }} emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: ${{ matrix.profile }}
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none
+          working-directory: android
+          script: scripts/screenshots.sh "$RUNNER_TEMP/screenshots" ${{ matrix.flag }}
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: till-android-screenshots-${{ matrix.device }}
+          path: ${{ runner.temp }}/screenshots
+          retention-days: 14
+          if-no-files-found: warn
+
+  compare:
+    needs: android
+    if: always()
+    runs-on: ubuntu-latest
+    # Waits for the iOS run, which takes the longest.
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - name: Android's screenshots
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/android" "$RUNNER_TEMP/screenshots"
+          gh run download "${{ github.run_id }}" -R "$GITHUB_REPOSITORY" -p 'till-android-screenshots-*' -D "$RUNNER_TEMP/android" || echo "::warning::No Android screenshots"
+          for artifact in "$RUNNER_TEMP"/android/*/; do
+            [ -d "$artifact" ] && cp -R "$artifact". "$RUNNER_TEMP/screenshots/"
+          done
+          ls "$RUNNER_TEMP/screenshots"
+      - name: iOS's screenshots
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: ./tools/screenshot-compare/fetch-ios.sh "$SHA" "$RUNNER_TEMP/screenshots"
+      - name: Rust
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: The page
+        run: cargo run --locked -q -p screenshot-compare -- "$RUNNER_TEMP/screenshots"
+      - uses: actions/upload-artifact@v7
+        id: page
+        with:
+          name: till-screenshots
+          path: ${{ runner.temp }}/screenshots
+          retention-days: 14
+      - name: Link the page in the run's summary
+        env:
+          URL: ${{ steps.page.outputs.artifact-url }}
+        run: |
+          count="$(find "$RUNNER_TEMP/screenshots" -name '*.png' | wc -l | tr -d ' ')"
+          {
+            echo "### iOS and Android screenshots"
+            echo
+            echo "[Download till-screenshots]($URL) ($count pictures), unzip it and open index.html: each key screen on the iPhone, Android phone, iPad and Android tablet, light or dark."
+          } >> "$GITHUB_STEP_SUMMARY"

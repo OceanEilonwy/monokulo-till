@@ -7,9 +7,9 @@ name: iOS
 on:
   push:
     branches: [main]
-    paths: ["ios/**", "crates/**", "Cargo.toml", "Cargo.lock", ".github/workflows/ios.yml"]
+    paths: ["ios/**", "crates/**", "Cargo.toml", "Cargo.lock", "tools/screenshot-compare/**", ".github/workflows/ios.yml"]
   pull_request:
-    paths: ["ios/**", "crates/**", "Cargo.toml", "Cargo.lock", ".github/workflows/ios.yml"]
+    paths: ["ios/**", "crates/**", "Cargo.toml", "Cargo.lock", "tools/screenshot-compare/**", ".github/workflows/ios.yml"]
   workflow_dispatch:
 
 permissions:
@@ -120,7 +120,7 @@ jobs:
       # One page of them all, to open from the unzipped artifact.
       - name: Index the screenshots
         if: always()
-        run: python3 ios/Scripts/screenshot-index.py "$RUNNER_TEMP/screenshots"
+        run: cargo run --locked -q -p screenshot-compare -- "$RUNNER_TEMP/screenshots"
       - uses: actions/upload-artifact@v7
         id: screenshots
         if: always()

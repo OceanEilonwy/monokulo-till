@@ -35,6 +35,8 @@ pub enum PreviewStep {
     Locations,
     Counter,
     Alerts,
+    /// Android: the bubble over other apps.
+    Float,
     ShowSales,
     Ready,
 }
@@ -146,6 +148,7 @@ pub fn preview_onboarding(
             currency: "USD".into(),
             allowed: false,
         },
+        PreviewStep::Float => Step::Float { allowed: false },
         PreviewStep::ShowSales => Step::ShowSales {
             chosen: ShowSales::Alert,
             currency: "USD".into(),
@@ -235,7 +238,7 @@ mod tests {
     use crate::testing::FakePlatform;
     use till_screens::onboarding::OnboardingPage;
 
-    const STEPS: [PreviewStep; 12] = [
+    const STEPS: [PreviewStep; 13] = [
         PreviewStep::Welcome,
         PreviewStep::Scan,
         PreviewStep::Confirm,
@@ -246,6 +249,7 @@ mod tests {
         PreviewStep::Locations,
         PreviewStep::Counter,
         PreviewStep::Alerts,
+        PreviewStep::Float,
         PreviewStep::ShowSales,
         PreviewStep::Ready,
     ];
@@ -253,7 +257,7 @@ mod tests {
     #[test]
     fn every_step_draws_on_ipad_and_iphone() {
         let platform: Arc<dyn Platform> = Arc::new(FakePlatform::default());
-        for device in [Device::Ipad, Device::Iphone] {
+        for device in [Device::Ipad, Device::Iphone, Device::Android] {
             for step in STEPS {
                 let view = preview_onboarding(step, device, platform.clone());
                 assert!(
