@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use futures_util::StreamExt;
 use monokulo_client::OrderId;
 use monokulo_client::{Clock, PointOfSale, SystemClock};
-use till_payments::{BackendEvent, PaymentBackend};
+use till_payments::{BackendEvent, PaymentBackend, Sharing};
 use till_pos::{FoundSale, PosError, RefundByTill, Refunds, SaleOrder, SaleSource};
 use tokio::runtime::Handle;
 use tokio::sync::watch;
@@ -142,6 +142,11 @@ struct Parts {
     /// Copies the till's state into the runner's: it outlives `job`, so a
     /// stopped till's shift still shows and changes.
     showing: Option<JoinHandle<()>>,
+    /// The app isn't in the foreground ([`TillRunner::foreground`]).
+    behind: bool,
+    /// The shift was stopped because the app left the foreground, and
+    /// starts again when it's back.
+    stopped_behind: bool,
 }
 
 struct Inner {
@@ -215,6 +220,12 @@ impl TillRunner {
         let Some(backend) = inner.side.backend() else {
             return;
         };
+        if backend.sharing() == Sharing::ThisTill && inner.parts().behind {
+            // The device's own wallet looks only while the app is in the
+            // foreground (docs/view-key-mode.md §10).
+            inner.parts().stopped_behind = true;
+            return;
+        }
         inner.side.read_store(&backend);
         inner.side.start_shift();
         let till = inner.new_till(backend);
@@ -281,6 +292,36 @@ impl TillRunner {
             s.running = false;
             s.live = false;
         });
+    }
+
+    /// The app came to the foreground (`true`) or left it. With a backend
+    /// that knows only this till's payments (the device's own wallet), the
+    /// shift's tasks stop as the app leaves, so its event stream (the loop
+    /// that looks at the chain) is no longer polled, and start again as it
+    /// comes back, the stream's `Ready` catching up on what was mined
+    /// meanwhile (docs/view-key-mode.md §10). Monokulo's shift runs on
+    /// behind, as it always has.
+    pub fn foreground(&self, front: bool) {
+        let this_till = self.till().is_some_and(|till| till.this_till_only());
+        let restart = {
+            let mut parts = self.inner.parts();
+            parts.behind = !front;
+            front && std::mem::take(&mut parts.stopped_behind)
+        };
+        if !front && this_till {
+            let running = self
+                .inner
+                .parts()
+                .job
+                .as_ref()
+                .is_some_and(|job| !job.is_finished());
+            if running {
+                self.stop();
+                self.inner.parts().stopped_behind = true;
+            }
+        } else if restart {
+            self.start();
+        }
     }
 
     /// The cashier stopped watching: every live sale's code comes down

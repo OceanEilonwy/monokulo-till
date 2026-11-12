@@ -2680,3 +2680,86 @@ async fn new_code_makes_no_second_order_and_says_why_it_cant_renew() {
         "{gone}"
     );
 }
+
+/// A till over the device's own wallet (a backend that knows only this
+/// till's payments, docs/view-key-mode.md §6), at the front counter.
+fn this_till(
+    f: &Fixture,
+    source: Arc<dyn SaleSource>,
+    backend: Arc<till_payments::FakeBackend>,
+) -> Till {
+    let till = Till::new(source, backend, f.books())
+        .with_clock(Arc::new(clock(0)))
+        .with_options(&TillOptions {
+            device_id: Some("dev_front".into()),
+            every_device: false,
+            cash_as_monero: true,
+        });
+    till.books().refresh();
+    till
+}
+
+#[tokio::test]
+async fn with_only_this_tills_payments_another_devices_sale_is_dropped_before_any_fact() {
+    let f = fixture().await;
+    let other = FoundSale {
+        id: "pay_2".into(),
+        device_id: Some("dev_back".into()),
+        device_name: Some("Bar iPad".into()),
+        ..sale()
+    };
+    let unnamed = FoundSale {
+        id: "pay_3".into(),
+        device_id: None,
+        ..sale()
+    };
+    let source = FakeSource::with(vec![sale(), other, unnamed], Some(receipt()), None);
+    let backend = Arc::new(till_payments::FakeBackend::new(
+        till_payments::Sharing::ThisTill,
+    ));
+    let till = this_till(&f, source.clone(), backend.clone());
+    assert!(till.this_till_only());
+    assert_eq!(till.check().await, 3, "the count is every sale found");
+    let sales = till.state().sales;
+    assert_eq!(sales.len(), 2, "{sales:?}");
+    assert!(sales.iter().all(|s| {
+        s.pos_device()
+            .is_none_or(|(d, _)| d.as_str() == "dev_front")
+    }));
+    assert_eq!(backend.made(), 2, "no payment for the other counter's sale");
+    let mut handled = source.handled_ids();
+    handled.sort();
+    assert_eq!(
+        handled,
+        ["pay_2", "pay_3", "pay_monero"],
+        "dropped and handled"
+    );
+    assert!(
+        f.books()
+            .row(&till_ledger::SaleKey::pos(PointOfSale::Square, "pay_2"))
+            .is_none(),
+        "never written"
+    );
+}
+
+#[tokio::test]
+async fn with_only_this_tills_payments_a_backend_event_never_makes_a_sale() {
+    let f = fixture().await;
+    let backend = Arc::new(till_payments::FakeBackend::new(
+        till_payments::Sharing::ThisTill,
+    ));
+    let till = this_till(&f, FakeSource::new(vec![]), backend).without_pos();
+    let payment = till_payments::monokulo::payment_of_event(&event("sale.waiting")).unwrap();
+    till.on_change(&payment);
+    assert!(till.state().sales.is_empty());
+
+    // Shared, as with Monokulo, the same event makes the sale.
+    let shared = Arc::new(till_payments::FakeBackend::new(
+        till_payments::Sharing::Shared,
+    ));
+    let till = Till::new(FakeSource::new(vec![]), shared, f.books())
+        .with_clock(Arc::new(clock(0)))
+        .without_pos();
+    till.on_change(&payment);
+    assert_eq!(till.state().sales.len(), 1);
+}
