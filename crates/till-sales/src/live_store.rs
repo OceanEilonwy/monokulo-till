@@ -162,7 +162,7 @@ mod tests {
     }
 
     async fn fixture(answers: impl Respond + 'static) -> Fixture {
-        let server = MockServer::start().await;
+        let server = MockServer::builder().start().await;
         Mock::given(any())
             .respond_with(answers)
             .mount(&server)

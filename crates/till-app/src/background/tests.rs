@@ -54,7 +54,7 @@ fn config(square: &MockServer) -> EngineConfig {
 }
 
 async fn monokulo() -> MockServer {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v1"))
         .respond_with(ResponseTemplate::new(200).set_body_raw(
@@ -77,7 +77,7 @@ async fn monokulo() -> MockServer {
 }
 
 async fn square(delay: Duration) -> MockServer {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/v2/payments"))
         .respond_with(

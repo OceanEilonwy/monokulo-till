@@ -90,7 +90,7 @@ struct Fixture {
 /// client keeps no idle connections, so no pool timer runs to move
 /// tokio's paused clock on while a request is answered.
 async fn fixture() -> Fixture {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let queue = Arc::new(Queue::default());
     Mock::given(any())
         .respond_with(Dispatch(queue.clone()))
