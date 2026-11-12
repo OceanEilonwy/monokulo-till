@@ -921,7 +921,7 @@ private fun Idle(idle: ShiftIdle, status: List<StatusChip>, actions: TillActions
     horizontalAlignment = Alignment.CenterHorizontally,
     verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
 ) {
-    Logo(140.dp, Modifier.alpha(0.35f), grey = true)
+    TillWidget(80.dp)
     Text(idle.title, style = display(22, 0.0), color = mk.muted, textAlign = TextAlign.Center)
     Text(
         idle.hint, fontSize = 15.sp, lineHeight = 21.sp, color = mk.muted, textAlign = TextAlign.Center,
