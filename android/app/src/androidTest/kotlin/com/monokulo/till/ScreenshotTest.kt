@@ -137,7 +137,8 @@ class ScreenshotTest {
             }
         }
         File(folder, if (landscape) "shots-landscape.txt" else "shots.txt").writeText(shots.joinToString("") { it.name + "\n" })
-        File(folder, "device.txt").writeText("${android.os.Build.MODEL} · Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})\n")
+        val name = InstrumentationRegistry.getArguments().getString("device")?.trim()?.takeIf { it.isNotEmpty() } ?: android.os.Build.MODEL
+        File(folder, "device.txt").writeText("$name · Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})\n")
     }
 
     // The sample till, as ScreenshotTests.swift has it.

@@ -4,9 +4,10 @@
 # tools/screenshot-compare to set them beside the iPhone's and iPad's).
 #
 #   ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest -Ptill.rust.abis=x86_64
-#   scripts/screenshots.sh <out> [--tablet]
+#   DEVICE_NAME="Pixel 7" scripts/screenshots.sh <out> [--tablet]
 #
 # Run from android/. A tablet is shot standing up and on its side.
+# DEVICE_NAME names the device on the page; else Android's model name.
 set -euo pipefail
 
 out="${1:?the folder for the screenshots}"
@@ -40,7 +41,8 @@ shoot() {
     "$adb" shell settings put system user_rotation "$1"
     sleep 3
     local result
-    result="$("$adb" shell am instrument -w -e screenshots on -e class com.monokulo.till.ScreenshotTest \
+    result="$("$adb" shell am instrument -w -e screenshots on -e device "'${DEVICE_NAME:-}'" \
+        -e class com.monokulo.till.ScreenshotTest \
         "$app.test/androidx.test.runner.AndroidJUnitRunner")"
     echo "$result"
     grep -q '^OK (' <<< "$result"

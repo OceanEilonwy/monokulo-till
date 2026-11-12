@@ -202,19 +202,21 @@ enum Screenshots {
 
     // MARK: Taking them
 
-    /// Draws `shot` in a window over the test host's own, the screen's
-    /// size (turned on its side for a landscape shot), lets its sheets and
-    /// covers go up and settle, and writes the window as a PNG.
+    /// Draws `shot` in a window over the test host's own, lets its sheets
+    /// and covers go up and settle, and writes the window as a PNG.
     static func take(_ shot: Shot, dark: Bool, scene: UIWindowScene, into folder: URL) async throws {
         let core = Core(showing: shot.updates)
         let content = shot.screen?() ?? AnyView(RootView(core: core))
         let window = UIWindow(windowScene: scene)
-        let screen = scene.coordinateSpace.bounds.size
-        let (short, long) = (min(screen.width, screen.height), max(screen.width, screen.height))
-        window.frame = CGRect(
-            origin: .zero,
-            size: shot.landscape ? CGSize(width: long, height: short) : CGSize(width: short, height: long)
-        )
+        // The scene's own size, as the app draws it; turned on its side for
+        // a landscape shot, as LayoutSnapshotTests sizes its windows.
+        if shot.landscape {
+            let screen = scene.coordinateSpace.bounds.size
+            window.frame = CGRect(
+                origin: .zero,
+                size: CGSize(width: max(screen.width, screen.height), height: min(screen.width, screen.height))
+            )
+        }
         window.windowLevel = .normal + 1
         window.overrideUserInterfaceStyle = dark ? .dark : .light
         window.rootViewController = UIHostingController(rootView: content)

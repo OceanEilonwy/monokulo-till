@@ -64,7 +64,7 @@ jobs:
       - name: Generate Till.xcodeproj
         working-directory: ios
         run: xcodegen generate
-      # The newest iPhone on an iOS 27 runtime, and an iPad on the oldest
+      # The newest iPhone (not a foldable) on an iOS 27 runtime, and an iPad on the oldest
       # runtime Till supports (iOS 26.7 or a newer 26.x), so a call into an
       # iOS 27-only API fails here as well as at compile time. Without a 26.x
       # runtime on the image the iPad falls back to iOS 27, with a warning.
@@ -84,7 +84,10 @@ jobs:
               key=version, reverse=(major != "26"))
           for runtime in runtimes:
               for device in devices[runtime]:
-                  if device["name"].startswith(family):
+                  # A foldable's unfolded screen is neither a phone's nor an
+                  # iPad's: the newest ordinary iPhone, for the tests and the
+                  # screenshots alike.
+                  if device["name"].startswith(family) and not re.search(r"Duo|Fold|Flip", device["name"]):
                       print(device["udid"]); sys.exit(0)
           sys.exit(1)' "$1" "$2"
           }

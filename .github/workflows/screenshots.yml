@@ -36,9 +36,11 @@ jobs:
         include:
           - device: phone
             profile: pixel_7
+            name: Pixel 7 emulator
             flag: ""
           - device: tablet
             profile: pixel_tablet
+            name: Pixel Tablet emulator
             flag: "--tablet"
     steps:
       - uses: actions/checkout@v7
@@ -78,7 +80,7 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back emulated
           working-directory: android
-          script: scripts/screenshots.sh "$RUNNER_TEMP/screenshots" ${{ matrix.flag }}
+          script: DEVICE_NAME="${{ matrix.name }}" scripts/screenshots.sh "$RUNNER_TEMP/screenshots" ${{ matrix.flag }}
       - uses: actions/upload-artifact@v7
         if: always()
         with:
