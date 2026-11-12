@@ -76,7 +76,7 @@ jobs:
           arch: x86_64
           profile: ${{ matrix.profile }}
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back emulated
           working-directory: android
           script: scripts/screenshots.sh "$RUNNER_TEMP/screenshots" ${{ matrix.flag }}
       - uses: actions/upload-artifact@v7
@@ -109,7 +109,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: ./tools/screenshot-compare/fetch-ios.sh "$SHA" "$RUNNER_TEMP/screenshots"
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: ./tools/screenshot-compare/fetch-ios.sh "$SHA" "$RUNNER_TEMP/screenshots" "$BRANCH"
       - name: Rust
         run: rustup toolchain install stable --profile minimal && rustup default stable
       - name: The page

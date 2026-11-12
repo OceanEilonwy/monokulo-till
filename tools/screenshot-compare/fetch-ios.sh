@@ -2,13 +2,15 @@
 # Copies the iOS run's screenshots (ios.yml's till-ios-screenshots artifact)
 # for commit <sha> into <out>, for screenshots.yml's page. It waits for that
 # run to finish; when the commit has no iOS run (the change didn't touch iOS
-# or the core), it takes main's last successful one instead.
+# or the core), it takes the last one on <branch> that has screenshots, else
+# main's.
 #
-#   GH_TOKEN=… tools/screenshot-compare/fetch-ios.sh <sha> <out>
+#   GH_TOKEN=… tools/screenshot-compare/fetch-ios.sh <sha> <out> [<branch>]
 set -euo pipefail
 
 sha="${1:?the commit}"
 out="${2:?the folder for the screenshots}"
+branch="${3:-}"
 repo="${GITHUB_REPOSITORY:?the repository, owner/name}"
 mkdir -p "$out"
 
@@ -33,12 +35,21 @@ for attempt in $(seq 1 110); do
 done
 
 if [ -z "$run" ]; then
-    run="$(gh run list -R "$repo" --workflow ios.yml --branch main --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+    for fallback in $branch main; do
+        # Finished runs only, newest first; the first whose artifact is there.
+        for id in $(gh run list -R "$repo" --workflow ios.yml --branch "$fallback" --status completed --limit 10 \
+            --json databaseId --jq '.[].databaseId'); do
+            if gh api "repos/$repo/actions/runs/$id/artifacts" --jq '.artifacts[].name' | grep -qx till-ios-screenshots; then
+                run="$id"
+                break 2
+            fi
+        done
+    done
     if [ -z "$run" ]; then
-        echo "::warning::No iOS screenshots: no iOS run for $sha and none on main"
+        echo "::warning::No iOS screenshots: no iOS run for $sha, nor one with screenshots on ${branch:-main}"
         exit 0
     fi
-    echo "::notice::No iOS run for $sha: the iOS screenshots are main's, from run $run"
+    echo "::notice::No iOS run for $sha: the iOS screenshots are from run $run"
 fi
 
 work="$(mktemp -d)"
