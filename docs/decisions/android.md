@@ -4681,3 +4681,63 @@ names the environment. Refines 95, 96 and 132.
      notification (`ONGOING_ID`) and each sale's own notice (by the order
      id) replace rather than add, so a sale's heads-up comes once (core.md
      123 says when).
+
+## App: view-key mode's setup (2026-11-12)
+
+316. **The wallet setup's steps are drawn in round 4's one column, from
+     the engine's pages** (core.md 229 to 233; `docs/view-key-mode.md`
+     §11.1; the canvas's Vk* boards, which still show the older step
+     rail). `ui/WalletSetup.kt` draws V1 (three cards, the chosen one
+     ringed in ink with a filled tick, the light wallet server greyed with
+     "Coming soon"), V2 (Fob's card with Fob's mark, `ic_fob_mark` from
+     Fob's brand SVG, its button under its words on a phone width; then
+     the three ways as a grouped list), C1, B4 and C4 (facts, then
+     "Payments · set in Till"), D1 (the camera, Paste a code instead), D2
+     (a Mainnet/Stagenet segmented control, the address in a monospace
+     field, each field's note in green with a tick or in red), D3 and D4
+     (the till number and Paid after with the value between − and +, the
+     node on one line, cut at its start if it must be, with Change and
+     Fob's checks under it). Every word is the engine's, but for C1's
+     "Open Fob" (below) and the camera's "Allow the camera" where the
+     step gives none. Section labels arrive in sentence case and are set
+     in capitals by `SectionLabel`. "A code runs out after" is a stepper
+     on B4, C4 and D4, where the boards show its value alone: the engine
+     offers − and + there (`Action::StepCodeExpiry`), and Settings is the
+     only other place to change it. On a phone B4's Paid after keeps the
+     board's form, its value as the line under the label; D4's and a
+     tablet's value sit between the buttons.
+     Secrets are typed into platform `EditText`s, not Compose fields: a
+     password field with `TYPE_TEXT_FLAG_NO_SUGGESTIONS` and
+     `IME_FLAG_NO_PERSONALIZED_LEARNING` (which Compose's
+     `KeyboardOptions` can't set), kept out of autofill, its text held in
+     an `Editable` that's cleared in place. D3's Continue joins the words,
+     sends `EnterSeed` and clears every field at once; no copy is kept.
+     D3's grid is five columns where 520dp fit (tablets), else three. D2's
+     view key goes with each change (`EditWalletKeys` carries both
+     fields), as the engine judges it as it's typed. The screenshot test
+     draws these under the iOS tests' names (`vk-mode` … `vk-this-till`;
+     `vk-connected` on a phone, `vk-pad-connected` on a tablet). The
+     engine gives an Android tablet the phone's B4 (no "Use another
+     wallet", the merged Paid after), so `vk-pad-connected` on Android
+     shows that until the engine treats a large Android screen as C4.
+
+317. **C1 on Android: Fob on this device opens by itself; the two codes
+     stay for Fob on another phone.** The engine's C1 is the two-device
+     way ("Connect to Fob on another phone"). When Fob is installed
+     (`com.monokulo.fob`, else `com.monokulo.fob.debug`, both listed in
+     the manifest's `<queries>`), C1 opens it at once, once for each
+     request, with Fob's same-device contract (Fob's decision 423): an
+     explicit intent, action `com.monokulo.fob.action.CONNECT`, the
+     request (`FobRequestStep.qr`) as its data, by
+     `registerForActivityResult`; the result's data, the sealed answer or
+     the declined one, goes to the engine as `FobAnswer`. Back from Fob
+     finds C1 with "Open Fob" as its main button and "Scan Fob's code"
+     under it, for a person who'd rather use another phone; without Fob,
+     C1 is the board's: the code and pattern on a white card (at most
+     320dp, so the steps show on a phone), the numbered steps, and Scan
+     Fob's code, which turns the card into the camera. The same layout on
+     a tablet, in setup's one column. `FobApp.trusted` checks the
+     installed Fob's signing certificate against Fob's release one once
+     it's listed; until the owner adds it any installed Fob is opened,
+     which risks little, the answer being sealed for this till's request
+     and holding no spend key.

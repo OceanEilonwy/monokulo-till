@@ -11,9 +11,12 @@
     <!-- The bubble over Square, or over whatever the phone shows beside a Clover device (docs/design.md §9 "overlay"). The cashier allows it in setup, or not. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
-    <!-- "Back to Square" opens Square Point of Sale when it's installed. -->
+    <!-- "Back to Square" opens Square Point of Sale when it's installed; Connect
+         to Fob opens Fob on this device when it's installed. -->
     <queries>
         <package android:name="com.squareup" />
+        <package android:name="com.monokulo.fob" />
+        <package android:name="com.monokulo.fob.debug" />
     </queries>
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
