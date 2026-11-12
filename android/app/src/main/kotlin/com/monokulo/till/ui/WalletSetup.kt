@@ -346,7 +346,7 @@ private const val ALLOW_CAMERA = "Allow the camera"
  * "10 confirmations", "1"); without, as B4's phone row, the value is the line under the label.
  */
 @Composable
-private fun StepperRow(s: SetupStepper, onStep: (up: Boolean) -> Unit) = Row(
+internal fun StepperRow(s: SetupStepper, onStep: (up: Boolean) -> Unit) = Row(
     Modifier.fillMaxWidth().heightIn(min = 60.dp).padding(start = 16.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -636,7 +636,7 @@ fun ThisTillScreen(view: ThisTillStep, heading: String, lead: String, stepLabel:
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun NodeCard(node: NodeRow, onChange: () -> Unit) = Group(
+internal fun NodeCard(node: NodeRow, onChange: () -> Unit) = Group(
     rows = listOfNotNull(
         {
             // The address on one line, cut short at its start rather than broken, with Change after it.
@@ -678,7 +678,7 @@ private fun NodeCard(node: NodeRow, onChange: () -> Unit) = Group(
 
 /** D4's Change: the node's address typed, or one of Fob's defaults. */
 @Composable
-private fun NodeDialog(node: NodeRow, onDone: (String?) -> Unit) {
+internal fun NodeDialog(node: NodeRow, onDone: (String?) -> Unit) {
     var url by remember { mutableStateOf(node.url) }
     AlertDialog(
         onDismissRequest = { onDone(null) },

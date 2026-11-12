@@ -67,6 +67,8 @@ import uniffi.till_app.previewOnboarding
 import uniffi.till_app.previewSale
 import uniffi.till_app.previewSalesJson
 import uniffi.till_app.previewSettings
+import uniffi.till_app.previewSettingsOf
+import uniffi.till_app.PreviewSettings
 import uniffi.till_app.previewShift
 import uniffi.till_screens.CloseView
 import uniffi.till_screens.Device
@@ -215,7 +217,7 @@ class ScreenshotTest {
         setup("vk-mode", PreviewStep.VK_MODE),
         setup("vk-wallet", PreviewStep.VK_WALLET),
         setup("vk-pad-request", PreviewStep.VK_PAD_REQUEST),
-        setup(if (tablet) "vk-pad-connected" else "vk-connected", PreviewStep.VK_CONNECTED),
+        if (tablet) setup("vk-pad-connected", PreviewStep.VK_PAD_CONNECTED) else setup("vk-connected", PreviewStep.VK_CONNECTED),
         setup("vk-scan-code", PreviewStep.VK_SCAN_CODE),
         setup("vk-keys-error", PreviewStep.VK_KEYS_ERROR),
         setup("vk-seed", PreviewStep.VK_SEED),
@@ -233,6 +235,8 @@ class ScreenshotTest {
         Shot("sale-order") { OrderPage(face("p1"), onBack = {}, onShowCode = {}) },
         sale("sale-close-sheet", "w1", sheet = true),
         settingsShot("settings"),
+        Shot("vk-settings") { SettingsScreen(previewSettingsOf(PreviewSettings.VK_SETTINGS, Device.ANDROID, now), settingsActions) },
+        Shot("vk-settings-warning") { SettingsScreen(previewSettingsOf(PreviewSettings.VK_SETTINGS_WARNING, Device.ANDROID, now), settingsActions) },
     )
 
     private fun landscapeShots() = listOf(

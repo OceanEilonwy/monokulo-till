@@ -4716,10 +4716,8 @@ names the environment. Refines 95, 96 and 132.
      view key goes with each change (`EditWalletKeys` carries both
      fields), as the engine judges it as it's typed. The screenshot test
      draws these under the iOS tests' names (`vk-mode` … `vk-this-till`;
-     `vk-connected` on a phone, `vk-pad-connected` on a tablet). The
-     engine gives an Android tablet the phone's B4 (no "Use another
-     wallet", the merged Paid after), so `vk-pad-connected` on Android
-     shows that until the engine treats a large Android screen as C4.
+     `vk-connected` on a phone, `vk-pad-connected` on a tablet, which is
+     C4 since decision 318).
 
 317. **C1 on Android: Fob on this device opens by itself; the two codes
      stay for Fob on another phone.** The engine's C1 is the two-device
@@ -4741,3 +4739,23 @@ names the environment. Refines 95, 96 and 132.
      it's listed; until the owner adds it any installed Fob is opened,
      which risks little, the answer being sealed for this till's request
      and holding no spend key.
+
+318. **Settings on the shop's own wallet: the Payments section in the
+     store's place, drawn with D4's controls** (core.md 234 to 237). With
+     `SettingsView.wallet`, Settings opens on the engine's Payments
+     section instead of Store: how Till sees payments, Fob's wallet and
+     account when connected through it, the address (short, monospace,
+     with the same Copy as the store's), Network; the till number's
+     stepper, or Fob's account as a fact; the node card with its checks
+     and Change; Paid after and the code's expiry. These are D4's
+     `StepperRow`, `NodeCard` and `NodeDialog`, so they look and act the
+     same in both places. Prices from is a radio group like Wake-ups', a
+     row per provider. The lookahead line and each of the wallet's
+     warnings sit under the card they're about, in the warning colour
+     with a warning mark, as footnotes do. Wake-ups is left out (nothing
+     wakes a till that only hears payments while open), and Disconnect
+     this wallet replaces Disconnect this device, asking first with the
+     engine's question, which says a view key can't be taken back. An
+     Android tablet passes `large_screen` (smallest width 600dp), so
+     Connected to Fob is C4 there as on an iPad; its screenshot is
+     `vk-pad-connected` from `PreviewStep::VkPadConnected`.

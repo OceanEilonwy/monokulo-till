@@ -37,6 +37,8 @@ fun engineConfig(context: Context): EngineConfig = EngineConfig(
         returnUri = BuildConfig.CLOVER_RETURN_URI.takeIf { it != BuildConfig.CLOVER_REDIRECT_URI },
     ),
     bellUrl = BuildConfig.BELL_URL,
+    // A tablet draws the iPad's pages (core.md decision 237).
+    largeScreen = context.resources.configuration.smallestScreenWidthDp >= 600,
 )
 
 /**
