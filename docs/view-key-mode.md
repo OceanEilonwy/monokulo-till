@@ -1,17 +1,19 @@
 # View-key mode: Till without a Monokulo server
 
-Status: proposal, 2026-11-12. The direction decisions in §2 were taken by
-the owner on 2026-11-12; everything else is open for review. Nothing here is
-built yet.
+Status: proposal, 2026-11-12, revised the same day with the owner's
+answers. The decisions in §2 are the owner's. Nothing here is built yet.
 
 Today Till needs a Monokulo server: it makes the order, picks the
 subaddress, converts the price, watches the chain and tells the till what
 happened. This proposal lets a shop use Till with only its own wallet:
 the till holds the wallet's **private view key and public spend key**
-(entered, or read from a wallet QR or seed phrase), picks a **Monero node**,
-and watches for its own payments. A third mode, through a **light wallet
-server** the shop runs (monokulo-lws or monero-lws), sits behind the same
-interface.
+(entered, or read from a wallet QR or seed phrase), picks a **Monero node**
+or the shop's own **light wallet server**, and watches for its own payments
+**while it's open on screen**. Underneath, it uses Fob's wallet,
+`fob-wallet`, as a library in Manual Sync.
+
+The same work adds a third point of sale beside Square and Clover:
+**Till**, a keypad on the till itself, for a shop with no point of sale.
 
 ## 1. Where Till depends on Monokulo today
 
@@ -39,30 +41,44 @@ phase, confirmations, `is_final`, received and overpaid
 (`till-ledger/src/facts.rs`). Only `url` is Monokulo's, and it's only used to
 read the order again.
 
-Monokulo also does two jobs Till never sees: it converts the fiat amount to
-XMR (Till sends `decimal_amount` + currency, gets `xmr_amount_piconero`), and
-its server decides the payment's status (`derive_status` in mokulo's
-`engine/src/status.rs`). Both move onto the device in view-key mode.
+Monokulo also does three jobs Till never sees, and all three move onto the
+device:
 
-## 2. Decisions taken (2026-11-12)
+- It converts the fiat amount to XMR. Till sends `decimal_amount` +
+  currency and gets back `xmr_amount_piconero`.
+- Its server decides each payment's status (`derive_status` in mokulo's
+  `engine/src/status.rs`).
+- It is the one place every till's orders meet. Two tills asking for the
+  same sale, with the same idempotency key, get the same order
+  (core.md decisions 145, 147). §6 covers what replaces this.
 
-1. **One trait over three backends**: Monokulo, the device's own wallet,
-   and a light wallet server (§4).
-2. **Reuse Fob's crates by depending on them**, not by copying files. Fob's
-   main (0.1.19) is already split: `fob-chain`, `fob-scanner`, `fob-monero`,
-   `fob-price` and `fob-codes` are libraries with no UI or storage.
-3. **Where dependencies conflict, both repos move to the latest version**
+## 2. Decisions (owner, 2026-11-12)
+
+1. **One trait over the backends**: Monokulo, the device's own wallet
+   through a node, and the shop's own light wallet server (§4).
+2. **Reuse Fob by depending on its crates**, not by copying files. Fob's
+   main (0.1.19) is already split into libraries.
+3. **Use `fob-wallet` as a library, in Manual Sync**, for keys, scanning,
+   requests, confirmations, nodes and light servers (§5). Confirmations
+   follow Fob's Settled Confirmations.
+4. **Where dependencies conflict, both repos move to the latest version**
    (§3.5).
-4. **A new `fob-keys` crate** takes `Keys` out of `fob-vault`, so a key can be
-   used without the vault's database (§3.2).
-5. **A new repository, `monokulo-orf`**, takes `orf-codec` and
-   `orf-codec-ffi` out of this repo, and both Fob and Till depend on it
-   (§3.1).
-6. **A new stateless `fob-sync` crate**, made from Fob's sync, that both apps
-   use to follow the chain and the pool (§3.3).
-7. **monokulo-8ar gets GPU scanning on iOS** (§3.4).
-8. **A `LightBackend`** for a shop's own light wallet server (§6).
-9. **Till copies Fob's price feed selection** (§7).
+5. **A new `fob-keys` crate** takes `Keys` out of `fob-vault` (§3.2).
+6. **A new repository, `monokulo-orf`**, takes the `orf-*` crates out of
+   this repo, and both Fob and Till depend on it (§3.1).
+7. **A new stateless `fob-sync` crate**, to be reused across apps (§3.3).
+8. **monokulo-8ar gets a native Metal backend** for iOS's GPU (§3.4).
+9. **A light wallet server is one of the backends** (§5.7).
+10. **Till copies Fob's price feed selection** (§8).
+11. **In wallet and light modes, Till refreshes and syncs only while it's
+    open in the foreground** (§10).
+12. **Seed phrases may be entered**, and are wiped as soon as the view key is
+    taken from them (§5.2).
+13. **No cap on the number of tills.**
+14. **Addresses are never reused** (§5.3).
+15. **Another till's sales aren't visible** in wallet and light modes (§6).
+16. **"Till" is a point of sale**: a keypad on the device, with prices in
+    the fiat currency unless the shop chose none (§7).
 
 ## 3. Cross-repo groundwork
 
@@ -81,10 +97,12 @@ These come first: Till's backends depend on them.
 - Fob replaces its current dependency
   (`git = "https://github.com/OceanEilonwy/monokular", rev = "3823b28…"`) with
   the new repository.
-- Both apps must pin the **same rev**. Otherwise Cargo builds two copies of
-  the codec, and a receipt type from one won't be accepted by the other.
-- For local work on the codec, use a `[patch."https://github.com/OceanEilonwy/monokulo-orf"]`
-  entry pointing at a local checkout. Don't commit it.
+- **Both apps must pin the same rev.** Till now links `fob-wallet`, which uses
+  `orf-codec` too. Two revs would be two crates, and a receipt from one
+  wouldn't be accepted by the other.
+- For local work on the codec, use a
+  `[patch."https://github.com/OceanEilonwy/monokulo-orf"]` entry pointing at a
+  local checkout. Don't commit it.
 
 ### 3.2 `fob-keys` (new crate in Fob)
 
@@ -93,12 +111,16 @@ These come first: Till's backends depend on them.
 - Takes `view_only`, `address(index)`, `view_pair`, `primary_address`, the
   key-image and output-key helpers, and zeroizing.
 - Depends on `monero-wallet`, `monero-seed`, `polyseed`, `curve25519-dalek`,
-  `zeroize` and `fob-monero` only. No rusqlite, argon2 or libc.
+  `zeroize` and `fob-monero` only.
 - `fob-vault` keeps `StoredKeys`, the sealing, the database and mlock, and
-  depends on `fob-keys`. Its public API is unchanged, so `fob-wallet` builds
-  as before.
-- Address derivation takes a full `SubaddressIndex` (account and index), not
-  only an index in account 0. Till uses one account per till (§5.2).
+  depends on `fob-keys`.
+- **Accounts other than 0.** Address derivation takes a full
+  `SubaddressIndex` (account and index). Today account 0 is hard-coded in
+  `fob-vault/src/keys.rs`, and in `fob-wallet`'s `addresses.rs`, `sync.rs` and
+  `light.rs`. Till uses one account per till (§5.3).
+- **A view-only key from a seed.** `Restored::view_only_from_words(network,
+  words)` derives the view key and public spend key, and zeroizes the spend
+  key and the words before it returns (§5.2).
 
 ### 3.3 `fob-sync` (new crate in Fob, stateless)
 
@@ -111,14 +133,14 @@ The step that follows the chain is in `fob-wallet/src/wallet/sync.rs`:
 
 Today that step is tangled with the wallet's state and database. `fob-sync`
 is that step with **no state of its own**: the caller passes what it knows
-and gets back what changed, then saves it however it likes.
+and gets back what changed.
 
 ```rust
 /// Where the caller has got to: its last scanned height and the hashes of
 /// the last blocks, enough to notice a reorg. The caller saves it.
 pub struct Cursor { pub height: u64, pub recent: Vec<(u64, [u8; 32])> }
 
-/// Pool transactions the caller has already read, so a step only fetches new ones.
+/// Pool transactions the caller has already read.
 pub struct PoolSeen(pub BTreeSet<[u8; 32]>);
 
 pub struct Watch<'a> {
@@ -128,13 +150,9 @@ pub struct Watch<'a> {
 }
 
 pub enum Step {
-    /// New blocks read up to `cursor.height`.
     Blocks { cursor: Cursor, received: Vec<Received>, spent: Vec<SpentImage> },
-    /// The chain changed under the cursor: forget everything at or above `from`.
     Reorg { from: u64, cursor: Cursor },
-    /// Deeper than `recent` reaches: the caller rescans from a height it chooses.
     TooDeep { known_good: Option<u64> },
-    /// Nothing new.
     AtTip,
 }
 
@@ -143,60 +161,45 @@ pub struct PoolStep { pub received: Vec<Received>, pub spent: Vec<SpentImage>, p
 pub async fn blocks(daemon: &Daemon, transport: &Transport, watch: &Watch<'_>, cursor: &Cursor, max: usize) -> Result<Step, SyncError>;
 pub async fn pool(daemon: &Daemon, watch: &Watch<'_>, seen: &PoolSeen) -> Result<PoolStep, SyncError>;
 pub async fn tip(daemon: &Daemon) -> Result<(u64, [u8; 32]), SyncError>;
-
-/// One output paying a watched subaddress: transaction hash, output index,
-/// subaddress, amount, height (None in the pool), unlock time.
-pub struct Received { /* … */ }
-/// A key image a transaction spends, with the transaction that spends it.
-pub struct SpentImage { pub image: [u8; 32], pub tx: [u8; 32], pub height: Option<u64> }
 ```
 
-- Depends on `fob-chain` (fetch, transport), `fob-scanner` and
-  `monero-wallet`. No storage, no clock, no tokio tasks of its own: the caller
-  runs the loop and decides how often.
-- Doesn't decide anything about money. It reports outputs and spent key
-  images. Fob matches key images against its own outputs (its spends). Till
-  uses them to notice a double spend of a payment it saw in the pool (§5.5).
-- **Fob moves first.** `sync.rs`'s node step is rewritten over `fob-sync`, and
-  Fob's existing sync and reorg tests must pass unchanged before Till uses it.
-  That way the crate's shape is proven by one real user before the second
-  arrives.
-- `zmq::listen` stays in `fob-chain`. Either app can use its `Events` (`chain()`,
-  `pool()`) to start a step early.
+- Depends on `fob-chain`, `fob-scanner` and `monero-wallet`. No storage, no
+  clock, no tasks of its own: the caller runs the loop.
+- Decides nothing about money. It reports outputs, and the key images
+  transactions spend.
+- `fob-wallet`'s node sync is rewritten over it. Fob's sync, reorg and
+  Manual Sync tests must pass unchanged.
+- **Till reaches it through `fob-wallet`** (decision 3), not directly. It's
+  there for the next app that wants to follow the chain without a whole
+  wallet: monokulo-lws, or a Bell that watches a view key.
 
-### 3.4 monokulo-8ar on iOS's GPU
+### 3.4 monokulo-8ar: a native Metal backend
 
-8aR today is Vulkan through `ash`, with the shader at
-`crates/monokulo-8ar/shaders/scan.comp`. Its README says Apple's GPUs are
-meant to come later through MoltenVK. iOS has no Vulkan driver of its own.
-Two ways:
+8aR today is Vulkan through `ash`, with its shader in
+`crates/monokulo-8ar/shaders/scan.comp` (compiled to the checked-in
+`scan.spv`). iOS has no Vulkan driver, so 8aR gets a second backend:
 
-- **MoltenVK**: bundle the MoltenVK framework and keep the one Vulkan code
-  path. Least code. Costs: a framework in the app, SPIR-V translated to Metal
-  at run time, and some Vulkan features missing (to check against what
-  `scan.comp` and `gpu.rs` use).
-- **A native Metal backend** (recommended): a `metal` module beside `gpu.rs`,
-  through `objc2-metal`. The shader is translated from `scan.comp` to MSL
-  when the crate is built (SPIRV-Cross or naga), and the generated MSL is
-  checked in like `scan.spv` is. Nothing extra ships in the app, and the
-  shader keeps one source.
-
-Either way:
-
-- The trust model stays as it is: test vectors once per process and again
-  with each wallet's own key, every returned point checked, and a GPU that
-  fails is retired until the process restarts.
-- A one-day spike first: run `examples/gpu_check.rs` and `scan_speed.rs`
-  against `prototypes/fixtures/mainnet-3797000-2000.bin` on an iPad with
-  MoltenVK. If it passes the vectors, compare the speed. Pick a backend after
-  that.
-- **iOS doesn't allow GPU work in the background.** Metal command buffers
-  submitted while the app is backgrounded fail. The prefilter must notice
-  that and hand the batch to the CPU `Scanner`. This is its existing "a GPU
-  that fails" path, but it must not *retire* the GPU for that reason, or the
-  app returning to the foreground would stay on the CPU.
-- Till's scans are small (§5.3), so the GPU matters most to Fob's catch-up.
-  Till must work well on the CPU alone, and the GPU only makes it cheaper.
+- **A `metal` module beside `gpu.rs`**, through `objc2-metal`, behind a
+  `metal` feature, built on Apple targets. `Engine` picks Metal on Apple and
+  Vulkan elsewhere. Callers (`Prefilter::flag`) don't change.
+- **One shader source.** `scan.comp` stays the source. `shaders/build.sh`
+  also writes MSL from the SPIR-V (SPIRV-Cross, or naga), checked in as
+  `scan.metal` beside `scan.spv`. CI checks that both match the source.
+- **The trust model doesn't change**:
+  - test vectors once per process, and again with each wallet's own key
+  - every returned point checked
+  - a GPU that fails is retired until the process restarts
+- **The background**: iOS doesn't let an app use the GPU in the background,
+  and command buffers submitted then fail. This matters to Fob more than to
+  Till, since Till only scans in the foreground (§10).
+  - 8aR notices this failure and hands the batch to the CPU `Scanner`, but
+    doesn't *retire* the GPU for it.
+  - Otherwise an app coming back to the foreground would stay on the CPU.
+- **Proven on the iPad**: `examples/gpu_check.rs` and `scan_speed.rs` run on
+  a device against `prototypes/fixtures/mainnet-3797000-2000.bin`, with the
+  speed recorded beside Vulkan's in the README.
+- Till's scans are small (§5.4). Till must work well on the CPU alone, and
+  the GPU only makes it cheaper.
 
 ### 3.5 Dependency alignment
 
@@ -205,14 +208,20 @@ latest release:
 
 | Crate | Till | Fob | Why it matters |
 |---|---|---|---|
-| `rusqlite` / `libsqlite3-sys` | 0.41.1 `bundled-sqlcipher` | 0.40 `bundled-sqlcipher-vendored-openssl` | **Won't build together**: `libsqlite3-sys` links `sqlite3` and only one version may be in a build. Till won't depend on `fob-vault` after §3.2, but align anyway. |
+| `rusqlite` / `libsqlite3-sys` | 0.41.1 `bundled-sqlcipher` | 0.40 `bundled-sqlcipher-vendored-openssl` | **Won't build together**: `libsqlite3-sys` links `sqlite3` and only one version may be in a build. Till now links `fob-wallet`, so this one is required. |
 | `reqwest` | 0.13.5 | 0.12 | Builds, but ships two HTTP stacks |
-| `monero-wallet`, `monero-daemon-rpc` | — | 0.2 | Till takes Fob's version |
+| `monero-wallet`, `monero-daemon-rpc`, `monero-epee` | — | 0.2 | Till takes Fob's |
 | `uniffi` | =0.32.2 | =0.32.2 | Already the same |
 
-On Android, Till vendors OpenSSL for SQLCipher in `till-ffi`
-(core.md decision 150), and Fob uses `vendored-openssl`. Keep one way, and
-write the choice down as a decision in both repositories.
+Also:
+
+- **OpenSSL for SQLCipher.** On Android, Till vendors OpenSSL in `till-ffi`
+  (core.md decision 150), and Fob uses rusqlite's `vendored-openssl`. One
+  build can only have one, so pick one way and write it down as a decision
+  in both repositories.
+- **`proptest`** is in `fob-wallet`'s `[dependencies]`, not only its
+  dev-dependencies. Move it, so Till doesn't ship it.
+- **`fob-wallet`'s `usb` feature** (Trezor over libusb) stays off in Till.
 
 ## 4. The trait
 
@@ -224,30 +233,43 @@ and `till-app` depend on `till-payments`, never on a backend's internals.
 ```rust
 #[async_trait]
 pub trait PaymentBackend: Send + Sync {
-    /// Who is being paid and through what: the shop's name and currency, the
-    /// receiving address, and the mode ("Monokulo at shop.example",
-    /// "Your wallet, through node.example", "Light wallet server at …").
+    /// Who is being paid and through what, and whether other tills share
+    /// this till's payments (§6).
     async fn describe(&self) -> Result<BackendInfo, BackendError>;
 
-    /// A new payment. Idempotent on `req.key` (today's `OrderKey`, with its
-    /// `#n` for New code): asking again with the same key returns the same payment.
+    /// A new payment. Idempotent on `req.key`: asking again with the same
+    /// key returns the same payment.
     async fn create(&self, req: PaymentRequest) -> Result<Payment, BackendError>;
 
     /// Where these payments stand now. Monokulo: reads each order.
-    /// Wallet: catches up to the tip and the pool, then answers.
-    /// Light: asks the server.
+    /// Wallet and light: catch up first (§5.5), then answer.
     async fn refresh(&self, refs: &[PaymentRef]) -> Result<Vec<Payment>, BackendError>;
 
-    /// Changes as they happen. The same contract as today's `events()`
-    /// (core.md decision 8): the stream may end on an error and the caller
-    /// reconnects with backoff; `Ready` and `Lagged` mean "call refresh".
+    /// Changes as they happen, while the stream is polled. The same contract
+    /// as today's `events()` (core.md decision 8): it may end on an error and
+    /// the caller reconnects with backoff; `Ready` and `Lagged` mean "call refresh".
     fn events(&self) -> BoxStream<'static, Result<BackendEvent, BackendError>>;
 
     /// A hint: the cashier is looking at this payment's code (None: at
-    /// nothing). The wallet reads the pool more often; Monokulo ignores it.
+    /// nothing). Wallet and light look more often; Monokulo ignores it.
     fn focus(&self, payment: Option<&PaymentRef>);
 
     async fn disconnect(&self) -> Result<(), BackendError>;
+}
+
+pub struct BackendInfo {
+    pub name: String,        // "Monokulo at shop.example", "Your wallet, through node.example"
+    pub address: String,     // the wallet's primary address, shown in Settings
+    pub currency: Option<String>,
+    pub sharing: Sharing,    // §6
+}
+
+pub enum Sharing {
+    /// Every till's payments meet in one place: a sale's payment can be made
+    /// by any till, and every till hears of every payment. Monokulo.
+    Shared,
+    /// Each till knows only the payments it made. Wallet and light.
+    ThisTill,
 }
 
 pub struct PaymentRequest { pub key: String, pub amount: Decimal, pub currency: String, pub reference: String }
@@ -276,326 +298,437 @@ Why this shape:
   `resync` keep their logic and only change type.
 - **Backends emit `Payment`s, never outputs.** `Till::created` and
   `on_order` keep writing the same facts. The ledger's merge rules
-  (decisions 144, 162) don't change: whatever the backend says is read the
-  way the ledger reads Monokulo now.
+  (decisions 144, 162) don't change.
 - **`refresh`** covers pull to refresh, `Action::Opened`, `resync` and
   `background_check`. `follow_confirmations`' 20 s read becomes a `refresh`
-  call. In wallet and light modes it is nearly free, because the backend
-  pushes `Changed` anyway.
+  call.
 - **`focus`** is a hint, not a call, so the code screen never waits on the
   network. Only pull to refresh waits.
-- A shop with no point of sale already makes sales from `sale.waiting`
-  events (`event_order`, `till.rs`). In wallet and light modes that path
-  doesn't exist: every sale starts at the till (`create`), from the POS or
-  typed in.
+- **`sharing`** is how other tills' sales stay out (§6). It's in what the
+  backend describes, not the till's settings, so tests with `FakeBackend`
+  can cover both ways.
 
 ### 4.1 The saved link
 
 ```rust
 enum Link {
     Monokulo(Connection),
-    Wallet(WalletLink),  // address, view key, network, till number, node, confirmations, expiry
-    Light(LightLink),    // address, view key, network, till number, server URL, pin, node for proofs
+    Wallet(WalletLink),  // network, till number, wallet file key; node or light server
 }
 ```
 
 - Saved under the existing `"connection"` secret. Serde reads today's bare
   `Connection` as `Link::Monokulo`, so nobody re-onboards.
-- The view key is in the Keychain or Keystore, like the app key now. On iOS
-  the Keychain group is shared with the extension.
+- The keys themselves are in `fob-wallet`'s encrypted wallet file (§5.1).
+  The secret holds only the key that opens that file.
 - `RunnerSide::connection()` becomes `backend() -> Option<Arc<dyn
   PaymentBackend>>`. The engine builds the backend from the `Link` when it
   opens, and after onboarding.
 
-## 5. `WalletBackend`: the device's own wallet
+## 5. `WalletBackend`: `fob-wallet` in Manual Sync
 
-New crate **`till-wallet`**, depending on `till-payments`, `fob-keys`,
-`fob-sync`, `fob-chain`, `fob-scanner`, `fob-monero`, `fob-codes` and
-`fob-price`.
+New crate **`till-wallet`**: a thin adapter from `PaymentBackend` to
+`fob_wallet::Wallet`. It depends on `till-payments`, `fob-wallet`,
+`fob-keys`, `fob-codes` and `fob-price`. A node and a light wallet server
+are two settings of the same wallet (`fob_chain::light::Backend::{Node,
+Light}`), so one adapter serves both modes.
 
-### 5.1 Keys
+### 5.1 The wallet file
 
-Three ways in, all ending in `fob_keys::Keys::view_only(network, address, view_hex)`:
+- One `fob-wallet` wallet per till: `wallet.db` in the engine's `data_dir`,
+  beside the ledger's `till.db`.
+- Opened with `Wallet::open(path, file_key)`. The file key is random,
+  made at onboarding, and kept in the Keychain or Keystore under the `Link`.
+- **Manual Sync is always on** (`set_manual_sync(true)`). The wallet never
+  looks for blocks by itself. Till asks it to (§5.5).
+- Fob's other features (sending, contacts, profiles, price alerts, Trezor)
+  are never used. Being view-only, the wallet can't send anyway.
 
-1. **Scan a view-only wallet code**: `monero_wallet:` (Feather, Cake, Fob)
+### 5.2 Keys
+
+Three ways in, all ending in `Wallet::restore_view_only`:
+
+1. **Scan a view-only wallet code**: `monero_wallet:` (Feather, Cake, Fob),
    through `fob_codes::uri::parse_wallet_code` → `WalletCode::ViewOnly`.
-   Recommended.
 2. **Type or paste** the primary address and the private view key.
    `view_only` refuses a subaddress and a view key that doesn't match the
    address.
-3. **Seed phrase** (25 words or Polyseed). The view key is derived, and the
-   spend key is zeroized at once and never saved. The screen says plainly
-   that a till is a shared device, often left unattended, and suggests a
-   view-only code instead.
+3. **Seed phrase** (25 words or Polyseed):
+   - `fob_keys::Restored::view_only_from_words` derives the view key and
+     public spend key (§3.2).
+   - The words and the spend key are zeroized in Rust as soon as it returns,
+     and never saved.
+   - On the platform side the field is a secure entry field, with no
+     autocorrect, suggestions or keyboard learning. It's cleared, and its
+     string dropped, as soon as the words are handed over.
+   - A wallet code holding a seed (`monero_wallet:?seed=…`) is treated the
+     same way.
 
-The restore height in a wallet code is ignored. Till never looks back
-before its first sale (§5.3).
+The restore height in a code is ignored. Till never looks back before its
+first sale (§5.4).
 
-### 5.2 Subaddresses
+### 5.3 Subaddresses
 
-- **One account per till.** Onboarding asks for the till number (1, 2, …),
-  and that till uses `SubaddressIndex(account = n, index = i)`.
+- **One account per till.** Onboarding asks for the till number (1, 2, …;
+  **no cap**), and that till's requests use account `n`.
   - Two tills with the same keys never give out the same address.
-  - Account 0 stays the merchant's own, so the till never gives out an
-    address their phone wallet also gives out.
+  - Account 0 stays the merchant's own.
   - The merchant's wallet shows each till's takings as its own account.
-- **A counter per till** in the ledger DB (§5.6), allocating `i = 1, 2, …`.
-- **The wallet's lookahead.** The merchant's wallet (wallet2, Feather, Cake,
-  Fob) only finds money within its subaddress lookahead, by default about
-  50 accounts × 200 indexes. Wallets widen it as indexes are used, but
-  payments that expire unpaid leave gaps, and a run of 200 unused indexes
-  hides everything after it.
-  - So the index of a payment that expired with **nothing ever seen** is
-    reused after 7 days (settable).
-  - Settings shows "In your wallet: account n" and the highest index used,
-    for a wallet whose lookahead needs widening.
-- **`OrderId` must be unique even when an index is reused**: `w:<account>:<index>:<allocation>`.
-  `PaymentRef` is the same string.
-- `create` saves `key → (account, index, xmr, price, expires_at,
-  start_height)` before answering, so asking again with the same key
-  (New code, decision 145) returns the same payment.
+  - `fob-wallet` gets a **receive account** setting (§5.8).
+- **Never reused.** Each payment takes the account's next index, as each
+  of Fob's requests does today.
+- **The merchant's wallet lookahead.** A wallet only finds money within its
+  subaddress lookahead: by default 50 accounts × 200 indexes in wallet2,
+  Feather and Cake. Wallets widen it as indexes are used, but:
+  - **Payments that expire unpaid leave gaps.** With addresses never reused,
+    a run of 200 unpaid codes in a row hides every payment after it until
+    the merchant widens the lookahead.
+  - **Till numbers above 50** are outside the default account lookahead.
+  - Settings shows "In your wallet: account n, addresses up to i". It warns
+    once the unpaid run since the last paid index nears 200, or the till
+    number is above 50, and says how to widen the lookahead in common
+    wallets.
+- **`OrderId`** is `w:<account>:<index>`, unique since indexes are never
+  reused. `PaymentRef` is the same string.
 
-### 5.3 What's scanned
+### 5.4 What's scanned
 
-- Only blocks from the oldest watched payment's `start_height - 2` to the
-  tip, plus the pool. No wallet history.
-  - 30 minutes' expiry and 10 confirmations is about 35 blocks.
-  - An expired payment is watched for late money for 24 hours more, about
-    720 blocks. These are scanned once each, incrementally, never again.
-- Only watched subaddresses are registered with the `Scanner` and
-  `Prefilter`: the open payments and those in their late window. Both take
-  indexes one at a time, so the set grows and shrinks with the shift.
-- With no payments open or late, nothing is scanned. The cursor jumps to the
-  tip the next time a payment is created.
+- Manual Sync's requests, from `fob_screens::manual::ScanRequest`:
+  - **`FromLast`** (last scan to the newest block) when Till comes to the
+    foreground or is pulled, so blocks mined while it was closed are read
+    once.
+  - The **pool and newest blocks** while it's open (§5.5).
+  - **`Height(h)`** for a payment made at height `h` that a scan hasn't
+    reached.
+- The wallet's restore height is the tip at onboarding, so there's no
+  history to scan.
+- A scan only finds money to registered subaddresses: the till's account,
+  up to its highest index. In `fob-wallet` that's the receive account
+  (§5.8).
 
-### 5.4 The loop and its pace
+### 5.5 When it syncs (foreground only)
 
-The stream `events()` returns **is** the loop. It runs while the runner
-polls it, and stops when the shift stops or the backend is dropped. Each
-turn:
+The stream `events()` returns is the loop. It runs only while the runner
+polls it, and the runner only polls it while Till is in the foreground
+(§10). Each turn asks the wallet for a scan (§5.4), reads the requests it
+watches, and emits `Changed` for each `Payment` that changed.
 
-1. `fob_sync::pool` reads new pool transactions.
-2. If `fob_sync::tip` moved, `fob_sync::blocks` catches up. A `Reorg`
-   rewinds the stored outputs at or above `from`. `TooDeep` rescans from
-   the oldest watched payment's `start_height`.
-3. The status of every payment touched is worked out again (§5.5). A
-   `Changed` is emitted only when the `Payment` actually changed.
-
-| State | Pool read | Tip read |
+| State (foreground) | Pool and newest blocks | Catch up (`FromLast`) |
 |---|---|---|
-| A code on screen (`focus`) | every 1–2 s | every 10 s |
-| Payments open, no code on screen | every 10 s | every 20 s |
-| Only late payments | — | every 60 s |
-| Nothing open | — | none |
-| The node's ZMQ heard | on `pool()` | on `chain()` |
+| Opened, or pulled to refresh | at once | at once |
+| A code on screen (`focus`) | every 2 s | on a new tip |
+| Payments open, no code on screen | every 10 s | on a new tip |
+| Nothing open | — | every 60 s, on the tip only |
 
-ZMQ is optional. It needs the publisher on the node's own host, as in Fob,
-so it's mostly for a shop running its own node.
+ZMQ (`set_zmq`) can be turned on for a node on the shop's own host. It
+starts a turn early and lengthens the intervals, as in Fob.
 
-### 5.5 Status
+### 5.6 Status and confirmations
 
+- **Confirmations are Fob's Settled Confirmations**
+  (`set_settled_confirmations`; 10 to 720, default 10;
+  `fob_screens::manual::SETTLED_MIN`/`SETTLED_MAX`). A payment is Paid at
+  that many. Settings shows and sets it as Fob's Manual Sync screen does.
 - Lift mokulo's `derive_status` and `covering` (`engine/src/status.rs`) into
-  `till-wallet` as one pure function, with its test cases as fixtures, so
-  both products agree:
-  - **Partial**: some money received before expiry.
-  - **Overpaid**: more than asked, once confirmed.
-  - **Expired**: past expiry without the full amount, even if partly paid.
-    That money is refunded by hand.
-  - `covering` takes the deepest-confirmed outputs first, so a later bit of
-    dust never sends a paid payment back to confirming.
-- Defaults are Monokulo's: **10 confirmations** (0 allowed: paid as soon as
-  it's in the pool) and **30 minutes' expiry**. Both are in Settings.
-- **`is_final`**: Paid with the confirmations required, Expired once its
-  late window ends, or Cancelled.
-- **Double spend**: a pool transaction that paid us, whose key image then
-  turns up in a different transaction in the pool or a block
-  (`fob_sync::SpentImage`), is `SalePhase::DoubleSpend`. So is a pool
-  transaction that leaves the pool, isn't mined, and doesn't come back
-  within 10 blocks.
+  `till-wallet` as one pure function over a request's incoming payments,
+  with its test cases as fixtures, so both products agree:
 
-### 5.6 What's stored
+| Phase | When |
+|---|---|
+| Waiting | nothing received |
+| Seen | received, all still in the pool |
+| Confirming | mined, fewer than Settled Confirmations |
+| Paid | the full amount at Settled Confirmations |
+| Overpaid | more than asked, once confirmed |
+| Partial | some received before expiry |
+| Expired | past expiry without the full amount, even if partly paid (refunded by hand) |
+| DoubleSpend | a pool payment whose inputs were spent by another transaction, or which left the pool unmined and didn't come back within 10 blocks |
 
-New tables in the ledger's SQLCipher file, **not** facts:
+- `covering` takes the deepest-confirmed payments first, so a later bit of
+  dust never sends a paid payment back to Confirming.
+- **Expiry**: 30 minutes by default, in Settings.
+- **`is_final`**: Paid at Settled Confirmations, Expired after its late
+  window (24 hours, watched only while Till is open), or Cancelled.
 
-- the cursor
-- pool transactions seen
-- outputs per watched subaddress
-- allocations and the index counter
-- the price used per payment
+### 5.7 Light wallet server
 
-The facts stay "what the backend said", as with Monokulo (decision 162). A
-lost wallet table can be rebuilt by rescanning from the open payments'
-`start_height`.
+The same adapter, with the wallet's backend set to `Light { url,
+self_signed }` (`fob-wallet/src/wallet/light.rs`). The server holds the view
+key and scans, and Fob checks its proofs that a transaction is in a block,
+against hashes from a node.
 
-## 6. `LightBackend`: the shop's own light wallet server
+- The server sees every payment. The shop chooses that by running it, and
+  the screen says so.
+- The till tells the server about its account and indexes as it gives them
+  out (`upsert_subaddrs`), so the server watches them.
+- It syncs only in the foreground, at the same pace (§5.5), asking the
+  server instead of a node.
 
-`fob-chain::light` already speaks the light wallet server API that
-monokulo-lws and monero-lws use: `LightClient`, the wire types, subaddress
-provisioning, and proofs that a transaction is in a block, checked against
-block hashes from a node. `LightBackend` lives in `till-wallet` beside
-`WalletBackend` and shares its key entry (§5.1), till number (§5.2), status
-function (§5.5) and price (§7).
+### 5.8 What `fob-wallet` needs, to be Till's library
 
-- **Login**: address and view key to the server, which scans. The server
-  sees every payment, but the shop chooses that by running it. The screen
-  says so.
-- **Subaddresses**: the till tells the server the range it uses with
-  `upsert_subaddrs` (account = till number, indexes `1..=counter + 50`), so
-  the server watches them.
-- **Status**: `get_address_txs` gives the transactions, their heights (or
-  pool) and `blockchain_height`. The till turns those into outputs per
-  subaddress and runs the same `derive_status`.
-- **Proofs** (optional): with a node set, each paid transaction's inclusion
-  proof is checked as Fob does, so a server can't invent a payment.
-- **Pace**: the same table as §5.4, asking the server instead of a node.
-- **Its big advantage** is that the device scans nothing, and the server
-  could wake the till. A later step: the light server tells a Monokulo Bell,
-  and the Bell rings the till as Monokulo does now. That gives back iOS
-  alerts while Till is in the background (§9). It needs a webhook in
-  monokulo-lws and a Bell registration that isn't tied to Monokulo.
+1. **A receive account.** `set_receive_account(n)`: requests take indexes in
+   account `n`, scans register its subaddresses, and the light server is told
+   about them. Fob itself stays on 0.
+2. **Requests made with a key.** `make_request` with an idempotency key
+   returns the existing request for a key it has seen, so Till's New code
+   (decision 145) and a retried Charge (§7) don't make a second address. It
+   also takes an expiry, kept with the request.
+3. **A request's incoming payments, in full.** `request_payments(id) ->
+   Vec<Incoming { tx, atomic, height: Option<u64>, confirmations, double_spent }>`.
+   `requests::Received` has only the total today, and `derive_status` needs
+   each payment.
+4. **Telling what changed.** `SyncListener` has only `on_status`. Add
+   `on_requests(ids)` after a scan that touched requests, which the adapter
+   turns into `Changed`.
+5. **A library build.** No Trezor or USB, no price alerts, and its words
+   (`fob-words`) only where Till shows them. Keep it to features rather than
+   new crates.
+6. **View-only from a seed** through `fob-keys` (§3.2).
 
-## 7. Prices
+Each change is Fob's own, in Fob's repository, with Fob's tests.
 
-Monokulo converted fiat to XMR. Now the till does, with `fob-price`:
+## 6. Another till's sales: `Sharing::ThisTill`
 
-- **Providers**: Kraken and CoinGecko through `fob_price::Source`. The
-  currency is the point of sale's own (Square location or Clover merchant
-  currency), or the one chosen in Settings with no POS.
-- **Copy Fob's "Prices from" selection**: the provider choice limited to
-  providers that price the currency (`providers_for`), the checks
-  (`Check`), and the wording from `fob-words/src/prices.rs`. Port it to
-  `till-screens` (the model) and to the Compose and SwiftUI settings screens.
-  Fob's Android screen is in `android/.../ui/screens/Settings.kt`; Fob has no
-  SwiftUI yet, so Till's is new.
+With Monokulo, every till hears every order, and any till may make the
+order for a Monero sale. Monokulo's idempotency makes two tills asking for
+the same sale get one order (decisions 145, 147). Without a shared server,
+two tills would each make their own payment, at two addresses, for one sale.
+The customer pays one, and the other till waits forever.
+
+So when the backend describes `Sharing::ThisTill`:
+
+1. **A POS sale belongs to the till set to its device.** With Square or
+   Clover, onboarding asks which POS device this till is. "Every device" is
+   not offered, so each till has exactly one device.
+2. **Sales on other devices are dropped as they're found.** `Till::check`
+   ignores a `FoundSale` whose device isn't this till's, before any fact is
+   written. They're never listed, never alerted and never offered.
+3. **Only this till makes payments.** `may_make_order` allows a sale only
+   on this till's device, Monero or cash. "Take it in Monero" for another
+   counter's sale isn't offered.
+4. **No sales from events.** There's no `event_order` path, since a wallet
+   backend only ever describes payments this till made.
+5. **Screens.** `Standing::OtherTill`, "waiting for its counter"
+   (`SaleView::for_its_counter`) and the "only show other tills' sales"
+   option don't appear. `till-screens` hides them when sharing is
+   `ThisTill`.
+6. **The ledger** is unchanged: it simply never receives another till's
+   sale. Its principle 2 ("every till on the same POS account sees the same
+   sales") is scoped to `Sharing::Shared` by a new decision.
+
+Keypad sales (§7) are always this till's own.
+
+## 7. "Till": a keypad point of sale
+
+A new choice on the step where the shop picks its point of sale:
+**Square**, **Clover** or **Till**. Till is a keypad on the device, for a
+shop with no point of sale. It works with every backend: with Monokulo it
+does what Monokulo's web POS does, without a browser.
+
+**The keypad**, modelled on Monokulo's web POS (`apps/pos` in mokulo):
+
+- Keys 1–9, C, 0 and ⌫, plus typing on a hardware keyboard: digits,
+  Backspace, Escape to clear, Return to charge.
+- **In fiat** (the shop's currency): digits fill from the right in the
+  currency's minor units. Typing 1, 2, 5 shows 1.25 €. Zero-decimal
+  currencies such as yen get whole units.
+- **With no fiat currency** (XMR only): a decimal point key, up to 12
+  decimals, amounts in XMR, and no price lookups at all.
+- An optional **Reference** ("customer name or note"). It becomes the
+  sale's reference and the payment's `merchant_order_id`.
+- **Charge** is disabled at zero. It makes the sale and its payment, and
+  shows the code.
+- A Charge retried with the same amount and reference reuses its
+  idempotency key, so a failed request tried again never makes a second
+  payment.
+- Big keys, sized for a counter iPad and a phone held in one hand, following
+  `docs/design.md`'s controls.
+
+**The sale**:
+
+- `PointOfSale::Till`, with wire name `"till"`. The Bell never sees it,
+  since there's no POS webhook to ring.
+- A keypad sale is a `SaleSource` of its own, `till-pos/src/keypad.rs`. Charge
+  records a found sale (amount, currency, reference, key) in the ledger, and
+  `Till::take` makes its payment as for a Square sale. The sale list, code
+  screen, Close, New code and alerts all work as they do now.
+- **Receipt**: a one-line ORF receipt (the amount, and the reference as its
+  note), appended to the payment URI as now.
+- **Refunds**: there's no POS to refund in. An overpaid or expired sale
+  shows the amount to return by hand, as Monokulo's web POS does.
+- **Background order**: the code can be put aside to serve the next
+  customer, and stays on the sale list as a live sale.
+
+**The currency**:
+
+- With Monokulo, the store's own base currency.
+- In wallet and light modes, chosen at onboarding: one of `fob-price`'s
+  currencies, or **None (XMR only)**.
+
+## 8. Prices
+
+In wallet and light modes the till converts fiat to XMR, with `fob-price`:
+
+- **Providers**: Kraken and CoinGecko, through `fob_price::Source`. The
+  currency is the point of sale's own (Square location, Clover merchant), or
+  the keypad's (§7). With XMR only, no price is ever asked for.
+- **Copy Fob's price feed selection**: the provider choice limited to
+  providers that price the currency (`providers_for`), the checks (`Check`),
+  and the wording from `fob-words/src/prices.rs`.
+  - Port it to `till-screens` (the model) and to the Compose and SwiftUI
+    settings screens.
+  - Fob's Android screen is in `android/.../ui/screens/Settings.kt`. Fob has
+    no SwiftUI yet, so Till's is new.
 - **Freshness, stricter than Fob's**:
-  - The price is refreshed every 5 minutes while a shift is open.
-  - A code is never made from a price older than `AGED` (10 minutes): the
-    till fetches first, and if that fails it says so and makes no code.
+  - The price is refreshed every 5 minutes while Till is in the foreground,
+    and on pull to refresh.
+  - A code is never made from a price older than `AGED` (10 minutes): Till
+    fetches first, and if that fails it says so and makes no code.
   - The code screen shows the provider and the time of the price.
 - **Recording**: `Payment.price` (provider, rate, time) goes into
   `Fact::OrderCreated`, so a receipt can show the rate used.
 - **Privacy** is Fob's: a request names only the currency pair, never an
-  amount or a payment, and `User-Agent` is generic.
-- `fob_price::Transport::Tor` isn't built yet. See §8.
+  amount or a payment.
 
-## 8. Nodes, Tor and trust
+## 9. Nodes, Tor and trust
 
-- **Choosing a node**: copy Fob's list of default nodes per network, add a
-  custom URL, and run the checks with `fob_chain::node::check_all`:
-  certificate, answers within 5 s, right network, up to date, and blocks
-  a second through the fetcher. Self-signed certificates can be pinned, as
-  in Fob.
+- **Choosing a node**: through `fob-wallet`'s connection calls (`set_node`,
+  `check_node`, `check_nodes`, `add_node`): Fob's default nodes per network,
+  a custom URL, and Fob's checks:
+  - certificate
+  - answers within 5 s
+  - right network
+  - up to date
+  - blocks a second
+  
+  Self-signed certificates can be pinned.
 - **Tor**: Till has Tor today (Orbot on Android; android.md decision 55). Fob
   refuses onion nodes on purpose (`node::ONION_REFUSED`), and fob-price's Tor
   transport isn't built.
-  - `fob-chain` and `fob-price` get a SOCKS transport that a caller can turn
-    on (`Transport::socks(proxy)`). Onion URLs are allowed only through it.
+  - `fob-chain` and `fob-price` get a SOCKS transport a caller can turn on.
+  - Onion URLs are allowed only through it.
   - Fob's defaults don't change.
 - **Trust**: Till doesn't check proof of work, so it trusts the node.
-  - A dishonest node can show a pool payment that never happened, and with
-    0 confirmations that is a sale lost.
-  - Settings warns when confirmations are 0 on a node the shop doesn't run.
-  - The node doesn't learn which outputs are the shop's: `get_blocks.bin`
-    fetches whole blocks, and the pool is read whole. It does see the
-    shop's IP address and when it asks.
+  - A dishonest node could answer with blocks it made up, confirmations
+    and all, since Till checks no proof of work. So the node must be one
+    the shop trusts. Settings suggests running one, and the light server
+    mode checks proofs against a second node (§5.7).
+  - The node doesn't learn which outputs are the shop's: whole blocks and
+    the whole pool are read. It does see the shop's IP address and when it
+    asks.
 
-## 9. Notifications and the background
+## 10. Foreground only
 
-- **Foreground**: the loop in `events()` drives everything. This is the
-  usual case, since a counter iPad stays on the till screen.
-- **Android**: a foreground service (`dataSync`, as Fob's `SyncService`)
-  while a shift is open, with its notification showing the till is
-  watching.
-- **iOS in the background**: nothing runs.
-  - With Monokulo, the Bell's push wakes the extension. In wallet mode
-    nothing sends a push, so there are no alerts and no Live Activity
-    updates until Till is opened again.
-  - `BGAppRefreshTask` can run `refresh` now and then, but iOS decides when,
-    so it's best-effort only.
-  - Onboarding says so plainly ("Keep Till open on the counter to hear
-    payments"). Light mode with a Bell (§6) is the way back to alerts.
-- **The extension** (`background_check`) takes `Arc<dyn PaymentBackend>`
-  like the app. It runs only when something pushes, so in practice only in
-  Monokulo mode, and in light mode once the Bell can be rung.
+In wallet and light modes, Till looks for payments only while it's open in
+the foreground:
 
-## 10. Changes inside Till
+- **The runner stops the backend's stream when the app leaves the
+  foreground**, and starts it again when the app comes back. The platforms
+  already pass the process's life to the core, and the core decides
+  (decision 151).
+- Coming back starts with `FromLast` and the pool, so nothing mined
+  meanwhile is missed. Expiry is worked out from the clock, so a code that
+  ran out while Till was closed shows as Expired when it opens. A payment
+  found then is judged by `derive_status` like any other, and shows as a
+  late payment (open question 2).
+- **No background work** in these modes:
+  - no Bell registration
+  - no Notification Service Extension work (`background_check` isn't called)
+  - no `BGAppRefreshTask`
+  - no Android foreground service
+- So there are no payment alerts or Live Activity updates while Till is
+  closed. Onboarding says so plainly: "Till hears payments while it's
+  open. Keep it on screen at the counter."
+- **Monokulo mode is unchanged**: its Bell wake-ups and the extension keep
+  working.
+
+## 11. Changes inside Till
 
 - **`till-payments`** (new): §4.
-- **`till-wallet`** (new): §5, §6, §7.
+- **`till-wallet`** (new): §5, the status function, prices (§8).
+- **`till-pos`**: `keypad.rs`, the keypad's `SaleSource` (§7).
+- **`monokulo-client`**: `PointOfSale::Till`.
 - **`till-sales`**:
   - `Till::new` and `TillRunner::new` take `Arc<dyn PaymentBackend>` instead
     of `MonokuloApi` + `Connection`.
-  - `follow_confirmations` calls `refresh`.
-  - `resync` calls `refresh` for the open sales.
+  - `follow_confirmations` and `resync` call `refresh`.
+  - `Sharing::ThisTill` filtering in `Till::check` and `may_make_order` (§6).
+  - The runner stops and starts the stream with the foreground (§10).
 - **`till-app`**:
   - `Link` (§4.1)
-  - onboarding's mode choice
+  - onboarding (§11.1)
   - `LiveStore` reads `describe()`
-  - `background.rs` builds the backend from the `Link`
-  - `Disconnect` in wallet and light modes forgets the keys and deletes the
-    wallet tables
+  - in wallet mode: no Bell and no background check
+  - `Disconnect` in wallet mode deletes the wallet file and forgets its key
 - **`till-ledger`**:
   - `OrderCreated.url` keeps its name on the wire and means "the backend's
     reference".
   - `OrderCreated` gains an optional `price`.
-  - `SaleKey::Order(OrderId)` takes the `w:` ids as they are.
+  - Keypad sales get `SaleKey::Till(<key>)`, beside `sq:` and `cl:`.
 - **`till-screens`**:
-  - Settings shows the mode, node or server, till number, account, prices,
-    confirmations and expiry.
-  - The code screen shows the price's provider and time.
+  - the keypad
+  - Settings: the mode, node or server, till number and account, lookahead
+    warning, Settled Confirmations, expiry, prices
+  - the code screen shows the price's provider and time
+  - other-till views hidden with `ThisTill`
 - **Tests**:
   - `FakeBackend` replaces wiremock in the till-sales and till-app tests that
     aren't about Monokulo's wire.
-  - `till-wallet` is tested on recorded `get_blocks.bin` fixtures and a
-    regtest monerod in CI.
+  - `till-wallet` is tested against a regtest monerod in CI, and against
+    monokulo-lws for the light server.
 
-### 10.1 Onboarding
+### 11.1 Onboarding
 
-A new first question, before connecting: **How will Till see payments?**
+1. **How will Till see payments?** Monokulo, Your own wallet, or Your light
+   wallet server.
+2. **Monokulo**: today's connect code, unchanged.
+   **Your own wallet** or **light wallet server**:
+   1. The wallet: scan its view-only code, type the address and view key,
+      or enter the seed phrase (wiped after, §5.2).
+   2. The till number.
+   3. The node, with its checks. For a light server: its URL and check,
+      and a node for proofs.
+   4. Settled Confirmations and expiry, with the defaults shown.
+3. **Point of sale**: Square, Clover or Till.
+   - Square or Clover: sign in, then **this till's device**. In wallet
+     modes there's no "every device" (§6).
+   - Till: the currency, or None (XMR only).
+4. **Prices** (wallet modes with a fiat currency): the provider, with Fob's
+   checks.
+5. **Foreground only** (wallet modes): the one screen that says Till hears
+   payments while open.
 
-1. **Monokulo**: today's connect code, unchanged.
-2. **Your own wallet**:
-   1. Scan the wallet's view-only code (or type the keys, or the seed
-      phrase, with the warning).
-   2. Choose the till number.
-   3. Choose a node and run its checks.
-   4. Choose where prices come from.
-   5. Confirmations and expiry, with the defaults shown.
-3. **Your light wallet server**: the same, with the server's URL and its
-   check in place of the node (and a node for proofs, optionally).
-
-## 11. Order of work
+## 12. Order of work
 
 | # | Where | What | Done when |
 |---|---|---|---|
 | 1 | new `monokulo-orf` | Move `orf-codec`, `orf-codec-ffi`, `receipt-qr` with history | Till and Fob build from it at one rev, CI green |
-| 2 | Fob, Till | Dependency alignment (§3.5) | Both on the latest `rusqlite`, `reqwest`, one OpenSSL way |
-| 3 | Fob | `fob-keys` | `fob-vault` depends on it, Fob's tests pass |
-| 4 | Fob | `fob-sync`, and Fob's sync rewritten over it | Fob's sync and reorg tests pass unchanged |
-| 5 | monokulo-8ar | iOS spike, then the Metal (or MoltenVK) backend | Vectors pass on an iPad; background falls back to the CPU without retiring the GPU |
-| 6 | Till | `till-payments` + `MonokuloBackend`, threaded through | No behaviour change; every existing test passes |
-| 7 | Till | `till-wallet`: `WalletBackend`, status, prices | Regtest: Waiting → Seen → Confirming → Paid; Partial, Overpaid, Expired, DoubleSpend, reorg |
-| 8 | Till | Onboarding, Settings, prices and nodes screens (Android and iOS) | A sale paid end to end on stagenet on both apps |
-| 9 | Till | `LightBackend` | The same tests against monokulo-lws |
-| 10 | Till, lws, Bell | Light server → Bell wake-ups | iOS alert in the background in light mode |
+| 2 | Fob, Till | Dependency alignment (§3.5) | Both on the latest `rusqlite` and `reqwest`, one OpenSSL way, `proptest` dev-only |
+| 3 | Fob | `fob-keys` (accounts, view-only from words) | `fob-vault` depends on it, Fob's tests pass |
+| 4 | Fob | `fob-sync`, and `fob-wallet`'s node sync over it | Fob's sync, reorg and Manual Sync tests pass unchanged |
+| 5 | Fob | `fob-wallet` as a library (§5.8) | Receive account, keyed requests with expiry, `request_payments`, `on_requests`, a build without USB |
+| 6 | monokulo-8ar | Native Metal backend | Vectors pass on an iPad; MSL checked against `scan.comp` in CI; the background falls back to the CPU without retiring the GPU |
+| 7 | Till | `till-payments` + `MonokuloBackend`, threaded through | No behaviour change; every existing test passes |
+| 8 | Till | Keypad point of sale (§7) | Charge → code → paid against Monokulo, on Android and iOS |
+| 9 | Till | `till-wallet` over `fob-wallet`, `Sharing::ThisTill`, foreground only | Regtest: Waiting → Seen → Confirming → Paid; Partial, Overpaid, Expired, DoubleSpend, reorg; a backgrounded till catches up on return |
+| 10 | Till | Onboarding, Settings, prices and nodes screens | A keypad sale and a Square sale paid end to end on stagenet, on both apps |
+| 11 | Till | The light wallet server setting | The same tests against monokulo-lws |
 
-Steps 1–5 are independent of each other and can run side by side. Step 6
-needs only step 1. Step 7 needs 2, 3, 4 and 6.
+Steps 1, 3 and 6 can start at once. Step 7 needs only step 1, and step 8
+only step 7. Step 9 needs 2, 3, 5 and 7. Step 4 runs beside the others:
+Till doesn't wait for it, since it reaches `fob-sync` through `fob-wallet`.
 
-## 12. Open questions
+## 13. Open questions
 
-1. **Seed phrase entry**: allow it with the warning (as written), or
-   view-only codes and typed keys only?
-2. **Confirmations in wallet mode**: Monokulo's 10, or fewer for small
-   sales? A rule by amount ("0 under 20 €, 10 above") is possible, since
-   `derive_status` takes `required` per payment.
-3. **Other tills' sales**: should a wallet till also scan the other tills'
-   accounts, to show "Paid at Till 2"? It would know the amounts but not the
-   POS receipt. This ties into the iPad feedback on "only show other tills'
-   sales".
-4. **How many tills**: the lookahead covers 50 accounts. Cap till numbers at
-   20?
-5. **Reusing indexes**: 7 days after an unpaid expiry, or never, leaving the
-   merchant to widen their wallet's lookahead?
-6. **Price for no-POS shops**: is the currency chosen in Settings enough, or
-   should a sale also be typable in XMR?
+1. **Till numbers and the lookahead**: is a warning enough (§5.3), or
+   should onboarding suggest numbers from 1 and explain accounts?
+2. **Expiry and late payments while closed**: a payment that arrives after
+   expiry, while Till was closed, is found on the next open and shown as a
+   late payment. Is that the right standing, or should it be flagged for a
+   refund straight away?
+3. **One wallet, two modes**: should a shop be able to move between node
+   and light server without onboarding again? `fob-wallet` allows it
+   (`light_server` / `set_node`).
+4. **Keypad and Monokulo**: should the keypad's sales in Monokulo mode also
+   show in Monokulo's own web POS list, or stay the till's? They're
+   ordinary orders either way.
