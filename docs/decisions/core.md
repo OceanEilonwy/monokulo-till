@@ -2131,9 +2131,9 @@ still strings across the till, the ledger, the screens and the bridge.
      light and dark, and is hidden from VoiceOver (its caption is read).
      The boards draw "A code runs out after" as a plain value, but it can
      change (`StepCodeExpiry`), so iOS gives it − and + like Paid after:
-     the value between the buttons where the row is wide enough (C4, D4),
-     else under its label (B4, and any row too narrow beside the iPad's
-     rail). D2's address is a UIKit text view so it wraps at any character
+     the value between the buttons where every row of the card fits so
+     (C4, D4), else under its label in every row (B4, and a card too
+     narrow beside the iPad's rail). D2's address is a UIKit text view so it wraps at any character
      and is never hyphenated, as SwiftUI's vertical field would; its view
      key and D3's words are secure fields with no correction, capitals,
      content type or suggestions, and D3's are emptied as soon as Continue

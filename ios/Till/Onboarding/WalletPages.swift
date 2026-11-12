@@ -478,15 +478,26 @@ struct FobConnectedPage: View {
 }
 
 /// Steppers on a card, hairlines between. Where the first row has a line
-/// of its own under its label (C4, D4), every value sits in its stepper;
-/// else (B4) each value sits under its label.
+/// of its own under its label (C4, D4), every value sits in its stepper
+/// when all of them fit so; else (B4, or a card too narrow) every value
+/// sits under its label. The card's rows always agree.
 struct SteppersCard: View {
     let rows: [SetupStepper]
     /// A row's place, and up (+) or down (−).
     let step: @MainActor (Int, Bool) -> Void
 
     var body: some View {
-        let inside = rows.first?.detail != nil
+        if rows.first?.detail != nil {
+            ViewThatFits(in: .horizontal) {
+                card(inside: true)
+                card(inside: false)
+            }
+        } else {
+            card(inside: false)
+        }
+    }
+
+    private func card(inside: Bool) -> some View {
         Card {
             ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                 if index > 0 {
@@ -500,9 +511,9 @@ struct SteppersCard: View {
 
 /// A value with − and + (D4's Till number and Paid after, B4's and C4's):
 /// the label, its line, and the two buttons on one grey control. With
-/// `valueInside` (C4, D4) the value sits between the buttons where the row
-/// is wide enough; else, as on B4, under the label, which wraps before the
-/// control moves. VoiceOver hears one adjustable value.
+/// `valueInside` the value sits between the buttons, the row as wide as it
+/// needs; else, as on B4, under the label, which wraps before the control
+/// moves. VoiceOver hears one adjustable value.
 struct StepperRow: View {
     let stepper: SetupStepper
     let valueInside: Bool
@@ -511,14 +522,11 @@ struct StepperRow: View {
     var body: some View {
         Group {
             if valueInside {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 12) {
-                        words(stepper.detail.map { [$0] } ?? [])
-                            .fixedSize()
-                        Spacer(minLength: 8)
-                        control(inside: true)
-                    }
-                    beside
+                HStack(spacing: 12) {
+                    words(stepper.detail.map { [$0] } ?? [])
+                        .fixedSize()
+                    Spacer(minLength: 8)
+                    control(inside: true)
                 }
             } else {
                 beside
