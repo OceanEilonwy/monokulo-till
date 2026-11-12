@@ -40,6 +40,16 @@ import com.monokulo.till.ui.ShiftScreen
 import com.monokulo.till.ui.ShowSalesScreen
 import com.monokulo.till.ui.TillTheme
 import com.monokulo.till.ui.WelcomeScreen
+import com.monokulo.till.ui.FobConnectedScreen
+import com.monokulo.till.ui.FobRequestScreen
+import com.monokulo.till.ui.PaymentsModeScreen
+import com.monokulo.till.ui.StepperActions
+import com.monokulo.till.ui.ThisTillActions
+import com.monokulo.till.ui.ThisTillScreen
+import com.monokulo.till.ui.WalletCodeScreen
+import com.monokulo.till.ui.WalletEntryScreen
+import com.monokulo.till.ui.WalletKeysScreen
+import com.monokulo.till.ui.WalletSeedScreen
 import com.monokulo.till.ui.mk
 import com.monokulo.till.ui.rememberShiftPlace
 import java.io.File
@@ -201,6 +211,15 @@ class ScreenshotTest {
         setup("setup-5-alerts", PreviewStep.ALERTS),
         setup("setup-5-float", PreviewStep.FLOAT),
         setup("setup-6-ready", PreviewStep.READY),
+        // View-key mode's setup, under the iOS tests' names: B4 on a phone, C4 on a tablet.
+        setup("vk-mode", PreviewStep.VK_MODE),
+        setup("vk-wallet", PreviewStep.VK_WALLET),
+        setup("vk-pad-request", PreviewStep.VK_PAD_REQUEST),
+        setup(if (tablet) "vk-pad-connected" else "vk-connected", PreviewStep.VK_CONNECTED),
+        setup("vk-scan-code", PreviewStep.VK_SCAN_CODE),
+        setup("vk-keys-error", PreviewStep.VK_KEYS_ERROR),
+        setup("vk-seed", PreviewStep.VK_SEED),
+        setup("vk-this-till", PreviewStep.VK_THIS_TILL),
         shiftShot("till-empty") { empty },
         shiftShot("till-shift") { shift },
         shiftShot("till-shift-offline") { offline },
@@ -249,11 +268,22 @@ class ScreenshotTest {
             is OnboardingPage.Ready -> ReadyScreen(page, bubble = false, onStart = {})
             is OnboardingPage.Counter -> CounterScreen(page.view, onPick = {}, onNext = {}, onBack = {})
             is OnboardingPage.ShowSales -> ShowSalesScreen(page.view, onPick = {}, onNext = {}, onBack = {})
-            // TODO(view-key mode): the wallet setup's screens, under the
-            // engine previews' names (vk-mode, vk-wallet, …).
-            is OnboardingPage.PaymentsMode, is OnboardingPage.WalletEntry, is OnboardingPage.FobRequest,
-            is OnboardingPage.FobConnected, is OnboardingPage.WalletCode, is OnboardingPage.WalletKeys,
-            is OnboardingPage.WalletSeed, is OnboardingPage.ThisTill -> Unit
+            is OnboardingPage.PaymentsMode -> PaymentsModeScreen(page.view, view.heading, view.lead, step, onChoose = {}, onNext = {}, onBack = {})
+            is OnboardingPage.WalletEntry -> WalletEntryScreen(page.view, view.heading, view.lead, step, onConnect = {}, onWay = {}, onGetFob = {}, onBack = {})
+            // As on a device without Fob: the two-device way, as the board.
+            is OnboardingPage.FobRequest -> FobRequestScreen(page.view, view.heading, view.lead, step, fobHere = false, onOpenFob = {}, onAnswer = {}, onBack = {})
+            is OnboardingPage.FobConnected -> FobConnectedScreen(page.view, view.heading, view.lead, step, steppers, onNext = {}, onOtherWallet = {})
+            is OnboardingPage.WalletCode -> WalletCodeScreen(page.view, view.heading, view.lead, step, onScan = {}, onPaste = {}, onBack = {})
+            is OnboardingPage.WalletKeys -> WalletKeysScreen(page.view, view.heading, view.lead, step, onEdit = { _, _, _ -> }, onNext = {}, onBack = {})
+            is OnboardingPage.WalletSeed -> WalletSeedScreen(page.view, view.heading, view.lead, step, onLength = {}, onScanInstead = {}, onEnter = {}, onBack = {})
+            is OnboardingPage.ThisTill -> ThisTillScreen(
+                page.view, view.heading, view.lead, step, ThisTillActions(steppers, onNumber = {}, onNode = {}, onNext = {}, onBack = {}),
+            )
         }
     }
+
+    private val steppers = StepperActions(onPaidAfter = {}, onExpiry = {})
+
+    private val tablet: Boolean
+        get() = InstrumentationRegistry.getInstrumentation().targetContext.resources.configuration.smallestScreenWidthDp >= 600
 }
