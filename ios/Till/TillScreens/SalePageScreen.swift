@@ -107,9 +107,9 @@ struct SalePageScreen: View {
     private var hero: some View {
         VStack(spacing: 14) {
             if let state = logoState {
-                TillWidget(state: state, size: sizeClass == .regular ? 160 : 120)
+                TillWidget(state: state, size: sizeClass == .regular ? 96 : 72)
                 Text("\(page.heading) · \(page.amount)")
-                    .display(34, tracking: -0.8)
+                    .display(28, tracking: -0.6)
                     .foregroundStyle(!paid && (page.headingWarn || page.icon == .clock) ? Palette.expiredInk : Palette.ink)
                     .multilineTextAlignment(.center)
                     .minimumScaleFactor(0.6)
@@ -122,7 +122,7 @@ struct SalePageScreen: View {
                     .multilineTextAlignment(.center)
                     .accessibilityAddTraits(.isHeader)
                 Text(page.amount)
-                    .display(34, tracking: -0.8)
+                    .display(28, tracking: -0.6)
                     .foregroundStyle(page.amountMuted ? Palette.secondary : Palette.ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
@@ -172,13 +172,27 @@ struct PageButtonView: View {
     var body: some View {
         Group {
             if primary {
-                PrimaryPress(press: button.press, action: action)
+                PrimaryPress(press: button.press, systemImage: PageButtonView.icon(button.action), action: action)
             } else {
-                Button(button.press.label) { action() }
-                    .buttonStyle(.secondary)
-                    .disabled(!button.press.enabled)
+                Button {
+                    action()
+                } label: {
+                    Label(button.press.label, systemImage: PageButtonView.icon(button.action))
+                }
+                .buttonStyle(.secondary)
+                .disabled(!button.press.enabled)
             }
         }
         .padding(.horizontal, 16)
+    }
+
+    /// What each button does, as an icon beside its words, on iOS as on
+    /// Android (owner, round 4).
+    static func icon(_ action: PageAction) -> String {
+        switch action {
+        case .refund: "arrow.uturn.backward"
+        case .showCodeAgain, .newCode: "qrcode"
+        case .markRefunded: "checkmark"
+        }
     }
 }

@@ -122,19 +122,19 @@ struct SaleScreen: View {
                 }
                 if view.showsCode {
                     if view.closes {
+                        // An X, as on iPhone and Android; the words are its label.
                         Button(role: .destructive) {
                             send(.askClose(orderId: orderId))
                         } label: {
-                            Text(view.closeLabel)
-                                .font(.subheadline.weight(.semibold))
+                            Image(systemName: "xmark")
+                                .font(.body.weight(.semibold))
                                 .foregroundStyle(Palette.danger)
-                                .lineLimit(1)
                         }
+                        .accessibilityLabel(view.closeLabel)
                         .buttonStyle(.bordered)
-                        .buttonBorderShape(.capsule)
+                        .buttonBorderShape(.circle)
                         .controlSize(.large)
                         .tint(Palette.danger)
-                        .fixedSize()
                     }
                 } else {
                     done
@@ -230,9 +230,9 @@ struct SaleScreen: View {
     /// payment's bar. No code, no Share.
     private var statusHero: some View {
         VStack(spacing: 10) {
-            TillWidget(state: view.step >= 3 ? .confirming : .seen, size: regular ? 160 : 120)
+            TillWidget(state: view.step >= 3 ? .confirming : .seen, size: regular ? 96 : 72)
             Text(view.heroTitle)
-                .display(34, tracking: -0.8)
+                .display(28, tracking: -0.6)
                 .multilineTextAlignment(.center)
                 .accessibilityAddTraits(.isHeader)
             Text(view.xmr)
