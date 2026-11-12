@@ -895,7 +895,10 @@ the foreground:
       account.
    3. The node, with its checks. For a light server: its URL and check,
       and a node for proofs. Skipped when Fob handed over its own.
-   4. Settled Confirmations and expiry, with the defaults shown.
+   4. Settled Confirmations and expiry, with the defaults shown. These are
+      always Till's own settings, in both modes: Fob never hands them over.
+      Connected through Fob, they're on the "Connected to Fob" screen under
+      "Payments · set in Till", since the This till step is skipped.
 3. **Point of sale**: Square, Clover or Till.
    - Square or Clover: sign in, then **this till's device**. In wallet
      modes there's no "every device" (§6).
