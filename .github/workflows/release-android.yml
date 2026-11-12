@@ -5,14 +5,15 @@ name: Android release
 # each a fraction of the size, and a universal one holding all three, put on
 # the Releases page with their SHA-256, where Obtainium finds them (README,
 # docs/release.md). All share one versionCode, so any installs over any other.
-# A manual run of any branch builds the same APKs, signed only if the secrets
-# exist, and keeps them as the run's artifact.
+# A manual run on main builds the same APKs and keeps them as the run's
+# artifact, without a release.
 #
-# Secrets: TILL_KEYSTORE_BASE64 (the keystore file, base64),
+# Repository secrets: TILL_KEYSTORE_BASE64 (the keystore file, base64),
 # TILL_KEYSTORE_PASSWORD, TILL_KEY_ALIAS, TILL_KEY_PASSWORD.
-# Repository variables, as release-ios.yml's: TILL_LINK_HOST,
-# TILL_SQUARE_APPLICATION_ID, TILL_SQUARE_SANDBOX, TILL_CLOVER_APPLICATION_ID,
-# TILL_CLOVER_ENVIRONMENT, TILL_BELL_URL.
+# The build runs in the "sandbox" environment, as release-ios.yml's does, for
+# its variables: TILL_LINK_HOST, TILL_SQUARE_APPLICATION_ID,
+# TILL_SQUARE_SANDBOX, TILL_CLOVER_APPLICATION_ID, TILL_CLOVER_ENVIRONMENT,
+# TILL_BELL_URL. That environment only allows main and v* tags.
 # A tag must name the app's versionName (android/app/build.gradle.kts).
 
 on:
@@ -30,6 +31,7 @@ permissions:
 jobs:
   apk:
     runs-on: ubuntu-latest
+    environment: sandbox
     env:
       TILL_KEYSTORE_BASE64: ${{ secrets.TILL_KEYSTORE_BASE64 }}
       TILL_KEYSTORE_PASSWORD: ${{ secrets.TILL_KEYSTORE_PASSWORD }}
@@ -69,7 +71,7 @@ jobs:
           missing=0
           for name in TILL_LINK_HOST TILL_SQUARE_APPLICATION_ID TILL_CLOVER_APPLICATION_ID TILL_BELL_URL; do
             if [ -z "${!name}" ]; then
-              echo "::warning::$name is missing: add it as a repository variable (docs/release.md)"
+              echo "::warning::$name is missing: add it as a variable of the sandbox environment (docs/release.md)"
               missing=1
             fi
           done

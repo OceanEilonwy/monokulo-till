@@ -4701,6 +4701,6 @@ names the environment. Refines 95, 96 and 132.
      build's sign-ins come back on its App Link (decision 58), the site
      gains `assetlinks.json`, its fingerprint filled in by Pages from the
      `ANDROID_CERT_SHA256` repository variable as the AASA's team is from
-     `APPLE_TEAM_ID`. The deployment's ids and hosts are repository
-     variables, since the Android workflow has no environment to read the
-     `testflight` one's from.
+     `APPLE_TEAM_ID`. For now the build runs in the `sandbox` environment
+     for the deployment's ids and hosts, the same one TestFlight builds in
+     (core.md decision 228), with no approval gate.

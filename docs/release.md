@@ -191,8 +191,8 @@ sharing one version code. The version is `versionName` in
 [`android/app/build.gradle.kts`](../android/app/build.gradle.kts), and the
 version code is computed from it (`major × 10000 + minor × 100 + patch`),
 so a new version always installs over the last. A manual run (Actions ›
-**Android release** › Run workflow) builds the same APKs on any branch,
-signed only if the secrets exist, and keeps them as the run's
+**Android release** › Run workflow, on `main`) builds the same APKs and
+keeps them as the run's
 `till-android-release` artifact without making a release.
 
 ## 1. The signing key
@@ -222,23 +222,17 @@ keytool -genkeypair -v -keystore till-release.jks -alias till \
    gh secret set TILL_KEY_ALIAS --body till
    gh secret set TILL_KEY_PASSWORD
    ```
-2. **Variables**: the same `TILL_LINK_HOST`, `TILL_SQUARE_APPLICATION_ID`,
-   `TILL_SQUARE_SANDBOX`, `TILL_CLOVER_APPLICATION_ID`,
-   `TILL_CLOVER_ENVIRONMENT` and `TILL_BELL_URL` as the iOS release's
-   (above), but as **repository** variables: the Android workflow has no
-   environment, so it can't read the `testflight` environment's. Repository
-   variables are read by both; an environment's own value wins for iOS.
-   (`TILL_RELAY_URL` is iOS's only: Android wakes over UnifiedPush.)
-   ```sh
-   gh variable set TILL_LINK_HOST --body till.monokulo.com
-   gh variable set TILL_SQUARE_APPLICATION_ID --body sq0idp-…
-   gh variable set TILL_SQUARE_SANDBOX --body false
-   gh variable set TILL_CLOVER_APPLICATION_ID --body …
-   gh variable set TILL_CLOVER_ENVIRONMENT --body north_america
-   gh variable set TILL_BELL_URL --body https://bell.monokulo.com
-   ```
+2. **Variables**: none of its own. The build runs in the `sandbox`
+   environment, as the iOS release does, and reads the same
+   `TILL_LINK_HOST`, `TILL_SQUARE_APPLICATION_ID`, `TILL_SQUARE_SANDBOX`,
+   `TILL_CLOVER_APPLICATION_ID`, `TILL_CLOVER_ENVIRONMENT` and
+   `TILL_BELL_URL` (above). `TILL_RELAY_URL` is only for iOS, because
+   Android wakes over UnifiedPush. There is no approval gate, so a tag
+   publishes straight away. Because `sandbox` only allows `main` and `v*`
+   tags, a manual run works only on `main`.
+
    A tag's run stops if the signing secrets or the link host, either
-   application id or the Bell are missing; a manual run builds with the
+   application id or the Bell are missing. A manual run builds with the
    placeholders and warns.
 
 ## 3. App Links
