@@ -148,6 +148,34 @@ enum Screenshots {
         let close = previewClose(preview: full, orderId: "w1", platform: platform)
             .map { Update.closeSheet(orderId: "w1", view: $0) }
         let settingsUp = till(.settings, shift, settings, .wakeUps(view: wakeUps))
+        /// Settings for a till on the shop's own wallet (core.md decision
+        /// 234): its Payments sections and Disconnect, as Settings draws them,
+        /// without the sections above that a window shows first.
+        func walletSettings(_ look: PreviewSettings) -> @MainActor () -> AnyView {
+            let view = previewSettingsOf(look: look, device: device, now: now)
+            return {
+                AnyView(NavigationStack {
+                    List {
+                        if let wallet = view.wallet {
+                            WalletSettings(wallet: wallet, send: { _ in })
+                        }
+                        Section {
+                            Button(view.disconnect, role: .destructive) {}
+                                .foregroundStyle(Palette.danger)
+                        } footer: {
+                            Text(view.disconnectFootnote)
+                        }
+                    }
+                    .listStyle(.insetGrouped)
+                    .scrollContentBackground(.hidden)
+                    .readableWidth(640)
+                    .background(Palette.ground)
+                    .navigationTitle(view.title)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .tint(Palette.link)
+                })
+            }
+        }
 
         var shots: [Shot] = [
             Shot(name: "setup-1-welcome", updates: step(.welcome, .welcome)),
@@ -164,6 +192,22 @@ enum Screenshots {
         if ipad {
             shots.append(Shot(name: "setup-5-show-sales", updates: step(.showSales, .showSales)))
         }
+        // View-key mode's setup (the Vk* boards), each under its board's
+        // name: B4 on iPhone, C4 (`vkPadConnected`, as Android's tablet) on iPad.
+        shots += [
+            Shot(name: "vk-mode", updates: step(.vkMode, .paymentsMode)),
+            Shot(name: "vk-wallet", updates: step(.vkWallet, .walletEntry)),
+            Shot(name: "vk-pad-request", updates: step(.vkPadRequest, .fobRequest)),
+            ipad
+                ? Shot(name: "vk-pad-connected", updates: step(.vkPadConnected, .fobConnected))
+                : Shot(name: "vk-connected", updates: step(.vkConnected, .fobConnected)),
+            Shot(name: "vk-scan-code", updates: step(.vkScanCode, .walletCode)),
+            Shot(name: "vk-keys-error", updates: step(.vkKeysError, .walletKeys)),
+            Shot(name: "vk-seed", updates: step(.vkSeed, .walletSeed)),
+            Shot(name: "vk-this-till", updates: step(.vkThisTill, .thisTill)),
+            Shot(name: "vk-settings", screen: walletSettings(.vkSettings)),
+            Shot(name: "vk-settings-warning", screen: walletSettings(.vkSettingsWarning)),
+        ]
         shots += [
             Shot(name: "setup-6-ready", updates: step(.ready, .ready)),
             Shot(name: "till-empty", updates: till(.till, empty)),

@@ -2120,3 +2120,28 @@ still strings across the till, the ledger, the screens and the bridge.
      lead saying the next steps are skipped). The preview
      `PreviewStep::VkPadConnected` draws C4 on any device, for Android's
      `vk-pad-connected` screenshot.
+240. **iOS draws the wallet's setup in setup's own parts.** (The Vk*
+     boards; decision 232.) Each wallet page is a `StepPage`: the boards'
+     bottom row becomes the page's bar (the one orange button, then any
+     link), and their Back the toolbar's. B4 on a phone keeps Back, C4 on
+     iPad has "Use another wallet" instead; both go to V2. C1's "Scan Fob's
+     code" opens the camera in a sheet, sends the first code it reads as
+     `FobAnswer` and closes; after a refusal it opens Settings. The
+     identicon draws the engine's 25 cells in its two colours, the same in
+     light and dark, and is hidden from VoiceOver (its caption is read).
+     The boards draw "A code runs out after" as a plain value, but it can
+     change (`StepCodeExpiry`), so iOS gives it − and + like Paid after.
+     Every stepper follows the owner's rule for all platforms: on a phone
+     the value is the line under its label with − and + at the right
+     (B4), on iPad it sits between − and + (C4, D4), the label wrapping
+     first where the page beside the rail is narrow; wallet Settings'
+     steppers do the same. D2's address is a UIKit text view so it wraps at any character
+     and is never hyphenated, as SwiftUI's vertical field would; its view
+     key and D3's words are secure fields with no correction, capitals,
+     content type or suggestions, and D3's are emptied as soon as Continue
+     sends them (and when the page goes). D2's view key is never echoed
+     back by the engine, so its field is empty when the page is drawn
+     again. Fob's mark is the asset catalog's `FobMark`, monokulo-fob's
+     docs/brand/fob-mark.svg kept as a vector in its own colours. Fob's
+     page ("Get it for Android", `Effect::OpenUrl` on V2) opens in the
+     browser, not as a sign-in.
