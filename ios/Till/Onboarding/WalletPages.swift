@@ -463,12 +463,9 @@ struct FobConnectedPage: View {
             FactCard(facts: step.facts)
                 .padding(.top, 20)
             SectionLabel(text: step.section)
-            SteppersCard(
-                rows: [
-                    (step.paidAfter, { send(.stepPaidAfter(up: $0)) }),
-                    (step.expiry, { send(.stepCodeExpiry(up: $0)) }),
-                ]
-            )
+            SteppersCard(rows: [step.paidAfter, step.expiry]) { index, up in
+                send(index == 0 ? .stepPaidAfter(up: up) : .stepCodeExpiry(up: up))
+            }
             Footnote(text: step.footnote)
             ProblemNote(text: step.problem)
         } bottom: {
@@ -484,16 +481,18 @@ struct FobConnectedPage: View {
 /// of its own under its label (C4, D4), every value sits in its stepper;
 /// else (B4) each value sits under its label.
 struct SteppersCard: View {
-    let rows: [(SetupStepper, @MainActor (Bool) -> Void)]
+    let rows: [SetupStepper]
+    /// A row's place, and up (+) or down (−).
+    let step: @MainActor (Int, Bool) -> Void
 
     var body: some View {
-        let inside = rows.first?.0.detail != nil
+        let inside = rows.first?.detail != nil
         Card {
             ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                 if index > 0 {
                     Hairline()
                 }
-                StepperRow(stepper: row.0, valueInside: inside, step: row.1)
+                StepperRow(stepper: row, valueInside: inside) { up in step(index, up) }
             }
         }
     }
@@ -842,7 +841,12 @@ struct WalletSeedPage: View {
             .padding(.top, 18)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 8)], spacing: 8) {
                 ForEach(0..<words.count, id: \.self) { index in
-                    SeedWordField(number: index + 1, word: $words[index])
+                    // Read through a guard: the fields go from 25 to 16
+                    // while a field's view may still ask for its word.
+                    SeedWordField(number: index + 1, word: Binding(
+                        get: { index < words.count ? words[index] : "" },
+                        set: { if index < words.count { words[index] = $0 } }
+                    ))
                 }
             }
             .padding(.horizontal, 16)
@@ -883,7 +887,7 @@ struct WalletSeedPage: View {
         var text = AttributedString(step.warning + " ")
         var link = AttributedString(step.scanInstead.label)
         link.link = URL(string: "till:scan-instead")
-        link.foregroundColor = Palette.link
+        link.swiftUI.foregroundColor = Palette.link
         text += link
         text += AttributedString(".")
         return text
@@ -942,17 +946,14 @@ struct ThisTillPage: View {
             PageTop(heading: view.heading, lead: view.lead)
             VStack(spacing: 18) {
                 if let number = step.number {
-                    SteppersCard(rows: [(number, { send(.stepTillNumber(up: $0)) })])
+                    SteppersCard(rows: [number]) { _, up in send(.stepTillNumber(up: up)) }
                 }
                 if let node = step.node {
                     NodeCard(node: node) { changingNode = true }
                 }
-                SteppersCard(
-                    rows: [
-                        (step.paidAfter, { send(.stepPaidAfter(up: $0)) }),
-                        (step.expiry, { send(.stepCodeExpiry(up: $0)) }),
-                    ]
-                )
+                SteppersCard(rows: [step.paidAfter, step.expiry]) { index, up in
+                    send(index == 0 ? .stepPaidAfter(up: up) : .stepCodeExpiry(up: up))
+                }
             }
             .padding(.top, 20)
             ProblemNote(text: step.problem)
