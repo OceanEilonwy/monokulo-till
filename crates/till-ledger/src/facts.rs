@@ -190,7 +190,7 @@ pub struct OrderCreated {
     /// The exchange rate its XMR was worked out at, when the till worked
     /// it out itself (a wallet backend, docs/view-key-mode.md §4); `None`
     /// for a Monokulo order, and in a body written before payment backends
-    /// (core.md decision 228). Left out of a body without one, so an
+    /// (core.md decision 238). Left out of a body without one, so an
     /// order's body, and its hash, are what they were.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub price_used: Option<PriceUsed>,
@@ -783,7 +783,7 @@ mod tests {
 
     /// An `OrderCreated` from before payment backends has no `price_used`
     /// and reads with none; one without a rate writes the body it always
-    /// did; one with a rate keeps it (core.md decision 228).
+    /// did; one with a rate keeps it (core.md decision 238).
     #[test]
     fn an_order_keeps_the_rate_its_xmr_was_worked_out_at_and_old_orders_still_read() {
         let body = br#"{"v":1,"sale":"sq:p1","order_id":"o2","url":"https://shop.example/api/v1/orders/o2",

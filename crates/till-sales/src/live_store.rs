@@ -297,7 +297,7 @@ mod tests {
     }
 
     /// A backend that isn't Monokulo describes itself, with no store and
-    /// no onion entry for the connection to keep (core.md decision 228).
+    /// no onion entry for the connection to keep (core.md decision 238).
     #[tokio::test]
     async fn another_backend_describes_itself_with_no_monokulo_store() {
         let f = fixture(Answers(HashMap::new())).await;

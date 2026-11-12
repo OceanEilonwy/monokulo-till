@@ -133,7 +133,7 @@ impl Side {
         &self.monokulo
     }
 
-    /// The payment backend a link names (core.md decision 228): the
+    /// The payment backend a link names (core.md decision 238): the
     /// store's Monokulo, through the process's client, or the device's own
     /// wallet (decision 229).
     pub fn backend_of(&self, link: &Link) -> Option<Arc<dyn PaymentBackend>> {

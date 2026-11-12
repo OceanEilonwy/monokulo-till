@@ -1,4 +1,4 @@
-//! How Till is paid (docs/view-key-mode.md §4, core.md decision 228): one
+//! How Till is paid (docs/view-key-mode.md §4, core.md decision 238): one
 //! trait, [`PaymentBackend`], in front of whatever makes and watches the
 //! till's payments. Today that is a store's own Monokulo
 //! ([`MonokuloBackend`]); the device's own wallet, through a node or the

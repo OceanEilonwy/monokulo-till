@@ -420,7 +420,7 @@ fn forgetting_everything_forgets_what_stores_kt_forgot() {
     assert_eq!(model.connection, None);
 }
 
-/// The `connection` key holds the till's link (core.md decision 228): a
+/// The `connection` key holds the till's link (core.md decision 238): a
 /// connection kept by an earlier build is a Monokulo link, and a wallet
 /// link is kept under the same key, read back, and forgotten with the
 /// rest.

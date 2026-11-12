@@ -1,8 +1,9 @@
 name: Pages
 
 # site/: the debug build's Square and Clover sign-in pages (site/square/debug/,
-# site/clover/debug/), and the iOS app's apple-app-site-association with its
-# team filled in.
+# site/clover/debug/), the iOS app's apple-app-site-association with its
+# team filled in, and the Android app's assetlinks.json with its release key's
+# fingerprint.
 on:
   push:
     branches: [main]
@@ -47,6 +48,26 @@ jobs:
             grep -q "\"$APPLE_TEAM_ID.com.monokulo.till\"" "$aasa"
           fi
           python3 -m json.tool "$aasa"
+      # assetlinks.json names the Android release build by its signing
+      # certificate: the ANDROID_CERT_SHA256 repository variable, which
+      # release-android.yml prints in its summary (docs/release.md), takes the
+      # place of the ANDROID_CERT_SHA256 placeholder. Without it the release
+      # build's sign-ins open in the browser instead of coming back to Till.
+      - name: The release key in assetlinks.json
+        env:
+          ANDROID_CERT_SHA256: ${{ vars.ANDROID_CERT_SHA256 }}
+        run: |
+          links="$RUNNER_TEMP/site/.well-known/assetlinks.json"
+          if [ -z "$ANDROID_CERT_SHA256" ]; then
+            echo "::warning::No ANDROID_CERT_SHA256 repository variable: assetlinks.json keeps its placeholder, so the Android release build's sign-ins won't come back to Till (docs/release.md)"
+          elif ! printf '%s' "$ANDROID_CERT_SHA256" | grep -Eq '^([0-9A-F]{2}:){31}[0-9A-F]{2}$'; then
+            echo "::error::ANDROID_CERT_SHA256 doesn't look like a SHA-256 certificate fingerprint (32 upper-case hex pairs joined by colons)"
+            exit 1
+          else
+            sed -i "s/\"ANDROID_CERT_SHA256\"/\"$ANDROID_CERT_SHA256\"/" "$links"
+            grep -q "\"$ANDROID_CERT_SHA256\"" "$links"
+          fi
+          python3 -m json.tool "$links"
       - uses: actions/upload-pages-artifact@v5
         with:
           path: ${{ runner.temp }}/site/
