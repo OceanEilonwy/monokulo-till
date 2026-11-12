@@ -15,6 +15,19 @@ open Till.xcodeproj
 `build-core.sh --sim` builds only the simulator's slice, as CI does on pull
 requests. Rebuild the core after changing anything under `crates/`.
 
+Every run of `ios.yml` keeps screenshots of the key screens and states, on
+the iPhone and the iPad simulators, as the `till-ios-screenshots` artifact:
+the run's summary links it; unzip it and open `index.html`. They come from
+`TillTests/ScreenshotTests.swift`, which draws the app's own screens from
+the engine's previews, and `LayoutSnapshotTests.swift`'s iPad window sizes.
+To take them locally, name a folder for them:
+
+```sh
+TEST_RUNNER_SNAPSHOT_DIR=/tmp/till-shots xcodebuild test -project Till.xcodeproj -scheme Till \
+    -destination 'platform=iOS Simulator,name=iPad (A16)' CODE_SIGNING_ALLOWED=NO
+python3 Scripts/screenshot-index.py /tmp/till-shots
+```
+
 | Folder | What it is |
 | --- | --- |
 | `Packages/TillCore` | SwiftPM package: the core's XCFramework, its generated Swift bindings and small Swift helpers |

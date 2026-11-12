@@ -95,13 +95,15 @@ jobs:
           fi
           echo "iphone=$iphone" >> "$GITHUB_OUTPUT"
           echo "ipad=$ipad" >> "$GITHUB_OUTPUT"
-      # The layout's pictures (TillTests/LayoutSnapshotTests.swift): each
-      # iPad window size, drawn on the iPad simulator, kept as an artifact.
+      # Screenshots for a reviewer without a device, kept as the
+      # till-ios-screenshots artifact: the key screens and states on each
+      # simulator (TillTests/ScreenshotTests.swift), and the live sale in
+      # every iPad window size (TillTests/LayoutSnapshotTests.swift).
       - name: Test on iPhone and iPad
         working-directory: ios
         run: |
-          mkdir -p "$RUNNER_TEMP/layout-snapshots"
-          TEST_RUNNER_SNAPSHOT_DIR="$RUNNER_TEMP/layout-snapshots" \
+          mkdir -p "$RUNNER_TEMP/screenshots"
+          TEST_RUNNER_SNAPSHOT_DIR="$RUNNER_TEMP/screenshots" \
           xcodebuild test \
             -project Till.xcodeproj -scheme Till \
             -destination "id=${{ steps.simulators.outputs.iphone }}" \
@@ -115,10 +117,26 @@ jobs:
           path: ${{ runner.temp }}/Till.xcresult
           retention-days: 14
           if-no-files-found: ignore
+      # One page of them all, to open from the unzipped artifact.
+      - name: Index the screenshots
+        if: always()
+        run: python3 ios/Scripts/screenshot-index.py "$RUNNER_TEMP/screenshots"
       - uses: actions/upload-artifact@v7
+        id: screenshots
         if: always()
         with:
-          name: till-ios-layout-snapshots
-          path: ${{ runner.temp }}/layout-snapshots
+          name: till-ios-screenshots
+          path: ${{ runner.temp }}/screenshots
           retention-days: 14
           if-no-files-found: ignore
+      - name: Link the screenshots in the run's summary
+        if: always() && steps.screenshots.outputs.artifact-url != ''
+        env:
+          URL: ${{ steps.screenshots.outputs.artifact-url }}
+        run: |
+          count="$(find "$RUNNER_TEMP/screenshots" -name '*.png' | wc -l | tr -d ' ')"
+          {
+            echo "### iPhone and iPad screenshots"
+            echo
+            echo "[Download till-ios-screenshots]($URL) ($count pictures), unzip it and open index.html."
+          } >> "$GITHUB_STEP_SUMMARY"
