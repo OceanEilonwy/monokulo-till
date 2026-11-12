@@ -894,7 +894,7 @@ private fun NewShiftHeader(label: String, header: ShiftHeader, actions: TillActi
             Text(label, style = display(28, -0.4), modifier = Modifier.semantics { heading() })
             header.since?.let { Text(it, fontSize = 14.sp, color = mk.muted) }
         }
-        OutlineButton(header.newShift.label, { asking = true }, height = 44.dp, enabled = header.newShift.enabled, size = 15)
+        OutlineButton(header.newShift.label, { asking = true }, height = 44.dp, enabled = header.newShift.enabled, size = 15, icon = MkIcons.Reset, oneLine = true)
     }
     Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(header.total, style = display(34, -0.8))
