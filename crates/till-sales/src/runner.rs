@@ -633,7 +633,7 @@ mod tests {
     #[tokio::test]
     async fn a_shift_shows_the_saved_sales_and_watching_stopped_closes_the_live_ones() {
         // A Monokulo that answers nothing: the event stream fails and waits to try again.
-        let server = wiremock::MockServer::start().await;
+        let server = wiremock::MockServer::builder().start().await;
         let (runner, side) = runner(Some(Connection::new(
             "ak_1",
             format!("{}/api/v1", server.uri()),

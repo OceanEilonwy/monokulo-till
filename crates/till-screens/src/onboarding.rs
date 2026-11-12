@@ -323,13 +323,14 @@ pub struct CounterStep {
     pub found: String,
     /// "Which sales should alert this iPad?".
     pub heading: String,
-    /// "The test sale came from the Square device Front iPad. …".
+    /// "The test sale was rung up on Front iPad."
     pub lead: String,
     /// "Front iPad".
     pub device: String,
-    /// "Only sales on Front iPad (recommended)", "Every sale at Front
-    /// Counter": [`crate::view::Choice`]s for
-    /// `Action::SetAlertFor { every_device }`, false then true.
+    /// "Only Front iPad", "Every sale at Front Counter":
+    /// [`crate::view::Choice`]s for `Action::SetAlertFor { every_device }`,
+    /// false then true, which the platforms lead with a device's icon and
+    /// a shop's.
     pub choices: Vec<crate::view::Choice>,
     pub footnote: String,
     pub next: Press,
@@ -690,7 +691,7 @@ pub fn onboarding(
             Some(4),
             false,
             OnboardingPage::Counter {
-                view: counter_step(c, pos, device),
+                view: counter_step(c, device),
             },
         ),
         Step::ShowSales { chosen, currency } => (
@@ -866,7 +867,7 @@ fn words(page: &OnboardingPage, device: Device) -> Words {
     }
 }
 
-fn counter_step(c: &CounterSetup, pos: Option<PointOfSale>, device: Device) -> CounterStep {
+fn counter_step(c: &CounterSetup, device: Device) -> CounterStep {
     let mut found = vec!["Test sale found".to_owned(), c.amount.clone()];
     found.extend(c.number.as_ref().map(|n| format!("Sale {n}")));
     let place = c.place.as_deref().unwrap_or("this location");
@@ -874,29 +875,25 @@ fn counter_step(c: &CounterSetup, pos: Option<PointOfSale>, device: Device) -> C
     CounterStep {
         found: found.join(" · "),
         heading: format!("Which sales should alert {this}?"),
-        lead: format!(
-            "The test sale came from the {} device {}. If other counters at {place} take Monero too, {this} can alert only for its own.",
-            pos_text::name_first(pos),
-            c.device
-        ),
+        // One fact, then two plain choices (owner, round 4): the device
+        // and the location are in the choices themselves.
+        lead: format!("The test sale was rung up on {}.", c.device),
         device: c.device.clone(),
         choices: vec![
             crate::view::Choice {
-                label: format!("Only sales on {} (recommended)", c.device),
-                detail: Some("Other counters' sales are listed but stay quiet.".into()),
+                label: format!("Only {}", c.device),
+                detail: Some("Recommended. Other counters' sales still show, quietly.".into()),
                 selected: !c.every_device,
                 enabled: true,
             },
             crate::view::Choice {
                 label: format!("Every sale at {place}"),
-                detail: Some("For one till serving the whole location.".into()),
+                detail: Some("One till for the whole location.".into()),
                 selected: c.every_device,
                 enabled: true,
             },
         ],
-        footnote:
-            "Either way, every counter's sales are in the list. Change this any time in Settings."
-                .into(),
+        footnote: "Change this any time in Settings.".into(),
         next: Press::new("Continue"),
     }
 }
@@ -2193,24 +2190,18 @@ mod tests {
         };
         assert_eq!(view.found, "Test sale found · $1.00 · Sale #t0Ab");
         assert_eq!(view.heading, "Which sales should alert this iPad?");
-        assert_eq!(
-            view.lead,
-            "The test sale came from the Square device Front iPad. If other counters at Front Counter take Monero too, this iPad can alert only for its own."
-        );
+        assert_eq!(view.lead, "The test sale was rung up on Front iPad.");
         assert_eq!(
             view.choices
                 .iter()
                 .map(|c| (c.label.as_str(), c.selected))
                 .collect::<Vec<_>>(),
             [
-                ("Only sales on Front iPad (recommended)", true),
+                ("Only Front iPad", true),
                 ("Every sale at Front Counter", false),
             ]
         );
-        assert_eq!(
-            view.footnote,
-            "Either way, every counter's sales are in the list. Change this any time in Settings."
-        );
+        assert_eq!(view.footnote, "Change this any time in Settings.");
     }
 
     #[test]
@@ -2238,7 +2229,6 @@ mod tests {
                 .collect::<Vec<_>>(),
             [
                 (ShowSales::Alert, "An alert (recommended)", false),
-                (ShowSales::FloatingWindow, "A floating window", false),
                 (ShowSales::SideBySide, "Side by side", true),
             ]
         );

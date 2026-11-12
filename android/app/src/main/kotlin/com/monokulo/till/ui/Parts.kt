@@ -108,9 +108,9 @@ fun Muted(text: String, modifier: Modifier = Modifier, size: Int = 13, align: Te
 @Composable
 fun StepLabel(step: Int, of: Int = 6) = Muted("Step $step of $of")
 
-/** The orange button: one per screen. */
+/** The orange button: one per screen, led by [icon] when it has one (what it does, owner's round 4). */
 @Composable
-fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, height: Dp = 52.dp, size: Int = 17) =
+fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, height: Dp = 52.dp, size: Int = 17, icon: ImageVector? = null) =
     Button(
         onClick = onClick,
         enabled = enabled,
@@ -121,7 +121,38 @@ fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifi
             disabledContainerColor = mk.chip, disabledContentColor = mk.muted,
         ),
         contentPadding = PaddingValues(horizontal = 20.dp),
-    ) { Text(text, fontSize = size.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center) }
+    ) {
+        if (icon != null) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.size(8.dp))
+        }
+        Text(text, fontSize = size.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+    }
+
+/**
+ * Back to the point of sale, as iOS draws it (owner, round 4): silver, led
+ * by the point of sale's mark, its words on one line however narrow.
+ */
+@Composable
+fun BackToPosButton(text: String, mark: uniffi.till_screens.PosMark, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, height: Dp = 56.dp) =
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.heightIn(min = height),
+        shape = CircleShape,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Silver, contentColor = Fixed.Ink,
+            disabledContainerColor = mk.chip, disabledContentColor = mk.muted,
+        ),
+        contentPadding = PaddingValues(horizontal = 12.dp),
+    ) {
+        PosMark(mark, 18.dp, tint = if (mark == uniffi.till_screens.PosMark.SQUARE) Fixed.Ink else null)
+        Spacer(Modifier.size(8.dp))
+        Text(text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+    }
+
+/** The point-of-sale button's silver, the same in light and dark (iOS's). */
+private val Silver = Color(0xFFD6D9DE)
 
 /** The quiet button beside it: an outline in the design's outline colour. */
 @Composable
@@ -133,6 +164,8 @@ fun OutlineButton(
     height: Dp = 48.dp,
     size: Int = 16,
     icon: ImageVector? = null,
+    /** Its words on one line, beside another button (owner, round 4). */
+    oneLine: Boolean = false,
 ) = OutlinedButton(
     onClick = onClick,
     enabled = enabled,
@@ -140,13 +173,16 @@ fun OutlineButton(
     shape = CircleShape,
     border = BorderStroke(1.dp, mk.outline),
     colors = ButtonDefaults.outlinedButtonColors(contentColor = mk.ink),
-    contentPadding = PaddingValues(horizontal = 18.dp),
+    contentPadding = PaddingValues(horizontal = if (oneLine) 12.dp else 18.dp),
 ) {
     if (icon != null) {
         Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
         Spacer(Modifier.size(8.dp))
     }
-    Text(text, fontSize = size.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+    Text(
+        text, fontSize = size.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+        maxLines = if (oneLine) 1 else Int.MAX_VALUE, softWrap = !oneLine,
+    )
 }
 
 /** A text button in the link colour ("Not now", "Use notifications only"). */

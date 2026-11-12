@@ -68,6 +68,7 @@ impl<'a> Reader<'a> {
     }
 
     pub fn get(&mut self, width: u32) -> Result<u64, DecodeError> {
+        debug_assert!(width <= 64, "a u64 holds 64 bits");
         let mut v = 0;
         for _ in 0..width {
             v = (v << 1) | self.bit()?;
@@ -83,7 +84,9 @@ impl<'a> Reader<'a> {
         let mut zeros = 0;
         while self.bit()? == 0 {
             zeros += 1;
-            if zeros > 64 {
+            // No u64 needs more than 64 bits after the leading zeros: any
+            // more and `get` would drop the top ones.
+            if zeros + k > 64 {
                 return Err(DecodeError::Corrupt("number too long"));
             }
         }

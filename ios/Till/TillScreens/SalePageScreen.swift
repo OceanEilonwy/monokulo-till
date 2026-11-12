@@ -8,10 +8,10 @@ import TillCore
 /// sale, show the code again), and a cash sale's (Take it in Monero, Keep
 /// as cash, Paid in cash; the CashTill board).
 ///
-/// Paid (D3) has the Till logo, green with its tick, as its hero, "Paid ·
-/// $13.88", and Done at the top right of every page, beside Return to Square. A sale this screen watched turn paid gets the one
-/// moment: the logo's bar fills and it turns green (a crossfade under
-/// Reduce Motion); the engine's paid haptic plays with it.
+/// One fact per line (round 4's F3 and F4): a 56 pt status glyph, the
+/// state in its colour (Paid green, Not paid amber), the amount, and the
+/// line under it; then the note, the order, the timeline, small print, the
+/// buttons, and Return to Square at the foot. The system's Back leaves it.
 struct SalePageScreen: View {
     let orderId: String
     let page: SalePageView
@@ -22,7 +22,8 @@ struct SalePageScreen: View {
     /// "Return to Square" in the toolbar, when it's offered (``BackToSquare``).
     var backToSquare: (@MainActor @Sendable () -> Void)?
 
-    @State private var logo: TillLogoState = .paid
+    /// The tick's one moment, when this screen watched the sale turn paid.
+    @State private var pop: CGFloat = 1
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     /// The sale is paid: its payment's progress, as the engine counts it
@@ -50,6 +51,14 @@ struct SalePageScreen: View {
                 if !page.facts.isEmpty {
                     FactCard(facts: page.facts)
                 }
+                if let footnote = page.footnote {
+                    Text(footnote)
+                        .font(.footnote)
+                        .foregroundStyle(Palette.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 20)
+                }
                 if let problem = page.refundProblem {
                     ProblemNote(text: problem)
                 }
@@ -64,78 +73,62 @@ struct SalePageScreen: View {
             .padding(.bottom, 24)
         }
         .readableWidth()
-        .toolbar {
-            // Return to Square, then Done, at the top right on every page
-            // (the iPad round 3 designs).
-            if let backToSquare {
-                ToolbarItem(placement: .topBarTrailing) {
-                    ReturnToSquareButton(label: page.backTo, compact: sizeClass != .regular, action: backToSquare)
-                }
-            }
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Done") { send(.back) }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            // Return to Square at the foot (round 4), as on a live sale.
+            if let backToSquare, !page.backTo.isEmpty {
+                ReturnToSquareWide(label: page.backTo, action: backToSquare)
+                    .frame(maxWidth: readableColumn)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 10)
+                    .padding(.bottom, sizeClass == .regular ? 20 : 8)
+                    .frame(maxWidth: .infinity)
+                    .background(Palette.ground)
             }
         }
         .foregroundStyle(Palette.ink)
         .background(Palette.ground)
         .navigationTitle(page.title)
         .navigationSubtitle(page.titleLine)
-        .toolbarTitleDisplayMode(sizeClass == .regular ? .inlineLarge : .inline)
+        .toolbarTitleDisplayMode(.inline)
         .task(id: orderId) {
             guard paid, celebrate else { return }
-            logo = .confirming
-            try? await Task.sleep(for: .milliseconds(150))
-            logo = .paid
+            pop = 0.6
+            withAnimation(.snappy(duration: 0.35)) { pop = 1 }
         }
     }
 
-    /// The Till logo that leads the page, as the designs have it (Q1 to Q5):
-    /// green with its tick when paid, the idle logo for a sale that ended
-    /// unpaid (expired, closed), the paid logo for an overpaid one (it is
-    /// paid, and owes the customer the extra). Other pages keep the small
-    /// status glyph.
-    private var logoState: TillLogoState? {
-        if paid { return logo }
-        switch (page.icon, page.ground) {
-        case (.clock, _): return .idle
-        case (.warning, .warn): return .paid
-        default: return nil
-        }
+    /// The state's colour: Paid green, a sale that ended unpaid or needs
+    /// the cashier amber, the rest ink.
+    private var headingColour: Color {
+        if paid || page.icon == .tick { return Palette.paid }
+        if page.headingWarn || page.icon == .clock || page.ground == .warn { return Palette.expiredInk }
+        return Palette.ink
     }
 
-    @ViewBuilder
     private var hero: some View {
-        VStack(spacing: 14) {
-            if let state = logoState {
-                TillWidget(state: state, size: sizeClass == .regular ? 160 : 120)
-                Text("\(page.heading) · \(page.amount)")
-                    .display(34, tracking: -0.8)
-                    .foregroundStyle(!paid && (page.headingWarn || page.icon == .clock) ? Palette.expiredInk : Palette.ink)
-                    .multilineTextAlignment(.center)
-                    .minimumScaleFactor(0.6)
-                    .accessibilityAddTraits(.isHeader)
-            } else {
-                StatusGlyph(kind: StatusGlyphKind.of(page.icon, step: 4), size: 56)
-                Text(page.heading)
-                    .font(.title2.weight(.bold))
-                    .foregroundStyle(page.headingWarn ? Palette.expiredInk : Palette.ink)
-                    .multilineTextAlignment(.center)
-                    .accessibilityAddTraits(.isHeader)
-                Text(page.amount)
-                    .display(34, tracking: -0.8)
-                    .foregroundStyle(page.amountMuted ? Palette.secondary : Palette.ink)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-            }
+        VStack(spacing: 6) {
+            StatusGlyph(kind: StatusGlyphKind.of(page.icon, step: 4), size: 56)
+                .scaleEffect(pop)
+            Text(page.heading)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(headingColour)
+                .multilineTextAlignment(.center)
+                .padding(.top, 4)
+                .accessibilityAddTraits(.isHeader)
+            Text(page.amount)
+                .display(44, tracking: -1)
+                .foregroundStyle(page.amountMuted ? Palette.secondary : Palette.ink)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
             Text(page.line)
-                .font(.body)
+                .font(.subheadline)
                 .foregroundStyle(Palette.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 20)
-        .padding(.top, logoState != nil ? 32 : 12)
+        .padding(.top, 16)
     }
 
     /// What a page button asks of the engine.
@@ -172,13 +165,27 @@ struct PageButtonView: View {
     var body: some View {
         Group {
             if primary {
-                PrimaryPress(press: button.press, action: action)
+                PrimaryPress(press: button.press, systemImage: PageButtonView.icon(button.action), action: action)
             } else {
-                Button(button.press.label) { action() }
-                    .buttonStyle(.secondary)
-                    .disabled(!button.press.enabled)
+                Button {
+                    action()
+                } label: {
+                    Label(button.press.label, systemImage: PageButtonView.icon(button.action))
+                }
+                .buttonStyle(.secondary)
+                .disabled(!button.press.enabled)
             }
         }
         .padding(.horizontal, 16)
+    }
+
+    /// What each button does, as an icon beside its words, on iOS as on
+    /// Android (owner, round 4).
+    static func icon(_ action: PageAction) -> String {
+        switch action {
+        case .refund: "arrow.uturn.backward"
+        case .showCodeAgain, .newCode: "qrcode"
+        case .markRefunded: "checkmark"
+        }
     }
 }

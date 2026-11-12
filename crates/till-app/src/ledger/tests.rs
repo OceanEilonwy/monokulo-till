@@ -250,11 +250,11 @@ fn show_sales_is_kept_in_the_ledger_as_its_wire_word() {
     let settings = || app.books().with(|ledger| ledger.settings()).unwrap();
     // As the engine kept it before.
     app.books().keep_settings(
-        &[("sales.show", Some("FloatingWindow".to_owned()))],
+        &[("sales.show", Some("SideBySide".to_owned()))],
         till_types::UnixMillis(1_000),
     );
     app.kept
-        .update(|m| m.show_sales = crate::ShowSales::FloatingWindow)
+        .update(|m| m.show_sales = crate::ShowSales::SideBySide)
         .unwrap();
     app.books().keep_settings(
         &app.kept.model().ledger_settings(),
@@ -262,11 +262,11 @@ fn show_sales_is_kept_in_the_ledger_as_its_wire_word() {
     );
     assert_eq!(
         settings().get("sales.show").map(String::as_str),
-        Some("pip")
+        Some("side")
     );
     assert_eq!(
-        crate::ShowSales::from_wire(Some("FloatingWindow")),
-        crate::ShowSales::FloatingWindow,
+        crate::ShowSales::from_wire(Some("SideBySide")),
+        crate::ShowSales::SideBySide,
         "the old word reads as the same choice"
     );
     app.kept

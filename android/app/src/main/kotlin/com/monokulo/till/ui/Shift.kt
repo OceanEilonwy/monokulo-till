@@ -894,7 +894,7 @@ private fun NewShiftHeader(label: String, header: ShiftHeader, actions: TillActi
             Text(label, style = display(28, -0.4), modifier = Modifier.semantics { heading() })
             header.since?.let { Text(it, fontSize = 14.sp, color = mk.muted) }
         }
-        OutlineButton(header.newShift.label, { asking = true }, height = 44.dp, enabled = header.newShift.enabled, size = 15)
+        OutlineButton(header.newShift.label, { asking = true }, height = 44.dp, enabled = header.newShift.enabled, size = 15, icon = MkIcons.Reset, oneLine = true)
     }
     Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(header.total, style = display(34, -0.8))
@@ -921,7 +921,7 @@ private fun Idle(idle: ShiftIdle, status: List<StatusChip>, actions: TillActions
     horizontalAlignment = Alignment.CenterHorizontally,
     verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
 ) {
-    Logo(140.dp, Modifier.alpha(0.35f), grey = true)
+    TillWidget(80.dp)
     Text(idle.title, style = display(22, 0.0), color = mk.muted, textAlign = TextAlign.Center)
     Text(
         idle.hint, fontSize = 15.sp, lineHeight = 21.sp, color = mk.muted, textAlign = TextAlign.Center,

@@ -2,23 +2,22 @@ import SwiftUI
 import TillCore
 import UIKit
 
-/// A live sale (the iPad round 3 designs, Q0 to Q8), drawn from the
-/// engine's `SaleView`: one vertical column under a header row (the system's
-/// bar on a narrow window) that carries whom it's for and its line, and at
-/// the end Share, Return to Square and Close the sale while it waits (Return
-/// to Square and Done once the payment is seen). The column is the amount,
-/// the XMR, the code on its white card (a button that opens it full screen
-/// with the amount, so there is no Customer view button), and what was
-/// bought: a long order folds to one row that opens every line.
+/// A live sale (round 4's F2, G2 and G3), drawn from the engine's
+/// `SaleView`, over the whole screen at every width with the system's bar:
+/// whom it's for and its line, Share and Close the sale (an X) while it
+/// waits. The amount, then the code's card: the code (a button that opens
+/// it full screen), a hairline, and the status beside its ring, as Android
+/// draws it; then what was bought, and Copy address with Return to Square at
+/// the foot. On a wide landscape window the code sits on the left and the
+/// rest, centred beside it, on the right.
 ///
 /// From the moment the payment is seen the code is gone (core.md decision
-/// 170): the Till logo leads with "Seen · $13.88", the payment's bar and the
+/// 170): a 56 pt ring leads with "Seen · $13.88", the payment's bar and the
 /// order, so nothing can be shown or paid twice. A cash sale's Paid in cash
 /// stays at the foot (decision 7).
 ///
 /// Nothing is sized for a device: the code is the largest the window leaves
-/// room for with the order folded (``SaleLayout/codeSide``), so the page
-/// never scrolls however long the receipt is.
+/// room for (``SaleLayout/codeSide``).
 struct SaleScreen: View {
     let orderId: String
     let view: SaleView
@@ -31,157 +30,104 @@ struct SaleScreen: View {
     private var regular: Bool { sizeClass == .regular }
 
     var body: some View {
-        // Inside the safe area, and inside the header and the cash button,
-        // so the column centres in what's left and scrolls only when it must.
         GeometryReader { box in
+            let wide = regular && box.size.width > box.size.height && box.size.width >= 900
             ScrollView {
-                content(width: box.size.width, height: box.size.height)
-                    .padding(.horizontal, regular ? SaleLayout.margin : 0)
-                    .padding(.vertical, 16)
-                    .frame(maxWidth: .infinity, minHeight: box.size.height)
+                Group {
+                    if wide {
+                        wideContent(width: box.size.width, height: box.size.height)
+                    } else {
+                        content(width: box.size.width, height: box.size.height)
+                    }
+                }
+                .padding(.horizontal, regular ? SaleLayout.margin : 16)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, minHeight: box.size.height)
             }
             .scrollBounceBehavior(.basedOnSize)
         }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if regular {
-                header
-                    .padding(.horizontal, SaleLayout.margin)
-                    .padding(.top, 4)
-                    .padding(.bottom, 8)
-                    .background(Palette.ground)
-            }
-        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if !view.cash.isEmpty {
-                cashActions
-                    .padding(.horizontal, 20)
-                    .padding(.top, 12)
-                    .padding(.bottom, regular ? 24 : 16)
-                    .background(Palette.ground)
-            }
+            foot
+                .frame(maxWidth: readableColumn)
+                .padding(.horizontal, 16)
+                .padding(.top, 10)
+                .padding(.bottom, regular ? 20 : 8)
+                .frame(maxWidth: .infinity)
+                .background(Palette.ground)
         }
         .foregroundStyle(Palette.ink)
         .background(Palette.ground)
         .navigationTitle(view.title)
         .navigationSubtitle(view.titleLine)
         .toolbarTitleDisplayMode(.inline)
-        // On iPad the header row carries the title; the bar keeps only
-        // what the system puts there (the sidebar button).
-        .toolbar(removing: regular ? .title : nil)
         .toolbar {
-            if !regular {
-                if view.showsCode {
-                    ToolbarItem(placement: .topBarTrailing) { shareLink(labelled: false) }
-                }
-                if let returnToSquare, let back = view.backToPos {
+            if view.showsCode {
+                ToolbarItem(placement: .topBarTrailing) { shareLink }
+                if view.closes {
                     ToolbarItem(placement: .topBarTrailing) {
-                        ReturnToSquareButton(label: back.press.label, compact: true, action: returnToSquare)
-                    }
-                }
-                if view.showsCode {
-                    if view.closes {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button(role: .destructive) {
-                                send(.askClose(orderId: orderId))
-                            } label: {
-                                Label(view.closeLabel, systemImage: "xmark")
-                            }
-                            .tint(Palette.danger)
-                        }
-                    }
-                } else {
-                    ToolbarItem(placement: .confirmationAction) { done }
-                }
-            }
-        }
-    }
-
-    /// The header row on iPad: the name and its line, one line each, then
-    /// the buttons (the designs' toolbar group): Share, Return to Square and
-    /// Close the sale while it waits, Return to Square and Done after.
-    private var header: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(view.title)
-                    .font(.title.weight(.bold))
-                    .lineLimit(1)
-                    .accessibilityAddTraits(.isHeader)
-                Text(view.titleLine)
-                    .font(.footnote)
-                    .foregroundStyle(Palette.secondary)
-                    .monospacedDigit()
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            HStack(spacing: 8) {
-                if view.showsCode {
-                    shareLink(labelled: true)
-                }
-                if let returnToSquare, let back = view.backToPos {
-                    ReturnToSquareButton(label: back.press.label, compact: false, action: returnToSquare)
-                }
-                if view.showsCode {
-                    if view.closes {
+                        // An X, as on Android; the words are its label.
                         Button(role: .destructive) {
                             send(.askClose(orderId: orderId))
                         } label: {
-                            Text(view.closeLabel)
-                                .font(.subheadline.weight(.semibold))
+                            Image(systemName: "xmark")
+                                .font(.body.weight(.semibold))
                                 .foregroundStyle(Palette.danger)
-                                .lineLimit(1)
                         }
-                        .buttonStyle(.bordered)
-                        .buttonBorderShape(.capsule)
-                        .controlSize(.large)
+                        .accessibilityLabel(view.closeLabel)
                         .tint(Palette.danger)
-                        .fixedSize()
                     }
-                } else {
-                    done
                 }
             }
         }
-        .frame(minHeight: minimumTarget)
     }
 
-    private var done: some View {
-        Button("Done") { send(.back) }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.capsule)
-            .controlSize(.large)
-            .tint(Palette.link)
+    /// Copy address and Return to Square side by side, each on one line, then
+    /// a cash sale's Paid in cash.
+    @ViewBuilder
+    private var foot: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                if view.showsCode {
+                    Button {
+                        send(.copyAddress(orderId: orderId))
+                    } label: {
+                        Label(view.copyAddress.label, systemImage: "doc.on.doc")
+                            .lineLimit(1)
+                    }
+                    .buttonStyle(.secondary)
+                    .disabled(!view.copyAddress.enabled)
+                }
+                if let returnToSquare, let back = view.backToPos {
+                    ReturnToSquareWide(label: back.press.label, action: returnToSquare)
+                }
+            }
+            ForEach(Array(view.cash.enumerated()), id: \.offset) { _, button in
+                LinkPress(press: button.press) { send(CashButtons.action(button.action, orderId: orderId)) }
+            }
+        }
     }
 
     /// Share the `monero:` payment link (decision 17).
-    private func shareLink(labelled: Bool) -> some View {
+    private var shareLink: some View {
         ShareLink(
             item: SaleShare.uri(code: view.code, address: view.address),
             subject: Text(view.amount),
             preview: SharePreview(view.shareTitle)
         ) {
-            if labelled {
-                Label(view.share, systemImage: "square.and.arrow.up")
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-            } else {
-                Image(systemName: "square.and.arrow.up")
-            }
+            Image(systemName: "square.and.arrow.up")
         }
-        .buttonStyle(.bordered)
-        .buttonBorderShape(.capsule)
-        .controlSize(labelled ? .large : .regular)
-        .tint(Palette.ink)
         .disabled(!view.copyAddress.enabled)
         .accessibilityLabel(view.share)
     }
 
-    /// One vertical column: the code (or, once the payment is seen, the
-    /// logo) and the order.
+    /// One column: the amount, the code's card (or, once the payment is
+    /// seen, the ring), and the order.
     private func content(width: CGFloat, height: CGFloat) -> some View {
-        let side = SaleLayout.codeSide(width: width, height: height, regular: regular)
-        return VStack(spacing: 12) {
+        let side = SaleLayout.codeSide(width: min(width, readableColumn + SaleLayout.margin * 2), height: height, regular: regular)
+        return VStack(spacing: 14) {
             if view.showsCode {
-                codeHero(side: side)
+                amount
+                codeCard(side: side)
             } else {
                 statusHero
             }
@@ -190,11 +136,30 @@ struct SaleScreen: View {
         .frame(maxWidth: readableColumn)
     }
 
-    /// While it waits: the amount, the code that opens full screen when it
-    /// is tapped (its badge and a line say so), and the hint. The bar comes
-    /// from Seen on: there is nothing to confirm yet.
-    private func codeHero(side: CGFloat) -> some View {
-        VStack(spacing: 8) {
+    /// A wide landscape window (G3): the code's card on the left; the
+    /// amount and the order beside it, centred against it.
+    private func wideContent(width: CGFloat, height: CGFloat) -> some View {
+        let side = max(240, min(460, height - 120))
+        return HStack(alignment: .center, spacing: 48) {
+            if view.showsCode {
+                codeCard(side: side)
+            } else {
+                statusHero
+                    .frame(width: side)
+            }
+            VStack(spacing: 16) {
+                if view.showsCode {
+                    amount
+                }
+                orderSection
+            }
+            .frame(maxWidth: 470)
+        }
+        .frame(maxWidth: .infinity, minHeight: height - 40)
+    }
+
+    private var amount: some View {
+        VStack(spacing: 2) {
             Text(view.amount)
                 .display(44, tracking: -1)
                 .minimumScaleFactor(0.5)
@@ -203,36 +168,54 @@ struct SaleScreen: View {
                 .font(.subheadline.monospacedDigit())
                 .foregroundStyle(Palette.secondary)
                 .lineLimit(1)
-            CodeCard(code: view.code, said: view.codeSaid, spent: view.spent, size: side) {
-                send(.enlarge(orderId: orderId))
-            }
-            .padding(.top, 14)
-            Text(view.enlargeHint)
-                .font(.footnote)
-                .foregroundStyle(Palette.secondary)
-                .lineLimit(1)
-            if view.step >= 2 {
-                progress
-                    .frame(width: side + 28)
-                    .padding(.top, 6)
-            } else if !view.hint.isEmpty {
-                Text(view.hint)
-                    .font(.subheadline.monospacedDigit())
-                    .foregroundStyle(Palette.secondary)
-                    .lineLimit(1)
-                    .padding(.top, 2)
-            }
         }
         .frame(maxWidth: .infinity)
     }
 
-    /// Seen and Confirming: the Till logo, "Seen · $13.88", the XMR and the
-    /// payment's bar. No code, no Share.
+    /// The code on its white card, which opens it full screen, a hairline,
+    /// and the status left-aligned beside its ring (round 4).
+    private func codeCard(side: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            CodeCard(code: view.code, said: view.codeSaid, spent: view.spent, size: side) {
+                send(.enlarge(orderId: orderId))
+            }
+            Rectangle()
+                .fill(Palette.hairline)
+                .frame(height: 1)
+                .accessibilityHidden(true)
+            HStack(spacing: 10) {
+                StatusGlyph(kind: StatusGlyphKind.of(.ring, step: Int(view.step)), size: 22)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(view.status)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    if !view.hint.isEmpty {
+                        Text(view.hint)
+                            .font(.footnote.monospacedDigit())
+                            .foregroundStyle(Palette.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.updatesFrequently)
+        }
+        // The code's own card is `side` across; the status shares its white.
+        .frame(width: side)
+        .background(RoundedRectangle(cornerRadius: 20).fill(Color.white))
+        .environment(\.colorScheme, .light)
+    }
+
+    /// Seen and Confirming: the ring at 56 pt, "Seen · $13.88", the XMR and
+    /// the payment's bar. No code, no Share.
     private var statusHero: some View {
         VStack(spacing: 10) {
-            TillWidget(state: view.step >= 3 ? .confirming : .seen, size: regular ? 160 : 120)
+            StatusGlyph(kind: StatusGlyphKind.of(.ring, step: Int(view.step)), size: 56)
             Text(view.heroTitle)
-                .display(34, tracking: -0.8)
+                .display(28, tracking: -0.6)
                 .multilineTextAlignment(.center)
                 .accessibilityAddTraits(.isHeader)
             Text(view.xmr)
@@ -244,7 +227,7 @@ struct SaleScreen: View {
                 .padding(.top, 4)
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 20)
+        .padding(.top, 16)
     }
 
     /// The payment's bar and words: the engine's thirds where it gives
@@ -277,15 +260,35 @@ struct SaleScreen: View {
             }
         }
     }
+}
 
-    /// A cash sale's Paid in cash.
-    private var cashActions: some View {
-        VStack(spacing: 6) {
-            ForEach(Array(view.cash.enumerated()), id: \.offset) { _, button in
-                LinkPress(press: button.press) { send(CashButtons.action(button.action, orderId: orderId)) }
-                    .frame(maxWidth: regular ? SaleLayout.stackedButtons : .infinity)
+/// Return to Square at the foot of a sale (round 4): silver, the Square
+/// mark, its words on one line however narrow, as wide as its share of the
+/// row.
+struct ReturnToSquareWide: View {
+    let label: String
+    let action: @MainActor () -> Void
+
+    var body: some View {
+        Button {
+            action()
+        } label: {
+            HStack(spacing: 8) {
+                SquareMark()
+                    .frame(width: 18, height: 18)
+                Text(label)
+                    .font(.body.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
+            .foregroundStyle(Color.black)
+            .frame(maxWidth: .infinity, minHeight: 50)
+            .background(Capsule().fill(Color(hex: 0xD6D9DE)))
+            .contentShape(Capsule())
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityHint("Opens Square Point of Sale")
     }
 }
 

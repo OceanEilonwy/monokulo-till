@@ -126,9 +126,15 @@ fn json(body: &str) -> ResponseTemplate {
     ResponseTemplate::new(200).set_body_raw(body.to_owned(), "application/json")
 }
 
+// Every server here is the test's own (`MockServer::builder().start()`),
+// never wiremock's pooled ones: an engine a test leaves running keeps
+// posting to the addresses it was given, and a pooled server handed on to
+// the next test on the same port took those stray requests as its own
+// (the relay test's flake on CI, 2026-11-12).
+
 /// Monokulo's entry and one order, far from running out.
 async fn monokulo() -> MockServer {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v1"))
         .respond_with(ResponseTemplate::new(200).set_body_raw(
@@ -154,7 +160,7 @@ pub(crate) const PAYMENTS: &str = r#"{"payments":[{"id":"pay_monero","created_at
 
 /// Square, with one Monero payment at the location.
 async fn square() -> MockServer {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/v2/payments"))
         .respond_with(json(PAYMENTS))
@@ -404,7 +410,7 @@ fn androids_use_notifications_only_turns_the_bubble_off() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn connecting_keeps_the_connection_in_stores_kts_key() {
-    let monokulo = MockServer::start().await;
+    let monokulo = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/apps/connect"))
         .respond_with(json(r#"{"app_key":"ak_x","api":"/api/v1"}"#))
@@ -455,7 +461,7 @@ async fn connecting_keeps_the_connection_in_stores_kts_key() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_sign_in_opens_its_page_and_keeps_the_attempt_as_stores_kt_did() {
     let monokulo = monokulo().await;
-    let square = MockServer::start().await;
+    let square = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/oauth2/token"))
         .respond_with(json(
@@ -545,7 +551,7 @@ async fn a_sign_in_opens_its_page_and_keeps_the_attempt_as_stores_kt_did() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_sign_in_back_on_the_builds_return_link_is_taken_and_exchanged_for_the_redirect() {
     let monokulo = monokulo().await;
-    let square = MockServer::start().await;
+    let square = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/oauth2/token"))
         .respond_with(json(
@@ -774,12 +780,10 @@ async fn the_live_activity_follows_the_tills_own_sale_and_the_islands_switches()
     assert_eq!(live_activity(&rx), None, "no activity with the switch off");
 }
 
-/// The iPad's floating window (ipad-redesign.md decision 2) draws the Live
-/// Activity's state, with the code while the sale waits, only while a new
-/// sale shows up in a floating window.
+/// An iPad that kept the dropped floating window (core.md decision 225)
+/// reads it as the alert, and has no Live Activity.
 #[tokio::test(flavor = "multi_thread")]
-async fn the_ipads_floating_window_follows_the_sale_only_while_chosen() {
-    use till_screens::live_activity::ActivityPhase;
+async fn an_ipad_that_kept_the_floating_window_shows_sales_by_alert() {
     let monokulo = monokulo().await;
     let square = square().await;
     let platform = signed_in_till(&monokulo);
@@ -788,25 +792,8 @@ async fn the_ipads_floating_window_follows_the_sale_only_while_chosen() {
         device: Device::Ipad,
         ..config(Some(&square))
     };
-    let (engine, rx, _) = start(ipad, platform);
-    let waiting = wait_for(&rx, |heard| match heard {
-        Heard::Update(Update::LiveActivity { state: Some(state) })
-            if state.phase == ActivityPhase::Waiting =>
-        {
-            Some(state.clone())
-        }
-        _ => None,
-    });
-    assert_eq!(waiting.amount.as_deref(), Some("13.88"));
-    assert_eq!(
-        waiting.payment_uri.as_deref(),
-        Some("monero:8Bx?tx_amount=0.08"),
-        "the window shows the code"
-    );
-    engine.send(Action::ChooseShowSales {
-        mode: crate::ShowSales::Alert,
-    });
-    assert_eq!(live_activity(&rx), None, "no window with alerts chosen");
+    let (_engine, rx, _) = start(ipad, platform);
+    assert_eq!(live_activity(&rx), None, "no Live Activity on iPad");
 }
 
 /// Android's ongoing notification alerts a sale that arrives while the app
@@ -1123,7 +1110,7 @@ fn rows(view: &till_screens::ShiftView) -> usize {
 /// Connects to a stand-in whose handshake gives an onion address, after
 /// `probe` (if any) told the engine about Orbot; returns what was kept.
 async fn connect_with_onion(probe: Option<bool>) -> String {
-    let monokulo = MockServer::start().await;
+    let monokulo = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/apps/connect"))
         .respond_with(json(
@@ -1187,7 +1174,7 @@ fn settings_says_when_orbot_isnt_running_for_a_till_on_tor() {
 /// which copies the store's whole address as every other copy does.
 #[tokio::test(flavor = "multi_thread")]
 async fn settings_copies_the_stores_whole_wallet_address_through_the_engine() {
-    let monokulo = MockServer::start().await;
+    let monokulo = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v1"))
         .respond_with(ResponseTemplate::new(200).set_body_raw(
@@ -1619,6 +1606,9 @@ fn the_till_and_the_sales_screens_map_to_places_and_back() {
 }
 
 /// Waits up to 10 s for `server` to have a request that `pick` takes.
+/// Pick by method and path, never any request: wiremock lends its
+/// servers from a pool, so a request an earlier test's engine still had in
+/// flight can land on this test's server.
 async fn request_to(
     server: &MockServer,
     pick: impl Fn(&wiremock::Request) -> bool,
@@ -1644,7 +1634,7 @@ async fn on_ios_the_apns_token_goes_through_the_relay_to_the_bell_and_a_relayed_
     const VAPID: &str =
         "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM";
     let (monokulo, square) = (monokulo().await, square().await);
-    let bell = MockServer::start().await;
+    let bell = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/v1/info"))
         .respond_with(json(&format!(
@@ -1660,7 +1650,7 @@ async fn on_ios_the_apns_token_goes_through_the_relay_to_the_bell_and_a_relayed_
         ))
         .mount(&bell)
         .await;
-    let relay = MockServer::start().await;
+    let relay = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/register"))
         .respond_with(ResponseTemplate::new(201).set_body_raw(
@@ -1682,13 +1672,26 @@ async fn on_ios_the_apns_token_goes_through_the_relay_to_the_bell_and_a_relayed_
         },
     });
 
-    let registered = request_to(&relay, |_| true).await;
+    // The APNs registration itself, not merely a request to the right path.
+    let registered = request_to(&relay, |r| {
+        r.method.as_str() == "POST"
+            && r.url.path() == "/v1/register"
+            && serde_json::from_slice::<serde_json::Value>(&r.body)
+                .is_ok_and(|body| body["platform"] == "apns")
+    })
+    .await;
     let sent: serde_json::Value = serde_json::from_slice(&registered.body).unwrap();
     assert_eq!(
         sent,
         serde_json::json!({"platform": "apns", "token": APNS, "app": "till", "vapid_public_key": VAPID})
     );
-    let rung = request_to(&bell, |r| r.method.as_str() == "POST").await;
+    let rung = request_to(&bell, |r| {
+        r.method.as_str() == "POST"
+            && r.url.path() == "/v1/register"
+            && serde_json::from_slice::<serde_json::Value>(&r.body)
+                .is_ok_and(|body| body.get("subscription").is_some())
+    })
+    .await;
     let sent: serde_json::Value = serde_json::from_slice(&rung.body).unwrap();
     let subscription = &sent["subscription"];
     assert_eq!(
@@ -1734,7 +1737,7 @@ async fn on_ios_the_apns_token_goes_through_the_relay_to_the_bell_and_a_relayed_
 
 /// Square, with one Monero payment at the location taken on `device`.
 async fn square_with_device(device: &str, name: &str, source: &str) -> MockServer {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let payments = PAYMENTS
         .replace(
             r#""location_id":"L1""#,
@@ -1886,9 +1889,9 @@ async fn the_test_sale_names_this_counters_device_and_c4_asks_which_sales_alert(
     engine.send(Action::Next);
     screen(&rx, Screen::ShowSales);
     engine.send(Action::ChooseShowSales {
-        mode: crate::ShowSales::FloatingWindow,
+        mode: crate::ShowSales::SideBySide,
     });
-    wait_for(&rx, |_| platform.get("sales.show").filter(|v| v == "pip"));
+    wait_for(&rx, |_| platform.get("sales.show").filter(|v| v == "side"));
     engine.send(Action::Next);
     screen(&rx, Screen::Ready);
 }
@@ -1970,7 +1973,7 @@ async fn this_counters_sale_another_till_announced_first_alerts_when_found_here(
 #[tokio::test(flavor = "multi_thread")]
 async fn a_clover_till_names_the_device_by_clovers_list_and_offers_the_counters_settings() {
     let monokulo = monokulo().await;
-    let clover = MockServer::start().await;
+    let clover = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/v3/merchants/MID1/payments"))
         .respond_with(json(

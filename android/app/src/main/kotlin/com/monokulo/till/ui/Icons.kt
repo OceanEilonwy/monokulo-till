@@ -60,5 +60,14 @@ object MkIcons {
     /** A banknote: a cash sale offered in Monero, kept as cash or paid in cash (core.md decision 126). */
     val Cash = icon("cash", 24f, "M4.5 6.5h15a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 16V8a1.5 1.5 0 0 1 1.5-1.5Z" to 2f, "M12 9.5a2.5 2.5 0 1 0 0.01 0Z M6.5 12h.1 M17.4 12h.1" to 2f)
     /** Arrows in from the corners: shrink it. */
+    /** A circular arrow: start again (New shift), as iOS's arrow.counterclockwise. */
+    val Reset = icon("reset", 24f, "M4.5 12a7.5 7.5 0 1 0 2.4-5.5" to 2.2f, "M4 3.5V8h4.5" to 2.2f)
+
+    /** A phone or tablet: this device, in the counter step. */
+    val Device = icon("device", 24f, "M8 3h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z M11 18h2" to 1.8f)
+
+    /** A shop front: the whole location, in the counter step. */
+    val Store = icon("store", 24f, "M4 9l1.5-5h13L20 9 M4 9h16v1.5a2.7 2.7 0 0 1-5.3 0 2.7 2.7 0 0 1-5.4 0 2.7 2.7 0 0 1-5.3 0Z M5.5 12.5V20h13v-7.5 M10 20v-4.5h4V20" to 1.8f)
+
     val Shrink = icon("shrink", 24f, "M4 10h6V4M20 14h-6v6M10 10L3 3M14 14l7 7" to 2.2f)
 }

@@ -222,8 +222,7 @@ struct ShiftSettings: View {
     }
 }
 
-/// Settings › How sales show up, on iPad: an alert, a floating window, or
-/// side by side, each led by O4's picture (``ShowSalesRow``), with how to
+/// Settings › How sales show up, on iPad: an alert or side by side, each led by O4's picture (``ShowSalesRow``), with how to
 /// arrange side by side while it's chosen.
 struct ShowSalesSettings: View {
     let section: ShowSalesSection
@@ -570,6 +569,8 @@ struct WakeUpsSections: View {
 struct ChoiceRow: View {
     let choice: Choice
     var padded = false
+    /// An SF Symbol leading the row, where the choice has one.
+    var icon: String? = nil
     let action: @MainActor () -> Void
 
     var body: some View {
@@ -577,6 +578,13 @@ struct ChoiceRow: View {
             action()
         } label: {
             HStack(spacing: 12) {
+                if let icon {
+                    Image(systemName: icon)
+                        .font(.title3)
+                        .foregroundStyle(Palette.ink)
+                        .frame(width: 28)
+                        .accessibilityHidden(true)
+                }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(choice.label)
                         .foregroundStyle(Palette.ink)

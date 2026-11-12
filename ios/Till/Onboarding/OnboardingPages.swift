@@ -15,8 +15,8 @@ struct WelcomePage: View {
     var body: some View {
         StepPage {
             VStack(spacing: 0) {
-                TillWidget(state: .idle, size: 148, decorative: true)
-                Heading(text: view.heading, centred: true, display: 34)
+                TillWidget(state: .idle, size: 88, decorative: true)
+                Heading(text: view.heading, centred: true, display: 30)
                     .padding(.top, 26)
                 Lead(text: view.lead, centred: true)
                     .frame(maxWidth: 320)
@@ -324,6 +324,10 @@ struct PointOfSalePage: View {
                     PosConnectedLine(line: step.connected, changeLocation: card.changeLocation, send: send)
                     PageTop(heading: view.heading, lead: view.lead)
                     PosTillSteps(card: card, testRow: false, send: send)
+                    if let status = step.status {
+                        TestStatusCard(status: status)
+                            .padding(.top, 12)
+                    }
                     ProblemNote(text: card.problem)
                 }
             case .none:
@@ -343,22 +347,18 @@ struct PointOfSalePage: View {
                 }
             }
         } bottom: {
-            if let status = step.status {
-                TestStatusBar(status: status, next: step.next, skip: step.skip, send: send)
-            } else {
-                if let next = step.next {
-                    PrimaryPress(press: next) { send(.next) }
-                }
-                if let skip = step.skip {
-                    LinkPress(press: skip) { send(.skip) }
-                }
-                if let footnote = step.skipFootnote {
-                    Text(footnote)
-                        .font(.footnote)
-                        .foregroundStyle(Palette.secondary)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            if let next = step.next {
+                PrimaryPress(press: next) { send(.next) }
+            }
+            if let skip = step.skip {
+                LinkPress(press: skip) { send(.skip) }
+            }
+            if let footnote = step.skipFootnote {
+                Text(footnote)
+                    .font(.footnote)
+                    .foregroundStyle(Palette.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -454,59 +454,31 @@ struct PosConnectedLine: View {
     }
 }
 
-/// O3's status, pinned in the bottom bar: the glyph, what's happening and
-/// what follows, each on one line, beside Skip the test and Continue (side
-/// by side where they fit, else stacked).
-struct TestStatusBar: View {
+/// O3's status, as the last card under the steps it waits on: the glyph,
+/// what's happening and what follows. Found, it turns to a tick.
+struct TestStatusCard: View {
     let status: TestStatus
-    let next: Press?
-    let skip: Press?
-    let send: Send
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 16) {
-                words
-                Spacer(minLength: 8)
-                if let skip {
-                    LinkPress(press: skip) { send(.skip) }
-                        .fixedSize()
+        Card {
+            HStack(spacing: 12) {
+                if status.found {
+                    DoneTick(size: 24)
+                } else {
+                    StatusGlyph(kind: .waiting, size: 24)
                 }
-                if let next {
-                    PrimaryPress(press: next) { send(.next) }
-                        .frame(width: 200)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(status.title)
+                        .font(.body.weight(.semibold))
+                    Text(status.detail)
+                        .font(.footnote)
+                        .foregroundStyle(Palette.secondary)
                 }
+                .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
             }
-            .frame(minWidth: 560)
-            VStack(spacing: 10) {
-                words
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                if let next {
-                    PrimaryPress(press: next) { send(.next) }
-                }
-                if let skip {
-                    LinkPress(press: skip) { send(.skip) }
-                }
-            }
-        }
-    }
-
-    private var words: some View {
-        HStack(spacing: 12) {
-            if status.found {
-                DoneTick(size: 24)
-            } else {
-                StatusGlyph(kind: .waiting, size: 24)
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(status.title)
-                    .font(.body.weight(.semibold))
-                    .lineLimit(1)
-                Text(status.detail)
-                    .font(.footnote)
-                    .foregroundStyle(Palette.secondary)
-                    .lineLimit(1)
-            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.updatesFrequently)
@@ -836,6 +808,12 @@ struct CounterPage: View {
     let view: CounterStep
     let send: Send
 
+    /// The first choice is this device, the second the whole location.
+    static func icon(_ index: Int) -> String {
+        if index > 0 { return "storefront" }
+        return UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
+    }
+
     var body: some View {
         StepPage(back: { send(.back) }) {
             HStack(spacing: 12) {
@@ -848,8 +826,16 @@ struct CounterPage: View {
             .padding(.top, 12)
             .accessibilityElement(children: .combine)
             PageTop(heading: view.heading, lead: view.lead)
-            ChoiceCard(choices: view.choices) { index in
-                send(.setAlertFor(everyDevice: index > 0))
+            // This device, then the whole location: each led by its icon.
+            Card {
+                ForEach(Array(view.choices.enumerated()), id: \.offset) { index, choice in
+                    if index > 0 {
+                        Hairline()
+                    }
+                    ChoiceRow(choice: choice, padded: true, icon: CounterPage.icon(index)) {
+                        send(.setAlertFor(everyDevice: index > 0))
+                    }
+                }
             }
             .padding(.top, 20)
             Footnote(text: view.footnote)
@@ -953,8 +939,7 @@ struct ShowSalesRow: View {
 }
 
 /// OnbShow's skeleton of a way a sale shows up, on a 56-point tile: an
-/// alert's pill, a floating window in the corner of the point of sale, or
-/// the two side by side. A picture only; the row says it in words.
+/// alert's pill, or the two side by side. A picture only; the row says it in words.
 struct ShowSalesPicture: View {
     let mode: ShowSales
 
@@ -973,16 +958,6 @@ struct ShowSalesPicture: View {
             Capsule()
                 .fill(Palette.ink)
                 .frame(width: 36, height: 14)
-        case .floatingWindow:
-            RoundedRectangle(cornerRadius: 4)
-                .fill(Palette.border)
-                .frame(width: 40, height: 30)
-                .overlay(alignment: .bottomTrailing) {
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(Palette.ink)
-                        .frame(width: 14, height: 14)
-                        .padding(3)
-                }
         case .sideBySide:
             HStack(spacing: 3) {
                 RoundedRectangle(cornerRadius: 4)
@@ -1058,9 +1033,9 @@ struct ReadyPage: View {
     var body: some View {
         StepPage {
             VStack(spacing: 10) {
-                TillWidget(state: .idle, size: 96, decorative: true)
+                TillWidget(state: .idle, size: 72, decorative: true)
                     .padding(.bottom, 10)
-                Heading(text: heading, centred: true, display: 30)
+                Heading(text: heading, centred: true, display: 28)
                 Lead(text: lead, centred: true)
                     .frame(maxWidth: 330)
             }

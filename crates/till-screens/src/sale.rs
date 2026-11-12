@@ -160,7 +160,13 @@ pub fn sale(
         share_title: format!("Monero payment · {amount}"),
         order_title: "Order".into(),
         title: sale_text::heading(sale),
-        title_line: sale_text::heading_line(sale, &header.place),
+        title_line: sale_text::sale_line(
+            sale,
+            &header.place,
+            matches!(sale.phase, SalePhase::Waiting | SalePhase::Partial)
+                .then(|| format!("{} left", sale_text::clock(seconds)))
+                .as_deref(),
+        ),
         amount,
         xmr: sale_text::xmr(sale),
         code: sale.code.uri.clone(),
@@ -233,7 +239,10 @@ mod tests {
     fn a_waiting_sale_shows_its_amount_code_status_and_order_as_the_design_does() {
         let view = sale(&input(bp9m(), SQUARE), Device::Android, la(at()), &money);
         assert_eq!(view.title, "Sale #bP9m");
-        assert_eq!(view.title_line, "Front Counter · this till");
+        assert_eq!(
+            view.title_line, "14:52 left",
+            "the place goes: a till serves one"
+        );
         assert_eq!(view.amount, "$13.88");
         assert_eq!(view.xmr, "0.05552 XMR");
         assert_eq!(view.code, "monero:4abc?tx_amount=0.1");
@@ -334,8 +343,8 @@ mod tests {
         );
         assert_eq!(clover_till.back_to_pos, None, "Clover's device is its own");
         assert_eq!(
-            clover_till.title_line, "Square · this till",
-            "a Square sale on a till now on Clover"
+            clover_till.title_line, "14:52 left",
+            "a Square sale on a till now on Clover: its page says so"
         );
         assert!(
             clover_till.closes,

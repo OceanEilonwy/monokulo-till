@@ -1833,3 +1833,48 @@ still strings across the till, the ledger, the screens and the bridge.
      window's strip is 124 × 44 pt by default with "Watching", "Confirming"
      or "Paid" over the amount and no names, its frames drawn at twice the
      window's pixel density (the blur on an iPad).
+225. **The iPad's floating window is dropped.** (Owner, 2026-11-12.) The
+     Picture in Picture window took too much of the screen, was awkward to
+     use, and iOS's playback controls over it meant nothing on a till, with
+     no public way to hide them. `ShowSales` is `Alert` or `SideBySide`; a
+     kept `pip` (or the old `FloatingWindow`) reads as the alert, the
+     default. The Live Activity's state is for iPhone alone again
+     (`live_activity` is `None` on iPad), and `ShiftView.offered_cash`
+     (decision 128) is gone with the window that drew it: since decision
+     221 no offered cash sale reached it anyway. A cash sale offered in
+     Monero is still taken from its page. On iOS the window's code, its
+     source layer, its log category and the "Audio, AirPlay, and Picture in
+     Picture" background mode went with it; an alert always posts now.
+     This replaces decisions 125 and 128, and the floating window's parts
+     of 120 and 224.
+226. **Shorter setup words, the Till logo smaller, and Android's setup in
+     stages.** (Owner, 2026-11-12, after the first side-by-side screenshots.)
+     C4 says one fact and two plain choices: "The test sale was rung up on
+     Front iPad.", "Only Front iPad" (recommended; other counters' sales
+     still show, quietly) and "Every sale at Front Counter" (one till for
+     the whole location), led on both platforms by a device's icon and a
+     shop's, and "Change this any time in Settings." The Till logo leads
+     Welcome at 88 pt, Ready at 72 pt, the empty till at 80 pt and a sale's
+     status at 72 pt (96 pt in regular width), with 28 pt titles beside it.
+     O3's test-sale status is a card under the steps it waits on, not a bar
+     beside Continue. Android draws step 4 in the engine's stages as iOS
+     does (`PosStep::stage`): the choice alone, then the sign-in, then the
+     test sale. Android draws Till's own logo (`TillWidget`) wherever the
+     mark stands for Till; Monokulo's round mark stays for the Monokulo
+     store. On iPad, Close the sale is an X, as on iPhone and Android.
+227. **iOS follows Android's layout: one column, a sale full screen.**
+     (Owner, 2026-11-12, the canvas's Round 4 page.) The iPad drops the
+     sidebar: the shift is one 600 pt column in the middle at any width,
+     and a sale opens over the whole screen with Back, as on iPhone and
+     Android; the order is a page in the same stack. The shift's bar holds
+     the place (a menu of counters when there's a choice) and Settings;
+     "This shift" leads the page with since when and whether Till watches,
+     then the takings, New shift with a reset arrow, and the filter, whose
+     Needs action count is a chip. A live sale's code card carries the
+     status under a hairline, beside its ring; Copy address and a silver
+     Return to Square sit at its foot; on a wide landscape window the code
+     is on the left and the rest centred beside it. A sale's page leads with
+     a 56 pt glyph and the state in its colour (Paid green, Not paid amber).
+     Expired says one fact per line: "Not paid", the amount, "The code ran
+     out at 10:30 PM", one sentence, the timeline, and the late-payment rule
+     as small print (`SalePageView::footnote`).

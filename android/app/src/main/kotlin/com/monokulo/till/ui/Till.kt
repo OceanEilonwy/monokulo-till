@@ -267,7 +267,12 @@ private fun LiveSale(sale: SaleFace, actions: TillActions, ground: GroundTrack) 
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         if (view.showsCode) {
-                            Code(sale, min(this@BoxWithConstraints.maxHeight - 120.dp, 440.dp), card, ground, onEnlarge = enlarge)
+                            // The status is the code card's foot here too (owner, round 4), as on a phone and on iOS.
+                            val side = min(this@BoxWithConstraints.maxHeight - 190.dp, 440.dp)
+                            Column(Modifier.width(side)) {
+                                Code(sale, side, card, ground, footed = true, onEnlarge = enlarge)
+                                Box(words) { StatusFoot(view) }
+                            }
                         } else {
                             Box(words) { StatusHero(view) }
                         }
@@ -281,7 +286,7 @@ private fun LiveSale(sale: SaleFace, actions: TillActions, ground: GroundTrack) 
                             horizontalAlignment = Alignment.Start,
                         ) {
                             Box(words) { Amount(sale, actions, start = true) }
-                            Box(words) { StatusPill(view) }
+                            if (!view.showsCode) Box(words) { StatusPill(view) }
                             view.order?.let { Box(orderWords) { Late(late) { OrderCard(it, room, onOpen = showOrder, shared = "order/${sale.orderId}") } } }
                             Box(words) { Buttons(sale, actions) }
                         }
@@ -391,7 +396,7 @@ fun SaleBar(title: String, subtitle: String, orderId: String, actions: TillActio
             Text(words, fontSize = 13.sp, color = mk.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
-    CircleButton(MkIcons.Settings, "Settings", { actions.send(Action.OpenSettings) }, ground = mk.chip, tint = mk.ink, iconSize = 20.dp)
+    // No Settings here: they open from the shift (owner, round 4).
     if (onClose != null) {
         Spacer(Modifier.width(4.dp))
         CircleButton(MkIcons.Close, "Close sale", onClose, ground = mk.dangerGround, tint = mk.danger, iconSize = 16.dp)
@@ -547,11 +552,11 @@ private fun RingTick(paid: Boolean) {
 @Composable
 private fun Buttons(sale: SaleFace, actions: TillActions) = Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
     val copy = sale.view.copyAddress
-    OutlineButton(copy.label, { actions.send(Action.CopyAddress(sale.orderId)) }, Modifier.weight(1f), height = 56.dp, enabled = copy.enabled)
+    OutlineButton(copy.label, { actions.send(Action.CopyAddress(sale.orderId)) }, Modifier.weight(1f), height = 56.dp, size = 15, enabled = copy.enabled, icon = MkIcons.Copy, oneLine = true)
     val back = sale.view.backToPos
     val open = actions.onBackToPos
     if (back != null && open != null) {
-        PrimaryButton(back.press.label, { open(back.mark) }, Modifier.weight(1f), height = 56.dp, size = 16, enabled = back.press.enabled)
+        BackToPosButton(back.press.label, back.mark, { open(back.mark) }, Modifier.weight(1f), enabled = back.press.enabled)
     }
     // A cash sale's "Paid in cash" (docs/decisions/core.md 116).
     for (button in sale.view.cash) {

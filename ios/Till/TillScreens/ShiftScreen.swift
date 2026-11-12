@@ -24,10 +24,14 @@ struct ShiftScreen: View {
 
     var body: some View {
         content
-            .navigationTitle(view.counters?.title ?? ShiftTitle.title(view.top))
-            .navigationSubtitle(ShiftTitle.subtitle(view.top, menu: view.counters != nil))
-            .modifier(CounterTitleMenu(menu: view.counters, send: send))
+            // The bar holds the place (the counter's menu when there's a
+            // choice) and Settings; "This shift" leads the page (round 4).
+            .navigationTitle(view.header == nil ? ShiftTitle.title(view.top) : "")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    PlaceMenu(top: view.top, menu: view.counters, send: send)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         send(.openSettings)
@@ -66,11 +70,15 @@ struct ShiftScreen: View {
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
             }
+            if let header = view.header {
+                Section {
+                    ShiftHeaderCard(label: view.summaryLabel, header: header, state: view.top.state) { askNewShift = true }
+                        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 6, trailing: 20))
+                }
+                .listRowBackground(Color.clear)
+            }
             Section {
-                if let header = view.header {
-                    ShiftHeaderCard(label: view.summaryLabel, header: header) { askNewShift = true }
-                        .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 14, trailing: 16))
-                } else {
+                if view.header == nil {
                     LabeledContent(view.summaryLabel) {
                         Text(view.summary)
                             .monospacedDigit()
@@ -95,13 +103,14 @@ struct ShiftScreen: View {
                 }
             }
             .listRowBackground(Palette.card)
+            .listSectionSeparator(.hidden)
             if !view.chips.isEmpty {
                 Section {
                     FilterPicker(chips: view.chips) { send(.chooseFilter(filter: $0)) }
                         .listRowSeparator(.hidden)
                 }
                 .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
             }
             ForEach(Array(ShiftSections.of(view.entries).enumerated()), id: \.offset) { _, section in
                 Section {
@@ -182,23 +191,30 @@ struct ShiftScreen: View {
     }
 }
 
-/// The shift's header (the design's S1): "This shift" with since when, a
-/// New shift button, and the takings with the paid count under them.
+/// The shift's header (round 4's F1): "This shift" as the page's large
+/// title, since when and whether Till watches under it, New shift with its
+/// reset arrow, and the takings with the paid count. On the page's ground,
+/// not a card, as Android draws it.
 struct ShiftHeaderCard: View {
     let label: String
     let header: ShiftHeader
+    /// "Watching", from the shift's top row.
+    var state: String = ""
     let newShift: @MainActor () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center, spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .bottom, spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(label)
-                        .font(.title3.weight(.bold))
+                        .font(.largeTitle.weight(.bold))
                         .lineLimit(1)
-                    if let since = header.since {
-                        Text(since)
-                            .font(.footnote)
+                        .minimumScaleFactor(0.7)
+                        .accessibilityAddTraits(.isHeader)
+                    let line = [header.since ?? "", state].filter { !$0.isEmpty }.joined(separator: " · ")
+                    if !line.isEmpty {
+                        Text(line)
+                            .font(.subheadline)
                             .foregroundStyle(Palette.secondary)
                             .lineLimit(1)
                     }
@@ -207,7 +223,7 @@ struct ShiftHeaderCard: View {
                 Button {
                     newShift()
                 } label: {
-                    Label(header.newShift.label, systemImage: "plus")
+                    Label(header.newShift.label, systemImage: "arrow.counterclockwise")
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
                 }
@@ -217,7 +233,7 @@ struct ShiftHeaderCard: View {
             }
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(header.total)
-                    .display(34, tracking: -0.8)
+                    .display(30, tracking: -0.7)
                     .minimumScaleFactor(0.6)
                     .lineLimit(1)
                 Text("· \(header.paid)")
@@ -305,25 +321,53 @@ struct SectionHeader: View {
     }
 }
 
-/// All, Needs action with its count, Paid: the system's segmented control.
+/// All, Needs action with its count, Paid: equal thirds in a sunken track,
+/// the chosen one raised, and Needs action's count as a filled chip, as
+/// Android draws it (round 4; the system's segmented control can't hold a
+/// chip).
 struct FilterPicker: View {
     let chips: [FilterChip]
     let choose: @MainActor (ShiftFilter) -> Void
 
     var body: some View {
-        Picker("Show", selection: Binding(
-            get: { chips.first { $0.selected }?.filter ?? .all },
-            set: { choose($0) }
-        )) {
+        HStack(spacing: 2) {
             ForEach(Array(chips.enumerated()), id: \.offset) { _, chip in
-                Text(FilterPicker.label(chip)).tag(chip.filter)
+                Button {
+                    choose(chip.filter)
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(chip.label)
+                            .font(.subheadline.weight(chip.selected ? .semibold : .regular))
+                            .lineLimit(1)
+                        if let count = chip.count {
+                            Text("\(count)")
+                                .font(.caption.weight(.bold))
+                                .monospacedDigit()
+                                .foregroundStyle(Color.white)
+                                .padding(.horizontal, 6)
+                                .frame(minWidth: 20, minHeight: 20)
+                                .background(Capsule().fill(Palette.expiredInk))
+                        }
+                    }
+                    .foregroundStyle(Palette.ink)
+                    .frame(maxWidth: .infinity, minHeight: 34)
+                    .background {
+                        if chip.selected {
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Palette.card)
+                                .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(FilterPicker.label(chip))
+                .accessibilityAddTraits(chip.selected ? .isSelected : [])
             }
         }
-        .pickerStyle(.segmented)
-        // The system's own control at its large size, in equal thirds across
-        // the list's width (the design's 36 pt, 15 pt labels), not squeezed
-        // to the edges.
-        .controlSize(.large)
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Palette.chip))
+        .accessibilityElement(children: .contain)
         .accessibilityLabel("Show")
     }
 
@@ -412,6 +456,67 @@ struct SaleRow: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// The place at the bar's leading edge (round 4's F1): the point of sale's
+/// mark and the counter or location, a menu of counters when the engine
+/// offers a choice (C3), plain words otherwise.
+struct PlaceMenu: View {
+    let top: ShiftTop
+    let menu: CounterMenu?
+    let send: Send
+
+    var body: some View {
+        if let menu {
+            Menu {
+                Section(menu.heading) {
+                    ForEach(Array(CounterTitleMenu.counters(menu).enumerated()), id: \.offset) { _, item in
+                        pick(item)
+                    }
+                }
+                if let all = CounterTitleMenu.all(menu) {
+                    Section { pick(all) }
+                }
+            } label: {
+                label(menu.title, chevron: true)
+            }
+        } else {
+            label(ShiftTitle.title(top), chevron: false)
+                .accessibilityElement(children: .combine)
+        }
+    }
+
+    private func label(_ text: String, chevron: Bool) -> some View {
+        HStack(spacing: 7) {
+            if let mark = top.mark {
+                PosMarkTile(mark: mark, inInk: true, size: 20)
+            }
+            Text(text)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+            if chevron {
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.bold))
+            }
+        }
+        .foregroundStyle(Palette.ink)
+        .padding(.horizontal, 6)
+        // Its whole name: the bar's leading slot squeezes it to a letter
+        // otherwise.
+        .fixedSize()
+    }
+
+    private func pick(_ item: CounterItem) -> some View {
+        Toggle(isOn: Binding(
+            get: { item.selected },
+            set: { _ in send(.chooseCounter(choice: item.choice)) }
+        )) {
+            Text(item.name)
+            if let line = CounterTitleMenu.line(item) {
+                Text(line)
+            }
+        }
     }
 }
 
@@ -555,7 +660,7 @@ struct EmptyTill: View {
                             .frame(maxWidth: 360)
                     }
                     Spacer(minLength: 0)
-                    TillWidget(state: .idle, size: 128, decorative: true)
+                    TillWidget(state: .idle, size: 80, decorative: true)
                     Text(words.title)
                         .font(.title.weight(.bold))
                         .multilineTextAlignment(.center)

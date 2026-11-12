@@ -256,6 +256,8 @@ struct FactCard: View {
 /// started runs (`Press.busy`), the button shows the progress in itself.
 struct PrimaryPress: View {
     let press: Press
+    /// An SF Symbol for what it does, leading its words (owner, round 4).
+    var systemImage: String? = nil
     let action: @MainActor () -> Void
 
     var body: some View {
@@ -266,6 +268,9 @@ struct PrimaryPress: View {
                 if press.busy {
                     ProgressView()
                         .tint(Palette.onAccent)
+                        .accessibilityHidden(true)
+                } else if let systemImage {
+                    Image(systemName: systemImage)
                         .accessibilityHidden(true)
                 }
                 Text(press.label)
