@@ -569,6 +569,8 @@ struct WakeUpsSections: View {
 struct ChoiceRow: View {
     let choice: Choice
     var padded = false
+    /// An SF Symbol leading the row, where the choice has one.
+    var icon: String? = nil
     let action: @MainActor () -> Void
 
     var body: some View {
@@ -576,6 +578,13 @@ struct ChoiceRow: View {
             action()
         } label: {
             HStack(spacing: 12) {
+                if let icon {
+                    Image(systemName: icon)
+                        .font(.title3)
+                        .foregroundStyle(Palette.ink)
+                        .frame(width: 28)
+                        .accessibilityHidden(true)
+                }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(choice.label)
                         .foregroundStyle(Palette.ink)
