@@ -445,7 +445,9 @@ The bindings are generated in CI, never committed, the same as on Android
 - Runs `xcodebuild archive`, exports once to check the signed entitlements,
   then `xcodebuild -exportArchive` with `destination: upload`. This uploads
   to TestFlight without fastlane.
-- Uses the GitHub environment `testflight`, with required reviewers. The
+- Waits for approval in the GitHub environment `testflight` (required
+  reviewers only), then builds in `sandbox`, which holds the secrets and
+  variables. The
   owner's one-time steps are in [release.md](release.md).
 
 ### `pages.yml`, small addition

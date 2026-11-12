@@ -52,10 +52,16 @@ This page lists the one-time setup, in order (docs/ios-plan.md §5, phase I7).
    repository variable `APPLE_TEAM_ID` = the team ID. It must be a
    repository variable, not an environment one, because Pages reads it too
    (§5).
-2. **Environment**: Environments › New environment `testflight`. Add
-   yourself as a required reviewer. Under deployment branches and tags,
-   choose selected ones: `main` and the tag rule `v*`.
-3. **Secrets** in the `testflight` environment:
+2. **Environments**: a job runs in one environment, so the release uses
+   two (`release-ios.yml`'s `approve` and `testflight` jobs):
+   - `testflight`, the approval gate. Environments › New environment
+     `testflight`, add yourself as a required reviewer, and nothing else:
+     it holds no secrets or variables.
+   - `sandbox`, the deployment's configuration: the secrets and variables
+     below. New environment `sandbox`, no reviewers. Under deployment
+     branches and tags, choose selected ones: `main` and the tag rule
+     `v*`, so a run on another branch can't read its secrets.
+3. **Secrets** in the `sandbox` environment:
    | Secret | Value |
    | --- | --- |
    | `ASC_KEY_ID` | the Key ID, e.g. `2X9R4HXF34` |
@@ -65,11 +71,11 @@ This page lists the one-time setup, in order (docs/ios-plan.md §5, phase I7).
    Or with `gh`:
    ```sh
    gh variable set APPLE_TEAM_ID --body ABCDE12345
-   gh secret set ASC_KEY_ID --env testflight --body 2X9R4HXF34
-   gh secret set ASC_ISSUER_ID --env testflight --body 00000000-0000-0000-0000-000000000000
-   gh secret set ASC_KEY_P8 --env testflight < AuthKey_2X9R4HXF34.p8
+   gh secret set ASC_KEY_ID --env sandbox --body 2X9R4HXF34
+   gh secret set ASC_ISSUER_ID --env sandbox --body 00000000-0000-0000-0000-000000000000
+   gh secret set ASC_KEY_P8 --env sandbox < AuthKey_2X9R4HXF34.p8
    ```
-4. **Variables** in the `testflight` environment: the points of sale's
+4. **Variables** in the `sandbox` environment: the points of sale's
    public application ids, which the build puts in the app's Info.plist
    (`ios/Till/Build.swift`). Both sign in with PKCE, so there's no secret.
    | Variable | Value |
@@ -83,13 +89,13 @@ This page lists the one-time setup, in order (docs/ios-plan.md §5, phase I7).
    | `TILL_LINK_HOST` | the host of the app's universal links and sign-in redirects, such as `till.monokulo.com` (§5) |
 
    ```sh
-   gh variable set TILL_SQUARE_APPLICATION_ID --env testflight --body sq0idp-…
-   gh variable set TILL_SQUARE_SANDBOX --env testflight --body false
-   gh variable set TILL_CLOVER_APPLICATION_ID --env testflight --body …
-   gh variable set TILL_CLOVER_ENVIRONMENT --env testflight --body north_america
-   gh variable set TILL_RELAY_URL --env testflight --body https://push.monokulo.com
-   gh variable set TILL_BELL_URL --env testflight --body https://bell.monokulo.com
-   gh variable set TILL_LINK_HOST --env testflight --body till.monokulo.com
+   gh variable set TILL_SQUARE_APPLICATION_ID --env sandbox --body sq0idp-…
+   gh variable set TILL_SQUARE_SANDBOX --env sandbox --body false
+   gh variable set TILL_CLOVER_APPLICATION_ID --env sandbox --body …
+   gh variable set TILL_CLOVER_ENVIRONMENT --env sandbox --body north_america
+   gh variable set TILL_RELAY_URL --env sandbox --body https://push.monokulo.com
+   gh variable set TILL_BELL_URL --env sandbox --body https://bell.monokulo.com
+   gh variable set TILL_LINK_HOST --env sandbox --body till.monokulo.com
    ```
    The iOS app signs in through universal links on `till.monokulo.com`.
    A production Square application's OAuth redirect URL must be
