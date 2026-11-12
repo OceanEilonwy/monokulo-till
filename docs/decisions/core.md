@@ -1878,3 +1878,38 @@ still strings across the till, the ledger, the screens and the bridge.
      Expired says one fact per line: "Not paid", the amount, "The code ran
      out at 10:30 PM", one sentence, the timeline, and the late-payment rule
      as small print (`SalePageView::footnote`).
+228. **One trait in front of whatever pays the till, and the saved link
+     names which.** (Owner, 2026-11-12, docs/view-key-mode.md §4.) The new
+     crate `till-payments` holds `PaymentBackend`: `describe`, `create`
+     (idempotent on the request's key), `refresh`, `renew` (New code),
+     `events`, `focus` and `disconnect`. `Till`, `TillRunner`'s side
+     (`RunnerSide::backend`, in place of `connection`), `LiveStore`, the
+     background look and the engine hold an `Arc<dyn PaymentBackend>`, never
+     `MonokuloApi`; only connecting with a code still uses the client
+     itself. `MonokuloBackend` wraps the client and the connection without
+     changing a request: the event stream keeps decision 8's contract, a 401
+     still means disconnected, and proofs of work, Tor and idempotency keys
+     stay in the client. A backend says what it knows as a `Payment`, which
+     the till records as the same `OrderCreated` and `OrderObserved` facts
+     as before, so the ledger's merge (decisions 144, 162) is untouched;
+     the stream's `Changed` is what a `sale.*` event was, and `refresh`
+     replaces each read of an order's `self` link (`resync`,
+     `follow_confirmations`, the background look, which still reads four
+     at once, decision 204). `Payment` follows the proposal with what the
+     ledger already keeps: confirmations and the threshold stay optional (an
+     event or an older Monokulo gives none), `received` optional and
+     `overpaid` a flag, as `OrderObserved` has them, and it also carries the
+     asked amount and currency, the receipt number, the making device's name
+     and the `renew-order` form, which the ledger keeps for Monokulo. A
+     backend that converts the price itself says at what rate
+     (`PriceUsed`), kept as `OrderCreated`'s optional `price_used` (its
+     `price` was already the fiat price), left out of a body without one so
+     old journals read and hash as they did; `url` keeps its name. `Sharing`
+     (`Shared`, Monokulo; `ThisTill`, a wallet) is part of what the backend
+     describes, so tests with `FakeBackend` cover both. The `"connection"`
+     secret holds a `Link`, `Monokulo(Connection)` or `Wallet(WalletLink)`:
+     a Monokulo link is written as the bare connection every earlier build
+     wrote, so a till connected before reads as linked to Monokulo and an
+     older build put back still reads it; a wallet link is
+     `{"wallet":{…}}`. `WalletLink` is a first shape for the wallet backend
+     to fill in, and a wallet link makes no backend yet.
