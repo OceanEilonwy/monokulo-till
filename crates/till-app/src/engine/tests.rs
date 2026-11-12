@@ -9,6 +9,7 @@ use std::time::Duration;
 use monokulo_client::FixedClock;
 use till_screens::onboarding::OnboardingPage;
 use till_screens::shift::ShiftFilter;
+use till_screens::wallet_setup::PaymentsMode;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -231,6 +232,11 @@ fn each_slice_is_published_only_when_it_changes_and_all_again_when_opened() {
     // Backgrounded changes no slice.
     engine.send(Action::Backgrounded);
     engine.send(Action::Next);
+    // V1: Monokulo (docs/view-key-mode.md §11.1).
+    engine.send(Action::ChoosePaymentsMode {
+        mode: PaymentsMode::Monokulo,
+    });
+    engine.send(Action::Next);
     screen(&rx, Screen::Scan);
     let heard: Vec<Heard> =
         std::iter::from_fn(|| rx.recv_timeout(Duration::from_millis(300)).ok()).collect();
@@ -418,6 +424,11 @@ async fn connecting_keeps_the_connection_in_stores_kts_key() {
         .await;
     let platform = Arc::new(FakePlatform::default());
     let (engine, rx, _) = start(config(None), platform.clone());
+    engine.send(Action::Next);
+    // V1: Monokulo (docs/view-key-mode.md §11.1).
+    engine.send(Action::ChoosePaymentsMode {
+        mode: PaymentsMode::Monokulo,
+    });
     engine.send(Action::Next);
     screen(&rx, Screen::Scan);
     // Each way in has its own words for what isn't a connect code.
@@ -1503,6 +1514,11 @@ fn back_is_the_apps_everywhere_but_welcome_the_shift_and_setups_step_4() {
     let (engine, rx, _) = start(config(None), Arc::new(FakePlatform::default()));
     assert!(!back_enabled_on(&rx, Screen::Welcome));
     engine.send(Action::Next);
+    // V1: Monokulo (docs/view-key-mode.md §11.1).
+    engine.send(Action::ChoosePaymentsMode {
+        mode: PaymentsMode::Monokulo,
+    });
+    engine.send(Action::Next);
     assert!(back_enabled_on(&rx, Screen::Scan));
 
     let platform = FakePlatform::with(&[("setup.done", "true")]);
@@ -1568,6 +1584,11 @@ fn the_nav_before_a_screen_says_which_way_it_went() {
     let (engine, rx, _) = start(config(None), Arc::new(FakePlatform::default()));
     screen(&rx, Screen::Welcome);
     engine.send(Action::Next);
+    // V1: Monokulo (docs/view-key-mode.md §11.1).
+    engine.send(Action::ChoosePaymentsMode {
+        mode: PaymentsMode::Monokulo,
+    });
+    engine.send(Action::Next);
     let way = |rx: &Receiver<Heard>, wanted: Screen| {
         let mut way = None;
         wait_for(rx, |heard| match heard {
@@ -1582,7 +1603,7 @@ fn the_nav_before_a_screen_says_which_way_it_went() {
     };
     assert_eq!(way(&rx, Screen::Scan), Some((false, true)));
     engine.send(Action::Back);
-    assert_eq!(way(&rx, Screen::Welcome), Some((true, true)));
+    assert_eq!(way(&rx, Screen::PaymentsMode), Some((true, true)));
 }
 
 #[test]
@@ -2096,4 +2117,268 @@ async fn a_payment_while_behind_is_a_notice_on_ipad_and_on_an_iphone_without_the
         }
         assert_eq!(noticed, notice, "{device:?}, island {island:?}");
     }
+}
+
+/// The onboarding page published last, once it's one `pick` takes.
+fn page_where<T>(rx: &Receiver<Heard>, pick: impl Fn(&OnboardingPage) -> Option<T>) -> T {
+    wait_for(rx, |heard| match heard {
+        Heard::Update(Update::Onboarding { view }) => pick(&view.page),
+        _ => None,
+    })
+}
+
+/// docs/view-key-mode.md §11.1: V1, V2, the address and view key typed
+/// and checked as they are, This till, and the wallet made and kept as
+/// the till's link, before the point of sale. A debug build sets up on
+/// stagenet.
+#[test]
+fn a_wallet_typed_by_hand_is_checked_made_and_kept_as_the_tills_link() {
+    let platform = Arc::new(FakePlatform::default());
+    let config = config(None);
+    let data_dir = config.data_dir.clone();
+    let (engine, rx, _) = start(config, platform.clone());
+    screen(&rx, Screen::Welcome);
+    engine.send(Action::Next);
+    screen(&rx, Screen::PaymentsMode);
+    // Continue waits for a choice; the light server isn't one yet.
+    engine.send(Action::ChoosePaymentsMode {
+        mode: PaymentsMode::LightServer,
+    });
+    engine.send(Action::Next);
+    let mode = page_where(&rx, |page| match page {
+        OnboardingPage::PaymentsMode { view } => Some(view.clone()),
+        _ => None,
+    });
+    assert!(!mode.next.enabled);
+    engine.send(Action::ChoosePaymentsMode {
+        mode: PaymentsMode::Wallet,
+    });
+    engine.send(Action::Next);
+    screen(&rx, Screen::WalletEntry);
+    engine.send(Action::ChooseWalletWay {
+        way: till_screens::wallet_setup::WalletWay::Keys,
+    });
+    screen(&rx, Screen::WalletKeys);
+
+    let keys = fob_keys::Keys::generate(till_wallet::Network::Stagenet).keys;
+    let address = keys.primary_address();
+    engine.send(Action::EditWalletKeys {
+        network: till_screens::wallet_setup::WalletNetwork::Stagenet,
+        address: address.clone(),
+        view_key: keys.public_view_key_hex(),
+    });
+    let wrong = page_where(&rx, |page| match page {
+        OnboardingPage::WalletKeys { view } if view.view_key.note.is_some() => Some(view.clone()),
+        _ => None,
+    });
+    assert_eq!(wrong.address.note.as_deref(), Some("A Stagenet address"));
+    assert!(!wrong.next.enabled);
+    engine.send(Action::EditWalletKeys {
+        network: till_screens::wallet_setup::WalletNetwork::Stagenet,
+        address: address.clone(),
+        view_key: keys.view_key_hex().to_string(),
+    });
+    page_where(&rx, |page| match page {
+        OnboardingPage::WalletKeys { view } if view.next.enabled => Some(()),
+        _ => None,
+    });
+    engine.send(Action::Next);
+    screen(&rx, Screen::ThisTill);
+    engine.send(Action::StepTillNumber { up: true });
+    engine.send(Action::StepPaidAfter { up: true });
+    let this_till = page_where(&rx, |page| match page {
+        OnboardingPage::ThisTill { view }
+            if view.number.as_ref().is_some_and(|n| n.value == "2")
+                && view.paid_after.value == "15 confirmations" =>
+        {
+            Some(view.clone())
+        }
+        _ => None,
+    });
+    assert_eq!(
+        this_till.number.unwrap().detail.as_deref(),
+        Some("Account 2 in your wallet")
+    );
+    // Continue waits while the node is checked; the test makes the wallet
+    // whatever the check says.
+    engine.peek(|s| assert!(s.wallet_step().is_some()));
+    engine.poke(|s| s.finish_wallet());
+    screen(&rx, Screen::PointOfSale);
+    let saved = platform.get("connection").expect("the link kept");
+    let link = till_payments::Link::restore(&saved).expect("a link");
+    let till_payments::Link::Wallet(wallet) = link else {
+        panic!("a wallet link: {saved}");
+    };
+    assert_eq!(
+        (wallet.network.as_str(), wallet.till_number),
+        ("stagenet", 2)
+    );
+    assert_eq!(wallet.settled_confirmations, 15);
+    assert!(
+        !saved.contains(&*keys.view_key_hex()),
+        "the keys are in the wallet file only"
+    );
+    assert!(
+        std::path::Path::new(&data_dir)
+            .join(till_wallet::WALLET_FILE)
+            .exists()
+    );
+    // With only this till's payments, "Set up later" isn't offered.
+    let pos = page_where(&rx, |page| match page {
+        OnboardingPage::PointOfSale { view } => Some(view.clone()),
+        _ => None,
+    });
+    assert!(pos.skip.is_none(), "{:?}", pos.skip);
+}
+
+/// Connect to Fob by two codes (C1 to C4): the answer opens only with the
+/// request on screen; Fob chose the account and shared no node, so This
+/// till asks for the node alone.
+#[test]
+fn connect_to_fob_takes_fobs_sealed_answer_and_skips_the_till_number() {
+    let platform = Arc::new(FakePlatform::default());
+    let (engine, rx, _) = start(config(None), platform.clone());
+    screen(&rx, Screen::Welcome);
+    engine.send(Action::Next);
+    engine.send(Action::ChoosePaymentsMode {
+        mode: PaymentsMode::Wallet,
+    });
+    engine.send(Action::Next);
+    screen(&rx, Screen::WalletEntry);
+    engine.send(Action::ConnectFob);
+    screen(&rx, Screen::FobRequest);
+    let request = page_where(&rx, |page| match page {
+        OnboardingPage::FobRequest { view } => Some(view.clone()),
+        _ => None,
+    });
+    assert_eq!(request.pattern.cells.len(), 25);
+    // Fob, on a phone: it scans the request and seals its answer.
+    let asked = fob_codes::connect::Request::parse(&request.qr).unwrap();
+    assert_eq!(asked.app, "Till");
+    let keys = fob_keys::Keys::generate(till_wallet::Network::Stagenet).keys;
+    let grant = fob_codes::connect::Grant {
+        address: keys.primary_address(),
+        view_key: keys.view_key_hex().to_string(),
+        network: "stagenet".into(),
+        account: 3,
+        label: "Till (Corner Café)".into(),
+        restore_height: 2_250_000,
+        wallet_id: "w1".into(),
+        wallet_name: "Corner Café".into(),
+        node: None,
+        light: None,
+        prices: Some(fob_codes::connect::SharedPrices {
+            provider: "Kraken".into(),
+            currency: "AUD".into(),
+        }),
+    };
+    engine.send(Action::FobAnswer {
+        text: "monero:4abc".into(),
+    });
+    page_where(&rx, |page| match page {
+        OnboardingPage::FobRequest { view } => view.problem.clone(),
+        _ => None,
+    });
+    engine.send(Action::FobAnswer {
+        text: fob_codes::connect::seal(&asked, &grant).unwrap(),
+    });
+    screen(&rx, Screen::FobConnected);
+    let connected = page_where(&rx, |page| match page {
+        OnboardingPage::FobConnected { view } => Some(view.clone()),
+        _ => None,
+    });
+    let facts: Vec<String> = connected.facts.iter().map(|f| f.value.clone()).collect();
+    assert_eq!(
+        facts,
+        [
+            "Corner Café",
+            "Till (Corner Café) · 3",
+            "Kraken · AUD · from Fob"
+        ]
+    );
+    engine.send(Action::StepCodeExpiry { up: true });
+    engine.send(Action::Next);
+    screen(&rx, Screen::ThisTill);
+    let this_till = page_where(&rx, |page| match page {
+        OnboardingPage::ThisTill { view } => Some(view.clone()),
+        _ => None,
+    });
+    assert!(this_till.number.is_none(), "Fob chose the account");
+    assert!(this_till.node.is_some());
+    assert_eq!(this_till.expiry.value, "45 minutes");
+    engine.poke(|s| s.finish_wallet());
+    screen(&rx, Screen::PointOfSale);
+    let saved = platform.get("connection").unwrap();
+    let Some(till_payments::Link::Wallet(wallet)) = till_payments::Link::restore(&saved) else {
+        panic!("a wallet link: {saved}");
+    };
+    assert_eq!(wallet.till_number, 3);
+    assert_eq!(wallet.expiry_minutes, 45);
+    assert_eq!(wallet.price_provider.as_deref(), Some("Kraken"));
+    let fob = wallet.fob.unwrap();
+    assert_eq!(
+        (
+            fob.wallet_name.as_str(),
+            fob.prices_from_fob,
+            fob.node_from_fob
+        ),
+        ("Corner Café", true, false)
+    );
+}
+
+/// D3: the words are taken once, and the count is checked first.
+#[test]
+fn seed_words_are_counted_and_turned_into_the_view_key() {
+    let (engine, rx, _) = start(config(None), Arc::new(FakePlatform::default()));
+    screen(&rx, Screen::Welcome);
+    engine.send(Action::Next);
+    engine.send(Action::ChoosePaymentsMode {
+        mode: PaymentsMode::Wallet,
+    });
+    engine.send(Action::Next);
+    engine.send(Action::ChooseWalletWay {
+        way: till_screens::wallet_setup::WalletWay::Seed,
+    });
+    screen(&rx, Screen::WalletSeed);
+    engine.send(Action::EnterSeed {
+        words: "one two three".into(),
+    });
+    let problem = page_where(&rx, |page| match page {
+        OnboardingPage::WalletSeed { view } => view.problem.clone(),
+        _ => None,
+    });
+    assert_eq!(problem, "Enter all 25 words: there are 3.");
+    let restored = fob_keys::Keys::generate(till_wallet::Network::Stagenet);
+    let (_, words) = restored.keys.seed_words().unwrap();
+    engine.send(Action::ChooseSeedLength { words: 16 });
+    engine.send(Action::EnterSeed {
+        words: words.to_string(),
+    });
+    screen(&rx, Screen::ThisTill);
+    engine.send(Action::Back);
+    screen(&rx, Screen::WalletSeed);
+}
+
+/// docs/view-key-mode.md §10: a till on its own wallet registers no Bell
+/// and runs no foreground service.
+#[test]
+fn a_till_on_its_own_wallet_has_no_foreground_service_and_no_bell() {
+    let platform = FakePlatform::with(&[("setup.done", "true")]);
+    let link = till_payments::Link::Wallet(till_payments::WalletLink::new(
+        "stagenet",
+        1,
+        till_types::Secret::from("00".repeat(32)),
+    ));
+    platform.set("connection", &link.save());
+    let (engine, rx, _) = start(config(None), platform);
+    screen(&rx, Screen::Till);
+    engine.peek(|s| {
+        let p = s.parts.as_ref().unwrap();
+        assert!(p.side.wallet_mode());
+        assert_eq!(
+            till_bell::PosSide::signed_in(&*p.side).unwrap(),
+            None,
+            "nothing for a Bell to register"
+        );
+    });
 }

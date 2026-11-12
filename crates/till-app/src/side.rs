@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use monokulo_client::{AppIdentity, Clock, Connection, MonokuloApi, PointOfSale};
 use till_bell::{BellWakeUps, DeviceError, PosSide, PosSignIn};
 use till_ledger::{ClaimPolicy, Process};
-use till_payments::{Link, MonokuloBackend, PaymentBackend};
+use till_payments::{Link, MonokuloBackend, PaymentBackend, WalletLink};
 use till_pos::clover::{
     CloverApi, CloverAuth, CloverConfig, CloverEnvironment, CloverMerchant, CloverSource,
 };
@@ -20,6 +20,7 @@ use till_pos::square::{SquareApi, SquareAuth, SquareConfig, SquareSource};
 use till_pos::{PosEnvironment, SaleSource, TokenLock, TokenStore};
 use till_sales::{Books, LiveStore, PosSwitchSide, RunnerSide};
 use till_types::Secret;
+use till_wallet::WalletBackend;
 
 use crate::ledger::AppLedger;
 use crate::store::{Kept, Model, PosCursor, PosTokenStore, Store, Tenders};
@@ -37,6 +38,9 @@ pub(crate) struct Side {
     monokulo: MonokuloApi,
     live: OnceLock<Weak<LiveStore>>,
     wake_ups: OnceLock<Weak<BellWakeUps>>,
+    /// The device's own wallet, opened once for the link it was opened
+    /// with: one wallet file is never opened twice in a process.
+    wallet: Mutex<Option<(WalletLink, Arc<WalletBackend>)>>,
 }
 
 impl Side {
@@ -74,6 +78,7 @@ impl Side {
             clock,
             live: OnceLock::new(),
             wake_ups: OnceLock::new(),
+            wallet: Mutex::new(None),
         }
     }
 
@@ -129,8 +134,8 @@ impl Side {
     }
 
     /// The payment backend a link names (core.md decision 228): the
-    /// store's Monokulo, through the process's client. A wallet link has
-    /// no backend yet.
+    /// store's Monokulo, through the process's client, or the device's own
+    /// wallet (decision 229).
     pub fn backend_of(&self, link: &Link) -> Option<Arc<dyn PaymentBackend>> {
         self.backend_reading(link, 1)
     }
@@ -143,9 +148,56 @@ impl Side {
                 MonokuloBackend::new(self.monokulo.clone(), connection.clone())
                     .reading_at_once(at_once),
             )),
-            // TODO(view-key mode): the wallet backend (docs/view-key-mode.md §5).
-            Link::Wallet(_) => None,
+            Link::Wallet(link) => self
+                .wallet_backend(link)
+                .map(|backend| backend as Arc<dyn PaymentBackend>),
         }
+    }
+
+    /// The device's own wallet for `link`: the one already open, or the
+    /// wallet file opened now. `None`, logged, when it can't be opened.
+    pub fn wallet_backend(&self, link: &WalletLink) -> Option<Arc<WalletBackend>> {
+        let mut held = self.wallet.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((open, backend)) = held.as_ref()
+            && open == link
+        {
+            return Some(backend.clone());
+        }
+        // The file is closed before it's opened again for another link.
+        *held = None;
+        match WalletBackend::open_now(
+            std::path::Path::new(&self.config.data_dir),
+            link,
+            self.clock.clone(),
+        ) {
+            Ok(backend) => {
+                let backend = Arc::new(backend);
+                *held = Some((link.clone(), backend.clone()));
+                Some(backend)
+            }
+            Err(e) => {
+                self.log(format!("till-core: couldn't open the wallet: {}", e.say()));
+                None
+            }
+        }
+    }
+
+    /// Holds the wallet setup just made, for its link.
+    pub fn adopt_wallet(&self, backend: WalletBackend) {
+        let link = backend.link().clone();
+        *self.wallet.lock().unwrap_or_else(|e| e.into_inner()) = Some((link, Arc::new(backend)));
+    }
+
+    /// Lets the wallet go: the till was disconnected from it.
+    pub fn forget_wallet(&self) {
+        *self.wallet.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
+    /// The till watches the shop's own wallet: no Bell, no background work
+    /// (docs/view-key-mode.md §10).
+    pub fn wallet_mode(&self) -> bool {
+        self.kept
+            .with(|m| m.connection.is_none() && m.wallet.is_some())
     }
 
     /// The payment backend for `connection`, the store's Monokulo.
@@ -392,6 +444,9 @@ impl RunnerSide for Side {
     }
 
     fn recheck_wake_ups(&self) {
+        if self.wallet_mode() {
+            return;
+        }
         if let Some(w) = self.wake_ups() {
             w.recheck();
         }
@@ -427,7 +482,9 @@ impl PosSide for Side {
     /// 132): a store that can't answer is a device failure, retried.
     fn signed_in(&self) -> Result<Option<PosSignIn>, DeviceError> {
         let model = self.model();
-        if model.without_pos {
+        // The shop's own wallet registers no Bell: Till looks only while
+        // it's open (docs/view-key-mode.md §10).
+        if model.without_pos || (model.connection.is_none() && model.wallet.is_some()) {
             return Ok(None);
         }
         let device = |e: crate::SecretError| DeviceError(e.to_string());

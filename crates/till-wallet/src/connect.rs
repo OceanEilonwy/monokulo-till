@@ -86,6 +86,33 @@ impl FobRequest {
             .map_err(|e| e.to_string())
     }
 
+    /// A request made with a given key and state: the same every time, for
+    /// the screenshots' previews. Never for a real request.
+    pub fn with_key(
+        secret: &[u8; 32],
+        state: [u8; 16],
+        name: &str,
+        device: &str,
+        network: Network,
+    ) -> Result<FobRequest, String> {
+        let want = Want {
+            node: true,
+            prices: true,
+        };
+        Asker::with(
+            secret,
+            state,
+            APP,
+            &clip(name),
+            &clip(device),
+            network,
+            want,
+            None,
+        )
+        .map(|asker| FobRequest { asker })
+        .map_err(|e| e.to_string())
+    }
+
     /// The request as a link, and what its QR code holds.
     pub fn uri(&self) -> String {
         self.asker.request().to_uri()

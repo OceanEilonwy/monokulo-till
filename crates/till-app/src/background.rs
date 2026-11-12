@@ -326,7 +326,9 @@ async fn look_kept(
     steps: &Steps,
 ) -> BackgroundCheck {
     let model = kept.model();
-    let Some(link) = model.link() else {
+    // A till on the shop's own wallet looks only while it's open in the
+    // foreground (docs/view-key-mode.md §10): never here.
+    let Some(link) = model.link().filter(|link| link.monokulo().is_some()) else {
         return BackgroundCheck::nothing();
     };
     if !model.shift_on {

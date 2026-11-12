@@ -16,6 +16,10 @@ use till_pos::square::SquareLocation;
 use crate::pos_text;
 use crate::settings::{ShowSales, StoreNow, connected, pos_choices, show_sales_choices};
 use crate::view::{Device, Fact, PosChoice, PosMark, Press, capitalised, mark, on_off};
+use crate::wallet_setup::{
+    self, FobConnectedStep, FobRequestStep, ModeStep, ThisTillStep, WalletCodeStep,
+    WalletEntryStep, WalletKeysStep, WalletSeedStep, WalletStep,
+};
 
 /// How many steps setting up takes, on every device.
 pub const STEPS: u8 = 6;
@@ -68,6 +72,10 @@ pub struct PosSetup {
     pub setup: bool,
     /// Past O1: the cashier chose the point of sale and went on to sign in.
     pub confirmed: bool,
+    /// The till knows only its own payments (the device's own wallet,
+    /// docs/view-key-mode.md §6): with no point of sale it would show
+    /// nothing, so "Set up later" isn't offered.
+    pub this_till_only: bool,
 }
 
 /// C4's state: the test sale and the device it came from.
@@ -82,6 +90,9 @@ pub struct CounterSetup {
     /// The location ("Front Counter").
     pub place: Option<String>,
     pub every_device: bool,
+    /// The till knows only its own payments: "Every sale at …" isn't
+    /// offered (docs/view-key-mode.md §6).
+    pub this_till_only: bool,
 }
 
 impl PosSetup {
@@ -139,6 +150,10 @@ pub enum Step {
     /// O4 on iPad: how a new sale shows up. `place` names the sample
     /// alert's sale amount's currency, as Alerts' does.
     ShowSales { chosen: ShowSales, currency: String },
+    /// Steps 2 and 3 for a till that watches the shop's own wallet
+    /// (docs/view-key-mode.md §11.1): V1, V2, Connect to Fob, the wallet
+    /// entered by hand, and This till.
+    Wallet(WalletStep),
     /// Step 6: what's set up. `location` is the location or merchant.
     Ready {
         store: String,
@@ -154,6 +169,9 @@ pub struct OnboardingInput {
     pub step: Step,
     /// The point of sale chosen so far: the rail and the last steps name it.
     pub pos: Option<PointOfSale>,
+    /// Setting up a till that watches the shop's own wallet: the rail and
+    /// the bar count its steps (board VkRail).
+    pub wallet: bool,
 }
 
 /// A step, ready to draw.
@@ -255,7 +273,12 @@ pub struct StepProgress {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Phase {
     Welcome,
+    /// V1, which comes before the store or the wallet.
+    Payments,
     Store,
+    /// The wallet, and This till (docs/view-key-mode.md §11.1).
+    Wallet,
+    ThisTill,
     PointOfSale,
     Alerts,
     ShowSales,
@@ -273,15 +296,42 @@ impl Phase {
         (Phase::Ready, "Ready"),
     ];
 
-    /// The iPhone's bar: none on Welcome, and no "How sales show up".
-    fn progress(self) -> Option<StepProgress> {
-        let steps = [
+    /// The rail's names for a till on the shop's own wallet (board
+    /// VkRail), but Prices, which isn't a step of its own yet.
+    const WALLET_RAIL: [(Phase, &'static str); 7] = [
+        (Phase::Welcome, "Welcome"),
+        (Phase::Payments, "How Till sees payments"),
+        (Phase::Wallet, "Your wallet"),
+        (Phase::ThisTill, "This till"),
+        (Phase::PointOfSale, "Point of sale"),
+        (Phase::Alerts, "Alerts"),
+        (Phase::Ready, "Ready"),
+    ];
+
+    /// The iPhone's bar: none on Welcome, and no "How sales show up". V1
+    /// counts as connecting the store until the wallet is chosen.
+    fn progress(self, wallet: bool) -> Option<StepProgress> {
+        let monokulo = [
             Phase::Store,
             Phase::PointOfSale,
             Phase::Alerts,
             Phase::Ready,
         ];
-        let at = steps.iter().position(|p| *p == self)?;
+        let own = [
+            Phase::Payments,
+            Phase::Wallet,
+            Phase::ThisTill,
+            Phase::PointOfSale,
+            Phase::Alerts,
+            Phase::Ready,
+        ];
+        let steps: &[Phase] = if wallet { &own } else { &monokulo };
+        let this = if !wallet && self == Phase::Payments {
+            Phase::Store
+        } else {
+            self
+        };
+        let at = steps.iter().position(|p| *p == this)?;
         Some(StepProgress {
             value: at as u8 + 1,
             total: steps.len() as u8,
@@ -439,6 +489,38 @@ pub enum OnboardingPage {
     /// O4 (iPad): how a new sale shows up.
     ShowSales {
         view: ShowSalesStep,
+    },
+    /// V1: how Till sees payments (docs/view-key-mode.md §11.1).
+    PaymentsMode {
+        view: ModeStep,
+    },
+    /// V2: Connect to Fob, or enter the wallet yourself.
+    WalletEntry {
+        view: WalletEntryStep,
+    },
+    /// C1: the request's code and pattern, for Fob on a phone.
+    FobRequest {
+        view: FobRequestStep,
+    },
+    /// B4 (phone) or C4 (iPad): connected to Fob.
+    FobConnected {
+        view: FobConnectedStep,
+    },
+    /// D1: scan a wallet code.
+    WalletCode {
+        view: WalletCodeStep,
+    },
+    /// D2: the address and view key, checked as they're typed.
+    WalletKeys {
+        view: WalletKeysStep,
+    },
+    /// D3: a seed phrase, wiped after.
+    WalletSeed {
+        view: WalletSeedStep,
+    },
+    /// D4: this till's number, node, confirmations and expiry.
+    ThisTill {
+        view: ThisTillStep,
     },
 }
 
@@ -701,9 +783,24 @@ pub fn onboarding(
                 view: show_sales_step(*chosen, currency, pos, money),
             },
         ),
+        Step::Wallet(step) => {
+            let number = if matches!(step, WalletStep::ThisTill(_)) {
+                3
+            } else {
+                2
+            };
+            (Some(number), true, wallet_page(step, device))
+        }
     };
     let phase = phase(&input.step);
-    let words = words(&page, device);
+    let mut words = words(&page, device);
+    match &input.step {
+        Step::Wallet(WalletStep::FobConnected(c)) => {
+            words.lead = wallet_setup::fob_connected_lead(c, device);
+        }
+        Step::Wallet(WalletStep::Keys(k)) => words.lead = wallet_setup::keys_lead(k.network),
+        _ => {}
+    }
     OnboardingView {
         heading: words.heading,
         lead: words.lead,
@@ -718,12 +815,12 @@ pub fn onboarding(
             .filter(|_| labelled && device == Device::Android)
             .map(|n| format!("Step {n} of {STEPS}")),
         rail: match (device, phase) {
-            (Device::Ipad, Some(current)) => rail(current),
+            (Device::Ipad, Some(current)) => rail(current, input.wallet),
             _ => Vec::new(),
         },
         progress: phase
             .filter(|_| device == Device::Iphone)
-            .and_then(Phase::progress),
+            .and_then(|p| p.progress(input.wallet)),
         page,
     }
 }
@@ -740,7 +837,55 @@ fn phase(step: &Step) -> Option<Phase> {
         Step::Float { .. } => return None,
         Step::ShowSales { .. } => Phase::ShowSales,
         Step::Ready { .. } => Phase::Ready,
+        Step::Wallet(WalletStep::Mode { .. }) => Phase::Payments,
+        Step::Wallet(WalletStep::ThisTill(_)) => Phase::ThisTill,
+        Step::Wallet(_) => Phase::Wallet,
     })
+}
+
+/// A wallet step's page.
+fn wallet_page(step: &WalletStep, device: Device) -> OnboardingPage {
+    match step {
+        WalletStep::Mode { chosen } => OnboardingPage::PaymentsMode {
+            view: wallet_setup::mode_step(*chosen),
+        },
+        WalletStep::Entry => OnboardingPage::WalletEntry {
+            view: wallet_setup::entry_step(),
+        },
+        WalletStep::FobRequest {
+            qr,
+            cells,
+            ink,
+            paper,
+            problem,
+            busy,
+        } => OnboardingPage::FobRequest {
+            view: wallet_setup::fob_request_step(
+                device,
+                qr,
+                cells,
+                ink,
+                paper,
+                problem.as_deref(),
+                *busy,
+            ),
+        },
+        WalletStep::FobConnected(c) => OnboardingPage::FobConnected {
+            view: wallet_setup::fob_connected_step(c, device),
+        },
+        WalletStep::Code { problem } => OnboardingPage::WalletCode {
+            view: wallet_setup::code_step(problem.as_deref()),
+        },
+        WalletStep::Keys(k) => OnboardingPage::WalletKeys {
+            view: wallet_setup::keys_step(k),
+        },
+        WalletStep::Seed { words, problem } => OnboardingPage::WalletSeed {
+            view: wallet_setup::seed_step(*words, problem.as_deref()),
+        },
+        WalletStep::ThisTill(t) => OnboardingPage::ThisTill {
+            view: wallet_setup::this_till_step(t),
+        },
+    }
 }
 
 /// The words a page's record doesn't carry (core.md decision 130).
@@ -864,6 +1009,42 @@ fn words(page: &OnboardingPage, device: Device) -> Words {
         },
         OnboardingPage::Counter { view } => said(&view.heading, &view.lead),
         OnboardingPage::ShowSales { view } => said(&view.heading, &view.lead),
+        OnboardingPage::PaymentsMode { .. } => said(
+            "How will Till see payments?",
+            "Choose what tells Till that a customer has paid.",
+        ),
+        OnboardingPage::WalletEntry { .. } => said(
+            "Connect your wallet",
+            "Till needs to see payments to your wallet. It never gets what it would need to spend.",
+        ),
+        OnboardingPage::FobRequest { .. } => said(
+            &format!("Connect to Fob on {}", fob_device(device)),
+            &format!(
+                "Fob and {} swap two codes. Nothing goes through a server.",
+                pos_text::this_device(device)
+            ),
+        ),
+        // The lead depends on what Fob shared: set by `onboarding`.
+        OnboardingPage::FobConnected { .. } => said("Connected to Fob", ""),
+        OnboardingPage::WalletCode { .. } => said(
+            "Scan a wallet code",
+            "In your wallet, show its view-only wallet code. Feather, Cake and Fob all have one.",
+        ),
+        // The lead names the network's first digit: set by `onboarding`.
+        OnboardingPage::WalletKeys { .. } => said("Type the address and view key", ""),
+        OnboardingPage::WalletSeed { .. } => said("Enter a seed phrase", ""),
+        OnboardingPage::ThisTill { view } => said(
+            "This till",
+            wallet_setup::this_till_lead(view.number.is_some()),
+        ),
+    }
+}
+
+/// Where Fob is, for C1's heading: on a phone beside this device.
+fn fob_device(device: Device) -> &'static str {
+    match device {
+        Device::Android => "another phone",
+        _ => "your phone",
     }
 }
 
@@ -892,7 +1073,12 @@ fn counter_step(c: &CounterSetup, device: Device) -> CounterStep {
                 selected: c.every_device,
                 enabled: true,
             },
-        ],
+        ]
+        .into_iter()
+        // Only this till's payments: another counter's sales never reach
+        // it, so there's no "every sale" to choose (§6).
+        .take(if c.this_till_only { 1 } else { 2 })
+        .collect(),
         footnote: "Change this any time in Settings.".into(),
         next: Press::new("Continue"),
     }
@@ -1014,6 +1200,9 @@ fn pos_step(s: &PosSetup, device: Device) -> PosStep {
         ),
         (None, _) => (None, Some(later())),
     };
+    // With only this till's payments, a till without a point of sale
+    // would show nothing (docs/view-key-mode.md §6).
+    let skip = skip.filter(|p| !(s.this_till_only && p.label == pos_text::SET_UP_LATER));
     let status = (stage == Some(PosStage::TestSale)).then(|| match &s.test_sale {
         None => TestStatus {
             found: false,
@@ -1203,9 +1392,21 @@ fn ready_page(
 }
 
 /// iPad's step rail, with `current` lit.
-fn rail(current: Phase) -> Vec<RailStep> {
-    Phase::RAIL
-        .into_iter()
+fn rail(current: Phase, wallet: bool) -> Vec<RailStep> {
+    let steps: &[(Phase, &str)] = if wallet {
+        &Phase::WALLET_RAIL
+    } else {
+        &Phase::RAIL
+    };
+    // Before the wallet is chosen, V1 lights "Connect your store".
+    let current = if !wallet && current == Phase::Payments {
+        Phase::Store
+    } else {
+        current
+    };
+    steps
+        .iter()
+        .copied()
         .zip(1..)
         .map(|((phase, label), number)| RailStep {
             number,
@@ -1232,7 +1433,15 @@ mod tests {
     }
 
     fn show(step: Step, pos: Option<PointOfSale>, device: Device) -> OnboardingView {
-        onboarding(&OnboardingInput { step, pos }, device, &usd)
+        onboarding(
+            &OnboardingInput {
+                step,
+                pos,
+                wallet: false,
+            },
+            device,
+            &usd,
+        )
     }
 
     fn page(step: Step, pos: Option<PointOfSale>, device: Device) -> OnboardingPage {
@@ -2181,6 +2390,7 @@ mod tests {
                 device: "Front iPad".into(),
                 place: Some("Front Counter".into()),
                 every_device: false,
+                this_till_only: false,
             }),
             Some(PointOfSale::Square),
             Device::Ipad,

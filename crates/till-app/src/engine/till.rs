@@ -82,17 +82,23 @@ fn depth(screen: &Screen) -> Option<u8> {
 fn setup_step(screen: &Screen) -> Option<u8> {
     Some(match screen {
         Screen::Welcome => 0,
-        Screen::Scan => 1,
-        Screen::Confirm => 2,
-        Screen::Connected => 3,
-        Screen::PointOfSale => 4,
-        Screen::Locations => 5,
-        Screen::Counter => 6,
-        Screen::Alerts => 7,
-        Screen::Float => 8,
-        Screen::ShowSales => 9,
-        Screen::Ready => 10,
-        Screen::Till => 11,
+        Screen::PaymentsMode => 1,
+        Screen::Scan | Screen::WalletEntry => 2,
+        Screen::Confirm
+        | Screen::FobRequest
+        | Screen::WalletCode
+        | Screen::WalletKeys
+        | Screen::WalletSeed => 3,
+        Screen::Connected | Screen::FobConnected => 4,
+        Screen::ThisTill => 5,
+        Screen::PointOfSale => 6,
+        Screen::Locations => 7,
+        Screen::Counter => 8,
+        Screen::Alerts => 9,
+        Screen::Float => 10,
+        Screen::ShowSales => 11,
+        Screen::Ready => 12,
+        Screen::Till => 13,
         _ => return None,
     })
 }

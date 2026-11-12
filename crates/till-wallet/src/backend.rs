@@ -126,6 +126,44 @@ impl WalletBackend {
         WalletBackend::open_with(data_dir, link, clock, Arc::new(ProviderSource(provider))).await
     }
 
+    /// [`WalletBackend::open`] without waiting: the wallet file opened here
+    /// and now, as it was set up when it was made ([`crate::make_wallet`]
+    /// set it up as the link says, and a change in Settings sets it up
+    /// again). For the engine's side, which makes its backend without
+    /// waiting.
+    pub fn open_now(
+        data_dir: &Path,
+        link: &WalletLink,
+        clock: Arc<dyn Clock>,
+    ) -> Result<WalletBackend, BackendError> {
+        let key = file_key_of(link)?;
+        let wallet = Wallet::open(&wallet_path(data_dir), key).map_err(fob)?;
+        let provider = provider_for(
+            link.price_provider.as_deref(),
+            link.price_currency.as_deref(),
+        );
+        Ok(WalletBackend::over(
+            wallet,
+            link.clone(),
+            clock,
+            Arc::new(ProviderSource(provider)),
+        ))
+    }
+
+    /// The backend over a wallet just made at the end of setup.
+    pub fn of_made(made: crate::Made, clock: Arc<dyn Clock>) -> WalletBackend {
+        let provider = provider_for(
+            made.link.price_provider.as_deref(),
+            made.link.price_currency.as_deref(),
+        );
+        WalletBackend::over(
+            made.wallet,
+            made.link,
+            clock,
+            Arc::new(ProviderSource(provider)),
+        )
+    }
+
     /// [`WalletBackend::open`] with its prices from `source`.
     pub async fn open_with(
         data_dir: &Path,

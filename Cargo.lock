@@ -3384,6 +3384,8 @@ dependencies = [
  "async-trait",
  "aws-lc-rs",
  "base64 0.22.1",
+ "fob-codes",
+ "fob-keys",
  "futures-util",
  "monokulo-client",
  "reqwest",
@@ -3398,9 +3400,11 @@ dependencies = [
  "till-sales",
  "till-screens",
  "till-types 0.1.0",
+ "till-wallet",
  "tokio",
  "uniffi",
  "wiremock",
+ "zeroize",
 ]
 
 [[package]]
