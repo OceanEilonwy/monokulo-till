@@ -693,8 +693,11 @@ the request can open it.
   3. Till scans that.
   4. NFC can carry both ways instead, through Fob's existing NFC framing
      (`fob-codes` `nfc.rs`, `ndef.rs`).
-  5. Both screens show the same **four words** derived from the request's
-     key. A request QR swapped by someone nearby then shows different words.
+  5. Both screens show the same **identicon**: a symmetric 5×5 pattern in
+     two colours, drawn from a hash of the request's key (no words beside
+     it). A request QR swapped by someone nearby then shows a different
+     pattern. The drawing is part of `connect.rs`, with test vectors, so
+     Fob and Till draw it identically.
 - **Fob not installed**: "Connect to Fob" says where to get it, and the
   other three ways stay one tap away.
 
