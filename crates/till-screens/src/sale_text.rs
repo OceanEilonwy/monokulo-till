@@ -47,6 +47,24 @@ pub fn heading_line(sale: &TillSale, place: &str) -> String {
     }
 }
 
+/// The line under a sale's title on its own screens (owner, round 4): the
+/// sale's number when the title is the customer's name, where it's from
+/// only when it's another till's (a till serves one place, so "Front
+/// Counter · this till" told the cashier nothing), then `when`: "14:00
+/// left" while it waits, the time it was rung up after. "Sale #m2Qe ·
+/// 14:00 left", "From Bar iPad · 10:10 PM".
+pub fn sale_line(sale: &TillSale, place: &str, when: Option<&str>) -> String {
+    let mut parts = Vec::new();
+    if customer(sale).is_some() {
+        parts.push(title(sale));
+    }
+    if sale.found.is_none() {
+        parts.push(place.to_owned());
+    }
+    parts.extend(when.map(str::to_owned));
+    parts.join(" · ")
+}
+
 /// Whom the sale is for, when the POS's order names them.
 pub fn customer(sale: &TillSale) -> Option<&str> {
     sale.customer_name

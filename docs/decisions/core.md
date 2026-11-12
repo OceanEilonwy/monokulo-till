@@ -1847,3 +1847,18 @@ still strings across the till, the ledger, the screens and the bridge.
      Picture" background mode went with it; an alert always posts now.
      This replaces decisions 125 and 128, and the floating window's parts
      of 120 and 224.
+226. **Shorter setup words, the Till logo smaller, and Android's setup in
+     stages.** (Owner, 2026-11-12, after the first side-by-side screenshots.)
+     C4 says one fact and two plain choices: "The test sale was rung up on
+     Front iPad.", "Only Front iPad" (recommended; other counters' sales
+     still show, quietly) and "Every sale at Front Counter" (one till for
+     the whole location), led on both platforms by a device's icon and a
+     shop's, and "Change this any time in Settings." The Till logo leads
+     Welcome at 88 pt, Ready at 72 pt, the empty till at 80 pt and a sale's
+     status at 72 pt (96 pt in regular width), with 28 pt titles beside it.
+     O3's test-sale status is a card under the steps it waits on, not a bar
+     beside Continue. Android draws step 4 in the engine's stages as iOS
+     does (`PosStep::stage`): the choice alone, then the sign-in, then the
+     test sale. Android draws Till's own logo (`TillWidget`) wherever the
+     mark stands for Till; Monokulo's round mark stays for the Monokulo
+     store. On iPad, Close the sale is an X, as on iPhone and Android.
