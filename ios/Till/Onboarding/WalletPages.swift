@@ -479,54 +479,40 @@ struct FobConnectedPage: View {
     }
 }
 
-/// Steppers on a card, hairlines between. Where the first row has a line
-/// of its own under its label (C4, D4), every value sits in its stepper
-/// when all of them fit so; else (B4, or a card too narrow) every value
-/// sits under its label. The card's rows always agree.
+/// Steppers on a card, hairlines between, each a ``StepperRow``.
 struct SteppersCard: View {
     let rows: [SetupStepper]
     /// A row's place, and up (+) or down (−).
     let step: @MainActor (Int, Bool) -> Void
 
     var body: some View {
-        if rows.first?.detail != nil {
-            ViewThatFits(in: .horizontal) {
-                card(inside: true)
-                card(inside: false)
-            }
-        } else {
-            card(inside: false)
-        }
-    }
-
-    private func card(inside: Bool) -> some View {
         Card {
             ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                 if index > 0 {
                     Hairline()
                 }
-                StepperRow(stepper: row, valueInside: inside) { up in step(index, up) }
+                StepperRow(stepper: row) { up in step(index, up) }
             }
         }
     }
 }
 
-/// A value with − and + (D4's Till number and Paid after, B4's and C4's):
-/// the label, its line, and the two buttons on one grey control. With
-/// `valueInside` the value sits between the buttons, the row as wide as it
-/// needs; else, as on B4, under the label, which wraps before the control
-/// moves. VoiceOver hears one adjustable value.
+/// A value with − and + (D4, B4, C4 and wallet Settings), by the owner's
+/// rule for every platform: on a phone the value is the line under its
+/// label, − and + at the right (B4); on iPad it sits between − and + (C4,
+/// D4), and the label wraps before the control does. VoiceOver hears one
+/// adjustable value.
 struct StepperRow: View {
     let stepper: SetupStepper
-    let valueInside: Bool
     let step: @MainActor (Bool) -> Void
+
+    private var valueInside: Bool { UIDevice.current.userInterfaceIdiom == .pad }
 
     var body: some View {
         Group {
             if valueInside {
                 HStack(spacing: 12) {
                     words(stepper.detail.map { [$0] } ?? [])
-                        .fixedSize()
                     Spacer(minLength: 8)
                     control(inside: true)
                 }

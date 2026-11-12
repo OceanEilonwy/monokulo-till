@@ -2130,10 +2130,12 @@ still strings across the till, the ledger, the screens and the bridge.
      identicon draws the engine's 25 cells in its two colours, the same in
      light and dark, and is hidden from VoiceOver (its caption is read).
      The boards draw "A code runs out after" as a plain value, but it can
-     change (`StepCodeExpiry`), so iOS gives it − and + like Paid after:
-     the value between the buttons where every row of the card fits so
-     (C4, D4), else under its label in every row (B4, and a card too
-     narrow beside the iPad's rail). D2's address is a UIKit text view so it wraps at any character
+     change (`StepCodeExpiry`), so iOS gives it − and + like Paid after.
+     Every stepper follows the owner's rule for all platforms: on a phone
+     the value is the line under its label with − and + at the right
+     (B4), on iPad it sits between − and + (C4, D4), the label wrapping
+     first where the page beside the rail is narrow; wallet Settings'
+     steppers do the same. D2's address is a UIKit text view so it wraps at any character
      and is never hyphenated, as SwiftUI's vertical field would; its view
      key and D3's words are secure fields with no correction, capitals,
      content type or suggestions, and D3's are emptied as soon as Continue
