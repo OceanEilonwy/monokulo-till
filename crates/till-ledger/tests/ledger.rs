@@ -45,7 +45,8 @@ impl Fixture {
             process,
             Arc::new(self.clock.clone()),
         )
-        .unwrap();
+        // Say why: it once failed here locally with nothing to go on.
+        .unwrap_or_else(|e| panic!("opening {name} in {}: {e:?}", self.dir.path().display()));
         ledger.set_time_zone(jiff::tz::TimeZone::UTC);
         ledger
     }
@@ -220,6 +221,49 @@ fn feed(ledger: &mut Ledger, facts: &[Fact], clock: &TestClock) {
     }
 }
 
+/// A till's shared rows, as `shared_of` reads them.
+type Rows = Vec<(String, String)>;
+
+/// Feeds `picks` from the pool to one till in order, and twice over in the
+/// order `shuffle` draws to another whose settings differ; what each holds.
+fn merged_both_ways(picks: &[usize], shuffle: u64) -> (Rows, Rows, Ledger) {
+    let pool = pool();
+    let facts: Vec<Fact> = picks.iter().map(|i| pool[i % pool.len()].clone()).collect();
+    let mut shuffled = facts.clone();
+    // A Fisher-Yates shuffle from the drawn seed, with every fact twice.
+    shuffled.extend(facts.clone());
+    let mut state = shuffle | 1;
+    for i in (1..shuffled.len()).rev() {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        let j = (state % (i as u64 + 1)) as usize;
+        shuffled.swap(i, j);
+    }
+
+    let fx = Fixture::new();
+    let mut a = fx.open_as("a.db", Process::App);
+    let mut b = fx.open_as("b.db", Process::App);
+    b.record(set(setting::DEVICE, "front", 1)).unwrap();
+    b.record(set(setting::CASH_AS_MONERO, "false", 2)).unwrap();
+    feed(&mut a, &facts, &fx.clock);
+    feed(&mut b, &shuffled, &fx.clock);
+    (shared_of(&a), shared_of(&b), a)
+}
+
+/// The case the property test found on CI (2026-11-10, twice): a renewed
+/// order's second quote seen, its first quote's ending, and a final
+/// Expired said with no quote, in two orders, merged to Seen on one till
+/// and Waiting on the other.
+#[test]
+fn a_renewed_orders_quotes_and_a_final_expiry_merge_alike_in_any_order() {
+    let picks = [
+        0, 0, 0, 12, 0, 0, 0, 0, 9, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0, 56, 0, 0,
+    ];
+    let (a, b, _) = merged_both_ways(&picks, 10_607_849_503_894_162_831);
+    assert_eq!(a, b);
+}
+
 proptest! {
     #![proptest_config(ProptestConfig { cases: 48, failure_persistence: None, ..ProptestConfig::default() })]
 
@@ -231,28 +275,8 @@ proptest! {
         picks in prop::collection::vec(0usize..64, 1..40),
         shuffle in Just(()).prop_perturb(|_, mut rng| rng.random::<u64>()),
     ) {
-        let pool = pool();
-        let facts: Vec<Fact> = picks.iter().map(|i| pool[i % pool.len()].clone()).collect();
-        let mut shuffled = facts.clone();
-        // A Fisher-Yates shuffle from the drawn seed, with every fact twice.
-        shuffled.extend(facts.clone());
-        let mut state = shuffle | 1;
-        for i in (1..shuffled.len()).rev() {
-            state ^= state << 13;
-            state ^= state >> 7;
-            state ^= state << 17;
-            let j = (state % (i as u64 + 1)) as usize;
-            shuffled.swap(i, j);
-        }
-
-        let fx = Fixture::new();
-        let mut a = fx.open_as("a.db", Process::App);
-        let mut b = fx.open_as("b.db", Process::App);
-        b.record(set(setting::DEVICE, "front", 1)).unwrap();
-        b.record(set(setting::CASH_AS_MONERO, "false", 2)).unwrap();
-        feed(&mut a, &facts, &fx.clock);
-        feed(&mut b, &shuffled, &fx.clock);
-        prop_assert_eq!(shared_of(&a), shared_of(&b));
+        let (one, other, mut a) = merged_both_ways(&picks, shuffle);
+        prop_assert_eq!(one, other);
 
         let before = a.dump_projections().unwrap();
         a.rebuild().unwrap();
