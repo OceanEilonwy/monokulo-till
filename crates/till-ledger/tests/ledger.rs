@@ -91,6 +91,7 @@ fn created(id: &str, order: &str) -> Fact {
         confirmations_required: Some(10),
         device_name: None,
         renew: Some(format!("https://shop.example/api/v1/orders/{order}")),
+        price_used: None,
     })
 }
 

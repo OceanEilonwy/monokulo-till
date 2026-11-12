@@ -114,6 +114,10 @@ pub struct OrderFacts {
     /// `expires_at`.
     #[serde(default)]
     pub first_expires_at: UnixSeconds,
+    /// The exchange rate its XMR was worked out at, from a wallet backend
+    /// (decision 228); `None` for a Monokulo order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub price_used: Option<till_types::PriceUsed>,
 }
 
 impl From<&OrderCreated> for OrderFacts {
@@ -131,6 +135,7 @@ impl From<&OrderCreated> for OrderFacts {
             device_name: o.device_name.clone(),
             renew: o.renew.clone(),
             first_expires_at: o.expires_at,
+            price_used: o.price_used.clone(),
         }
     }
 }
@@ -199,6 +204,7 @@ impl OrderFacts {
             max_opt(self.confirmations_required, other.confirmations_required);
         self.device_name = max_opt(self.device_name.take(), other.device_name.clone());
         self.renew = max_opt(self.renew.take(), other.renew.clone());
+        self.price_used = max_opt(self.price_used.take(), other.price_used.clone());
         self.reference = max_opt(self.reference.take(), other.reference.clone());
         larger(&mut self.address, &other.address);
         // One order's two accounts carry one price; a known one beats an
@@ -1039,6 +1045,7 @@ mod tests {
             confirmations_required: None,
             device_name: None,
             renew: None,
+            price_used: None,
         }
     }
 

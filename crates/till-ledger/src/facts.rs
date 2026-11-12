@@ -7,7 +7,7 @@ use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use till_types::{Money, Price, UnixMillis, UnixSeconds};
+use till_types::{Money, Price, PriceUsed, UnixMillis, UnixSeconds};
 
 use crate::ids::{DeviceId, OrderId, PaymentId, SaleKey};
 use crate::model::{LocalMarks, SharedSale};
@@ -187,6 +187,13 @@ pub struct OrderCreated {
     /// it (decision 171).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub renew: Option<String>,
+    /// The exchange rate its XMR was worked out at, when the till worked
+    /// it out itself (a wallet backend, docs/view-key-mode.md §4); `None`
+    /// for a Monokulo order, and in a body written before payment backends
+    /// (core.md decision 228). Left out of a body without one, so an
+    /// order's body, and its hash, are what they were.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub price_used: Option<PriceUsed>,
 }
 
 /// The price and expiry an order had when Monokulo said something about
@@ -772,6 +779,48 @@ mod tests {
             panic!("an observation")
         };
         assert_eq!(o.quote, None);
+    }
+
+    /// An `OrderCreated` from before payment backends has no `price_used`
+    /// and reads with none; one without a rate writes the body it always
+    /// did; one with a rate keeps it (core.md decision 228).
+    #[test]
+    fn an_order_keeps_the_rate_its_xmr_was_worked_out_at_and_old_orders_still_read() {
+        let body = br#"{"v":1,"sale":"sq:p1","order_id":"o2","url":"https://shop.example/api/v1/orders/o2",
+            "payment_uri":"monero:8a?tx_amount=0.15","address":"8a","xmr":"0.15",
+            "amount":"24.50","currency":"USD","reference":"bP9m","expires_at":900,
+            "confirmations_required":10,"device_name":null}"#;
+        let Some(Fact::OrderCreated(o)) = Fact::decode("OrderCreated", body) else {
+            panic!("an order")
+        };
+        assert_eq!(o.price_used, None);
+        let written = String::from_utf8(Fact::OrderCreated(o.clone()).body()).unwrap();
+        assert!(!written.contains("price_used"), "{written}");
+        assert!(
+            written.contains(r#""url":"https://shop.example/api/v1/orders/o2""#),
+            "`url` keeps its name on the wire: {written}"
+        );
+
+        let priced = OrderCreated {
+            price_used: Some(PriceUsed {
+                provider: "Kraken".into(),
+                rate: Price::new("163.33", "USD"),
+                at: UnixSeconds(880),
+            }),
+            ..o
+        };
+        let fact = Fact::OrderCreated(priced.clone());
+        let written = String::from_utf8(fact.body()).unwrap();
+        assert!(
+            written.contains(
+                r#""price_used":{"at":880,"provider":"Kraken","rate":{"amount":"163.33","currency":"USD"}}"#
+            ),
+            "{written}"
+        );
+        assert_eq!(
+            Fact::decode("OrderCreated", written.as_bytes()),
+            Some(Fact::OrderCreated(priced))
+        );
     }
 
     #[test]

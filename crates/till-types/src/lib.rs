@@ -11,7 +11,7 @@ pub mod money;
 mod secret;
 mod time;
 
-pub use money::{CurrencyCode, Money, NotACurrencyCode, Price};
+pub use money::{CurrencyCode, Money, NotACurrencyCode, Price, PriceUsed};
 pub use secret::Secret;
 pub use time::{UnixMillis, UnixSeconds};
 
