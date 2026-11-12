@@ -164,6 +164,18 @@ enum Screenshots {
         if ipad {
             shots.append(Shot(name: "setup-5-show-sales", updates: step(.showSales, .showSales)))
         }
+        // View-key mode's setup (the Vk* boards): the same preview draws B4
+        // on iPhone and C4 on iPad, each under its board's name.
+        shots += [
+            Shot(name: "vk-mode", updates: step(.vkMode, .paymentsMode)),
+            Shot(name: "vk-wallet", updates: step(.vkWallet, .walletEntry)),
+            Shot(name: "vk-pad-request", updates: step(.vkPadRequest, .fobRequest)),
+            Shot(name: ipad ? "vk-pad-connected" : "vk-connected", updates: step(.vkConnected, .fobConnected)),
+            Shot(name: "vk-scan-code", updates: step(.vkScanCode, .walletCode)),
+            Shot(name: "vk-keys-error", updates: step(.vkKeysError, .walletKeys)),
+            Shot(name: "vk-seed", updates: step(.vkSeed, .walletSeed)),
+            Shot(name: "vk-this-till", updates: step(.vkThisTill, .thisTill)),
+        ]
         shots += [
             Shot(name: "setup-6-ready", updates: step(.ready, .ready)),
             Shot(name: "till-empty", updates: till(.till, empty)),

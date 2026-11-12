@@ -221,6 +221,11 @@ final class Core {
         switch effect {
         case .openUrl(let url):
             guard let page = URL(string: url) else { return }
+            // V2's "Get it for Android": Fob's page, in the browser, not a sign-in.
+            if screen == .walletEntry {
+                UIApplication.shared.open(page)
+                return
+            }
             // A page naming no redirect ends at the chosen point of sale's.
             let chosen = chosenPos(step: posStep, settings: settings?.pointOfSale)
             let fallback = redirectUri(chosen, square: config.square.redirectUri, clover: config.clover.redirectUri)

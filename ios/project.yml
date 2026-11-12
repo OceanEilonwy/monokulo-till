@@ -73,7 +73,7 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: Till
         # App Store Connect refuses an upload without one (Support/AppIcon.svg).
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        INFOPLIST_KEY_NSCameraUsageDescription: "Till uses the camera to scan your store's connect code."
+        INFOPLIST_KEY_NSCameraUsageDescription: "Till uses the camera to scan your store's connect code, your wallet's code, or Fob's code."
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
