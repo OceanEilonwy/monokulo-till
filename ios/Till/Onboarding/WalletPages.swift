@@ -499,25 +499,30 @@ struct SteppersCard: View {
 }
 
 /// A value with − and + (D4's Till number and Paid after, B4's and C4's):
-/// the label, its line, and the two buttons on one grey control, the value
-/// between them when `valueInside`. VoiceOver hears one adjustable value.
+/// the label, its line, and the two buttons on one grey control. With
+/// `valueInside` (C4, D4) the value sits between the buttons where the row
+/// is wide enough; else, as on B4, under the label, which wraps before the
+/// control moves. VoiceOver hears one adjustable value.
 struct StepperRow: View {
     let stepper: SetupStepper
     let valueInside: Bool
     let step: @MainActor (Bool) -> Void
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 12) {
-                words
-                Spacer(minLength: 8)
-                control
+        Group {
+            if valueInside {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        words(stepper.detail.map { [$0] } ?? [])
+                            .fixedSize()
+                        Spacer(minLength: 8)
+                        control(inside: true)
+                    }
+                    beside
+                }
+            } else {
+                beside
             }
-            VStack(alignment: .leading, spacing: 10) {
-                words
-                control
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -534,10 +539,19 @@ struct StepperRow: View {
         }
     }
 
-    private var words: some View {
+    /// The value (and its line) under the label, and − + beside them.
+    private var beside: some View {
+        HStack(spacing: 12) {
+            words([stepper.value] + (stepper.detail.map { [$0] } ?? []))
+            Spacer(minLength: 8)
+            control(inside: false)
+        }
+    }
+
+    private func words(_ lines: [String]) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(stepper.label)
-            if let line = valueInside ? stepper.detail : stepper.value {
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                 Text(line)
                     .font(.subheadline)
                     .foregroundStyle(Palette.secondary)
@@ -546,20 +560,21 @@ struct StepperRow: View {
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    private var control: some View {
+    private func control(inside: Bool) -> some View {
         HStack(spacing: 0) {
             button(stepper.minus, symbol: "minus", up: false)
-            if valueInside {
+            if inside {
                 Text(stepper.value)
                     .font(.body.weight(.semibold))
                     .monospacedDigit()
-                    .lineLimit(1)
+                    .fixedSize()
                     .frame(minWidth: 32)
                     .padding(.horizontal, 4)
             }
             button(stepper.plus, symbol: "plus", up: true)
         }
         .background(RoundedRectangle(cornerRadius: 10).fill(Palette.chip))
+        .fixedSize()
     }
 
     private func button(_ press: Press, symbol: String, up: Bool) -> some View {
@@ -709,20 +724,16 @@ struct WalletKeysPage: View {
                 }
                 VStack(alignment: .leading, spacing: 8) {
                     FieldLabel(text: step.address.label)
-                    TextField(step.address.label, text: $address, axis: .vertical)
-                        .lineLimit(2...4)
-                        .font(.subheadline.monospaced())
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.asciiCapable)
-                        .textContentType(nil)
+                    AddressField(text: $address)
+                        .accessibilityLabel(step.address.label)
                         .fieldBox(problem: !step.address.good && step.address.note != nil)
                         .onChange(of: address) { edit() }
                     FieldNote(field: step.address)
                 }
                 VStack(alignment: .leading, spacing: 8) {
                     FieldLabel(text: step.viewKey.label)
-                    SecureField(step.viewKey.label, text: $viewKey)
+                    SecureField("", text: $viewKey)
+                        .accessibilityLabel(step.viewKey.label)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .keyboardType(.asciiCapable)
@@ -758,6 +769,81 @@ struct WalletKeysPage: View {
 
     private func edit(network chosen: WalletNetwork? = nil) {
         send(.editWalletKeys(network: chosen ?? network, address: address, viewKey: viewKey))
+    }
+}
+
+/// D2's address: monospaced, wrapped at any character and never
+/// hyphenated (a hyphen in an address would read as part of it), with no
+/// correction, capitals, smart punctuation or suggestions. SwiftUI's
+/// vertical text field hyphenates long words, so this is UIKit's text view.
+struct AddressField: UIViewRepresentable {
+    @Binding var text: String
+
+    func makeUIView(context: Context) -> UITextView {
+        let view = UITextView()
+        view.delegate = context.coordinator
+        view.backgroundColor = .clear
+        view.isScrollEnabled = false
+        view.textContainerInset = .zero
+        view.textContainer.lineFragmentPadding = 0
+        view.textContainer.lineBreakMode = .byCharWrapping
+        view.autocorrectionType = .no
+        view.autocapitalizationType = .none
+        view.spellCheckingType = .no
+        view.smartQuotesType = .no
+        view.smartDashesType = .no
+        view.smartInsertDeleteType = .no
+        view.inlinePredictionType = .no
+        view.keyboardType = .asciiCapable
+        view.textContentType = nil
+        view.adjustsFontForContentSizeCategory = true
+        view.typingAttributes = AddressField.attributes
+        view.attributedText = NSAttributedString(string: text, attributes: AddressField.attributes)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return view
+    }
+
+    func updateUIView(_ view: UITextView, context: Context) {
+        if view.text != text {
+            view.attributedText = NSAttributedString(string: text, attributes: AddressField.attributes)
+        }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
+        let width = proposal.width ?? 320
+        let fitted = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        return CGSize(width: width, height: max(fitted.height, AddressField.font.lineHeight * 2))
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    @MainActor static var font: UIFont {
+        UIFontMetrics(forTextStyle: .subheadline).scaledFont(
+            for: .monospacedSystemFont(ofSize: 15, weight: .regular)
+        )
+    }
+
+    /// Ink, monospaced, wrapped at characters, no hyphens.
+    @MainActor static var attributes: [NSAttributedString.Key: Any] {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byCharWrapping
+        paragraph.hyphenationFactor = 0
+        paragraph.lineSpacing = 3
+        return [.font: font, .foregroundColor: UIColor(Palette.ink), .paragraphStyle: paragraph]
+    }
+
+    @MainActor final class Coordinator: NSObject, UITextViewDelegate {
+        let text: Binding<String>
+
+        init(text: Binding<String>) {
+            self.text = text
+        }
+
+        func textViewDidChange(_ textView: UITextView) {
+            text.wrappedValue = textView.text
+        }
     }
 }
 
@@ -979,20 +1065,26 @@ struct NodeCard: View {
 
     var body: some View {
         Card {
-            HStack(spacing: 12) {
-                Text(node.label)
-                Spacer(minLength: 8)
-                Text(node.value)
-                    .foregroundStyle(Palette.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Button(node.change.label) { change() }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Palette.link)
-                    .frame(minHeight: minimumTarget)
-                    .disabled(!node.change.enabled)
+            // On one line where it fits, else the address under its label.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    Text(node.label)
+                    Spacer(minLength: 8)
+                    address
+                    changeButton
+                }
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(node.label)
+                        address
+                            .font(.subheadline)
+                    }
+                    Spacer(minLength: 8)
+                    changeButton
+                }
             }
             .padding(.horizontal, 16)
+            .padding(.vertical, 4)
             .frame(minHeight: 52)
             if !node.checks.isEmpty {
                 Hairline()
@@ -1005,6 +1097,21 @@ struct NodeCard: View {
                 .padding(.vertical, 12)
             }
         }
+    }
+
+    private var address: some View {
+        Text(node.value)
+            .foregroundStyle(Palette.secondary)
+            .lineLimit(1)
+            .fixedSize()
+    }
+
+    private var changeButton: some View {
+        Button(node.change.label) { change() }
+            .buttonStyle(.plain)
+            .foregroundStyle(Palette.link)
+            .frame(minHeight: minimumTarget)
+            .disabled(!node.change.enabled)
     }
 }
 
