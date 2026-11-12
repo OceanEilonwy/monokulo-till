@@ -12,13 +12,14 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use till_payments::FobWallet;
+use till_payments::{FobWallet, WalletLink};
 use till_screens::onboarding::Step;
+use till_screens::wallet_settings::WalletSettingsInput;
 use till_screens::wallet_setup::{
     AddressIssue, CONFIRMATION_STEPS, CheckMark, EXPIRY_STEPS, FobConnectedSetup, KeysSetup,
     PaymentsMode, ThisTillSetup, ViewKeyIssue, WalletNetwork, WalletStep, WalletWay, step,
 };
-use till_wallet::keys::{self, AddressProblem, CodeProblem, SeedProblem, ViewKeyProblem};
+use till_wallet::keys::{AddressProblem, CodeProblem, SeedProblem, ViewKeyProblem};
 use till_wallet::setup::{self, CheckState};
 use till_wallet::{
     AnswerProblem, FobRequest, Granted, Network, ViewKeys, WalletBackend, WalletSetup,
@@ -28,6 +29,7 @@ use zeroize::Zeroizing;
 use till_sales::RunnerSide;
 
 use super::{State, apply};
+use crate::store::keys;
 use crate::{Effect, Screen};
 
 /// Where "Don't have Fob? Get it for Android" goes: Fob's releases.
@@ -167,6 +169,7 @@ impl State {
         let network = self.wallet.network();
         match FobRequest::new("", &self.config.device_name, network, None) {
             Ok(request) => {
+                self.keep_fob_request(Some(&request));
                 let form = self.form();
                 form.request = Some(Arc::new(request));
                 form.granted = None;
@@ -195,6 +198,9 @@ impl State {
     /// Fob's answer: connected, on to B4 or C4; else C1 says why.
     pub(super) fn fob_answer(&mut self, text: String) {
         let text = Zeroizing::new(text);
+        if self.wallet.request.is_none() {
+            self.restore_fob_request();
+        }
         let Some(request) = self.wallet.request.clone() else {
             return;
         };
@@ -205,6 +211,7 @@ impl State {
                 form.problem = None;
                 // The request's key is spent: dropped, and wiped with it.
                 form.request = None;
+                self.keep_fob_request(None);
                 self.go(Screen::FobConnected);
             }
             Err(problem) => self.form().problem = Some(answer_problem(problem).into()),
@@ -213,6 +220,7 @@ impl State {
 
     /// C4's "Use another wallet".
     pub(super) fn use_another_wallet(&mut self) {
+        self.keep_fob_request(None);
         let form = self.form();
         form.granted = None;
         form.request = None;
@@ -227,7 +235,7 @@ impl State {
                 Some("There's nothing to paste. Copy the wallet code first.".into());
             return;
         };
-        match keys::keys_from_code(text, self.wallet.network()) {
+        match till_wallet::keys::keys_from_code(text, self.wallet.network()) {
             Ok(keys) => self.keys_taken(keys, Screen::WalletCode),
             Err(problem) => self.form().problem = Some(code_problem(problem).into()),
         }
@@ -249,7 +257,9 @@ impl State {
     /// D2's Continue, once both are right.
     pub(super) fn wallet_keys_next(&mut self) {
         let form = &self.wallet;
-        if let Some(keys) = keys::keys_from_typed(form.network(), &form.address, &form.view_key) {
+        if let Some(keys) =
+            till_wallet::keys::keys_from_typed(form.network(), &form.address, &form.view_key)
+        {
             self.keys_taken(keys, Screen::WalletKeys);
         }
     }
@@ -266,7 +276,7 @@ impl State {
     pub(super) fn enter_seed(&mut self, words: String) {
         let words = Zeroizing::new(words);
         let wanted = self.wallet.seed_words;
-        match keys::keys_from_seed(self.wallet.network(), words) {
+        match till_wallet::keys::keys_from_seed(self.wallet.network(), words) {
             Ok(keys) => self.keys_taken(keys, Screen::WalletSeed),
             Err(problem) => self.form().problem = Some(seed_problem(problem, wanted)),
         }
@@ -298,6 +308,15 @@ impl State {
     }
 
     pub(super) fn step_till_number(&mut self, up: bool) {
+        if self.in_wallet_settings() {
+            return self.change_wallet(|link| {
+                link.till_number = if up {
+                    link.till_number.saturating_add(1)
+                } else {
+                    link.till_number.saturating_sub(1).max(1)
+                };
+            });
+        }
         let form = self.form();
         form.till_number = if up {
             form.till_number.saturating_add(1)
@@ -307,11 +326,22 @@ impl State {
     }
 
     pub(super) fn step_paid_after(&mut self, up: bool) {
+        if self.in_wallet_settings() {
+            return self.change_wallet(|link| {
+                link.settled_confirmations =
+                    step(&CONFIRMATION_STEPS, link.settled_confirmations, up);
+            });
+        }
         let form = self.form();
         form.confirmations = step(&CONFIRMATION_STEPS, form.confirmations, up);
     }
 
     pub(super) fn step_code_expiry(&mut self, up: bool) {
+        if self.in_wallet_settings() {
+            return self.change_wallet(|link| {
+                link.expiry_minutes = step(&EXPIRY_STEPS, link.expiry_minutes, up);
+            });
+        }
         let form = self.form();
         form.expiry_minutes = step(&EXPIRY_STEPS, form.expiry_minutes, up);
     }
@@ -322,9 +352,27 @@ impl State {
         if url.is_empty() {
             return;
         }
+        if self.in_wallet_settings() {
+            let node = url.clone();
+            self.change_wallet(move |link| {
+                link.node = Some(node);
+                link.light_server = None;
+                if let Some(fob) = &mut link.fob {
+                    fob.node_from_fob = false;
+                }
+            });
+        }
+        if !self.in_wallet_settings() {
+            self.form().node = Some(url.clone());
+        }
+        self.run_node_check(url);
+    }
+
+    /// The node at `url` checked as Fob checks one, its lines shown as
+    /// they come.
+    fn run_node_check(&mut self, url: String) {
         let network = self.wallet.network();
         let form = self.form();
-        form.node = Some(url.clone());
         form.checks = vec![("Checking the node…".into(), CheckMark::Checking)];
         form.checking += 1;
         let token = form.checking;
@@ -438,7 +486,7 @@ impl State {
     /// forgotten, the link kept, and on to the point of sale.
     fn wallet_linked(&mut self, backend: WalletBackend) {
         let Some(p) = &self.parts else { return };
-        let link = backend.link().clone();
+        let link = backend.link();
         let kept = p.side.kept.clone();
         let kept_it = kept.forget_all().and_then(|()| {
             kept.update(|m| {
@@ -460,8 +508,176 @@ impl State {
         self.counter = None;
         self.left.clear();
         self.wallet = WalletForm::new(self.config.debug);
+        self.keep_fob_request(None);
         self.new_runner();
         self.go(Screen::PointOfSale);
+    }
+
+    /// Settings is up on a till linked to its own wallet: the steppers and
+    /// the node change the wallet's link, not setup's form.
+    fn in_wallet_settings(&self) -> bool {
+        self.screen == Screen::Settings && self.parts.as_ref().is_some_and(|p| p.side.wallet_mode())
+    }
+
+    /// Settings' price source.
+    pub(super) fn choose_price_provider(&mut self, name: String) {
+        if !self.in_wallet_settings() {
+            return;
+        }
+        let currency = self.settings_currency();
+        if !till_wallet::prices::provider_names(currency.as_deref()).contains(&name) {
+            return;
+        }
+        self.change_wallet(move |link| {
+            link.price_provider = Some(name);
+            if currency.is_some() {
+                link.price_currency = currency;
+            }
+            if let Some(fob) = &mut link.fob {
+                fob.prices_from_fob = false;
+            }
+        });
+    }
+
+    /// The currency prices are for: the point of sale's, else Fob's.
+    fn settings_currency(&self) -> Option<String> {
+        let model = self.parts.as_ref()?.side.model();
+        model
+            .location
+            .as_ref()
+            .map(|l| l.currency.clone())
+            .or_else(|| model.wallet.as_ref()?.price_currency.clone())
+    }
+
+    /// Changes the wallet's link as `change` says: the wallet is set up
+    /// that way first (a new node checked by it), then the link kept.
+    /// Refused, nothing changes and Settings says why.
+    fn change_wallet(&mut self, change: impl FnOnce(&mut WalletLink)) {
+        let Some(p) = &self.parts else { return };
+        let Some(old) = p.side.model().wallet else {
+            return;
+        };
+        let mut link = old.clone();
+        change(&mut link);
+        if link == old {
+            return;
+        }
+        let Some(backend) = p.side.wallet_backend(&old) else {
+            self.problem = Some("Couldn't open the wallet to change it.".into());
+            return;
+        };
+        let side = p.side.clone();
+        self.work(async move {
+            match backend.update(link.clone()).await {
+                Ok(()) => apply(move |s| {
+                    side.rekey_wallet(&link);
+                    s.keep(|m| m.wallet = Some(link));
+                    if let Some(p) = &s.parts {
+                        p.live.read(p.side.backend().as_ref());
+                    }
+                }),
+                Err(e) => {
+                    let said = e.say();
+                    apply(move |s| s.problem = Some(format!("Couldn't change that: {said}")))
+                }
+            }
+        });
+    }
+
+    /// Settings' node checked, as Settings opens.
+    pub(super) fn check_wallet_node(&mut self) {
+        if !self.in_wallet_settings() {
+            return;
+        }
+        let Some(link) = self.parts.as_ref().and_then(|p| p.side.model().wallet) else {
+            return;
+        };
+        let Some(node) = link.node.clone() else {
+            return;
+        };
+        let network = till_wallet::backend::network_of(&link);
+        self.wallet.network = wallet_network(network);
+        self.run_node_check(node);
+    }
+
+    /// The wallet section of Settings, for a till on its own wallet.
+    pub(super) fn wallet_settings(
+        &self,
+        p: &super::Parts,
+        model: &crate::store::Model,
+    ) -> Option<WalletSettingsInput> {
+        let link = model
+            .wallet
+            .as_ref()
+            .filter(|_| model.connection.is_none())?;
+        let now = p.live.now();
+        let address = now
+            .backend
+            .as_ref()
+            .map(|b| b.address.clone())
+            .filter(|a| !a.is_empty())
+            .or_else(|| p.side.wallet_backend(link).map(|b| b.address()))
+            .unwrap_or_default();
+        let currency = model
+            .location
+            .as_ref()
+            .map(|l| l.currency.clone())
+            .or(link.price_currency.clone());
+        let provider =
+            till_wallet::prices::provider_name(link.price_provider.as_deref(), currency.as_deref());
+        let network = till_wallet::backend::network_of(link);
+        Some(WalletSettingsInput {
+            address,
+            network: wallet_network(network),
+            node: link.node.clone().or(link.light_server.clone()),
+            till_number: link.till_number,
+            fob: link
+                .fob
+                .as_ref()
+                .map(|f| (f.wallet_name.clone(), f.label.clone())),
+            confirmations: link.settled_confirmations,
+            expiry_minutes: link.expiry_minutes,
+            checks: self.wallet.checks.clone(),
+            node_choices: setup::default_nodes(network),
+            providers: till_wallet::prices::provider_names(currency.as_deref()),
+            provider,
+            currency,
+            warnings: now.backend.map(|b| b.warnings).unwrap_or_default(),
+            busy: self.busy,
+            problem: self.problem.clone(),
+        })
+    }
+
+    /// Keeps C1's request (with its one-time key) as a secret, or forgets
+    /// it, so Fob's answer still opens after a restart.
+    fn keep_fob_request(&self, request: Option<&FobRequest>) {
+        let Some(p) = &self.parts else { return };
+        let kept = request.map(FobRequest::keep);
+        if let Err(e) = p
+            .side
+            .store()
+            .put(keys::FOB_REQUEST, kept.as_deref().map(|k| k.as_str()))
+        {
+            self.log(format!("till-core: couldn't keep the request for Fob: {e}"));
+        }
+    }
+
+    /// C1's request as kept before a restart, back in the form; whether
+    /// there was one.
+    pub(super) fn restore_fob_request(&mut self) -> bool {
+        let kept = self
+            .parts
+            .as_ref()
+            .and_then(|p| p.side.store().get(keys::FOB_REQUEST).ok().flatten())
+            .map(Zeroizing::new);
+        let Some(request) = kept.as_deref().and_then(|k| FobRequest::restore(k)) else {
+            return false;
+        };
+        let form = self.form();
+        form.mode = Some(PaymentsMode::Wallet);
+        form.network = wallet_network(request.network());
+        form.request = Some(Arc::new(request));
+        true
     }
 
     /// The step a wallet screen shows, while one is up.
@@ -500,7 +716,11 @@ impl State {
                 problem: form.problem.clone(),
             },
             Screen::WalletKeys => {
-                let check = keys::check_typed_keys(form.network(), &form.address, &form.view_key);
+                let check = till_wallet::keys::check_typed_keys(
+                    form.network(),
+                    &form.address,
+                    &form.view_key,
+                );
                 WalletStep::Keys(KeysSetup {
                     network: form.network,
                     address: form.address.clone(),

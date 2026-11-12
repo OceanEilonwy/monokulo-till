@@ -321,6 +321,88 @@ pub fn preview_settings(device: Device, now: i64) -> SettingsView {
         live_activity: true,
         code_in_island: false,
         choices: SaleChoices::default(),
+        wallet: None,
+    };
+    settings::settings(&input, device, clock(now))
+}
+
+/// Which Settings the screenshots draw besides the Monokulo store's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum PreviewSettings {
+    /// The sample Monokulo store on Square: [`preview_settings`].
+    Monokulo,
+    /// A till on Corner Café's wallet, connected through Fob, at Front
+    /// Counter (screenshot `vk-settings`).
+    VkSettings,
+    /// The same, typed in by hand as till 51, with what the wallet warns
+    /// of (`vk-settings-warning`).
+    VkSettingsWarning,
+}
+
+/// Settings as `look` says, on `device` at `now`.
+#[cfg_attr(feature = "uniffi", uniffi::export)]
+pub fn preview_settings_of(look: PreviewSettings, device: Device, now: i64) -> SettingsView {
+    use till_screens::wallet_settings::WalletSettingsInput;
+    if look == PreviewSettings::Monokulo {
+        return preview_settings(device, now);
+    }
+    let warning = look == PreviewSettings::VkSettingsWarning;
+    let input = SettingsInput {
+        connection: None,
+        store: StoreNow::default(),
+        live: true,
+        pos: PosState {
+            chosen: Some(PointOfSale::Square),
+            signed_in: true,
+            location: Some(location("L1", "Front Counter")),
+            merchant: None,
+            tender_name: "Monero".into(),
+            tender: CloverTender::Ready,
+        },
+        shift_on: true,
+        alerts: true,
+        bubble_wanted: false,
+        bubble_allowed: false,
+        debug: false,
+        base_urls: BTreeMap::new(),
+        tor_running: None,
+        wake_ups: WakeUpsInput {
+            choice: WakeUpChoice::TimerOnly,
+            status: WakeUpStatus::Off,
+            ..wake_ups_input()
+        },
+        live_activity: true,
+        code_in_island: false,
+        choices: SaleChoices::default(),
+        wallet: Some(WalletSettingsInput {
+            address: "4A8xSAMPLEADDRESS0000000000000000000000000000000000000000000000000000000000000000000000009fQ2".into(),
+            network: WalletNetwork::Mainnet,
+            node: Some("https://node.example.com:18089".into()),
+            till_number: if warning { 51 } else { 1 },
+            fob: (!warning).then(|| ("Corner Café".into(), "Till (Corner Café)".into())),
+            confirmations: 10,
+            expiry_minutes: 30,
+            checks: vec![
+                ("Answers in 0.4 s".into(), CheckMark::Passed),
+                ("Mainnet".into(), CheckMark::Passed),
+                ("Up to date".into(), CheckMark::Passed),
+            ],
+            node_choices: till_wallet::setup::default_nodes(till_wallet::Network::Mainnet),
+            currency: Some("USD".into()),
+            provider: "Kraken".into(),
+            providers: till_wallet::prices::provider_names(Some("USD")),
+            warnings: if warning {
+                vec![
+                    "Another till may be using till number 51.".into(),
+                    "A payment of an unexpected amount: check it.".into(),
+                ]
+            } else {
+                Vec::new()
+            },
+            busy: false,
+            problem: None,
+        }),
     };
     settings::settings(&input, device, clock(now))
 }
@@ -437,6 +519,26 @@ mod tests {
         let rail = view(PreviewStep::VkThisTill, Device::Ipad).rail;
         assert_eq!(rail[3].label, "This till");
         assert_eq!(rail[3].state, till_screens::onboarding::RailState::Current);
+    }
+
+    #[test]
+    fn wallet_settings_show_the_wallet_in_place_of_a_store() {
+        let view = preview_settings_of(PreviewSettings::VkSettings, Device::Ipad, 1_000);
+        assert!(view.store.is_none());
+        let wallet = view.wallet.expect("a wallet section");
+        assert_eq!(
+            wallet.fob.unwrap().value,
+            "Corner Café · Till (Corner Café)"
+        );
+        assert!(wallet.till_number.is_none() && wallet.warnings.is_empty());
+        assert_eq!(view.disconnect, "Disconnect this wallet");
+        let warned =
+            preview_settings_of(PreviewSettings::VkSettingsWarning, Device::Android, 1_000)
+                .wallet
+                .unwrap();
+        assert_eq!(warned.warnings.len(), 2);
+        assert!(warned.lookahead.is_some());
+        assert_eq!(warned.till_number.unwrap().value, "51");
     }
 
     #[test]

@@ -2382,3 +2382,155 @@ fn a_till_on_its_own_wallet_has_no_foreground_service_and_no_bell() {
         );
     });
 }
+
+/// A till set up on its own wallet (made in `data_dir`), at Square's Front
+/// Counter: what Settings and its changes are tried on.
+fn wallet_till(data_dir: &str) -> (Arc<FakePlatform>, till_payments::WalletLink) {
+    let keys = fob_keys::Keys::generate(till_wallet::Network::Stagenet).keys;
+    let view = till_wallet::keys::keys_from_typed(
+        till_wallet::Network::Stagenet,
+        &keys.primary_address(),
+        &keys.view_key_hex(),
+    )
+    .unwrap();
+    let made = tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(till_wallet::make_wallet(
+            std::path::Path::new(data_dir),
+            &view,
+            &till_wallet::WalletSetup::new(2),
+        ))
+        .unwrap();
+    let link = made.link.clone();
+    drop(made);
+    let platform = FakePlatform::with(&[("setup.done", "true")]);
+    platform.set(
+        "connection",
+        &till_payments::Link::Wallet(link.clone()).save(),
+    );
+    (platform, link)
+}
+
+fn kept_wallet(platform: &FakePlatform) -> till_payments::WalletLink {
+    let saved = platform.get("connection").expect("a link");
+    match till_payments::Link::restore(&saved) {
+        Some(till_payments::Link::Wallet(wallet)) => wallet,
+        other => panic!("a wallet link: {other:?}"),
+    }
+}
+
+/// Decision 234: Settings shows the wallet in place of a store, and its
+/// steppers and price source change the wallet's link.
+#[test]
+fn wallet_settings_show_the_wallet_and_change_its_link() {
+    let config = config(None);
+    let (platform, link) = wallet_till(&config.data_dir);
+    let (engine, rx, _) = start(config, platform.clone());
+    screen(&rx, Screen::Till);
+    engine.send(Action::OpenSettings);
+    let section = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view.wallet.clone(),
+        _ => None,
+    });
+    assert!(section.wallet_address.starts_with('5'));
+    assert_eq!(
+        section.till_number.unwrap().detail.as_deref(),
+        Some("In your wallet: account 2")
+    );
+    assert_eq!(section.disconnect.label, "Disconnect this wallet");
+    engine.send(Action::StepTillNumber { up: true });
+    wait_for(&rx, |_| {
+        (kept_wallet(&platform).till_number == 3).then_some(())
+    });
+    engine.send(Action::StepPaidAfter { up: true });
+    wait_for(&rx, |_| {
+        (kept_wallet(&platform).settled_confirmations == 15).then_some(())
+    });
+    engine.send(Action::StepCodeExpiry { up: false });
+    wait_for(&rx, |_| {
+        (kept_wallet(&platform).expiry_minutes == 20).then_some(())
+    });
+    engine.send(Action::ChoosePriceProvider {
+        name: "CoinGecko".into(),
+    });
+    wait_for(&rx, |_| {
+        (kept_wallet(&platform).price_provider.as_deref() == Some("CoinGecko")).then_some(())
+    });
+    // A provider the currency has none of isn't taken.
+    engine.send(Action::ChoosePriceProvider {
+        name: "Nobody".into(),
+    });
+    let kept = kept_wallet(&platform);
+    assert_eq!(kept.file_key, link.file_key, "the same wallet");
+    assert_eq!(kept.price_provider.as_deref(), Some("CoinGecko"));
+}
+
+/// Disconnect forgets the wallet's link and deletes its file.
+#[test]
+fn disconnecting_a_wallet_deletes_its_file() {
+    let config = config(None);
+    let data_dir = config.data_dir.clone();
+    let (platform, _) = wallet_till(&data_dir);
+    let file = std::path::Path::new(&data_dir).join(till_wallet::WALLET_FILE);
+    assert!(file.exists());
+    let (engine, rx, _) = start(config, platform.clone());
+    screen(&rx, Screen::Till);
+    engine.send(Action::OpenSettings);
+    engine.send(Action::Disconnect);
+    screen(&rx, Screen::Welcome);
+    assert!(platform.get("connection").is_none());
+    assert!(!file.exists(), "the wallet file is gone");
+}
+
+/// Connect to Fob's request outlives the process: a till started again
+/// comes back on C1 with the same request, and Fob's answer opens.
+#[test]
+fn a_fob_request_is_kept_across_a_restart() {
+    let platform = Arc::new(FakePlatform::default());
+    let config = config(None);
+    let (engine, rx, _) = start(config.clone(), platform.clone());
+    screen(&rx, Screen::Welcome);
+    engine.send(Action::Next);
+    engine.send(Action::ChoosePaymentsMode {
+        mode: PaymentsMode::Wallet,
+    });
+    engine.send(Action::Next);
+    engine.send(Action::ConnectFob);
+    let first = page_where(&rx, |page| match page {
+        OnboardingPage::FobRequest { view } => Some(view.qr.clone()),
+        _ => None,
+    });
+    assert!(platform.get("fob.request").is_some());
+    drop(engine);
+
+    let (engine, rx, _) = start(config, platform.clone());
+    screen(&rx, Screen::FobRequest);
+    let again = page_where(&rx, |page| match page {
+        OnboardingPage::FobRequest { view } => Some(view.qr.clone()),
+        _ => None,
+    });
+    assert_eq!(again, first);
+    let asked = fob_codes::connect::Request::parse(&again).unwrap();
+    let keys = fob_keys::Keys::generate(till_wallet::Network::Stagenet).keys;
+    let grant = fob_codes::connect::Grant {
+        address: keys.primary_address(),
+        view_key: keys.view_key_hex().to_string(),
+        network: "stagenet".into(),
+        account: 1,
+        label: "Till".into(),
+        restore_height: 2_250_000,
+        wallet_id: "w1".into(),
+        wallet_name: "Corner Café".into(),
+        node: None,
+        light: None,
+        prices: None,
+    };
+    engine.send(Action::FobAnswer {
+        text: fob_codes::connect::seal(&asked, &grant).unwrap(),
+    });
+    screen(&rx, Screen::FobConnected);
+    assert!(
+        platform.get("fob.request").is_none(),
+        "forgotten once answered"
+    );
+}

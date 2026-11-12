@@ -72,7 +72,8 @@ pub struct WalletBackend {
 
 struct Inner {
     wallet: Wallet,
-    link: WalletLink,
+    /// The link as it stands: Settings changes it ([`WalletBackend::update`]).
+    link: Mutex<WalletLink>,
     prices: Prices,
     clock: Arc<dyn Clock>,
     /// The code on screen, as the till last hinted.
@@ -191,7 +192,7 @@ impl WalletBackend {
             wallet,
             prices: Prices::new(source, clock.clone()),
             clock,
-            link,
+            link: Mutex::new(link),
             focus: Mutex::new(None),
             wake: Notify::new(),
             changed: Mutex::new(BTreeSet::new()),
@@ -204,21 +205,46 @@ impl WalletBackend {
         WalletBackend { inner }
     }
 
-    /// The link this backend was opened with.
-    pub fn link(&self) -> &WalletLink {
-        &self.inner.link
+    /// The link as it stands.
+    pub fn link(&self) -> WalletLink {
+        lock(&self.inner.link).clone()
+    }
+
+    /// The wallet's primary address.
+    pub fn address(&self) -> String {
+        self.inner.wallet.primary_address()
+    }
+
+    /// Settings changed the link: the wallet is set up as `link` says (a
+    /// new node is checked by the wallet first, and refused if it doesn't
+    /// answer on the wallet's network), prices come from its provider, and
+    /// it's the link from now on. Nothing changes when it's refused.
+    pub async fn update(&self, link: WalletLink) -> Result<(), BackendError> {
+        apply(&self.inner.wallet, &link).await?;
+        let provider = provider_for(
+            link.price_provider.as_deref(),
+            link.price_currency.as_deref(),
+        );
+        if self.inner.prices.source_name() != fob_price::Source::name(&provider) {
+            self.inner
+                .prices
+                .set_source(Arc::new(ProviderSource(provider)));
+        }
+        *lock(&self.inner.link) = link;
+        Ok(())
     }
 
     /// What Settings warns of (§5.3): money at this till's addresses that
     /// counts toward none of its payments, and a sign that another till
-    /// uses the same number.
+    /// uses the same number. (A till number past the accounts wallets look
+    /// at is Settings' own warning, beside the number.)
     pub async fn warnings(&self) -> Vec<String> {
         let unexpected = self.inner.wallet.unexpected_payments().await;
+        let till_number = self.link().till_number;
         let mut warnings = Vec::new();
         if unexpected.iter().any(|u| u.foreign_tag) {
             warnings.push(format!(
-                "Another till may be using till number {}.",
-                self.inner.link.till_number
+                "Another till may be using till number {till_number}."
             ));
         }
         let odd = unexpected.iter().filter(|u| !u.foreign_tag).count();
@@ -228,12 +254,6 @@ impl WalletBackend {
             } else {
                 format!("{odd} payments of unexpected amounts: check them.")
             });
-        }
-        if self.inner.link.till_number > fob_wallet::wallet::POOL_SIZE {
-            warnings.push(format!(
-                "Till number {} is past the 50 accounts most wallets look at. Ask your wallet to look further, or it may not show this till's takings.",
-                self.inner.link.till_number
-            ));
         }
         warnings
     }
@@ -289,7 +309,7 @@ impl Inner {
     }
 
     fn settled(&self) -> u32 {
-        self.link.settled_confirmations.clamp(
+        lock(&self.link).settled_confirmations.clamp(
             fob_wallet::manual::SETTLED_MIN,
             fob_wallet::manual::SETTLED_MAX,
         )
@@ -472,7 +492,8 @@ pub fn payment_of(
 impl PaymentBackend for WalletBackend {
     async fn describe(&self) -> Result<BackendInfo, BackendError> {
         let inner = &self.inner;
-        let through = match (&inner.link.light_server, &inner.link.node) {
+        let link = self.link();
+        let through = match (&link.light_server, &link.node) {
             (Some(server), _) => format!("Your wallet, through {}", host_of(server)),
             (None, Some(node)) => format!("Your wallet, through {}", host_of(node)),
             (None, None) => "Your wallet".to_owned(),
@@ -499,7 +520,7 @@ impl PaymentBackend for WalletBackend {
             .await
             .map_err(BackendError::Other)?;
         let expires_at =
-            inner.now().max(0) as u64 + u64::from(inner.link.expiry_minutes.max(1)) * 60;
+            inner.now().max(0) as u64 + u64::from(lock(&inner.link).expiry_minutes.max(1)) * 60;
         let made = inner
             .wallet
             .request_payment(Ask {
