@@ -45,6 +45,7 @@ import uniffi.till_screens.CashAction
 import uniffi.till_screens.Fact
 import uniffi.till_screens.Ground
 import uniffi.till_screens.PageAction
+import uniffi.till_screens.StateIcon
 
 /**
  * A sale's page when its code isn't up (the design's row 2b): paid, paid
@@ -93,7 +94,12 @@ fun SaleDetail(
                         }
                         Text(
                             page.heading, style = display(26, 0.0), textAlign = TextAlign.Center,
-                            color = if (page.headingWarn) mk.warn else mk.ink,
+                            // The state in its colour, as iOS has it: Paid in green.
+                            color = when {
+                                page.headingWarn -> mk.warn
+                                page.icon == StateIcon.TICK -> mk.paid
+                                else -> mk.ink
+                            },
                             modifier = words.semantics { heading(); liveRegion = LiveRegionMode.Polite },
                         )
                         Text(page.amount, style = display(40, -0.8), color = if (page.amountMuted) mk.muted else mk.ink, modifier = words)
@@ -117,21 +123,21 @@ fun SaleDetail(
                             when (button.action) {
                                 PageAction.REFUND -> PrimaryButton(
                                     button.press.label, { actions.send(Action.Refund(sale.orderId)) }, Modifier.fillMaxWidth(),
-                                    enabled = button.press.enabled, height = 56.dp, size = 16,
+                                    enabled = button.press.enabled, height = 56.dp, size = 16, icon = MkIcons.Refund,
                                 )
                                 PageAction.SHOW_CODE_AGAIN -> OutlineButton(
                                     button.press.label, { actions.send(Action.Reopen(sale.orderId)) }, Modifier.fillMaxWidth(),
-                                    enabled = button.press.enabled, height = 52.dp,
+                                    enabled = button.press.enabled, height = 52.dp, icon = MkIcons.Code,
                                 )
                                 // An overpayment's extra went back (core.md decision 168).
                                 PageAction.MARK_REFUNDED -> PrimaryButton(
                                     button.press.label, { actions.send(Action.ExtraRefunded(sale.orderId)) }, Modifier.fillMaxWidth(),
-                                    enabled = button.press.enabled, height = 56.dp, size = 16,
+                                    enabled = button.press.enabled, height = 56.dp, size = 16, icon = MkIcons.Tick,
                                 )
                                 // New code (docs/ledger.md §7), drawn plainly.
                                 PageAction.NEW_CODE -> OutlineButton(
                                     button.press.label, { actions.send(Action.NewCode(sale.orderId)) }, Modifier.fillMaxWidth(),
-                                    enabled = button.press.enabled, height = 52.dp,
+                                    enabled = button.press.enabled, height = 52.dp, icon = MkIcons.Code,
                                 )
                             }
                         }
