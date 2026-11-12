@@ -68,6 +68,9 @@ pub struct SalePageModel {
     pub amount_muted: bool,
     pub line: String,
     pub note: Option<PageNote>,
+    /// Small print under the timeline: a rule worth knowing, not the
+    /// page's point (owner, round 4: the late payment, on an expired sale).
+    pub footnote: Option<String>,
     /// Whether the page shows what was bought: never for another till's
     /// sale, which this till has no receipt for.
     pub order: bool,
@@ -149,6 +152,7 @@ pub fn page(
         amount_muted: false,
         line,
         note,
+        footnote: None,
         order: true,
         facts,
         actions: Vec::new(),
@@ -253,24 +257,31 @@ pub fn page(
                 )
             }
         }
+        // One fact per line (owner, round 4): the state in two words, the
+        // amount, when the code ran out, one sentence on what to do, and the
+        // late-payment rule as small print.
         Standing::Expired => {
-            let note = if sale.phase == SalePhase::Cancelled {
-                format!(
-                    "The order was cancelled in Monokulo. {has_it}: refund it if the customer isn't paying."
-                )
+            let line = if sale.phase == SalePhase::Cancelled {
+                "Cancelled in Monokulo".to_owned()
             } else {
-                format!(
-                    "The code ran out at {} with no payment. {has_it}: refund it if the customer isn't paying. {watching}",
-                    at(sale.expires_at)
-                )
+                format!("The code ran out at {}", at(sale.expires_at))
+            };
+            let footnote = if sale.settled {
+                "Monokulo has stopped watching it."
+            } else {
+                "A late payment still counts: Till keeps watching and the sale turns paid."
             };
             SalePageModel {
+                heading: "Not paid".into(),
+                footnote: Some(footnote.into()),
                 actions: vec![PageAction::Refund],
                 ..model(
                     StateIcon::Clock,
                     Ground::Warn,
-                    xmr.clone(),
-                    Some(PageNote::card(note)),
+                    line,
+                    Some(PageNote::card(format!(
+                        "{has_it}. If the customer isn't paying, refund it there."
+                    ))),
                     facts(vec![rung_up, ended]),
                 )
             }
@@ -596,6 +607,9 @@ pub struct SalePageView {
     pub amount_muted: bool,
     pub line: String,
     pub note: Option<PageNote>,
+    /// Small print under the timeline ([`SalePageModel::footnote`]).
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub footnote: Option<String>,
     /// What was bought, every line: this till's own sale with a receipt.
     pub order: Option<OrderCard>,
     pub facts: Vec<Fact>,
@@ -648,6 +662,7 @@ pub fn sale_page(
         amount_muted: model.amount_muted,
         line: model.line,
         note: model.note,
+        footnote: model.footnote,
         order: if model.order {
             sale.receipt
                 .as_ref()
@@ -961,7 +976,15 @@ mod tests {
             la(at),
             false,
         );
-        assert!(note(&settled).ends_with("Monokulo has stopped watching it."));
+        assert_eq!(
+            settled.footnote.as_deref(),
+            Some("Monokulo has stopped watching it.")
+        );
+        assert_eq!(settled.heading, "Not paid");
+        assert_eq!(
+            note(&settled),
+            "Square has this sale as Monero. If the customer isn't paying, refund it there."
+        );
         assert_eq!(
             settled.actions,
             [PageAction::Refund, PageAction::NewCode],
@@ -1031,8 +1054,9 @@ mod tests {
         let cancelled = of("cancelled");
         assert_eq!(
             note(&cancelled),
-            "The order was cancelled in Monokulo. Square has this sale as Monero: refund it if the customer isn't paying."
+            "Square has this sale as Monero. If the customer isn't paying, refund it there."
         );
+        assert_eq!(cancelled.line, "Cancelled in Monokulo");
         assert_eq!(cancelled.facts.last().unwrap().label, "Cancelled");
     }
 

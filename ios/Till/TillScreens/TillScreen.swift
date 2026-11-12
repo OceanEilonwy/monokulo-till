@@ -1,20 +1,16 @@
 import SwiftUI
 import TillCore
 
-/// The till (phase I3, laid out again by docs/ipad-redesign.md, decisions
-/// 15–19 and 23–24), once setup is done, drawn from the engine's records.
-/// The engine's screen is the source of truth; the system's navigation
-/// only shows it:
-///
-/// - compact width (iPhone, a narrow iPad window): a `NavigationStack`
-///   whose path is the engine's screen, so the edge swipe goes back (D2);
-/// - regular width with sales: a `NavigationSplitView`, the shift's sales
-///   on the left and the open sale on the right (D1, E2);
-/// - the empty till, at any width: one centred block (E1).
+/// The till (phase I3; one column since the owner's round 4, decision
+/// 227), once setup is done, drawn from the engine's records. The engine's
+/// screen is the source of truth; the system's navigation only shows it: a
+/// `NavigationStack` at every width, whose path is the engine's screen, so
+/// the edge swipe goes back. The shift is one centred column on iPhone and
+/// iPad alike, and a sale opens over the whole screen, as on Android; there
+/// is no sidebar.
 ///
 /// The customer's code is a full-screen cover, Settings a sheet with Done,
 /// and the close and refund sheets go up while the engine has them up.
-/// Layout follows the size class, never the device.
 struct TillScreen: View {
     let core: Core
     let route: Route
@@ -30,13 +26,7 @@ struct TillScreen: View {
     @State private var lastLive: String?
 
     var body: some View {
-        Group {
-            if sizeClass == .regular && hasSales {
-                split
-            } else {
-                stack
-            }
-        }
+        stack
         .background(Palette.ground)
         .sheet(isPresented: settingsUp) {
             if let settings = core.settings {
@@ -58,22 +48,6 @@ struct TillScreen: View {
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
                     .presentationBackground(Palette.ground)
-            }
-        }
-        // The whole order, as a dialog beside the sales (the design's Q6b);
-        // under compact width it's a page in the stack.
-        .sheet(isPresented: orderUp) {
-            if case .order(let orderId) = route {
-                NavigationStack {
-                    OrderDetail(core: core, orderId: orderId, send: send)
-                        .toolbar {
-                            ToolbarItem(placement: .confirmationAction) {
-                                Button("Done") { core.send(.back) }
-                            }
-                        }
-                }
-                .presentationDetents([.large])
-                .presentationBackground(Palette.ground)
             }
         }
         .fullScreenCover(isPresented: codeUp) {
@@ -110,32 +84,12 @@ struct TillScreen: View {
         return orderId
     }
 
-    /// The shift has had a sale (the engine's chips come with the first).
-    private var hasSales: Bool {
-        guard let shift = core.shift, shift.disconnected == nil else { return false }
-        return !shift.chips.isEmpty || !shift.entries.isEmpty
-    }
-
     private var settingsUp: Binding<Bool> {
         Binding(
             get: { route == .settings },
             set: { up in
                 // Swiped down: Settings goes back as Done would.
                 if !up && route == .settings { core.send(.back) }
-            }
-        )
-    }
-
-    /// The whole order's dialog: up while the engine shows it and the sales
-    /// sit beside the sale (regular width).
-    private var orderUp: Binding<Bool> {
-        Binding(
-            get: {
-                guard sizeClass == .regular && hasSales, case .order = route else { return false }
-                return true
-            },
-            set: { up in
-                if !up, case .order = route { core.send(.back) }
             }
         )
     }
@@ -152,7 +106,7 @@ struct TillScreen: View {
         )
     }
 
-    // MARK: Compact: one stack
+    // MARK: One stack, at every width
 
     private var stack: some View {
         NavigationStack(path: stackPath) {
@@ -212,51 +166,6 @@ struct TillScreen: View {
         max(0, TillScreen.depth(route) - depth)
     }
 
-    // MARK: Regular: sales beside the sale
-
-    private var split: some View {
-        NavigationSplitView {
-            shiftScreen(sidebar: true)
-                .navigationSplitViewColumnWidth(min: 300, ideal: 340, max: 420)
-        } detail: {
-            NavigationStack(path: detailPath) {
-                detailRoot
-                    .navigationDestination(for: Route.self) { destination in
-                        if case .order(let orderId) = destination {
-                            OrderDetail(core: core, orderId: orderId, send: send)
-                        } else {
-                            TillLoading()
-                        }
-                    }
-            }
-        }
-        .navigationSplitViewStyle(.balanced)
-    }
-
-    /// The detail column's root: the open sale, or the empty till.
-    @ViewBuilder
-    private var detailRoot: some View {
-        if let orderId = TillScreen.orderId(shown) {
-            SaleDetail(core: core, orderId: orderId, celebrate: lastLive == orderId, send: send)
-                .id(orderId)
-        } else if let shift = core.shift {
-            EmptyTill(idle: shift.idle, ready: shift.ready, chips: shift.status, send: send)
-                .toolbar(.hidden, for: .navigationBar)
-        } else {
-            TillLoading()
-        }
-    }
-
-    private var detailPath: Binding<[Route]> {
-        Binding(
-            // The order is a dialog here (``orderUp``), never a page.
-            get: { [] },
-            set: { path in
-                if path.isEmpty, case .order = route { core.send(.back) }
-            }
-        )
-    }
-
     /// The sale `route` shows, if it shows one.
     static func orderId(_ route: Route) -> String? {
         switch route {
@@ -270,12 +179,7 @@ struct TillScreen: View {
     @ViewBuilder
     private func shiftScreen(sidebar: Bool) -> some View {
         if let shift = core.shift {
-            ShiftScreen(
-                view: shift,
-                sidebar: sidebar,
-                selected: sidebar ? TillScreen.orderId(shown) : nil,
-                send: send
-            )
+            ShiftScreen(view: shift, sidebar: false, selected: nil, send: send)
         } else {
             TillLoading()
         }
