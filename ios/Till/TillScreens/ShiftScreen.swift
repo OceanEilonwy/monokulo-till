@@ -207,7 +207,7 @@ struct ShiftHeaderCard: View {
                 Button {
                     newShift()
                 } label: {
-                    Label(header.newShift.label, systemImage: "plus")
+                    Label(header.newShift.label, systemImage: "arrow.counterclockwise")
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
                 }
