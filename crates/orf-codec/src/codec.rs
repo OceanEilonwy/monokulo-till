@@ -103,9 +103,9 @@ impl<'d> Codec<'d> {
             return Err(DecodeError::UnknownDictionary(header & 0x0f));
         }
         let (len, used) = read_leb128(rest)?;
-        let numbers = rest.get(used..used + len).ok_or(DecodeError::Truncated)?;
-        let text =
-            decompress(&rest[used + len..], &self.decoder).map_err(DecodeError::Decompress)?;
+        let end = used.checked_add(len).ok_or(DecodeError::Truncated)?;
+        let numbers = rest.get(used..end).ok_or(DecodeError::Truncated)?;
+        let text = decompress(&rest[end..], &self.decoder).map_err(DecodeError::Decompress)?;
         let text = String::from_utf8(text).map_err(|_| DecodeError::Corrupt("text isn't UTF-8"))?;
         let mut d = Dec {
             bits: Reader::new(numbers),
@@ -188,18 +188,42 @@ fn from_units(n: i64, exp: u32) -> f64 {
     n as f64 / 10f64.powi(exp as i32)
 }
 
-/// n / d rounded half away from zero.
-fn round_div(n: i128, d: i128) -> i64 {
+/// n / d rounded half away from zero; `None` when that's beyond an i64.
+/// `n` is a product of two i64s, so `abs` can't overflow.
+fn round_div(n: i128, d: i128) -> Option<i64> {
     let q = (n.abs() + d / 2) / d;
-    (if n < 0 { -q } else { q }) as i64
+    i64::try_from(if n < 0 { -q } else { q }).ok()
 }
 
-fn line_total(qty_milli: i64, price: i64) -> i64 {
+/// Quantity × unit price; `None` when it's beyond an i64, which no total
+/// that was encoded as worked out can be.
+fn line_total(qty_milli: i64, price: i64) -> Option<i64> {
     round_div(qty_milli as i128 * price as i128, 1000)
 }
 
-fn tax_amount(base: i64, rate_ppm: i64) -> i64 {
+/// Base × rate; `None` as for [`line_total`].
+fn tax_amount(base: i64, rate_ppm: i64) -> Option<i64> {
     round_div(base as i128 * rate_ppm as i128, 1_000_000)
+}
+
+/// The most line items, tax lines or tax identifiers a receipt may have.
+/// Each costs only a few bits, so a payload could otherwise claim millions
+/// and have them allocated.
+const MAX_ITEMS: u64 = 10_000;
+
+/// `a + b`, or the decoder's error for an amount past an i64.
+fn add(a: i64, b: i64) -> Result<i64, DecodeError> {
+    a.checked_add(b)
+        .ok_or(DecodeError::Corrupt("amounts too large"))
+}
+
+/// A count read from the bits, refused past [`MAX_ITEMS`] before anything
+/// is made for it.
+fn count(n: u64, what: &'static str) -> Result<usize, DecodeError> {
+    if n > MAX_ITEMS {
+        return Err(DecodeError::Corrupt(what));
+    }
+    Ok(n as usize)
 }
 
 // ---- encoding ---------------------------------------------------------------
@@ -207,6 +231,10 @@ fn tax_amount(base: i64, rate_ppm: i64) -> i64 {
 struct Enc {
     bits: Writer,
     text: Vec<String>,
+}
+
+fn too_large(field: &str) -> EncodeError {
+    unsupported(field, "amounts too large to add up")
 }
 
 fn unsupported(field: &str, reason: &'static str) -> EncodeError {
@@ -280,6 +308,9 @@ impl Enc {
 
         // Line items.
         let items = &r.line_items;
+        if items.len() as u64 > MAX_ITEMS {
+            return Err(unsupported("line_items", "more than 10,000"));
+        }
         self.bits.eg(items.len() as u64, 2);
         let sequential = items
             .iter()
@@ -316,17 +347,17 @@ impl Enc {
             let price = self.amount(&f("unit_price"), it.unit_price, exp)?;
             self.bits.eg_signed(price, 8);
             let total = self.amount(&f("line_total"), it.line_total, exp)?;
-            let expected = line_total(qty, price);
+            let expected = line_total(qty, price) == Some(total);
             let net = it
                 .net_amount
                 .map(|n| self.amount(&f("net_amount"), n, exp))
                 .transpose()?;
             // Most lines are plain: total = quantity × price, no net amount. One bit.
-            let plain = total == expected && net.is_none();
+            let plain = expected && net.is_none();
             self.bits.flag(!plain);
             if !plain {
-                self.bits.flag(total != expected);
-                if total != expected {
+                self.bits.flag(!expected);
+                if !expected {
                     self.bits.eg_signed(total, 8);
                 }
                 match net {
@@ -338,7 +369,9 @@ impl Enc {
                     }
                 }
             }
-            sum_totals += total;
+            sum_totals = sum_totals
+                .checked_add(total)
+                .ok_or_else(|| too_large("line_items"))?;
         }
 
         // Tax.
@@ -347,6 +380,9 @@ impl Enc {
         if let Some(tax) = &r.tax {
             self.opt_text("tax.tax_scheme", &tax.tax_scheme)?;
             let lines = tax.tax_lines.as_deref();
+            if lines.is_some_and(|l| l.len() as u64 > MAX_ITEMS) {
+                return Err(unsupported("tax.tax_lines", "more than 10,000"));
+            }
             self.bits.eg(lines.map_or(0, |l| l.len() as u64 + 1), 0);
             for (i, line) in lines.unwrap_or_default().iter().enumerate() {
                 let f = |name: &str| format!("tax.tax_lines[{i}].{name}");
@@ -374,13 +410,15 @@ impl Enc {
                     }
                 };
                 let amount = self.amount(&f("tax_amount"), line.tax_amount, exp)?;
-                let expected = tax_amount(base, ppm);
-                self.bits.flag(amount != expected);
-                if amount != expected {
+                let expected = tax_amount(base, ppm) == Some(amount);
+                self.bits.flag(!expected);
+                if !expected {
                     self.bits.eg_signed(amount, 6);
                 }
                 self.opt_text(&f("jurisdiction"), &line.jurisdiction)?;
-                sum_tax += amount;
+                sum_tax = sum_tax
+                    .checked_add(amount)
+                    .ok_or_else(|| too_large("tax.tax_lines"))?;
             }
         }
 
@@ -420,9 +458,11 @@ impl Enc {
 
         // Total.
         let total = self.amount("total", r.total, exp)?;
-        let expected = sum_totals + sum_tax + tip.unwrap_or(0);
-        self.bits.flag(total != expected);
-        if total != expected {
+        let expected = sum_totals
+            .checked_add(sum_tax)
+            .and_then(|s| s.checked_add(tip.unwrap_or(0)));
+        self.bits.flag(expected != Some(total));
+        if expected != Some(total) {
             self.bits.eg_signed(total, 10);
         }
         Ok(())
@@ -470,6 +510,9 @@ impl Enc {
         field: &str,
         ids: &Option<Vec<TaxIdentifier>>,
     ) -> Result<(), EncodeError> {
+        if ids.as_ref().is_some_and(|v| v.len() as u64 > MAX_ITEMS) {
+            return Err(unsupported(field, "more than 10,000"));
+        }
         self.bits
             .eg(ids.as_ref().map_or(0, |v| v.len() as u64 + 1), 0);
         for (i, id) in ids.iter().flatten().enumerate() {
@@ -700,10 +743,7 @@ impl Dec<'_> {
             None
         };
 
-        let n = self.bits.eg(2)? as usize;
-        if n > 10_000 {
-            return Err(DecodeError::Corrupt("too many line items"));
-        }
+        let n = count(self.bits.eg(2)?, "too many line items")?;
         let ids_mode = self.bits.get(2)?;
         let mut line_items = Vec::with_capacity(n);
         let mut sum_totals = 0i64;
@@ -717,18 +757,22 @@ impl Dec<'_> {
             let qty = if !self.bits.flag()? {
                 1000
             } else if !self.bits.flag()? {
-                self.bits.eg_signed(1)? * 1000
+                self.bits
+                    .eg_signed(1)?
+                    .checked_mul(1000)
+                    .ok_or(DecodeError::Corrupt("quantity"))?
             } else {
                 self.bits.eg_signed(10)?
             };
             let price = self.bits.eg_signed(8)?;
+            let worked_out = || line_total(qty, price).ok_or(DecodeError::Corrupt("line total"));
             let (total, net_amount) = if !self.bits.flag()? {
-                (line_total(qty, price), None)
+                (worked_out()?, None)
             } else {
                 let total = if self.bits.flag()? {
                     self.bits.eg_signed(8)?
                 } else {
-                    line_total(qty, price)
+                    worked_out()?
                 };
                 let net = match self.bits.get(2)? {
                     0 => None,
@@ -737,7 +781,7 @@ impl Dec<'_> {
                 };
                 (total, net)
             };
-            sum_totals += total;
+            sum_totals = add(sum_totals, total)?;
             line_items.push(LineItem {
                 line_item_id,
                 description,
@@ -751,13 +795,15 @@ impl Dec<'_> {
         let mut sum_tax = 0i64;
         let tax = if self.bits.flag()? {
             let tax_scheme = self.opt_text()?;
-            let count = self.bits.eg(0)?;
-            let tax_lines = if count == 0 {
+            let lines_and_one = self.bits.eg(0)?;
+            let tax_lines = if lines_and_one == 0 {
                 None
             } else {
-                let mut lines = Vec::new();
-                for _ in 0..count - 1 {
-                    let ppm = self.bits.eg(12)? as i64;
+                let n = count(lines_and_one - 1, "too many tax lines")?;
+                let mut lines = Vec::with_capacity(n);
+                for _ in 0..n {
+                    let ppm = i64::try_from(self.bits.eg(12)?)
+                        .map_err(|_| DecodeError::Corrupt("tax rate"))?;
                     let (base, base_amount) = match self.bits.get(2)? {
                         0 => (sum_totals, None),
                         1 => (sum_totals, Some(money(sum_totals))),
@@ -769,9 +815,9 @@ impl Dec<'_> {
                     let amount = if self.bits.flag()? {
                         self.bits.eg_signed(6)?
                     } else {
-                        tax_amount(base, ppm)
+                        tax_amount(base, ppm).ok_or(DecodeError::Corrupt("tax amount"))?
                     };
-                    sum_tax += amount;
+                    sum_tax = add(sum_tax, amount)?;
                     lines.push(TaxLine {
                         rate: from_units(ppm, 6),
                         base_amount,
@@ -837,7 +883,7 @@ impl Dec<'_> {
         let total = if self.bits.flag()? {
             self.bits.eg_signed(10)?
         } else {
-            sum_totals + sum_tax + tip.unwrap_or(0)
+            add(add(sum_totals, sum_tax)?, tip.unwrap_or(0))?
         };
 
         Ok(Receipt {
@@ -913,11 +959,11 @@ impl Dec<'_> {
     }
 
     fn tax_ids(&mut self) -> Result<Option<Vec<TaxIdentifier>>, DecodeError> {
-        let count = self.bits.eg(0)?;
-        if count == 0 {
+        let ids_and_one = self.bits.eg(0)?;
+        if ids_and_one == 0 {
             return Ok(None);
         }
-        (0..count - 1)
+        (0..count(ids_and_one - 1, "too many tax identifiers")?)
             .map(|_| {
                 Ok(TaxIdentifier {
                     scheme: self.opt_text()?,
@@ -944,10 +990,13 @@ mod tests {
 
     #[test]
     fn rounding_is_half_away_from_zero() {
-        assert_eq!(tax_amount(4800, 88_750), 426);
-        assert_eq!(tax_amount(825, 87_500), 72);
-        assert_eq!(round_div(-5, 10), -1);
-        assert_eq!(line_total(1240, 69), 86);
+        assert_eq!(tax_amount(4800, 88_750), Some(426));
+        assert_eq!(tax_amount(825, 87_500), Some(72));
+        assert_eq!(round_div(-5, 10), Some(-1));
+        assert_eq!(line_total(1240, 69), Some(86));
+        assert_eq!(line_total(i64::MAX, i64::MAX), None, "past an i64");
+        assert_eq!(line_total(i64::MIN, i64::MAX), None);
+        assert_eq!(tax_amount(i64::MAX, 2_000_000), None);
     }
 
     /// The digits are the till's one ISO 4217 table's: CLF in four, as
@@ -975,5 +1024,273 @@ mod tests {
         .unwrap();
         let back = crate::decode(&crate::encode(&receipt).unwrap()).unwrap();
         assert_eq!(back, receipt);
+    }
+
+    // ---- hostile payloads ---------------------------------------------------
+
+    /// A payload of `bits` and `text` lines, laid out as [`Codec::encode`]
+    /// lays one out, whatever they say.
+    fn payload(bits: Writer, text: &[&str]) -> Vec<u8> {
+        let numbers = bits.finish();
+        let mut out = vec![FORMAT << 4];
+        leb128(&mut out, numbers.len());
+        out.extend_from_slice(&numbers);
+        let text = compress(text.join("\n").as_bytes(), &Codec::shared().encoder).unwrap();
+        out.extend_from_slice(&text);
+        out
+    }
+
+    /// A sale at 2025-01-01T00:00:00Z from a US merchant, up to its tax
+    /// identifiers. Its text is "S", "1".
+    fn merchant() -> Writer {
+        let mut w = Writer::default();
+        w.put(0, 2);
+        w.put(0, 2);
+        w.eg_signed(0, 20);
+        w.flag(false);
+        w.flag(true);
+        w.flag(true);
+        w.put((b'U' - b'A') as u64, 5);
+        w.put((b'S' - b'A') as u64, 5);
+        w.flag(false);
+        w.flag(false);
+        w
+    }
+
+    /// [`merchant`], then no tax identifiers, USD and no customer:
+    /// everything before the line items.
+    fn head() -> Writer {
+        let mut w = merchant();
+        w.eg(0, 0);
+        w.put(0, 2);
+        w.flag(false);
+        w
+    }
+
+    /// No line items, then a tax section claiming `n` lines.
+    fn tax_lines(n: u64) -> Writer {
+        let mut w = head();
+        w.eg(0, 2);
+        w.put(0, 2);
+        w.flag(true);
+        w.flag(false);
+        w.eg(n.saturating_add(1), 0);
+        w
+    }
+
+    fn corrupt(bits: Writer, text: &[&str]) -> &'static str {
+        match crate::decode(&payload(bits, text)) {
+            Err(DecodeError::Corrupt(what)) => what,
+            other => panic!("not refused as corrupt: {other:?}"),
+        }
+    }
+
+    /// One line item with no id, described "x", the quantity in
+    /// milli-units, its total worked out unless given.
+    fn item(w: &mut Writer, qty_milli: i64, price: i64, total: Option<i64>) {
+        w.flag(true);
+        w.flag(true);
+        w.eg_signed(qty_milli, 10);
+        w.eg_signed(price, 8);
+        w.flag(total.is_some());
+        if let Some(total) = total {
+            w.flag(true);
+            w.eg_signed(total, 8);
+            w.put(0, 2);
+        }
+    }
+
+    /// [`head`], then `n` line items with no ids.
+    fn items(n: u64) -> Writer {
+        let mut w = head();
+        w.eg(n, 2);
+        w.put(0, 2);
+        w
+    }
+
+    #[test]
+    fn a_whole_quantity_past_an_i64_is_refused() {
+        let mut w = items(1);
+        w.flag(true);
+        w.flag(false);
+        w.eg_signed(i64::MAX / 2, 1);
+        assert_eq!(corrupt(w, &["S", "1", "x"]), "quantity");
+    }
+
+    #[test]
+    fn a_worked_out_line_total_past_an_i64_is_refused() {
+        for qty in [i64::MAX, i64::MIN] {
+            let mut w = items(1);
+            item(&mut w, qty, i64::MAX, None);
+            assert_eq!(corrupt(w, &["S", "1", "x"]), "line total", "{qty}");
+        }
+    }
+
+    #[test]
+    fn line_totals_that_add_up_past_an_i64_are_refused() {
+        for (first, second) in [(i64::MAX, 1), (i64::MIN, -1)] {
+            let mut w = items(2);
+            item(&mut w, 1000, 1, Some(first));
+            item(&mut w, 1000, 1, Some(second));
+            assert_eq!(corrupt(w, &["S", "1", "x", "x"]), "amounts too large");
+        }
+    }
+
+    #[test]
+    fn a_tax_rate_past_an_i64_is_refused() {
+        let mut w = tax_lines(1);
+        w.eg(u64::MAX, 12);
+        assert_eq!(corrupt(w, &["S", "1"]), "tax rate");
+    }
+
+    #[test]
+    fn a_worked_out_tax_amount_past_an_i64_is_refused() {
+        let mut w = tax_lines(1);
+        w.eg(i64::MAX as u64, 12);
+        w.put(2, 2);
+        w.eg_signed(i64::MAX, 8);
+        w.flag(false);
+        assert_eq!(corrupt(w, &["S", "1"]), "tax amount");
+    }
+
+    #[test]
+    fn a_total_worked_out_past_an_i64_is_refused() {
+        // A line total of i64::MAX and a tip of 1, with no total given.
+        let mut w = items(1);
+        item(&mut w, 1000, 1, Some(i64::MAX));
+        w.flag(false);
+        w.flag(false);
+        w.flag(false);
+        w.flag(true);
+        w.eg_signed(1, 9);
+        w.put(1, 2);
+        w.flag(false);
+        assert_eq!(corrupt(w, &["S", "1", "x"]), "amounts too large");
+    }
+
+    #[test]
+    fn counts_past_the_limit_are_refused_before_anything_is_made() {
+        for n in [MAX_ITEMS + 1, u64::MAX - 1] {
+            assert_eq!(corrupt(items(n), &["S", "1"]), "too many line items", "{n}");
+            assert_eq!(
+                corrupt(tax_lines(n), &["S", "1"]),
+                "too many tax lines",
+                "{n}"
+            );
+            let mut w = merchant();
+            w.eg(n + 1, 0);
+            assert_eq!(corrupt(w, &["S", "1"]), "too many tax identifiers", "{n}");
+        }
+    }
+
+    #[test]
+    fn a_number_longer_than_a_u64_is_refused() {
+        // The line item count, at order 2, with 63 leading zeros: 65 bits
+        // would follow, one more than a u64 holds.
+        let mut w = head();
+        w.put(0, 63);
+        w.put(u64::MAX, 64);
+        w.put(u64::MAX, 8);
+        assert_eq!(corrupt(w, &["S", "1"]), "number too long");
+    }
+
+    #[test]
+    fn a_numbers_length_past_the_payload_is_truncated() {
+        for bytes in [
+            vec![FORMAT << 4, 0xff, 0xff, 0xff, 0x7f],
+            vec![FORMAT << 4, 0xff, 0xff, 0xff, 0xff, 0x01],
+            vec![FORMAT << 4],
+        ] {
+            assert!(
+                matches!(crate::decode(&bytes), Err(DecodeError::Truncated)),
+                "{bytes:?}"
+            );
+        }
+    }
+
+    /// Bytes from a fixed xorshift, so a failure can be run again.
+    fn noise(seed: &mut u64, len: usize) -> Vec<u8> {
+        (0..len)
+            .map(|_| {
+                *seed ^= *seed << 13;
+                *seed ^= *seed >> 7;
+                *seed ^= *seed << 17;
+                *seed as u8
+            })
+            .collect()
+    }
+
+    /// Random payloads, and a real one cut short or with bytes changed:
+    /// every one decodes or is refused, and none panics (overflow checks
+    /// are on in tests).
+    #[test]
+    fn hostile_payloads_never_panic() {
+        let mut seed = 0x9e37_79b9_7f4a_7c15;
+        for len in 0..4000 {
+            let mut bytes = noise(&mut seed, len % 200);
+            if let Some(b) = bytes.first_mut() {
+                *b = FORMAT << 4;
+            }
+            let _ = crate::decode(&bytes);
+        }
+        let receipt: Receipt = serde_json::from_str(
+            r#"{
+          "orf_version": "0.1.0",
+          "receipt": { "receipt_id": "7", "issue_timestamp": "2026-10-22T12:00:00-07:00", "receipt_type": "sale" },
+          "merchant": { "legal_name": "Corner Shop", "country_code": "US", "tax_identifiers": [{ "scheme": "EIN", "value": "1" }] },
+          "line_items": [
+            { "description": "Tea", "quantity": 2.5, "unit_price": 2.5, "line_total": 6.25 },
+            { "description": "Cake", "quantity": 3, "unit_price": 4, "line_total": 11.0, "net_amount": 10.0 }
+          ],
+          "tax": { "tax_lines": [{ "rate": 0.08875, "tax_amount": 1.51 }] },
+          "total": 18.76,
+          "currency": "EUR",
+          "extensions": { "tip": { "amount": 1.5 } }
+        }"#,
+        )
+        .unwrap();
+        let good = crate::encode(&receipt).unwrap();
+        assert_eq!(crate::decode(&good).unwrap(), receipt);
+        for i in 1..good.len() {
+            for flip in [0x01, 0x10, 0x80, 0xff] {
+                let mut bad = good.clone();
+                bad[i] ^= flip;
+                let _ = crate::decode(&bad);
+            }
+            let _ = crate::decode(&good[..i]);
+        }
+        for _ in 0..2000 {
+            let mut bad = good.clone();
+            let at = 1 + noise(&mut seed, 1)[0] as usize % (good.len() - 1);
+            for (b, w) in bad[at..].iter_mut().zip(noise(&mut seed, 8)) {
+                *b = w;
+            }
+            let _ = crate::decode(&bad);
+        }
+    }
+
+    /// A receipt whose amounts add up past an i64 is refused, not wrapped.
+    #[test]
+    fn amounts_that_add_up_past_an_i64_are_not_encoded() {
+        let item = r#"{ "description": "Gold", "quantity": 1, "unit_price": 9.0e13, "line_total": 9.0e13 }"#;
+        let items = vec![item; 1100].join(",");
+        let receipt: Receipt = serde_json::from_str(&format!(
+            r#"{{
+          "orf_version": "0.1.0",
+          "receipt": {{ "receipt_id": "7", "issue_timestamp": "2026-10-22T12:00:00Z", "receipt_type": "sale" }},
+          "merchant": {{ "legal_name": "Mint", "country_code": "US" }},
+          "line_items": [{items}],
+          "total": 1,
+          "currency": "USD"
+        }}"#
+        ))
+        .unwrap();
+        assert!(matches!(
+            crate::encode(&receipt),
+            Err(EncodeError::Unsupported {
+                reason: "amounts too large to add up",
+                ..
+            })
+        ));
     }
 }
