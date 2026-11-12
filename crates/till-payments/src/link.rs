@@ -1,5 +1,5 @@
 //! What a till keeps of how it is paid (docs/view-key-mode.md §4.1, core.md
-//! decision 228).
+//! decision 238).
 
 use monokulo_client::Connection;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};

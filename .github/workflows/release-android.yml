@@ -1,0 +1,154 @@
+name: Android release
+
+# A version tag builds the signed release APKs: one for each ABI (arm64-v8a
+# for phones, armeabi-v7a for old 32-bit phones, x86_64 for the emulator),
+# each a fraction of the size, and a universal one holding all three, put on
+# the Releases page with their SHA-256, where Obtainium finds them (README,
+# docs/release.md). All share one versionCode, so any installs over any other.
+# A manual run on main builds the same APKs and keeps them as the run's
+# artifact, without a release.
+#
+# Repository secrets: TILL_KEYSTORE_BASE64 (the keystore file, base64),
+# TILL_KEYSTORE_PASSWORD, TILL_KEY_ALIAS, TILL_KEY_PASSWORD.
+# The build runs in the "sandbox" environment, as release-ios.yml's does, for
+# its variables: TILL_LINK_HOST, TILL_SQUARE_APPLICATION_ID,
+# TILL_SQUARE_SANDBOX, TILL_CLOVER_APPLICATION_ID, TILL_CLOVER_ENVIRONMENT,
+# TILL_BELL_URL. That environment only allows main and v* tags.
+# A tag must name the app's versionName (android/app/build.gradle.kts).
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: release-android-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    environment: sandbox
+    env:
+      TILL_KEYSTORE_BASE64: ${{ secrets.TILL_KEYSTORE_BASE64 }}
+      TILL_KEYSTORE_PASSWORD: ${{ secrets.TILL_KEYSTORE_PASSWORD }}
+      TILL_KEY_ALIAS: ${{ secrets.TILL_KEY_ALIAS }}
+      TILL_KEY_PASSWORD: ${{ secrets.TILL_KEY_PASSWORD }}
+      TILL_LINK_HOST: ${{ vars.TILL_LINK_HOST }}
+      TILL_SQUARE_APPLICATION_ID: ${{ vars.TILL_SQUARE_APPLICATION_ID }}
+      TILL_SQUARE_SANDBOX: ${{ vars.TILL_SQUARE_SANDBOX }}
+      TILL_CLOVER_APPLICATION_ID: ${{ vars.TILL_CLOVER_APPLICATION_ID }}
+      TILL_CLOVER_ENVIRONMENT: ${{ vars.TILL_CLOVER_ENVIRONMENT }}
+      TILL_BELL_URL: ${{ vars.TILL_BELL_URL }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Version
+        id: version
+        run: |
+          version=$(sed -n 's/^ *versionName = "\(.*\)"$/\1/p' android/app/build.gradle.kts | head -n 1)
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME doesn't match the app's versionName $version"; exit 1
+          fi
+          IFS=. read -r major minor patch <<< "${version%%-*}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "code=$((major * 10000 + minor * 100 + patch))" >> "$GITHUB_OUTPUT"
+      - name: Signing key
+        run: |
+          if [ -n "$TILL_KEYSTORE_BASE64" ]; then
+            echo "$TILL_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/till.jks"
+            echo "TILL_KEYSTORE=$RUNNER_TEMP/till.jks" >> "$GITHUB_ENV"
+          elif [ "$GITHUB_REF_TYPE" = tag ]; then
+            echo "::error::a release needs the signing secrets (docs/release.md)"; exit 1
+          fi
+      # The deployment's hosts and the points of sale's public ids. A release
+      # without them would sign in nowhere; a manual run builds with the
+      # placeholders.
+      - name: Deployment
+        run: |
+          missing=0
+          for name in TILL_LINK_HOST TILL_SQUARE_APPLICATION_ID TILL_CLOVER_APPLICATION_ID TILL_BELL_URL; do
+            if [ -z "${!name}" ]; then
+              echo "::warning::$name is missing: add it as a variable of the sandbox environment (docs/release.md)"
+              missing=1
+            fi
+          done
+          if [ "$missing" = 1 ] && [ "$GITHUB_REF_TYPE" = tag ]; then
+            echo "::error::a release needs the deployment's variables (docs/release.md)"; exit 1
+          fi
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Install Android SDK platform and NDK
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.2" "ndk;27.0.12077973" > /dev/null
+      - name: Rust for Android
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: android
+          save-if: false
+      - name: cargo-ndk
+        run: command -v cargo-ndk || cargo install cargo-ndk --version 4.1.2 --locked
+      - name: Build
+        working-directory: android
+        run: |
+          args=(-Ptill.splits
+            -Ptill.versionCode=${{ steps.version.outputs.code }})
+          prop() { [ -n "$2" ] && args+=("-P$1=$2"); true; }
+          prop till.link.host "$TILL_LINK_HOST"
+          prop till.square.applicationId "$TILL_SQUARE_APPLICATION_ID"
+          prop till.square.sandbox "$TILL_SQUARE_SANDBOX"
+          prop till.clover.applicationId "$TILL_CLOVER_APPLICATION_ID"
+          prop till.clover.environment "$TILL_CLOVER_ENVIRONMENT"
+          prop till.bell.url "$TILL_BELL_URL"
+          ./gradlew :app:assembleRelease "${args[@]}"
+      - name: Name and check the APKs
+        run: |
+          out=android/app/build/outputs/apk/release
+          version=${{ steps.version.outputs.version }}
+          mkdir dist
+          apksigner=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n 1)
+          for abi in universal arm64-v8a armeabi-v7a x86_64; do
+            if [ -f "$out/app-$abi-release.apk" ]; then
+              apk="dist/till-$version-$abi.apk"
+              cp "$out/app-$abi-release.apk" "$apk"
+              "$apksigner" verify --print-certs "$apk"
+              if [ "$abi" = universal ]; then
+                # The fingerprint assetlinks.json needs (pages.yml's ANDROID_CERT_SHA256).
+                sha=$("$apksigner" verify --print-certs "$apk" | sed -n 's/^.*certificate SHA-256 digest: //p' | head -n 1 | tr a-f A-F | sed 's/../&:/g; s/:$//')
+                echo "Release key: \`$sha\` (the ANDROID_CERT_SHA256 repository variable, docs/release.md)" >> "$GITHUB_STEP_SUMMARY"
+              fi
+            else
+              cp "$out/app-$abi-release-unsigned.apk" "dist/till-$version-$abi-unsigned.apk"
+            fi
+          done
+          cd dist && sha256sum * > SHA256SUMS
+      - uses: actions/upload-artifact@v7
+        with:
+          name: till-android-release
+          path: dist/*
+          retention-days: 30
+
+  publish:
+    name: GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: apk
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: till-android-release
+          path: dist
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "Till ${GITHUB_REF_NAME#v}" --generate-notes

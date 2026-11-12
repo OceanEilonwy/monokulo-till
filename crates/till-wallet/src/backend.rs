@@ -472,12 +472,11 @@ pub fn payment_of(
         xmr_piconero: request.atomic,
         expires_at: UnixSeconds(request.expires_at as i64),
         phase,
-        confirmations: Some(
-            u32::try_from(status::confirmations(&views, request.atomic)).unwrap_or(u32::MAX),
-        ),
-        required: Some(settled),
+        confirmations: u32::try_from(status::confirmations(&views, request.atomic))
+            .unwrap_or(u32::MAX),
+        required: settled,
         is_final,
-        received: Some(received),
+        received,
         overpaid: status == OrderStatus::Overpaid,
         price,
         amount: None,
@@ -686,7 +685,7 @@ mod tests {
         assert_eq!(request_id(waiting.reference.as_str()), Some(7));
         assert_eq!(
             (waiting.required, waiting.receipt.as_deref()),
-            (Some(10), Some("#42"))
+            (10, Some("#42"))
         );
         assert!(!waiting.is_final);
 
@@ -694,7 +693,7 @@ mod tests {
         let confirming = at(&[paid(r.atomic, Some(200), 3)], 1_500);
         assert_eq!(
             (confirming.phase, confirming.confirmations),
-            (SalePhase::Confirming, Some(3))
+            (SalePhase::Confirming, 3)
         );
         let done = at(&[paid(r.atomic, Some(200), 10)], 1_500);
         assert_eq!(done.phase, SalePhase::Paid);
@@ -705,7 +704,7 @@ mod tests {
         let partial = at(&[paid(1_000, Some(200), 12)], 1_500);
         assert_eq!(
             (partial.phase, partial.received),
-            (SalePhase::Partial, Some(1_000))
+            (SalePhase::Partial, 1_000)
         );
 
         let expired = at(&[], 3_000);

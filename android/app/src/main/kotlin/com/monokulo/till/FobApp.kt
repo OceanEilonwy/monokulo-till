@@ -6,7 +6,7 @@ import android.os.Build
 import java.security.MessageDigest
 
 /**
- * Fob on this device, for Connect to Fob's same-device way (decision 317): its packages, the explicit intent's
+ * Fob on this device, for Connect to Fob's same-device way (decision 318): its packages, the explicit intent's
  * action (Fob's decision 423), and the check that the Fob installed is signed as Fob's releases are.
  */
 object FobApp {

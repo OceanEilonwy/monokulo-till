@@ -507,10 +507,11 @@ async fn an_order_says_how_many_confirmations_its_payment_has_of_the_stores_thre
         .await
         .unwrap();
     for order in [made, read] {
-        assert_eq!(order.confirmations, Some(0), "nothing paid yet");
+        assert_eq!(order.confirmations, 0, "nothing paid yet");
+        assert_eq!(order.received, 0, "nothing received yet");
         assert!(
-            order.confirmations_required.unwrap_or(0) > 0,
-            "the threshold the ring and \"4 of 10\" count to: {:?}",
+            order.confirmations_required > 0,
+            "the threshold the ring and \"4 of 10\" count to: {}",
             order.confirmations_required
         );
     }
@@ -612,7 +613,7 @@ impl Route {
         (Route::CreateOrder, "POST", "/api/v1/orders"),
         (Route::Order, "GET", "/api/v1/orders/ord_1"),
         (Route::RenewOrder, "POST", "/api/v1/orders/ord_1"),
-        (Route::Events, "GET", "/api/v1/events"),
+        (Route::Events, "GET", "/api/v1/orders/events"),
     ];
 
     /// The call that reaches the route, through a client of its own (so the
@@ -695,14 +696,17 @@ async fn every_problem_monokulo_lists_for_a_route_the_app_calls_comes_back_by_na
     assert!(heard > 30, "heard only {heard} problems");
 }
 
+/// The store's order stream (`mk:orders-events`): its events are `ready`,
+/// `order` and `lagged`, and an `order` is the order as reading it answers,
+/// the one an app made.
 #[tokio::test]
-async fn every_sale_event_monokulo_sends_has_its_phase_and_links_its_order() {
+async fn the_order_stream_monokulo_sends_carries_the_order_as_reading_it_answers() {
     let Some(stand) = Contract::start().await else {
         return;
     };
-    let names: Vec<String> = stand
+    let mut names: Vec<String> = stand
         .shared
-        .operation("GET", "/api/v1/events")
+        .operation("GET", "/api/v1/orders/events")
         .unwrap()
         .pointer("/responses/200/content/text~1event-stream/x-events")
         .and_then(Value::as_object)
@@ -710,13 +714,8 @@ async fn every_sale_event_monokulo_sends_has_its_phase_and_links_its_order() {
         .keys()
         .cloned()
         .collect();
-    let mut others: Vec<&str> = names
-        .iter()
-        .map(String::as_str)
-        .filter(|name| monokulo_client::SalePhase::of_event(name).is_none())
-        .collect();
-    others.sort();
-    assert_eq!(others, ["lagged", "ready"], "every other event is a sale's");
+    names.sort();
+    assert_eq!(names, ["lagged", "order", "ready"]);
     let events: Vec<StreamEvent> = stand
         .api
         .events(&stand.connection())
@@ -725,22 +724,23 @@ async fn every_sale_event_monokulo_sends_has_its_phase_and_links_its_order() {
         .collect()
         .await;
     assert_eq!(events[0], StreamEvent::Ready);
-    let StreamEvent::Sale(sale) = &events[1] else {
-        panic!("a sale, not {:?}", events[1])
+    let StreamEvent::Order(sent) = &events[1] else {
+        panic!("an order, not {:?}", events[1])
     };
-    let url = sale
-        .order_url
-        .as_deref()
-        .expect("a sale event links its order");
     assert!(
-        stand.shared.template(&path_of(url)).is_some(),
-        "its mk:order link is a route"
+        stand.shared.template(&path_of(&sent.url)).is_some(),
+        "its self link is a route"
     );
-    let order = stand.api.order(&stand.connection(), url).await.unwrap();
+    let read = stand
+        .api
+        .order(&stand.connection(), &sent.url)
+        .await
+        .unwrap();
     assert_eq!(
-        order.order_id, sale.order_id,
-        "the event's order is the one it links"
+        read.order_id, sent.order_id,
+        "the order it carries is the one it links"
     );
+    assert!(sent.confirmations_required > 0);
     let made = stand
         .api
         .create_order(
@@ -751,7 +751,7 @@ async fn every_sale_event_monokulo_sends_has_its_phase_and_links_its_order() {
         )
         .await
         .unwrap();
-    assert_eq!(made.order_id, order.order_id, "and the one an app made");
+    assert_eq!(made.order_id, sent.order_id, "and the one an app made");
 }
 
 #[tokio::test]

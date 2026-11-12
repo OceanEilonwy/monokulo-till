@@ -4682,9 +4682,32 @@ names the environment. Refines 95, 96 and 132.
      id) replace rather than add, so a sale's heads-up comes once (core.md
      123 says when).
 
+## App: releases for Obtainium (2026-11-10)
+
+316. **A `v*` tag publishes signed APKs on GitHub Releases, as Monokulo
+     Fob does, so Obtainium can install and update Till** (README,
+     docs/release.md). `release-android.yml` builds one APK for each ABI
+     the core is built for (`arm64-v8a`, `armeabi-v7a`, `x86_64`) and a
+     universal one, `till-<version>-<abi>.apk`, with `SHA256SUMS`. They
+     share one version code, `major × 10000 + minor × 100 + patch` of
+     `versionName`, which the tag must name, so Obtainium's version (the
+     tag) and the app's agree and any APK installs over any other. The
+     key is a keystore in repository secrets, used only when present: any
+     other release build stays unsigned, and the splits only happen with
+     `-Ptill.splits`, so CI's ordinary build is unchanged. The other ABIs'
+     libraries the dependencies carry (JNA's `x86`, `armeabi`, `mips`)
+     are left out, so a device Till can't run on is refused at install
+     rather than crashing at the first call into Rust. Because a release
+     build's sign-ins come back on its App Link (decision 58), the site
+     gains `assetlinks.json`, its fingerprint filled in by Pages from the
+     `ANDROID_CERT_SHA256` repository variable as the AASA's team is from
+     `APPLE_TEAM_ID`. For now the build runs in the `sandbox` environment
+     for the deployment's ids and hosts, the same one TestFlight builds in
+     (core.md decision 228), with no approval gate.
+
 ## App: view-key mode's setup (2026-11-12)
 
-316. **The wallet setup's steps are drawn in round 4's one column, from
+317. **The wallet setup's steps are drawn in round 4's one column, from
      the engine's pages** (core.md 229 to 233; `docs/view-key-mode.md`
      §11.1; the canvas's Vk* boards, which still show the older step
      rail). `ui/WalletSetup.kt` draws V1 (three cards, the chosen one
@@ -4717,9 +4740,9 @@ names the environment. Refines 95, 96 and 132.
      fields), as the engine judges it as it's typed. The screenshot test
      draws these under the iOS tests' names (`vk-mode` … `vk-this-till`;
      `vk-connected` on a phone, `vk-pad-connected` on a tablet, which is
-     C4 since decision 318).
+     C4 since decision 319).
 
-317. **C1 on Android: Fob on this device opens by itself; the two codes
+318. **C1 on Android: Fob on this device opens by itself; the two codes
      stay for Fob on another phone.** The engine's C1 is the two-device
      way ("Connect to Fob on another phone"). When Fob is installed
      (`com.monokulo.fob`, else `com.monokulo.fob.debug`, both listed in
@@ -4740,8 +4763,8 @@ names the environment. Refines 95, 96 and 132.
      which risks little, the answer being sealed for this till's request
      and holding no spend key.
 
-318. **Settings on the shop's own wallet: the Payments section in the
-     store's place, drawn with D4's controls** (core.md 234 to 237). With
+319. **Settings on the shop's own wallet: the Payments section in the
+     store's place, drawn with D4's controls** (core.md 234 to 236 and 239). With
      `SettingsView.wallet`, Settings opens on the engine's Payments
      section instead of Store: how Till sees payments, Fob's wallet and
      account when connected through it, the address (short, monospace,

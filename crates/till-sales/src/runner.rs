@@ -87,7 +87,7 @@ impl RefundByTill for NoSource {
 /// implements it.
 pub trait RunnerSide: Send + Sync {
     /// The payment backend this till is linked to, made from the link as
-    /// it's kept now, while it has one (core.md decision 228).
+    /// it's kept now, while it has one (core.md decision 238).
     fn backend(&self) -> Option<Arc<dyn PaymentBackend>>;
 
     /// Reads the store live again ([`crate::LiveStore::read`]): a shift is
@@ -257,7 +257,6 @@ impl TillRunner {
                     shift.run(),
                     inner.follow(&till),
                     till.lapse_on_time(|| SystemClock.now_ms()),
-                    till.follow_confirmations(),
                 );
             })
         };
@@ -661,10 +660,10 @@ mod tests {
             xmr_piconero: 30_000_000_000,
             expires_at: UnixSeconds(0),
             phase,
-            confirmations: None,
-            required: None,
+            confirmations: 0,
+            required: 10,
             is_final: false,
-            received: None,
+            received: 0,
             overpaid: false,
             price: None,
             amount: Some("5.00".into()),
@@ -732,7 +731,7 @@ mod tests {
     }
 
     /// Any backend drives the shift as Monokulo's stream did (core.md
-    /// decision 228): its stream opening refreshes the open sales, a
+    /// decision 238): its stream opening refreshes the open sales, a
     /// change reaches the sale, and a disconnection stops the shift.
     #[tokio::test]
     async fn a_backends_events_and_refreshes_move_the_shift_on_and_its_disconnection_stops_it() {

@@ -99,7 +99,7 @@ import uniffi.till_screens.WalletWay
 
 // The wallet setup's steps (docs/view-key-mode.md §11.1; the canvas's Vk* boards), in round 4's one column: V1 how
 // Till sees payments, V2 the wallet, C1 Connect to Fob, B4/C4 connected, D1 to D3 the wallet entered by hand, D4
-// this till. Every word is the engine's; each screen takes its step and says what was pressed (decision 316).
+// this till. Every word is the engine's; each screen takes its step and says what was pressed (decision 317).
 
 /** A step's heading and lead, as setup's other stages draw theirs. */
 @Composable

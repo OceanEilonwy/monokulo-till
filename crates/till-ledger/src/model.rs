@@ -115,7 +115,7 @@ pub struct OrderFacts {
     #[serde(default)]
     pub first_expires_at: UnixSeconds,
     /// The exchange rate its XMR was worked out at, from a wallet backend
-    /// (decision 228); `None` for a Monokulo order.
+    /// (decision 238); `None` for a Monokulo order.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub price_used: Option<till_types::PriceUsed>,
 }

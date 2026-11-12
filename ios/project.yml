@@ -30,7 +30,7 @@ settings:
     # The points of sale's public application ids (the till signs in with
     # PKCE, so no secret is ever in the app), read by Build.swift from the
     # app's and the extension's Info.plist. release-ios.yml passes the
-    # testflight environment's TILL_* variables (docs/release.md); these
+    # sandbox environment's TILL_* variables (docs/release.md); these
     # placeholders are for builds that never sign in, such as ios.yml's.
     TILL_SQUARE_APPLICATION_ID: sq0idp-REPLACE-ME
     TILL_SQUARE_SANDBOX: "false"
@@ -44,7 +44,7 @@ settings:
     # The web host of the app's universal links, where the points of sale's
     # sign-ins come back (/square, /clover, and their sandboxes' /debug/
     # pages) and "Open in Till" links live; the associated domains name it
-    # too. The testflight environment's TILL_LINK_HOST; a host that never
+    # too. The sandbox environment's TILL_LINK_HOST; a host that never
     # resolves for builds that don't sign in.
     TILL_LINK_HOST: till.invalid
 targets:

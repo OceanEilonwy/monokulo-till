@@ -321,7 +321,7 @@ impl TillSale {
     }
 
     /// Its payment is on the network and not yet paid: its confirmations
-    /// are worth following ([`crate::Till::follow_confirmations`]).
+    /// still come, one a block, on the order stream.
     pub fn confirming(&self) -> bool {
         self.open() && matches!(self.phase, SalePhase::Seen | SalePhase::Confirming)
     }

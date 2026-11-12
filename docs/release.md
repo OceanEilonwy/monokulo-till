@@ -1,5 +1,8 @@
 # Releasing Till for iPhone and iPad
 
+Android's release, signed APKs on the Releases page for Obtainium, is
+[at the end](#releasing-till-for-android).
+
 [`release-ios.yml`](../.github/workflows/release-ios.yml) builds the core,
 archives the app with its extensions, and uploads the build to TestFlight
 with `xcodebuild`. Signing is automatic and managed in Apple's cloud,
@@ -52,10 +55,16 @@ This page lists the one-time setup, in order (docs/ios-plan.md §5, phase I7).
    repository variable `APPLE_TEAM_ID` = the team ID. It must be a
    repository variable, not an environment one, because Pages reads it too
    (§5).
-2. **Environment**: Environments › New environment `testflight`. Add
-   yourself as a required reviewer. Under deployment branches and tags,
-   choose selected ones: `main` and the tag rule `v*`.
-3. **Secrets** in the `testflight` environment:
+2. **Environments**: a job runs in one environment, so the release uses
+   two (`release-ios.yml`'s `approve` and `testflight` jobs):
+   - `testflight`, the approval gate. Environments › New environment
+     `testflight`, add yourself as a required reviewer, and nothing else:
+     it holds no secrets or variables.
+   - `sandbox`, the deployment's configuration: the secrets and variables
+     below. New environment `sandbox`, no reviewers. Under deployment
+     branches and tags, choose selected ones: `main` and the tag rule
+     `v*`, so a run on another branch can't read its secrets.
+3. **Secrets** in the `sandbox` environment:
    | Secret | Value |
    | --- | --- |
    | `ASC_KEY_ID` | the Key ID, e.g. `2X9R4HXF34` |
@@ -65,11 +74,11 @@ This page lists the one-time setup, in order (docs/ios-plan.md §5, phase I7).
    Or with `gh`:
    ```sh
    gh variable set APPLE_TEAM_ID --body ABCDE12345
-   gh secret set ASC_KEY_ID --env testflight --body 2X9R4HXF34
-   gh secret set ASC_ISSUER_ID --env testflight --body 00000000-0000-0000-0000-000000000000
-   gh secret set ASC_KEY_P8 --env testflight < AuthKey_2X9R4HXF34.p8
+   gh secret set ASC_KEY_ID --env sandbox --body 2X9R4HXF34
+   gh secret set ASC_ISSUER_ID --env sandbox --body 00000000-0000-0000-0000-000000000000
+   gh secret set ASC_KEY_P8 --env sandbox < AuthKey_2X9R4HXF34.p8
    ```
-4. **Variables** in the `testflight` environment: the points of sale's
+4. **Variables** in the `sandbox` environment: the points of sale's
    public application ids, which the build puts in the app's Info.plist
    (`ios/Till/Build.swift`). Both sign in with PKCE, so there's no secret.
    | Variable | Value |
@@ -83,13 +92,13 @@ This page lists the one-time setup, in order (docs/ios-plan.md §5, phase I7).
    | `TILL_LINK_HOST` | the host of the app's universal links and sign-in redirects, such as `till.monokulo.com` (§5) |
 
    ```sh
-   gh variable set TILL_SQUARE_APPLICATION_ID --env testflight --body sq0idp-…
-   gh variable set TILL_SQUARE_SANDBOX --env testflight --body false
-   gh variable set TILL_CLOVER_APPLICATION_ID --env testflight --body …
-   gh variable set TILL_CLOVER_ENVIRONMENT --env testflight --body north_america
-   gh variable set TILL_RELAY_URL --env testflight --body https://push.monokulo.com
-   gh variable set TILL_BELL_URL --env testflight --body https://bell.monokulo.com
-   gh variable set TILL_LINK_HOST --env testflight --body till.monokulo.com
+   gh variable set TILL_SQUARE_APPLICATION_ID --env sandbox --body sq0idp-…
+   gh variable set TILL_SQUARE_SANDBOX --env sandbox --body false
+   gh variable set TILL_CLOVER_APPLICATION_ID --env sandbox --body …
+   gh variable set TILL_CLOVER_ENVIRONMENT --env sandbox --body north_america
+   gh variable set TILL_RELAY_URL --env sandbox --body https://push.monokulo.com
+   gh variable set TILL_BELL_URL --env sandbox --body https://bell.monokulo.com
+   gh variable set TILL_LINK_HOST --env sandbox --body till.monokulo.com
    ```
    The iOS app signs in through universal links on `till.monokulo.com`.
    A production Square application's OAuth redirect URL must be
@@ -174,3 +183,90 @@ To set it up:
 A TestFlight build is a production build, so its pushes use APNs
 production. The relay's APNs key must therefore send to production, not
 the sandbox.
+
+# Releasing Till for Android
+
+[`release-android.yml`](../.github/workflows/release-android.yml) builds the
+release APKs on every `v*` tag and puts them on the
+[Releases](https://github.com/OceanEilonwy/monokulo-till/releases) page,
+where [Obtainium](https://obtainium.imranr.dev/) installs and updates them
+(README, "Installing and updating with Obtainium"). It is the same setup as
+Monokulo Fob's: one APK for each ABI (`arm64-v8a`, `armeabi-v7a`,
+`x86_64`), a universal one, and `SHA256SUMS`, all signed with one key and
+sharing one version code. The version is `versionName` in
+[`android/app/build.gradle.kts`](../android/app/build.gradle.kts), and the
+version code is computed from it (`major × 10000 + minor × 100 + patch`),
+so a new version always installs over the last. A manual run (Actions ›
+**Android release** › Run workflow, on `main`) builds the same APKs and
+keeps them as the run's
+`till-android-release` artifact without making a release.
+
+## 1. The signing key
+
+Make it once and keep it, with its passwords, somewhere safe outside the
+repository. Android only installs an update signed with the same key, so
+losing it means every Obtainium user has to uninstall and reinstall.
+
+```sh
+keytool -genkeypair -v -keystore till-release.jks -alias till \
+  -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=Monokulo Till"
+```
+
+## 2. GitHub (OceanEilonwy/monokulo-till › Settings › Secrets and variables › Actions)
+
+1. **Secrets** (repository secrets, not an environment's):
+   | Secret | Value |
+   | --- | --- |
+   | `TILL_KEYSTORE_BASE64` | the keystore file, base64 |
+   | `TILL_KEYSTORE_PASSWORD` | the keystore's password |
+   | `TILL_KEY_ALIAS` | `till` |
+   | `TILL_KEY_PASSWORD` | the key's password |
+
+   ```sh
+   gh secret set TILL_KEYSTORE_BASE64 < <(base64 -w0 till-release.jks)
+   gh secret set TILL_KEYSTORE_PASSWORD
+   gh secret set TILL_KEY_ALIAS --body till
+   gh secret set TILL_KEY_PASSWORD
+   ```
+2. **Variables**: none of its own. The build runs in the `sandbox`
+   environment, as the iOS release does, and reads the same
+   `TILL_LINK_HOST`, `TILL_SQUARE_APPLICATION_ID`, `TILL_SQUARE_SANDBOX`,
+   `TILL_CLOVER_APPLICATION_ID`, `TILL_CLOVER_ENVIRONMENT` and
+   `TILL_BELL_URL` (above). `TILL_RELAY_URL` is only for iOS, because
+   Android wakes over UnifiedPush. There is no approval gate, so a tag
+   publishes straight away. Because `sandbox` only allows `main` and `v*`
+   tags, a manual run works only on `main`.
+
+   A tag's run stops if the signing secrets or the link host, either
+   application id or the Bell are missing. A manual run builds with the
+   placeholders and warns.
+
+## 3. App Links
+
+A release build's Square and Clover sign-ins come back on the App Link
+`https://<TILL_LINK_HOST>/square` (and `/clover`), which Android only opens
+in Till once `site/.well-known/assetlinks.json` names the release key.
+
+1. Run Actions › **Android release** › Run workflow once after §2. Its
+   summary prints `Release key: AB:CD:…`, the key's SHA-256 fingerprint
+   (or: `keytool -list -v -keystore till-release.jks -alias till`, the
+   `SHA256:` line).
+2. Set it as the repository variable `ANDROID_CERT_SHA256`, then run
+   Actions › **Pages** › Run workflow, which writes it into
+   `assetlinks.json` as it deploys.
+   ```sh
+   gh variable set ANDROID_CERT_SHA256 --body AB:CD:…
+   ```
+3. Check `https://till.monokulo.com/.well-known/assetlinks.json`. A phone
+   verifies the links when Till is installed or updated; `adb shell pm
+   get-app-links com.monokulo.till` shows `verified` for the host.
+
+## 4. A release
+
+1. Change `versionName` in `android/app/build.gradle.kts` (and
+   `MARKETING_VERSION` in `ios/project.yml`, since the same tag starts the
+   iOS release), merge, then tag `v<version>` on `main` and push the tag.
+2. The run fails if the tag and `versionName` differ. Otherwise it signs,
+   checks each APK with `apksigner`, and makes the release `Till <version>`
+   with notes generated from the merged pull requests. Obtainium sees it on
+   its next check.

@@ -152,10 +152,10 @@ impl PaymentBackend for FakeBackend {
             xmr_piconero: piconero,
             expires_at: till_types::UnixSeconds(0),
             phase: SalePhase::Waiting,
-            confirmations: None,
-            required: Some(10),
+            confirmations: 0,
+            required: 10,
             is_final: false,
-            received: None,
+            received: 0,
             overpaid: false,
             price: Some(till_types::PriceUsed {
                 provider: "Fake".into(),

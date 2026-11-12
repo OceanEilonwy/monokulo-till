@@ -165,7 +165,7 @@ async fn monokulo() -> MockServer {
     Mock::given(method("POST"))
         .and(path("/api/v1/orders"))
         .respond_with(ResponseTemplate::new(201).set_body_raw(
-            r#"{"order_id":"ord_1","status":"pending","is_final":false,"address":"8Bx","xmr_amount_piconero":80000000000,
+            r#"{"order_id":"ord_1","status":"pending","is_final":false,"address":"8Bx","xmr_amount_piconero":80000000000,"amount_received_piconero":0,"confirmations":0,"confirmations_required":10,
                "amount":"13.88","currency":"USD","merchant_order_id":"bP9m","expires_at":1893456000,
                "_links":{"self":{"href":"/api/v1/orders/ord_1"}}}"#,
             "application/json",

@@ -121,7 +121,7 @@ class MainActivity : ComponentActivity() {
     /** Fob's package on this device, the release before a debug build, when one is installed and trusted. */
     private fun fobPackage(): String? = FobApp.packages.firstOrNull { FobApp.trusted(this, it) }
 
-    /** Opens Fob with the request, for a result (decision 317). */
+    /** Opens Fob with the request, for a result (decision 318). */
     private fun openFob(request: String) {
         val pkg = fobPackage() ?: return
         runCatching { fob.launch(Intent(FobApp.ACTION_CONNECT, request.toUri()).setPackage(pkg)) }

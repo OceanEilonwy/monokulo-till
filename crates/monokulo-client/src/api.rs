@@ -19,7 +19,6 @@ use crate::connection::Connection;
 use crate::error::MonokuloError;
 use crate::order::Order;
 use crate::proof;
-use crate::sale::{SaleEvent, SalePhase};
 use crate::sse;
 use crate::store::{AppConnection, Store};
 
@@ -66,18 +65,19 @@ impl AppIdentity {
     }
 }
 
-/// Something the store's event stream said.
+/// Something the store's order stream said.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[expect(
     clippy::large_enum_variant,
-    reason = "events arrive one at a time, so boxing a sale would save nothing"
+    reason = "events arrive one at a time, so boxing an order would save nothing"
 )]
 pub enum StreamEvent {
     /// It's open: re-read the orders on screen.
     Ready,
-    /// Some events were missed: re-read the orders on screen.
+    /// Some changes may have been missed: re-read the orders on screen.
     Lagged,
-    Sale(SaleEvent),
+    /// One of the store's apps' orders changed: it, as reading it answers.
+    Order(Order),
 }
 
 /// What something followed from the entry answers when the entry should be
@@ -102,7 +102,7 @@ struct Form {
 #[derive(Clone, Debug)]
 struct Entry {
     store: Option<Url>,
-    events: Option<Url>,
+    orders_events: Option<Url>,
     app: Option<Url>,
     onion_api: Option<Url>,
     create_order: Option<Form>,
@@ -350,8 +350,11 @@ impl MonokuloApi {
         done
     }
 
-    /// The store's sale events (`mk:events`), for as long as the stream is
-    /// read. Events it doesn't know, and comments, are skipped.
+    /// The store's order stream (`mk:orders-events`, Monokulo's
+    /// `docs/decisions/order-stream.md`), for as long as it is read: each of
+    /// the store's apps' orders, as reading it answers, each time it
+    /// changes, a new confirmation included. Events it doesn't know, and
+    /// comments, are skipped.
     ///
     /// Nothing is sent until the stream is first polled. It ends after an
     /// error: the stream failed, the store closed it, or it said nothing for
@@ -573,8 +576,8 @@ impl Streaming {
         let url = api
             .entry(connection)
             .await?
-            .events
-            .ok_or(MonokuloError::NotAllowed("follow the store's sales"))?;
+            .orders_events
+            .ok_or(MonokuloError::NotAllowed("follow the store's orders"))?;
         let mut call = api.keyed(connection, Method::GET, url.clone());
         call.headers
             .insert("Accept", HeaderValue::from_static("text/event-stream"));
@@ -606,14 +609,12 @@ impl Streaming {
 }
 
 /// The stream event `event` is, or `None` for one this build doesn't know
-/// or a sale it can't read.
+/// or an order it can't read.
 fn stream_event(event: sse::Event, stream: &Url) -> Option<StreamEvent> {
     match event.name.as_deref()? {
         "ready" => Some(StreamEvent::Ready),
         "lagged" => Some(StreamEvent::Lagged),
-        name if SalePhase::of_event(name).is_some() => SaleEvent::decode(&event.data, stream)
-            .ok()
-            .map(StreamEvent::Sale),
+        "order" => read_order(&event.data, stream).ok().map(StreamEvent::Order),
         _ => None,
     }
 }
@@ -651,7 +652,7 @@ fn read_entry(text: &str, used: &Url) -> Result<Entry> {
     };
     Ok(Entry {
         store: link("mk:store"),
-        events: link("mk:events"),
+        orders_events: link("mk:orders-events"),
         app: link("mk:app"),
         onion_api: link("mk:onion-api"),
         create_order: form("create-order"),
