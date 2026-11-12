@@ -504,6 +504,8 @@ struct SteppersCard: View {
 /// adjustable value.
 struct StepperRow: View {
     let stepper: SetupStepper
+    /// In a list's row (Settings), which pads it itself.
+    var inList = false
     let step: @MainActor (Bool) -> Void
 
     private var valueInside: Bool { UIDevice.current.userInterfaceIdiom == .pad }
@@ -520,9 +522,9 @@ struct StepperRow: View {
                 beside
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .frame(minHeight: 60)
+        .padding(.horizontal, inList ? 0 : 16)
+        .padding(.vertical, inList ? 2 : 10)
+        .frame(minHeight: inList ? 44 : 60)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(stepper.label)
         .accessibilityValue([stepper.value, stepper.detail].compactMap { $0 }.joined(separator: ", "))

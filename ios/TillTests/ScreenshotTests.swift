@@ -148,6 +148,10 @@ enum Screenshots {
         let close = previewClose(preview: full, orderId: "w1", platform: platform)
             .map { Update.closeSheet(orderId: "w1", view: $0) }
         let settingsUp = till(.settings, shift, settings, .wakeUps(view: wakeUps))
+        /// Settings for a till on the shop's own wallet (core.md decision 234).
+        func walletSettings(_ look: PreviewSettings) -> [Update] {
+            till(.settings, shift, .settings(view: previewSettingsOf(look: look, device: device, now: now)))
+        }
 
         var shots: [Shot] = [
             Shot(name: "setup-1-welcome", updates: step(.welcome, .welcome)),
@@ -175,6 +179,8 @@ enum Screenshots {
             Shot(name: "vk-keys-error", updates: step(.vkKeysError, .walletKeys)),
             Shot(name: "vk-seed", updates: step(.vkSeed, .walletSeed)),
             Shot(name: "vk-this-till", updates: step(.vkThisTill, .thisTill)),
+            Shot(name: "vk-settings", updates: walletSettings(.vkSettings)),
+            Shot(name: "vk-settings-warning", updates: walletSettings(.vkSettingsWarning)),
         ]
         shots += [
             Shot(name: "setup-6-ready", updates: step(.ready, .ready)),

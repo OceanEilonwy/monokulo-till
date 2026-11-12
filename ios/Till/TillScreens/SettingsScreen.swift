@@ -48,7 +48,13 @@ struct SettingsScreen: View {
                 if let cash = view.cash {
                     CashSettings(section: cash, send: send)
                 }
-                wakeUpsSection
+                // A till on its own wallet has no Bell to wake it: no
+                // Wake-ups, and the wallet in place of the store.
+                if let wallet = view.wallet {
+                    WalletSettings(wallet: wallet, send: send)
+                } else {
+                    wakeUpsSection
+                }
                 if let store = view.store {
                     StoreSettings(store: store, title: view.storeTitle, send: send)
                 }
@@ -64,6 +70,7 @@ struct SettingsScreen: View {
                 Section {
                     Button(view.disconnect, role: .destructive) { askDisconnect = true }
                         .foregroundStyle(Palette.danger)
+                        .disabled(view.wallet.map { !$0.disconnect.enabled } ?? false)
                 } footer: {
                     Text(view.disconnectFootnote)
                 }
@@ -81,6 +88,11 @@ struct SettingsScreen: View {
             }
             .confirmationDialog(view.disconnectAsk, isPresented: $askDisconnect, titleVisibility: .visible) {
                 Button(view.disconnectConfirm, role: .destructive) { send(.disconnect) }
+            } message: {
+                // The wallet's: a view key can't be taken back.
+                if let detail = view.wallet?.disconnectAskDetail {
+                    Text(detail)
+                }
             }
         }
         .tint(Palette.link)
