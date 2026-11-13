@@ -475,9 +475,17 @@ pub(crate) mod tests {
         assert_eq!(source.asked.load(Ordering::SeqCst), 1);
         clock.0.store(1_000 + REFRESH as i64 - 1, Ordering::SeqCst);
         prices.keep_fresh(Some("USD"), REFRESH).await.unwrap();
-        assert_eq!(source.asked.load(Ordering::SeqCst), 1, "under 5 minutes old");
+        assert_eq!(
+            source.asked.load(Ordering::SeqCst),
+            1,
+            "under 5 minutes old"
+        );
         prices.keep_fresh(Some("USD"), PULL_REFRESH).await.unwrap();
-        assert_eq!(source.asked.load(Ordering::SeqCst), 2, "pulled: a minute is enough");
+        assert_eq!(
+            source.asked.load(Ordering::SeqCst),
+            2,
+            "pulled: a minute is enough"
+        );
         prices.convert(&usd(100)).await.unwrap();
         assert_eq!(source.asked.load(Ordering::SeqCst), 2, "the code uses it");
         prices.keep_fresh(None, REFRESH).await.unwrap();

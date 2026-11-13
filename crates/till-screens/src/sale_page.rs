@@ -756,12 +756,23 @@ mod tests {
             .build();
         sale.found.as_mut().unwrap().point_of_sale = PointOfSale::Till;
         let model = page(&sale, TILL, la(at()), false);
-        assert!(!model.actions.contains(&PageAction::Refund), "nothing to refund");
-        assert!(note(&model).contains("nothing to give back"), "{}", note(&model));
+        assert!(
+            !model.actions.contains(&PageAction::Refund),
+            "nothing to refund"
+        );
+        assert!(
+            note(&model).contains("nothing to give back"),
+            "{}",
+            note(&model)
+        );
         sale.extras.received = Some(10_000_000_000);
         let model = page(&sale, TILL, la(at()), false);
         assert_eq!(model.actions, [PageAction::Refund]);
-        assert!(note(&model).starts_with("0.01 XMR came in"), "{}", note(&model));
+        assert!(
+            note(&model).starts_with("0.01 XMR came in"),
+            "{}",
+            note(&model)
+        );
     }
 
     #[test]

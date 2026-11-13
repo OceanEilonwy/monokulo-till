@@ -105,10 +105,7 @@ impl State {
     }
 
     pub(super) fn keypad_reference(&mut self, text: String) {
-        self.keypad.reference = text
-            .chars()
-            .take(till_pos::keypad::REFERENCE_MAX)
-            .collect();
+        self.keypad.reference = text.chars().take(till_pos::keypad::REFERENCE_MAX).collect();
     }
 
     /// Charge: the sale and its payment made, and its code opened. A charge

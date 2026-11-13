@@ -110,9 +110,11 @@ struct TillScreen: View {
 
     private var stack: some View {
         NavigationStack(path: stackPath) {
-            shiftScreen(sidebar: false)
+            root
                 .navigationDestination(for: Route.self) { destination in
                     switch destination {
+                    case .shift:
+                        shiftScreen(sidebar: false)
                     case .sale(let orderId):
                         SaleDetail(core: core, orderId: orderId, celebrate: lastLive == orderId, send: send)
                     case .order(let orderId):
@@ -128,10 +130,10 @@ struct TillScreen: View {
     /// pops it tells the engine as many Backs.
     private var stackPath: Binding<[Route]> {
         Binding(
-            get: { TillScreen.stackPath(shown) },
+            get: { TillScreen.stackPath(shown, keypad: core.keypad != nil) },
             set: { path in
                 guard route != .settings else { return }
-                for _ in 0..<TillScreen.backs(from: route, toDepth: path.count) {
+                for _ in 0..<TillScreen.backs(from: route, toDepth: path.count, keypad: core.keypad != nil) {
                     core.send(.back)
                 }
             }
@@ -140,12 +142,16 @@ struct TillScreen: View {
 
     /// The stack for `route`: the shift at its root, then the sale, then
     /// its order. The code is a cover over its sale, not a page.
-    static func stackPath(_ route: Route) -> [Route] {
+    /// On a keypad till the keypad is the root and the shift's list a page
+    /// over it.
+    static func stackPath(_ route: Route, keypad: Bool = false) -> [Route] {
         switch route {
         case .sale(let orderId), .code(let orderId):
             [.sale(orderId: orderId)]
         case .order(let orderId):
             [.sale(orderId: orderId), .order(orderId: orderId)]
+        case .shift where keypad:
+            [.shift]
         default:
             []
         }
@@ -153,17 +159,18 @@ struct TillScreen: View {
 
     /// How deep the engine holds `route`: the shift, a sale, and a sale's
     /// code or order under it (its Back goes up one).
-    static func depth(_ route: Route) -> Int {
+    static func depth(_ route: Route, keypad: Bool = false) -> Int {
         switch route {
         case .sale: 1
         case .code, .order: 2
+        case .shift where keypad: 1
         default: 0
         }
     }
 
     /// How many Backs bring the engine from `route` to a stack `depth` deep.
-    static func backs(from route: Route, toDepth depth: Int) -> Int {
-        max(0, TillScreen.depth(route) - depth)
+    static func backs(from route: Route, toDepth depth: Int, keypad: Bool = false) -> Int {
+        max(0, TillScreen.depth(route, keypad: keypad) - depth)
     }
 
     /// The sale `route` shows, if it shows one.
@@ -175,6 +182,16 @@ struct TillScreen: View {
     }
 
     // MARK: The shift
+
+    /// The stack's root: the keypad on a keypad till, else the shift.
+    @ViewBuilder
+    private var root: some View {
+        if let keypad = core.keypad {
+            KeypadScreen(view: keypad, send: send)
+        } else {
+            shiftScreen(sidebar: false)
+        }
+    }
 
     @ViewBuilder
     private func shiftScreen(sidebar: Bool) -> some View {

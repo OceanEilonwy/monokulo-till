@@ -47,6 +47,7 @@ import com.monokulo.till.ui.StepperActions
 import com.monokulo.till.ui.ThisTillActions
 import com.monokulo.till.ui.ThisTillScreen
 import com.monokulo.till.ui.PricesScreen
+import com.monokulo.till.ui.KeypadScreen
 import com.monokulo.till.ui.WalletCodeScreen
 import com.monokulo.till.ui.WalletEntryScreen
 import com.monokulo.till.ui.WalletKeysScreen
@@ -66,6 +67,7 @@ import uniffi.till_app.Update
 import uniffi.till_app.previewClose
 import uniffi.till_app.previewOnboarding
 import uniffi.till_app.previewSale
+import uniffi.till_app.previewKeypad
 import uniffi.till_app.previewSalesJson
 import uniffi.till_app.previewSettings
 import uniffi.till_app.previewSettingsOf
@@ -195,6 +197,19 @@ class ScreenshotTest {
         SaleFace.of(previewSale(priced, "w1", TestPlatform) as Update.Sale)
     }
 
+    /** Sales charged on Till's keypad, two put aside for the next customer. */
+    private val keypadSales = listOf(
+        PreviewSale(orderId = "k1", phase = PreviewPhase.WAITING, amount = "8.40", reference = "Sam", expiresAt = now + 840, foundPos = Pos.TILL, createdAt = now - 60),
+        PreviewSale(orderId = "k2", phase = PreviewPhase.SEEN, amount = "12.00", reference = "Table 4", expiresAt = now + 600, foundPos = Pos.TILL, createdAt = now - 120, seenAt = now - 30),
+    )
+
+    private fun keypadPreview(sales: List<PreviewSale>) = preview(sales).copy(till = Pos.TILL, location = null)
+
+    private fun keypad(currency: String, typed: String, reference: String, aside: Boolean) =
+        requireNotNull(previewKeypad(keypadPreview(if (aside) keypadSales else emptyList()), currency, typed, reference, TestPlatform))
+
+    private val keypadFace by lazy { SaleFace.of(previewSale(keypadPreview(keypadSales), "k1", TestPlatform) as Update.Sale) }
+
     private fun face(orderId: String) = SaleFace.of(previewSale(full, orderId, TestPlatform) as Update.Sale)
     private fun close(orderId: String): CloseView? = previewClose(full, orderId, TestPlatform)
     private fun step(step: PreviewStep): OnboardingView = previewOnboarding(step, Device.ANDROID, TestPlatform)
@@ -232,6 +247,14 @@ class ScreenshotTest {
         setup("vk-prices-step", PreviewStep.VK_PRICES),
         setup("vk-prices-fob", PreviewStep.VK_PRICES_FOB),
         Shot("vk-prices-code") { SaleScreen(pricedFace, noActions, null) },
+        // Till's keypad as the point of sale (docs/view-key-mode.md §7).
+        setup("pos-keypad-choose", PreviewStep.POS_KEYPAD_CHOOSE),
+        setup("pos-keypad-currency", PreviewStep.POS_KEYPAD_CURRENCY),
+        Shot("pos-keypad") { KeypadScreen(keypad("USD", "1250", "Sam", aside = true)) {} },
+        Shot("pos-keypad-empty") { KeypadScreen(keypad("USD", "", "", aside = false)) {} },
+        Shot("pos-keypad-xmr") { KeypadScreen(keypad("XMR", "0.05", "", aside = false)) {} },
+        Shot("pos-keypad-sale") { SaleScreen(keypadFace, noActions, null) },
+        Shot("pos-keypad-settings") { SettingsScreen(previewSettingsOf(PreviewSettings.POS_KEYPAD, Device.ANDROID, now), settingsActions) },
         shiftShot("till-empty") { empty },
         shiftShot("till-shift") { shift },
         shiftShot("till-shift-offline") { offline },

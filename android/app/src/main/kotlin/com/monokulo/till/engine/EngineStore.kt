@@ -24,6 +24,7 @@ import uniffi.till_screens.NotificationView
 import uniffi.till_screens.OnboardingView
 import uniffi.till_screens.SettingsView
 import uniffi.till_screens.ShiftView
+import uniffi.till_screens.KeypadView
 
 /** Busy with a network call (buttons wait), and what went wrong last; and of those, what no screen's own view says. */
 data class Work(val busy: Boolean = false, val problem: String? = null, val shownBusy: Boolean = false, val shownProblem: String? = null)
@@ -47,6 +48,7 @@ object EngineStore {
     private val mutableSettings = MutableStateFlow<SettingsView?>(null)
     private val mutableNav = MutableStateFlow(Nav())
     private val mutableShift = MutableStateFlow<ShiftView?>(null)
+    private val mutableKeypad = MutableStateFlow<KeypadView?>(null)
     private val mutableSale = MutableStateFlow<Update.Sale?>(null)
     private val mutableClose = MutableStateFlow(CloseSheet(null, null))
     private val mutableRefund = MutableStateFlow<RefundSheetView?>(null)
@@ -62,6 +64,8 @@ object EngineStore {
     val settings: StateFlow<SettingsView?> = mutableSettings.asStateFlow()
     val nav: StateFlow<Nav> = mutableNav.asStateFlow()
     val shift: StateFlow<ShiftView?> = mutableShift.asStateFlow()
+    /** Till's keypad, while it's the till's home. */
+    val keypad: StateFlow<KeypadView?> = mutableKeypad.asStateFlow()
     /** The sale on screen, as each of its screens draws it; kept while it leaves. */
     val sale: StateFlow<Update.Sale?> = mutableSale.asStateFlow()
     val close: StateFlow<CloseSheet> = mutableClose.asStateFlow()
@@ -111,6 +115,7 @@ object EngineStore {
             is Update.Settings -> mutableSettings.value = update.view
             is Update.Nav -> mutableNav.value = Nav(update.byItself, update.backTarget, update.backEnabled, Way(update.back, update.steps))
             is Update.Shift -> mutableShift.value = update.view
+            is Update.Keypad -> mutableKeypad.value = update.view
             is Update.Sale -> mutableSale.value = update
             is Update.CloseSheet -> mutableClose.value = CloseSheet(update.orderId, update.view)
             is Update.RefundSheet -> mutableRefund.value = update.view

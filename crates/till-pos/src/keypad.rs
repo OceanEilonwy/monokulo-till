@@ -96,8 +96,16 @@ impl KeypadSource {
     }
 
     fn merchant(&self) -> String {
-        let name = self.merchant.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        if name.is_empty() { "Monokulo Till".into() } else { name }
+        let name = self
+            .merchant
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if name.is_empty() {
+            "Monokulo Till".into()
+        } else {
+            name
+        }
     }
 }
 
@@ -234,7 +242,11 @@ mod tests {
     fn the_receipt_is_one_line_the_amount_with_the_reference() {
         let keypad = KeypadSource::new();
         keypad.set_merchant("Corner Café");
-        let sale = keypad.charge(Money::new(125, CurrencyCode::EUR), Some("Table 4\nby the door"), at());
+        let sale = keypad.charge(
+            Money::new(125, CurrencyCode::EUR),
+            Some("Table 4\nby the door"),
+            at(),
+        );
         let r = receipt(&sale, "Corner Café").unwrap();
         assert_eq!(r.line_items.len(), 1);
         assert_eq!(r.line_items[0].description, "Table 4 by the door");
@@ -242,6 +254,9 @@ mod tests {
         assert_eq!(r.merchant.legal_name, "Corner Café");
         assert!(orf_codec::encode(&r).is_ok(), "the codec takes it");
         let plain = keypad.charge(Money::new(500, CurrencyCode::EUR), None, at());
-        assert_eq!(receipt(&plain, "x").unwrap().line_items[0].description, "Sale");
+        assert_eq!(
+            receipt(&plain, "x").unwrap().line_items[0].description,
+            "Sale"
+        );
     }
 }

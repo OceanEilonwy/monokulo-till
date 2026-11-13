@@ -979,9 +979,10 @@ pub enum Update {
     },
     /// The shift, as `till_screens::shift` draws it, once the till is set up.
     Shift { view: ShiftView },
-    /// Till's keypad, while it's the till's home.
+    /// Till's keypad while it's the till's home; `None` on a till with
+    /// another point of sale.
     Keypad {
-        view: till_screens::keypad::KeypadView,
+        view: Option<till_screens::keypad::KeypadView>,
     },
     /// The sale on screen ([`Screen::Sale`], `Code` or `Order`): its live
     /// screen, its page, its enlarged code, and its whole order while the

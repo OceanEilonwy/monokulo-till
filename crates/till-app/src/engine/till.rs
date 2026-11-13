@@ -189,8 +189,7 @@ impl State {
         if here != TillPlace::Other {
             // On the keypad a sale comes up because it was charged: none rises
             // out of a list at rest.
-            let resting =
-                self.resting_on.as_ref() == Some(&Screen::Till) && !self.keypad_mode();
+            let resting = self.resting_on.as_ref() == Some(&Screen::Till) && !self.keypad_mode();
             let left = self.left_or_quiet();
             let next = till_nav::follow(&here, &sales, &left, &self.live_before, resting);
             if next != here

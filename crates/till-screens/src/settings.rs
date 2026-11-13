@@ -86,11 +86,11 @@ pub fn connected(
     chosen == Some(PointOfSale::Till)
         || signed_in
             && match chosen {
-            Some(PointOfSale::Square) => location,
-            Some(PointOfSale::Clover) => merchant,
-            Some(PointOfSale::Till) => true,
-            None => false,
-        }
+                Some(PointOfSale::Square) => location,
+                Some(PointOfSale::Clover) => merchant,
+                Some(PointOfSale::Till) => true,
+                None => false,
+            }
 }
 
 /// What Settings shows.
@@ -819,7 +819,9 @@ fn pos_section(p: &PosState, device: Device) -> PosSection {
                 ),
             ],
             change: pos_text::CHANGE.into(),
-            footnote: "Type each sale's amount on the keypad and charge it. Nothing is signed in to.".into(),
+            footnote:
+                "Type each sale's amount on the keypad and charge it. Nothing is signed in to."
+                    .into(),
         },
         Some(chosen) if p.connected() => {
             let place_row = pos_text::place_row(Some(chosen));

@@ -788,13 +788,25 @@ mod tests {
         backend.inner.keep_price_fresh(0).await.unwrap();
         assert_eq!(source.asked.load(Ordering::SeqCst), 0, "no currency yet");
         lock(&backend.inner.link).price_currency = Some("USD".into());
-        backend.inner.keep_price_fresh(crate::prices::REFRESH).await.unwrap();
-        backend.inner.keep_price_fresh(crate::prices::REFRESH).await.unwrap();
+        backend
+            .inner
+            .keep_price_fresh(crate::prices::REFRESH)
+            .await
+            .unwrap();
+        backend
+            .inner
+            .keep_price_fresh(crate::prices::REFRESH)
+            .await
+            .unwrap();
         assert_eq!(source.asked.load(Ordering::SeqCst), 1);
         clock
             .0
             .fetch_add(crate::prices::REFRESH as i64, Ordering::SeqCst);
-        backend.inner.keep_price_fresh(crate::prices::REFRESH).await.unwrap();
+        backend
+            .inner
+            .keep_price_fresh(crate::prices::REFRESH)
+            .await
+            .unwrap();
         assert_eq!(source.asked.load(Ordering::SeqCst), 2, "five minutes on");
     }
 

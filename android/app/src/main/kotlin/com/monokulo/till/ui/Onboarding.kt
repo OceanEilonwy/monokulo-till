@@ -69,6 +69,7 @@ import uniffi.till_screens.PosCard
 import uniffi.till_screens.PosChoice
 import uniffi.till_screens.PosMark
 import uniffi.till_screens.PosStage
+import uniffi.till_screens.CurrencyRow
 import uniffi.till_screens.PosStep
 import uniffi.till_screens.TestStatus
 import uniffi.till_screens.SampleAlert
@@ -308,6 +309,8 @@ class PosSetupActions(
     /** The way past: "Not now: only show other tills' sales", or "Skip the test" once connected, as the engine decides. */
     val onSkip: () -> Unit,
     val onBack: () -> Unit,
+    /** Till's keypad: its currency picked, by code ("XMR" for none). */
+    val onCurrency: (String) -> Unit = {},
 )
 
 /**
@@ -334,6 +337,10 @@ fun PointOfSaleScreen(step: PosStep, stepLabel: String?, a: PosSetupActions, hea
             PosChoices(step.choices, onChoose = a.onChoose)
         }
         PosStage.SIGN_IN -> step.card?.let { card -> PosAccount(card, a, heading, lead) }
+        PosStage.CURRENCY -> {
+            PageHead(heading, lead)
+            CurrencyGroups(step.currencies, a.onCurrency)
+        }
         PosStage.TEST_SALE -> step.card?.let { card ->
             step.connected?.let { ConnectedLine(it, card.changeLocation, a.onChangeLocation) }
             PageHead(heading, lead)
@@ -347,6 +354,10 @@ fun PointOfSaleScreen(step: PosStep, stepLabel: String?, a: PosSetupActions, hea
             step.card?.let { card ->
                 PosAccount(card, a)
                 PosAtTheTill(card, a, testRow = true)
+            }
+            if (step.currencies.isNotEmpty()) {
+                SectionLabel("Currency")
+                CurrencyGroups(step.currencies, a.onCurrency)
             }
         }
     }
@@ -401,6 +412,31 @@ fun PosChoices(choices: List<PosChoice>, onChoose: (PosMark) -> Unit) = Group(
         }
     },
 )
+
+/**
+ * Till's keypad's currencies (docs/view-key-mode.md §7), as Fob lists them: None (XMR only), this device's, then every
+ * one, a card each group, each row with its sign in a circle, its name, who prices it, and a tick when chosen.
+ */
+@Composable
+private fun CurrencyGroups(rows: List<CurrencyRow>, onPick: (String) -> Unit) {
+    val groups = mutableListOf<MutableList<CurrencyRow>>()
+    rows.forEach { row -> if (row.group != null || groups.isEmpty()) groups.add(mutableListOf(row)) else groups.last().add(row) }
+    groups.forEach { group ->
+        group.first().group?.let { SectionLabel(it) } ?: Spacer(Modifier.height(16.dp))
+        Group(
+            Modifier.selectableGroup(),
+            rows = group.map { row ->
+                {
+                    ChoiceRow(row.name, row.selected, { onPick(row.code) }, row.detail) {
+                        Box(Modifier.size(40.dp).clip(CircleShape).background(mk.inset), contentAlignment = Alignment.Center) {
+                            Text(row.sign, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                        }
+                    }
+                }
+            },
+        )
+    }
+}
 
 /** Signed in: a tick, "Connected" and who. */
 @Composable

@@ -3,7 +3,8 @@ import TillCore
 
 /// A point of sale's mark on a tile, leading its row (`PosChoice`): Square's
 /// square in a square, drawn in the theme's ink, and Clover's four leaves in
-/// its green. Simple stand-ins for each brand's art; decoration only.
+/// its green, and Till's own keypad as Till's mark. Simple stand-ins for
+/// each brand's art; decoration only.
 struct PosMarkTile: View {
     let mark: PosMark
     var inInk = true
@@ -35,6 +36,8 @@ struct PosMarkTile: View {
                         .frame(width: side * 0.36, height: side * 0.36)
                 }
             }
+        case .till:
+            TillWidget(state: .idle, size: size * 0.56, decorative: true)
         case .clover:
             let green = inInk ? Palette.ink : Self.cloverGreen
             Grid(horizontalSpacing: 2, verticalSpacing: 2) {

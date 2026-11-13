@@ -2583,7 +2583,10 @@ fn a_wallet_till_picks_its_price_provider_between_the_point_of_sale_and_alerts()
     assert_eq!(prices.intro_bold, "US dollars");
     let names: Vec<_> = prices.providers.iter().map(|p| p.name.as_str()).collect();
     assert_eq!(names, ["Kraken", "CoinGecko"]);
-    assert!(prices.providers[0].selected, "the first that prices dollars");
+    assert!(
+        prices.providers[0].selected,
+        "the first that prices dollars"
+    );
     engine.send(Action::ChoosePriceProvider {
         name: "CoinGecko".into(),
     });
@@ -2614,9 +2617,10 @@ fn a_keypad_till_charges_from_its_keypad_and_puts_the_sale_aside() {
     platform.set("keypad.currency", "XMR");
     let (engine, rx, _) = start(config, platform.clone());
     screen(&rx, Screen::Keypad);
-    let keypad = |rx: &Receiver<Heard>, want: &dyn Fn(&till_screens::keypad::KeypadView) -> bool| {
+    let keypad = |rx: &Receiver<Heard>,
+                  want: &dyn Fn(&till_screens::keypad::KeypadView) -> bool| {
         wait_for(rx, |heard| match heard {
-            Heard::Update(Update::Keypad { view }) if want(view) => Some(view.clone()),
+            Heard::Update(Update::Keypad { view: Some(view) }) if want(view) => Some(view.clone()),
             _ => None,
         })
     };
@@ -2630,9 +2634,7 @@ fn a_keypad_till_charges_from_its_keypad_and_puts_the_sale_aside() {
     ] {
         engine.send(Action::KeypadPress { key });
     }
-    engine.send(Action::KeypadReference {
-        text: "Sam".into(),
-    });
+    engine.send(Action::KeypadReference { text: "Sam".into() });
     let typed = keypad(&rx, &|v| v.amount == "1.5 XMR" && v.reference == "Sam");
     assert_eq!(typed.charge.label, "Charge 1.5 XMR");
     engine.send(Action::Charge);
@@ -2649,7 +2651,10 @@ fn a_keypad_till_charges_from_its_keypad_and_puts_the_sale_aside() {
     assert_eq!(aside.aside.len(), 1, "{aside:?}");
     assert_eq!(aside.aside[0].order_id, order_id);
     assert_eq!(aside.aside[0].label, "Sam");
-    assert_eq!(aside.amount, "0 XMR", "the keypad is cleared for the next one");
+    assert_eq!(
+        aside.amount, "0 XMR",
+        "the keypad is cleared for the next one"
+    );
     engine.send(Action::OpenSales);
     screen(&rx, Screen::Till);
     engine.send(Action::Back);
@@ -2669,9 +2674,16 @@ fn choosing_the_keypad_on_a_wallet_asks_for_its_currency_then_prices() {
     engine.send(Action::ChoosePointOfSale {
         pos: crate::Pos::Till,
     });
-    wait_for(&rx, |_| (platform.get("pos.kind").as_deref() == Some("till")).then_some(()));
+    wait_for(&rx, |_| {
+        (platform.get("pos.kind").as_deref() == Some("till")).then_some(())
+    });
     let choose = page_where(&rx, |page| match page {
-        OnboardingPage::PointOfSale { view } if view.next.as_ref().is_some_and(|n| n.label == "Continue with Till") => {
+        OnboardingPage::PointOfSale { view }
+            if view
+                .next
+                .as_ref()
+                .is_some_and(|n| n.label == "Continue with Till") =>
+        {
             Some(view.clone())
         }
         _ => None,
@@ -2683,7 +2695,10 @@ fn choosing_the_keypad_on_a_wallet_asks_for_its_currency_then_prices() {
         _ => None,
     });
     assert_eq!(currency.currencies[0].name, "None (XMR only)");
-    assert!(!currency.next.unwrap().enabled, "Continue waits for a currency");
+    assert!(
+        !currency.next.unwrap().enabled,
+        "Continue waits for a currency"
+    );
     engine.send(Action::ChooseKeypadCurrency { code: "AUD".into() });
     wait_for(&rx, |_| {
         (kept_wallet(&platform).price_currency.as_deref() == Some("AUD")).then_some(())
@@ -2694,7 +2709,9 @@ fn choosing_the_keypad_on_a_wallet_asks_for_its_currency_then_prices() {
     engine.send(Action::Back);
     screen(&rx, Screen::PointOfSale);
     engine.send(Action::ChooseKeypadCurrency { code: "XMR".into() });
-    wait_for(&rx, |_| (platform.get("keypad.currency").as_deref() == Some("XMR")).then_some(()));
+    wait_for(&rx, |_| {
+        (platform.get("keypad.currency").as_deref() == Some("XMR")).then_some(())
+    });
     engine.send(Action::Next);
     screen(&rx, Screen::Alerts);
 }

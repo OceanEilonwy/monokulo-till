@@ -414,6 +414,22 @@ struct PosSettings: View {
                     Text(footnotes.joined(separator: "\n\n"))
                 }
             }
+        case .keypad(let mark, let name, let facts, let change, let footnote):
+            Section {
+                HStack(spacing: 12) {
+                    PosMarkTile(mark: mark)
+                    Text(name)
+                        .font(.headline)
+                }
+                ForEach(Array(facts.enumerated()), id: \.offset) { _, fact in
+                    FactLine(fact: fact)
+                }
+                Button(change) { send(.openPointOfSale) }
+            } header: {
+                Text(title)
+            } footer: {
+                Text(footnote)
+            }
         case .choosing(let choices, let signIn, let footnote):
             Section {
                 ForEach(Array(choices.enumerated()), id: \.offset) { _, choice in

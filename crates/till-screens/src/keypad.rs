@@ -23,7 +23,9 @@ pub const XMR_DECIMALS: usize = 12;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum KeypadKey {
-    Digit { digit: u8 },
+    Digit {
+        digit: u8,
+    },
     /// XMR only: the decimal point.
     Point,
     Clear,
@@ -84,7 +86,11 @@ pub fn amount(typed: &str, currency: CurrencyCode) -> Option<Money> {
     let minor = if xmr(currency) {
         let (whole, after) = typed.split_once('.').unwrap_or((typed, ""));
         let digits = currency.minor_digits() as usize;
-        let after: String = after.chars().chain(std::iter::repeat('0')).take(digits).collect();
+        let after: String = after
+            .chars()
+            .chain(std::iter::repeat('0'))
+            .take(digits)
+            .collect();
         format!("{whole}{after}").parse::<i64>().ok()?
     } else {
         typed.parse::<i64>().ok()?
@@ -270,7 +276,8 @@ mod tests {
     }
 
     fn typed(keys: &[KeypadKey], currency: CurrencyCode) -> String {
-        keys.iter().fold(String::new(), |t, k| press(&t, *k, currency))
+        keys.iter()
+            .fold(String::new(), |t, k| press(&t, *k, currency))
     }
 
     fn d(digit: u8) -> KeypadKey {
@@ -284,12 +291,23 @@ mod tests {
         assert_eq!(typed(&[d(0), d(0), d(7)], usd()), "7", "no leading zeros");
         assert_eq!(amount("", usd()), None, "zero charges nothing");
         let yen = CurrencyCode::new("JPY").unwrap();
-        assert_eq!(amount(&typed(&[d(5), d(0), d(0)], yen), yen), Some(Money::new(500, yen)));
+        assert_eq!(
+            amount(&typed(&[d(5), d(0), d(0)], yen), yen),
+            Some(Money::new(500, yen))
+        );
         let long = typed(&[d(9); 20], usd());
-        assert_eq!(long.len(), WHOLE_DIGITS + 2, "nine whole digits and the cents");
+        assert_eq!(
+            long.len(),
+            WHOLE_DIGITS + 2,
+            "nine whole digits and the cents"
+        );
         assert_eq!(typed(&[d(1), d(2), KeypadKey::Backspace], usd()), "1");
         assert_eq!(typed(&[d(1), KeypadKey::Clear], usd()), "");
-        assert_eq!(typed(&[d(1), KeypadKey::Point], usd()), "1", "no point in fiat");
+        assert_eq!(
+            typed(&[d(1), KeypadKey::Point], usd()),
+            "1",
+            "no point in fiat"
+        );
     }
 
     #[test]
@@ -301,7 +319,10 @@ mod tests {
             Some(Money::new(500_000_000_000, x)),
             "in piconero"
         );
-        assert_eq!(typed(&[d(1), KeypadKey::Point, KeypadKey::Point, d(2)], x), "1.2");
+        assert_eq!(
+            typed(&[d(1), KeypadKey::Point, KeypadKey::Point, d(2)], x),
+            "1.2"
+        );
         let many = typed(&[[KeypadKey::Point].as_slice(), &[d(1); 15]].concat(), x);
         assert_eq!(many, format!("0.{}", "1".repeat(12)));
         assert_eq!(amount("0.", x), None);

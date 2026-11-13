@@ -538,7 +538,10 @@ fn paid_after(confirmations: u32, merged: bool) -> SetupStepper {
     let (value, detail) = if merged {
         // B4's one line, in Settings' words: "10 confirmations · about 20
         // minutes".
-        (format!("{count} · {}", time.replacen("About", "about", 1)), None)
+        (
+            format!("{count} · {}", time.replacen("About", "about", 1)),
+            None,
+        )
     } else {
         (count, Some(time))
     };
@@ -864,7 +867,10 @@ mod tests {
         let phone = fob_connected_step(&c, Device::Android);
         assert_eq!(phone.eyebrow.as_deref(), Some("Set up Till · Your wallet"));
         assert_eq!(phone.facts[1].value, "Till (Corner Café) · 1");
-        assert_eq!(phone.paid_after.value, "10 confirmations · about 20 minutes");
+        assert_eq!(
+            phone.paid_after.value,
+            "10 confirmations · about 20 minutes"
+        );
         assert!(phone.other_wallet.is_none());
         assert_eq!(
             fob_connected_lead(&c, Device::Iphone),

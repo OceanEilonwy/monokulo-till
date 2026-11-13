@@ -146,10 +146,7 @@ pub fn price(price: &Price, format: &dyn MoneyFormat) -> String {
             let code = price.currency().to_ascii_uppercase();
             // XMR in piconero's twelve digits, without the zeros after them.
             let amount = if code == "XMR" && price.amount().contains('.') {
-                price
-                    .amount()
-                    .trim_end_matches('0')
-                    .trim_end_matches('.')
+                price.amount().trim_end_matches('0').trim_end_matches('.')
             } else {
                 price.amount()
             };
@@ -174,8 +171,14 @@ mod tests {
     #[test]
     fn an_xmr_price_is_shown_without_its_trailing_zeros() {
         let format = |minor: i64, code: &str| format!("{minor} {code}");
-        assert_eq!(price(&Price::new("1.500000000000", "XMR"), &format), "1.5 XMR");
-        assert_eq!(price(&Price::new("2.000000000000", "XMR"), &format), "2 XMR");
+        assert_eq!(
+            price(&Price::new("1.500000000000", "XMR"), &format),
+            "1.5 XMR"
+        );
+        assert_eq!(
+            price(&Price::new("2.000000000000", "XMR"), &format),
+            "2 XMR"
+        );
         assert_eq!(price(&Price::new("2", "XMR"), &format), "2 XMR");
     }
 

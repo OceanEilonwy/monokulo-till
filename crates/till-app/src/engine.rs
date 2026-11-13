@@ -199,7 +199,7 @@ struct Published {
     bubble: Option<crate::BubbleView>,
     notification: Option<till_screens::NotificationView>,
     live_activity: Option<Option<till_screens::LiveActivityState>>,
-    keypad: Option<till_screens::keypad::KeypadView>,
+    keypad: Option<Option<till_screens::keypad::KeypadView>>,
 }
 
 pub(crate) struct State {
@@ -2575,10 +2575,8 @@ impl State {
             ticks |= shift.ticks;
             send!(shift, shift, |view| Update::Shift { view });
         }
-        if self.keypad_mode() {
-            let view = self.keypad_view(p);
-            send!(keypad, view, |view| Update::Keypad { view });
-        }
+        let keypad = self.keypad_mode().then(|| self.keypad_view(p));
+        send!(keypad, keypad, |view| Update::Keypad { view });
         if let Some(sale) = self.sale_update(p) {
             if let Update::Sale { view, code, .. } = &sale {
                 ticks |= view.ticks || code.ticks;

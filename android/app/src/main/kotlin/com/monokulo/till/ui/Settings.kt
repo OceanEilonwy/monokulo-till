@@ -69,6 +69,7 @@ class SettingsActions(
 fun PosMark.pos(): Pos = when (this) {
     PosMark.SQUARE -> Pos.SQUARE
     PosMark.CLOVER -> Pos.CLOVER
+    PosMark.TILL -> Pos.TILL
 }
 
 /** Settings (PhoneSettings), as the engine wrote it, with Android's shift and bubble in place of the Dynamic Island. */
@@ -317,6 +318,16 @@ private fun PosSection(p: PosSection, a: SettingsActions) {
                 },
             )
             p.footnotes.forEach { Footnote(it) }
+        }
+        is PosSection.Keypad -> {
+            Group(
+                rows = buildList<@Composable () -> Unit> {
+                    add { PosRow(p.mark, p.name) }
+                    p.facts.forEach { fact -> add { FactRow(fact.label, fact.value) } }
+                    add { ActionRow(p.change, { a.send(Action.OpenPointOfSale) }, mk.link) }
+                },
+            )
+            Footnote(p.footnote)
         }
         is PosSection.Choosing -> {
             PosChoices(p.choices, onChoose = { a.send(Action.ChoosePointOfSale(it.pos())) })

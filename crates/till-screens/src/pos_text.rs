@@ -124,7 +124,9 @@ pub fn permissions(pos: PointOfSale) -> String {
             "Till can read payments, orders and locations, and refund a Monero sale that's never paid."
         }
         PointOfSale::Clover => "Till can read payments and orders, and add a Monero payment type.",
-        PointOfSale::Till => return "Type the amount on Till's keypad and charge: no sign-in.".into(),
+        PointOfSale::Till => {
+            return "Type the amount on Till's keypad and charge: no sign-in.".into();
+        }
     };
     format!(
         "{can} Your {} sign-in stays on this device: Monokulo never sees it, or what was bought.",
@@ -414,7 +416,7 @@ pub fn waiting_hint(pos: Option<PointOfSale>) -> &'static str {
         Some(PointOfSale::Clover) => {
             "The code appears here, and the bubble lights up, when you choose Monero on the Clover device."
         }
-        Some(PointOfSale::Till) => "Each sale you charge on the keypad shows here." ,
+        Some(PointOfSale::Till) => "Each sale you charge on the keypad shows here.",
         None => {
             "The code appears here, and the bubble lights up, when another till rings up a Monero sale."
         }

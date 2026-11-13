@@ -23,7 +23,7 @@ struct OnboardingTests {
         for screen in setup {
             #expect(Route.of(screen) == .onboarding)
         }
-        let till: [Screen] = [.till, .settings, .sale(orderId: "o1"), .code(orderId: "o1"), .order(orderId: "o1")]
+        let till: [Screen] = [.till, .keypad, .settings, .sale(orderId: "o1"), .code(orderId: "o1"), .order(orderId: "o1")]
         for screen in till {
             #expect(Route.of(screen) != .onboarding)
             #expect(Route.of(screen) != .starting)

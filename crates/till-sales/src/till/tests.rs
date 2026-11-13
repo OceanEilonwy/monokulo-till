@@ -2772,7 +2772,10 @@ async fn a_keypad_charge_records_its_sale_only_once_its_payment_is_made() {
     assert_eq!(made.reference.as_deref(), Some("Sam"));
     assert!(made.live(), "its code is up");
     assert!(made.code.has_receipt, "the one-line receipt is in the code");
-    assert_eq!(made.found.as_ref().unwrap().point_of_sale, PointOfSale::Till);
+    assert_eq!(
+        made.found.as_ref().unwrap().point_of_sale,
+        PointOfSale::Till
+    );
     assert!(keypad.pending().is_empty(), "handled");
     assert_eq!(backend.made(), 1);
     assert_eq!(

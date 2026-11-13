@@ -21,7 +21,8 @@ impl PointOfSale {
     pub const ALL: [PointOfSale; 2] = [PointOfSale::Square, PointOfSale::Clover];
 
     /// Every point of sale, the keypad too, in the order screens list them.
-    pub const EVERY: [PointOfSale; 3] = [PointOfSale::Square, PointOfSale::Clover, PointOfSale::Till];
+    pub const EVERY: [PointOfSale; 3] =
+        [PointOfSale::Square, PointOfSale::Clover, PointOfSale::Till];
 
     /// The name on the wire, between the till and a Bell.
     pub fn wire(self) -> &'static str {
@@ -44,7 +45,9 @@ impl PointOfSale {
     /// The point of sale `wire` names, or `None` for one this build doesn't
     /// know. Only the exact lowercase name counts.
     pub fn from_wire(wire: &str) -> Option<PointOfSale> {
-        PointOfSale::EVERY.into_iter().find(|pos| pos.wire() == wire)
+        PointOfSale::EVERY
+            .into_iter()
+            .find(|pos| pos.wire() == wire)
     }
 }
 
