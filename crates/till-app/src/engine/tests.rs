@@ -2552,3 +2552,46 @@ fn a_fob_request_is_kept_across_a_restart() {
         "forgotten once answered"
     );
 }
+
+/// Prices (docs/view-key-mode.md §8): a till on its own wallet at a Square
+/// location in dollars is asked where prices come from between the point
+/// of sale and alerts; the provider picked and the location's currency are
+/// kept in the wallet's link, so the wallet keeps that price fresh.
+#[test]
+fn a_wallet_till_picks_its_price_provider_between_the_point_of_sale_and_alerts() {
+    let config = config(None);
+    let (platform, _) = wallet_till(&config.data_dir);
+    platform.remove("setup.done");
+    platform.set("pos.kind", "square");
+    platform.set(
+        "square.location",
+        r#"{"id":"L1","name":"Front counter","country":"US","currency":"USD"}"#,
+    );
+    let (engine, rx, _) = start(config, platform.clone());
+    screen(&rx, Screen::Alerts);
+    engine.send(Action::Back);
+    screen(&rx, Screen::Prices);
+    let prices = page_where(&rx, |page| match page {
+        OnboardingPage::Prices { view } => Some(view.clone()),
+        _ => None,
+    });
+    assert_eq!(prices.intro_bold, "US dollars");
+    let names: Vec<_> = prices.providers.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(names, ["Kraken", "CoinGecko"]);
+    assert!(prices.providers[0].selected, "the first that prices dollars");
+    engine.send(Action::ChoosePriceProvider {
+        name: "CoinGecko".into(),
+    });
+    wait_for(&rx, |_| {
+        (kept_wallet(&platform).price_provider.as_deref() == Some("CoinGecko")).then_some(())
+    });
+    engine.send(Action::Next);
+    screen(&rx, Screen::Alerts);
+    let kept = kept_wallet(&platform);
+    assert_eq!(kept.price_currency.as_deref(), Some("USD"));
+    assert_eq!(kept.price_provider.as_deref(), Some("CoinGecko"));
+    engine.send(Action::Back);
+    screen(&rx, Screen::Prices);
+    engine.send(Action::Back);
+    screen(&rx, Screen::PointOfSale);
+}

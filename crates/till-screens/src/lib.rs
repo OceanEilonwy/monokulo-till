@@ -52,6 +52,7 @@ pub mod notification;
 pub mod onboarding;
 pub mod order_text;
 pub mod pos_text;
+pub mod prices;
 pub mod sale;
 pub mod sale_page;
 pub mod sale_text;

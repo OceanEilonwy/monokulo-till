@@ -13,7 +13,8 @@ async-trait.workspace = true
 fob-codes.workspace = true
 # View-only keys from an address and view key, or from seed words.
 fob-keys.workspace = true
-# Fiat to XMR (docs/view-key-mode.md §8).
+# Fiat to XMR (docs/view-key-mode.md §8), and how a currency is written.
+fob-monero.workspace = true
 fob-price.workspace = true
 # The wallet itself, in Manual Sync (docs/view-key-mode.md §5).
 fob-wallet.workspace = true

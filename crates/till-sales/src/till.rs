@@ -697,6 +697,17 @@ impl Till {
         }
     }
 
+    /// Pull to refresh: the open payments read again, the backend asked
+    /// even with none open, so the device's own wallet catches up and
+    /// keeps its price fresh (docs/view-key-mode.md §8).
+    pub async fn pull(&self) {
+        if let Ok(payments) = self.backend.refresh(&self.open_refs()).await {
+            for payment in &payments {
+                self.on_payment(payment);
+            }
+        }
+    }
+
     /// The `self` links of the sales still open ([`TillSale::open`]): what
     /// to refresh when the event stream (re)opens or a look begins.
     pub fn open_refs(&self) -> Vec<PaymentRef> {

@@ -9,7 +9,7 @@
 //! ([`crate::wallet_setup`]), so D4 and Settings draw them the same way and
 //! send the same actions.
 
-use crate::view::{Choice, Fact, Press};
+use crate::view::{Fact, Press};
 use crate::wallet_setup::{
     CheckMark, NodeCheckRow, NodeRow, SetupStepper, WalletNetwork, confirmations_time, expiry_text,
     node_address, step_stepper,
@@ -41,6 +41,9 @@ pub struct WalletSettingsInput {
     /// The providers that price `currency` (fob-price's `providers_for`),
     /// or every provider without one.
     pub providers: Vec<String>,
+    /// Each provider asked for the price as Settings opened; `None` while
+    /// they're asked.
+    pub price_checks: Option<Vec<crate::prices::ProviderCheck>>,
     /// What the wallet backend warns of (`BackendInfo::warnings`).
     pub warnings: Vec<String>,
     pub busy: bool,
@@ -55,9 +58,13 @@ pub struct PricesRow {
     pub label: String,
     /// "Kraken · AUD".
     pub value: String,
-    /// One per provider that prices the currency, the one in use
-    /// selected: `Action::ChoosePriceProvider` with its label.
-    pub choices: Vec<Choice>,
+    /// One per provider that prices the currency, each with what it says
+    /// XMR is worth, the one in use selected: `Action::ChoosePriceProvider`
+    /// with its name (setup's Prices step draws the same rows).
+    pub providers: Vec<crate::prices::ProviderRow>,
+    /// "Asking each provider…", while they're asked.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub asking: Option<String>,
     pub footnote: String,
 }
 
@@ -124,6 +131,16 @@ pub fn wallet_section(w: &WalletSettingsInput) -> WalletSection {
     }
     facts.push(Fact::new("Network", w.network.name()));
     let numbered = w.fob.is_none();
+    let prices = crate::prices::PricesInput {
+        currency: w.currency.clone().unwrap_or_default(),
+        plural: String::new(),
+        provider: w.provider.clone(),
+        providers: w.providers.clone(),
+        checks: w.price_checks.clone(),
+        from_fob: false,
+        busy: w.busy,
+        problem: None,
+    };
     WalletSection {
         title: "Payments".into(),
         mode: Fact::new("How Till sees payments", "Your own wallet"),
@@ -184,17 +201,10 @@ pub fn wallet_section(w: &WalletSettingsInput) -> WalletSection {
                 Some(currency) => format!("{} · {currency}", w.provider),
                 None => w.provider.clone(),
             },
-            choices: w
-                .providers
-                .iter()
-                .map(|p| Choice {
-                    label: p.clone(),
-                    detail: None,
-                    selected: *p == w.provider,
-                    enabled: !w.busy,
-                })
-                .collect(),
-            footnote: "Till asks for the price of XMR, never an amount or a payment, and never makes a code from a price more than 10 minutes old.".into(),
+            providers: crate::prices::provider_rows(&prices),
+            asking: (w.price_checks.is_none() && w.currency.is_some())
+                .then(|| "Asking each provider…".into()),
+            footnote: crate::prices::PRIVACY.into(),
         },
         warnings: w.warnings.clone(),
         footnote: "Till hears payments while it's open on screen.".into(),
@@ -225,6 +235,7 @@ mod tests {
             currency: Some("AUD".into()),
             provider: "Kraken".into(),
             providers: vec!["Kraken".into(), "CoinGecko".into()],
+            price_checks: None,
             warnings: vec![],
             busy: false,
             problem: None,
@@ -241,7 +252,8 @@ mod tests {
         assert_eq!(view.paid_after.value, "10 confirmations");
         assert!(!view.paid_after.minus.enabled);
         assert_eq!(view.prices.value, "Kraken · AUD");
-        assert!(view.prices.choices[0].selected);
+        assert!(view.prices.providers[0].selected);
+        assert_eq!(view.prices.asking.as_deref(), Some("Asking each provider…"));
         assert_eq!(view.node.unwrap().value, "node.example.com:18089");
     }
 

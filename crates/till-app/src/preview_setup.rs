@@ -65,6 +65,11 @@ pub enum PreviewStep {
     /// D4: this till's number, node, Paid after and expiry
     /// (`vk-this-till`).
     VkThisTill,
+    /// Prices, each provider answered (`vk-prices-step`).
+    VkPrices,
+    /// Prices with Fob's choice picked, one provider not answering
+    /// (`vk-prices-fob`).
+    VkPricesFob,
 }
 
 const HOST: &str = "pay.thebeanroom.com";
@@ -186,9 +191,12 @@ pub fn preview_onboarding(
             alerts: true,
             bubble: false,
         },
+        PreviewStep::VkPrices | PreviewStep::VkPricesFob => {
+            Step::Prices(prices_input(step == PreviewStep::VkPricesFob))
+        }
         step => Step::Wallet(wallet_step(step, name)),
     };
-    let wallet = matches!(step, Step::Wallet(_));
+    let wallet = matches!(step, Step::Wallet(_) | Step::Prices(_));
     onboarding::onboarding(
         &OnboardingInput {
             step,
@@ -198,6 +206,34 @@ pub fn preview_onboarding(
         device,
         &Money(platform),
     )
+}
+
+/// The sample's prices in Australian dollars: Kraken's and CoinGecko's
+/// answers, or (from Fob) CoinGecko picked as Fob's choice and Kraken not
+/// answering.
+fn prices_input(from_fob: bool) -> till_screens::prices::PricesInput {
+    use till_screens::prices::{PricesInput, ProviderCheck};
+    PricesInput {
+        currency: "AUD".into(),
+        plural: "Australian dollars".into(),
+        provider: if from_fob { "CoinGecko" } else { "Kraken" }.into(),
+        providers: till_wallet::prices::provider_names(Some("AUD")),
+        checks: Some(vec![
+            ProviderCheck {
+                name: "Kraken".into(),
+                rate: (!from_fob).then(|| "A$845.10".into()),
+                failure: from_fob.then(|| "Not answering".into()),
+            },
+            ProviderCheck {
+                name: "CoinGecko".into(),
+                rate: Some("A$846.02".into()),
+                failure: None,
+            },
+        ]),
+        from_fob,
+        busy: false,
+        problem: None,
+    }
 }
 
 /// The view-key boards' sample (the canvas's): Corner Café's wallet in
@@ -396,6 +432,18 @@ pub fn preview_settings_of(look: PreviewSettings, device: Device, now: i64) -> S
             currency: Some("USD".into()),
             provider: "Kraken".into(),
             providers: till_wallet::prices::provider_names(Some("USD")),
+            price_checks: Some(vec![
+                till_screens::prices::ProviderCheck {
+                    name: "Kraken".into(),
+                    rate: Some("$162.40".into()),
+                    failure: None,
+                },
+                till_screens::prices::ProviderCheck {
+                    name: "CoinGecko".into(),
+                    rate: Some("$162.55".into()),
+                    failure: None,
+                },
+            ]),
             warnings: if warning {
                 vec![
                     "Another till may be using till number 51.".into(),

@@ -1036,6 +1036,7 @@ impl State {
             Action::StepCodeExpiry { up } => self.step_code_expiry(up),
             Action::SetNode { url } => self.set_node(url),
             Action::ChoosePriceProvider { name } => self.choose_price_provider(name),
+            Action::Refresh => self.pull(),
             Action::PaidInCash { order_id } => {
                 if let Some(p) = &self.parts {
                     p.runner.paid_in_cash(&order_id);
@@ -1193,6 +1194,19 @@ impl State {
                     s.open(new);
                 }
             })
+        });
+    }
+
+    /// Pull to refresh: the open payments read again (the shop's own
+    /// wallet catches up and asks for the price first), and the point of
+    /// sale looked at now.
+    fn pull(&mut self) {
+        let Some(p) = &self.parts else { return };
+        p.runner.wake();
+        let Some(till) = p.runner.till() else { return };
+        self.task(async move {
+            till.pull().await;
+            apply(|_| {})
         });
     }
 
@@ -1413,6 +1427,7 @@ impl State {
             | Screen::WalletKeys
             | Screen::WalletSeed => self.use_another_wallet(),
             Screen::ThisTill => self.this_till_back(),
+            Screen::Prices => self.go(Screen::PointOfSale),
             Screen::Confirm => self.go(Screen::Scan),
             Screen::Locations => self.go(Screen::PointOfSale),
             Screen::PointOfSale if setup_done => {
@@ -1422,6 +1437,10 @@ impl State {
             // O2 back to O1, the choice.
             Screen::PointOfSale if self.pos_confirmed => self.pos_confirmed = false,
             Screen::Counter => self.go(Screen::PointOfSale),
+            Screen::Alerts if self.prices_due() => {
+                self.go(Screen::Prices);
+                self.check_prices();
+            }
             Screen::Alerts => self.go(Screen::PointOfSale),
             Screen::Float => self.go(Screen::Alerts),
             Screen::ShowSales => self.go(Screen::Alerts),
@@ -1459,6 +1478,7 @@ impl State {
             Screen::WalletKeys => self.wallet_keys_next(),
             Screen::FobConnected => self.fob_connected_next(),
             Screen::ThisTill => self.finish_wallet(),
+            Screen::Prices => self.prices_next(),
             Screen::Connected => self.go(Screen::PointOfSale),
             Screen::PointOfSale => match self.pos_connected() {
                 (None, _) => {}
@@ -1469,7 +1489,7 @@ impl State {
                 (Some(_), false) => self.sign_in(None),
                 (Some(_), true) => self.pos_done(),
             },
-            Screen::Counter => self.go(Screen::Alerts),
+            Screen::Counter => self.after_pos(),
             Screen::Alerts if self.config.device == Device::Android => self.go(Screen::Float),
             Screen::Alerts if self.config.device == Device::Ipad => self.go(Screen::ShowSales),
             Screen::Alerts => self.go(Screen::Ready),
@@ -1536,7 +1556,7 @@ impl State {
                     self.learn_device(id, name);
                     self.go(Screen::Counter);
                 }
-                None => self.go(Screen::Alerts),
+                None => self.after_pos(),
             }
         }
     }
@@ -2391,6 +2411,7 @@ impl State {
             Screen::Float => Step::Float {
                 allowed: self.bubble_allowed,
             },
+            Screen::Prices => self.prices_step(&model)?,
             Screen::Ready => Step::Ready {
                 store: store
                     .store

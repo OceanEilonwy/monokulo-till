@@ -50,6 +50,9 @@ fob-wallet = { git = "https://github.com/OceanEilonwy/monokulo-fob", rev = "112c
 fob-keys = { git = "https://github.com/OceanEilonwy/monokulo-fob", rev = "112c0efab84d3a4557bf7af94af79ea3bf0de96b" }
 fob-codes = { git = "https://github.com/OceanEilonwy/monokulo-fob", rev = "112c0efab84d3a4557bf7af94af79ea3bf0de96b" }
 fob-price = { git = "https://github.com/OceanEilonwy/monokulo-fob", rev = "112c0efab84d3a4557bf7af94af79ea3bf0de96b" }
+# How Fob names and writes a currency ("Australian dollars", "A$845.10"),
+# for the price checks fob-price makes.
+fob-monero = { git = "https://github.com/OceanEilonwy/monokulo-fob", rev = "112c0efab84d3a4557bf7af94af79ea3bf0de96b" }
 till-wallet = { path = "crates/till-wallet" }
 zeroize = "1.8"
 

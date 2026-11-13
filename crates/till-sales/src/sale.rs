@@ -206,6 +206,10 @@ pub struct SaleExtras {
     /// The code ran out by this device's clock before Monokulo said so.
     #[serde(default, skip_serializing_if = "is_false")]
     pub clock_lapsed: bool,
+    /// The rate the till's own backend worked its XMR out at: the code
+    /// screen names the provider and the price's time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub price_used: Option<till_types::PriceUsed>,
 }
 
 impl SaleExtras {
@@ -274,6 +278,7 @@ impl TillSale {
                 paid_after_close: v.paid_after_close,
                 other_counter: v.other_counter,
                 clock_lapsed: lapsed,
+                price_used: v.price_used.clone(),
             },
         }
     }

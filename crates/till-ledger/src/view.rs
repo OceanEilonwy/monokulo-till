@@ -145,6 +145,10 @@ pub struct SaleView {
     /// Its order offers `renew-order`: New code can renew it (core.md
     /// decision 171).
     pub renewable: bool,
+    /// The rate its XMR was worked out at, when the till's own backend
+    /// worked it out (docs/view-key-mode.md §8): the code screen names the
+    /// provider and the price's time.
+    pub price_used: Option<till_types::PriceUsed>,
     /// Another counter's sale, with this counter's device chosen.
     pub other_counter: bool,
     /// Its alerts are this till's: not another counter's, or every
@@ -343,6 +347,7 @@ pub fn view(
         cash,
         waiting_for_order,
         renewable: order.is_some_and(|o| o.renew.is_some()),
+        price_used: order.and_then(|o| o.price_used.clone()),
         alerts_here: !other_counter || settings.every_device,
         other_counter,
         live,

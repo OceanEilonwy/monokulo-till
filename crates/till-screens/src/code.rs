@@ -81,6 +81,9 @@ pub struct CodeView {
     /// What a screen reader says for the code: "Payment code for $13.88".
     #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
     pub code_said: String,
+    /// "Kraken · price from 14:02" ([`crate::sale::price_line`]).
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub price_line: Option<String>,
 }
 
 /// The enlarged code at the clock's now, amounts written by `money`.
@@ -100,6 +103,7 @@ pub fn code(input: &CodeInput, clock: DeviceClock, money: &dyn MoneyFormat) -> C
         ticks: live && sale.phase.counts_down(),
         scan: SCAN.into(),
         code_said: crate::sale::code_said(sale, money),
+        price_line: crate::sale::price_line(sale, clock),
     }
 }
 
@@ -180,6 +184,7 @@ mod tests {
                 ticks: true,
                 scan: "Scan with any Monero wallet".into(),
                 code_said: "Payment code for $79.21".into(),
+                price_line: None,
             }
         );
         let paid = code(

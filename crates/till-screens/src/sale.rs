@@ -106,6 +106,11 @@ pub struct SaleView {
     pub share_title: String,
     #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
     pub order_title: String,
+    /// "Kraken · price from 14:02": where the rate came from and when, for
+    /// a code the till's own wallet priced (docs/view-key-mode.md §8);
+    /// `None` for Monokulo's and an amount in XMR.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub price_line: Option<String>,
 }
 
 /// The way back to the point of sale: its words, and whose app it opens,
@@ -196,7 +201,19 @@ pub fn sale(
         ticks: live && sale.phase.counts_down(),
         progress: crate::view::progress(sale),
         cash: crate::sale_page::cash_buttons(sale, false),
+        price_line: price_line(sale, clock),
     }
+}
+
+/// "Kraken · price from 14:02", for a sale whose XMR the till's own
+/// backend worked out (docs/view-key-mode.md §8), in Fob's words.
+pub fn price_line(sale: &TillSale, clock: DeviceClock) -> Option<String> {
+    let price = sale.extras.price_used.as_ref()?;
+    Some(format!(
+        "{} · price from {}",
+        price.provider,
+        crate::time::time(price.at, clock)
+    ))
 }
 
 #[cfg(test)]
@@ -417,5 +434,30 @@ mod tests {
         );
         assert!((view.ring.fill - (0.12 + 0.88 * 0.4)).abs() < 1e-6);
         assert!(!view.ticks);
+    }
+
+    #[test]
+    fn a_code_the_till_priced_names_the_provider_and_the_prices_time() {
+        let view = sale(&input(bp9m(), SQUARE), Device::Android, la(at()), &money);
+        assert_eq!(view.price_line, None, "Monokulo converts its own price");
+        let mut priced = bp9m();
+        priced.extras.price_used = Some(till_types::PriceUsed {
+            provider: "Kraken".into(),
+            rate: till_types::Price::new("162.40", "USD"),
+            at: UnixSeconds(at() - 60),
+        });
+        let clock = la(at());
+        let view = sale(&input(priced.clone(), SQUARE), Device::Android, clock, &money);
+        let when = crate::time::time(UnixSeconds(at() - 60), clock);
+        assert_eq!(view.price_line, Some(format!("Kraken · price from {when}")));
+        let code = crate::code::code(
+            &crate::code::CodeInput {
+                sale: priced,
+                till: SQUARE,
+            },
+            clock,
+            &money,
+        );
+        assert_eq!(code.price_line, view.price_line);
     }
 }
