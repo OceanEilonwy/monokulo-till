@@ -6,9 +6,10 @@ import TillCore
 enum Route: Hashable {
     case starting
     case onboarding
-    /// The shift, the till's home; on a keypad till, its list of sales.
+    /// The shift, the till's home, a keypad till's too.
     case shift
-    /// Till's keypad, the home of a till with no other point of sale.
+    /// Till's keypad, opened by the shift's New sale on a till with no
+    /// other point of sale: over the list, or beside it in a wide window.
     case keypad
     /// One sale: its code while it's live, else its page.
     case sale(orderId: String)

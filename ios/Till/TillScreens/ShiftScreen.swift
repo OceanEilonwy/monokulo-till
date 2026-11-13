@@ -6,7 +6,8 @@ import TillCore
 /// with whether Till is watching under it, Settings in the toolbar, then
 /// the summary, the filter, and the sales in grouped sections, the waiting
 /// tray first. Tapping a row opens its sale; a live row swipes to the close
-/// sheet. With no sale yet the shift is the empty till (E1).
+/// sheet. With no sale yet the shift is the empty till (E1). On a keypad
+/// till New sale, pinned at the foot, opens the keypad.
 ///
 /// While this counter has a device, or sales come from more than one place,
 /// the title is the counter shown and the system's title menu chooses whose
@@ -18,12 +19,25 @@ struct ShiftScreen: View {
     let sidebar: Bool
     /// The sale open beside the sidebar, marked in the list.
     let selected: String?
+    /// A keypad till's New sale at the foot of the list; not beside the
+    /// keypad on a wide iPad, which is already there (core.md decision 257).
+    var newSale = true
     let send: Send
 
     @State private var askNewShift = false
 
     var body: some View {
         content
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if newSale, view.disconnected == nil, let press = view.newSale {
+                    PrimaryPress(press: press, systemImage: "plus") { send(.newSale) }
+                        .frame(maxWidth: readableColumn - 40)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity)
+                        .background(Palette.ground)
+                }
+            }
             // The bar holds the place (the counter's menu when there's a
             // choice) and Settings; "This shift" leads the page (round 4).
             .navigationTitle(view.header == nil ? ShiftTitle.title(view.top) : "")
@@ -234,17 +248,20 @@ struct ShiftHeaderCard: View {
                 .tint(Palette.link)
                 .disabled(!header.newShift.enabled)
             }
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(header.total)
-                    .display(30, tracking: -0.7)
-                    .minimumScaleFactor(0.6)
-                    .lineLimit(1)
-                Text("· \(header.paid)")
-                    .font(.subheadline)
-                    .foregroundStyle(Palette.secondary)
-                    .lineLimit(1)
+            // A keypad till has no total for the shift (core.md decision 257).
+            if header.showTotal {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(header.total)
+                        .display(30, tracking: -0.7)
+                        .minimumScaleFactor(0.6)
+                        .lineLimit(1)
+                    Text("· \(header.paid)")
+                        .font(.subheadline)
+                        .foregroundStyle(Palette.secondary)
+                        .lineLimit(1)
+                }
+                .accessibilityElement(children: .combine)
             }
-            .accessibilityElement(children: .combine)
         }
     }
 }

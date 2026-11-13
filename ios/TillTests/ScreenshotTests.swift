@@ -158,7 +158,8 @@ enum Screenshots {
         var walletPreview = full
         walletPreview.payments = .wallet
         let walletExpired = previewSale(preview: walletPreview, orderId: "e1", platform: platform)
-        // Sales charged on Till's keypad, two put aside for the next customer.
+        // Sales charged on Till's keypad, two waiting for payment in the
+        // shift's list, the keypad till's home (core.md decision 257).
         let keypadSales = [
             PreviewSale(
                 orderId: "k1", phase: .waiting, amount: "8.40", reference: "Sam", expiresAt: now + 840,
@@ -182,12 +183,15 @@ enum Screenshots {
                 startedAt: now - 3_600
             )
         }
-        func keypad(_ currency: String, _ typed: String, _ reference: String, aside: Bool) -> Update {
+        func keypad(_ currency: String, _ typed: String, _ reference: String) -> Update {
             .keypad(view: previewKeypad(
-                preview: keypadPreview(aside ? keypadSales : []), currency: currency, typed: typed,
+                preview: keypadPreview([]), currency: currency, typed: typed,
                 reference: reference, platform: platform
             ))
         }
+        // The keypad till's list, with New sale; sent with the keypad
+        // whatever the screen, as the engine does.
+        let keypadShift = previewShift(preview: keypadPreview(keypadSales), platform: platform).map { Update.shift(view: $0) }
         let keypadSale = previewSale(preview: keypadPreview(keypadSales), orderId: "k1", platform: platform)
         let close = previewClose(preview: full, orderId: "w1", platform: platform)
             .map { Update.closeSheet(orderId: "w1", view: $0) }
@@ -265,12 +269,22 @@ enum Screenshots {
             Shot(name: "pos-keypad-choose", updates: step(.posKeypadChoose, .pointOfSale)),
             Shot(name: "pos-keypad-currency", updates: step(.posKeypadCurrency, .pointOfSale)),
             Shot(name: "pos-keypad-currency-search", updates: step(.posKeypadCurrencySearch, .pointOfSale)),
-            Shot(name: "pos-keypad", updates: [.screen(screen: .keypad), keypad("USD", "1250", "Sam", aside: true)]),
-            Shot(name: "pos-keypad-empty", updates: [.screen(screen: .keypad), keypad("USD", "", "", aside: false)]),
-            Shot(name: "pos-keypad-xmr", updates: [.screen(screen: .keypad), keypad("XMR", "0.05", "", aside: false)]),
-            Shot(name: "pos-keypad-sale", updates: [.screen(screen: .sale(orderId: "k1")), keypad("USD", "", "", aside: true)] + (keypadSale.map { [$0] } ?? [])),
-            Shot(name: "pos-keypad-settings", updates: till(.settings, keypad("USD", "", "", aside: false), Update.settings(view: previewSettingsOf(look: .posKeypad, device: device, now: now)))),
+            Shot(name: "pos-keypad-list", updates: till(.till, keypadShift, keypad("USD", "", ""))),
+            Shot(name: "pos-keypad", updates: till(.keypad, keypadShift, keypad("USD", "1250", "Sam"))),
+            Shot(name: "pos-keypad-empty", updates: till(.keypad, keypadShift, keypad("USD", "", ""))),
+            Shot(name: "pos-keypad-xmr", updates: till(.keypad, keypadShift, keypad("XMR", "0.05", ""))),
+            Shot(name: "pos-keypad-sale", updates: till(.sale(orderId: "k1"), keypadShift, keypad("USD", "", ""), keypadSale)),
+            Shot(name: "pos-keypad-settings", updates: till(.settings, keypadShift, keypad("USD", "", ""), Update.settings(view: previewSettingsOf(look: .posKeypad, device: device, now: now)))),
         ]
+        if ipad {
+            // Side by side on a landscape iPad: the list beside the keypad,
+            // or beside the sale open from it with New sale under it.
+            shots += [
+                Shot(name: "landscape-pos-keypad", landscape: true, updates: till(.keypad, keypadShift, keypad("USD", "1250", "Sam"))),
+                Shot(name: "landscape-pos-keypad-list", landscape: true, updates: till(.till, keypadShift, keypad("USD", "", ""))),
+                Shot(name: "landscape-pos-keypad-sale", landscape: true, updates: till(.sale(orderId: "k1"), keypadShift, keypad("USD", "", ""), keypadSale)),
+            ]
+        }
         shots += [
             Shot(name: "setup-6-ready", updates: step(.ready, .ready)),
             Shot(name: "till-empty", updates: till(.till, empty)),

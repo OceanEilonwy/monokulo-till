@@ -29,7 +29,8 @@ final class Core {
     /// The till's screens (`Update.shift`, `.sale`, `.closeSheet`,
     /// `.refundSheet`, `.settings`, `.wakeUps`): nil until the engine says.
     private(set) var shift: ShiftView?
-    /// Till's keypad, while it's the till's home (`Update.keypad`).
+    /// Till's keypad on a keypad till (`Update.keypad`), sent with the
+    /// shift's list whatever the screen, so a wide window draws both.
     private(set) var keypad: KeypadView?
     private(set) var sale: SaleScreens?
     private(set) var closeSheet: CloseSheet?

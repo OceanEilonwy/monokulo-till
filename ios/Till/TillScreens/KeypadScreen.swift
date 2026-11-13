@@ -1,18 +1,25 @@
 import SwiftUI
 import TillCore
 
-/// Till's keypad, the home of a till with no other point of sale
-/// (docs/view-key-mode.md §7), modelled on Monokulo's web POS: the sales put
-/// aside for the next customer over the amount, the keys, an optional
-/// reference and Charge. "Sales" opens the shift's list; Settings is in the
-/// toolbar as on the shift. A hardware keyboard types too: digits, the
-/// point, Delete, Escape to clear and Return to charge.
+/// Till's keypad, the point of sale of a till with no other
+/// (docs/view-key-mode.md §7), modelled on Monokulo's web POS. It opens
+/// from the shift's New sale (core.md decision 257): over the list, full
+/// screen, with Close, on a phone or a narrow window; beside the list on a
+/// wide iPad, with nothing to close. From the top: the optional reference,
+/// the amount, the keys and Charge, so the keys sit between the field and
+/// Charge and a tap meant for the field can't charge (decision 258). A
+/// hardware keyboard types too: digits, the point, Delete, Escape to clear
+/// and Return to charge; Return in the reference only puts the keyboard
+/// away.
 ///
-/// The keys share the height left under the amount, between a phone held in
-/// one hand's 56 points and a counter iPad's 112, in a column no wider than
-/// a hand spans on iPad.
+/// Each key keeps the iPhone's proportions, 113 by 84 points, between a
+/// phone held in one hand's 56 points high and a counter iPad's 112; on a
+/// wider screen the column narrows to keys of that shape rather than
+/// stretching them.
 struct KeypadScreen: View {
     let view: KeypadView
+    /// Over the list, it closes back to it; beside the list it doesn't.
+    var closes = true
     let send: Send
 
     @FocusState private var typing: Bool
@@ -21,14 +28,12 @@ struct KeypadScreen: View {
 
     var body: some View {
         GeometryReader { box in
+            let size = KeypadScreen.layout(width: box.size.width, height: box.size.height)
             VStack(spacing: 14) {
-                if !view.aside.isEmpty {
-                    AsideStrip(title: view.asideTitle, sales: view.aside, send: send)
-                }
+                referenceField
                 Spacer(minLength: 0)
                 amount
-                keypad(height: KeypadScreen.keyHeight(box.size.height, aside: !view.aside.isEmpty))
-                referenceField
+                keypad(height: size.key)
                 if let problem = view.problem {
                     Text(problem)
                         .font(.subheadline)
@@ -38,23 +43,27 @@ struct KeypadScreen: View {
                 }
                 PrimaryPress(press: view.charge) { send(.charge) }
             }
-            .frame(maxWidth: 520)
-            .padding(.horizontal, 16)
+            .frame(width: size.column)
+            .padding(.top, 8)
             .padding(.bottom, 12)
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        // The reference is at the top: the keyboard comes up over the keys
+        // rather than squeezing them.
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .background(Palette.ground)
-        .navigationTitle("Till")
+        .navigationTitle(closes ? view.title : "")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button(view.sales.label) { send(.openSales) }
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    send(.openSettings)
-                } label: {
-                    Label(view.settings, systemImage: "gearshape")
+            if closes {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        send(.back)
+                    } label: {
+                        Label(view.close, systemImage: "xmark")
+                            .labelStyle(.iconOnly)
+                    }
+                    .accessibilityLabel(view.close)
                 }
             }
         }
@@ -72,14 +81,30 @@ struct KeypadScreen: View {
         }
     }
 
-    /// Each key's height for a screen `height` tall.
-    static func keyHeight(_ height: CGFloat, aside: Bool) -> CGFloat {
-        let left = height - (aside ? 330 : 250)
-        return min(112, max(56, left / 4 - 10))
+    /// A key's height, and the column's width, in a space `width` by
+    /// `height`: the keys as tall as the iPhone's shape allows across the
+    /// column and as the height left over the reference, the amount and
+    /// Charge allows, between 56 and 112; the column no wider than three
+    /// keys of that shape, except on a phone, which keeps its whole width.
+    static func layout(width: CGFloat, height: CGFloat) -> (key: CGFloat, column: CGFloat) {
+        let available = max(0, width - 32)
+        let fromWidth = (available - 2 * keyGap) / 3 * keyShape
+        let fromHeight = (height - 320) / 4
+        let key = min(112, max(56, min(fromWidth, fromHeight)))
+        let keys = 3 * key / keyShape + 2 * keyGap
+        let column = min(available, max(keys, phoneColumn))
+        return (key, column)
     }
 
+    /// The iPhone's key: 84 points high for 113 wide.
+    static let keyShape: CGFloat = 84.0 / 113.0
+    static let keyGap: CGFloat = 10
+    /// Up to this wide the column takes the whole width, as on a phone.
+    static let phoneColumn: CGFloat = 360
+
     /// What a hardware key does: digits and the point type, Delete deletes,
-    /// Escape clears and Return charges.
+    /// Escape clears and Return charges. Return in the reference field
+    /// doesn't come here: the field has the keyboard then.
     static func action(_ key: KeyEquivalent, characters: String) -> Action? {
         switch key {
         case .delete, .deleteForward: return .keypadPress(key: .backspace)
@@ -118,7 +143,7 @@ struct KeypadScreen: View {
     }
 
     private func keypad(height: CGFloat) -> some View {
-        Grid(horizontalSpacing: 10, verticalSpacing: 10) {
+        Grid(horizontalSpacing: KeypadScreen.keyGap, verticalSpacing: KeypadScreen.keyGap) {
             ForEach(0..<4, id: \.self) { row in
                 GridRow {
                     ForEach(0..<3, id: \.self) { column in
@@ -150,10 +175,11 @@ struct KeypadScreen: View {
                     if kept != text { reference = kept }
                     if kept != view.reference { send(.keypadReference(text: kept)) }
                 }
+                // Done only puts the keyboard away and gives the keys back
+                // their focus; Charge is a tap of its own (decision 258).
                 .onSubmit {
                     typing = false
                     keys = true
-                    send(.charge)
                 }
         }
     }
@@ -193,57 +219,5 @@ private struct KeyPressStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .opacity(configuration.isPressed ? 0.6 : 1)
-    }
-}
-
-/// The sales put aside for the next customer, still live: one chip each,
-/// sideways, opening the sale's code.
-struct AsideStrip: View {
-    let title: String?
-    let sales: [AsideSale]
-    let send: Send
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if let title {
-                Text(title)
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Palette.secondary)
-            }
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(sales, id: \.orderId) { sale in
-                        Button {
-                            send(.openSale(orderId: sale.orderId))
-                        } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                HStack(spacing: 6) {
-                                    Text(sale.label)
-                                        .font(.subheadline.weight(.semibold))
-                                        .lineLimit(1)
-                                    Text(sale.amount)
-                                        .font(.subheadline.monospacedDigit())
-                                        .lineLimit(1)
-                                }
-                                Text(sale.status)
-                                    .font(.caption)
-                                    .foregroundStyle(Palette.secondary)
-                                    .lineLimit(1)
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .frame(minHeight: minimumTarget)
-                            .background(RoundedRectangle(cornerRadius: 12).fill(Palette.card))
-                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.border))
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(Palette.ink)
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(sale.said)
-                    }
-                }
-            }
-        }
-        .padding(.top, 8)
     }
 }

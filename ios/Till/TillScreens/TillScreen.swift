@@ -9,6 +9,12 @@ import TillCore
 /// iPad alike, and a sale opens over the whole screen, as on Android; there
 /// is no sidebar.
 ///
+/// On a keypad till (core.md decision 257) the list is home too, with New
+/// sale at its foot, and the keypad a full-screen cover over it with Close.
+/// In a wide window (a landscape iPad) the two sit side by side instead:
+/// the list in a column of its own, without New sale, and beside it the
+/// keypad, or the sale open from the list with New sale under it.
+///
 /// The customer's code is a full-screen cover, Settings a sheet with Done,
 /// and the close and refund sheets go up while the engine has them up.
 struct TillScreen: View {
@@ -26,7 +32,12 @@ struct TillScreen: View {
     @State private var lastLive: String?
 
     var body: some View {
-        stack
+        GeometryReader { box in
+            // The window's whole height, the keyboard's too, so typing a
+            // reference doesn't turn a tall window into a wide one.
+            let window = CGSize(width: box.size.width, height: box.size.height + box.safeAreaInsets.top + box.safeAreaInsets.bottom)
+            layout(wide: keypadTill && TillScreen.sideBySide(window))
+        }
         .background(Palette.ground)
         .sheet(isPresented: settingsUp) {
             if let settings = core.settings {
@@ -106,34 +117,115 @@ struct TillScreen: View {
         )
     }
 
-    // MARK: One stack, at every width
+    // MARK: One stack, or a keypad till side by side
 
-    private var stack: some View {
-        NavigationStack(path: stackPath) {
-            root
-                .navigationDestination(for: Route.self) { destination in
-                    switch destination {
-                    case .shift:
-                        shiftScreen(sidebar: false)
-                    case .sale(let orderId):
-                        SaleDetail(core: core, orderId: orderId, celebrate: lastLive == orderId, send: send)
-                    case .order(let orderId):
-                        OrderDetail(core: core, orderId: orderId, send: send)
-                    default:
-                        TillLoading()
+    /// A keypad till: the engine sends its keypad with the list.
+    private var keypadTill: Bool {
+        core.keypad != nil && core.shift?.newSale != nil
+    }
+
+    /// The list and the keypad side by side in a window this size: a
+    /// landscape iPad, wide enough for the list's column and the keypad.
+    static func sideBySide(_ size: CGSize) -> Bool {
+        size.width >= 900 && size.width > size.height
+    }
+
+    /// The list's column beside the keypad.
+    static let listColumn: CGFloat = 440
+
+    @ViewBuilder
+    private func layout(wide: Bool) -> some View {
+        if wide {
+            split
+        } else {
+            stack
+                .fullScreenCover(isPresented: keypadUp) {
+                    NavigationStack {
+                        if let keypad = core.keypad {
+                            KeypadScreen(view: keypad, send: send)
+                        } else {
+                            TillLoading()
+                        }
                     }
                 }
         }
+    }
+
+    /// The shift at the root at every width, a sale and its order pushed
+    /// over it.
+    private var stack: some View {
+        NavigationStack(path: stackPath) {
+            shiftScreen(sidebar: false)
+                .navigationDestination(for: Route.self) { destination in
+                    page(destination, newSale: false)
+                }
+        }
+    }
+
+    /// A keypad till in a wide window: the list in its column, Settings in
+    /// its bar; beside it the keypad, with the sale open from the list
+    /// pushed over it, New sale under the sale.
+    private var split: some View {
+        HStack(spacing: 0) {
+            NavigationStack {
+                shiftScreen(sidebar: true, selected: TillScreen.orderId(shown), newSale: false)
+            }
+            .frame(width: TillScreen.listColumn)
+            Rectangle()
+                .fill(Palette.border)
+                .frame(width: 1)
+                .ignoresSafeArea()
+            NavigationStack(path: stackPath) {
+                Group {
+                    if let keypad = core.keypad {
+                        KeypadScreen(view: keypad, closes: false, send: send)
+                    } else {
+                        TillLoading()
+                    }
+                }
+                .navigationDestination(for: Route.self) { destination in
+                    page(destination, newSale: true)
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    /// The page the stack pushes for `destination`; beside the list on a
+    /// keypad till, with New sale under it.
+    @ViewBuilder
+    private func page(_ destination: Route, newSale: Bool) -> some View {
+        switch destination {
+        case .shift:
+            shiftScreen(sidebar: false)
+        case .sale(let orderId):
+            SaleDetail(core: core, orderId: orderId, celebrate: lastLive == orderId, send: send)
+                .modifier(NewSaleFoot(press: newSale ? core.shift?.newSale : nil, send: send))
+        case .order(let orderId):
+            OrderDetail(core: core, orderId: orderId, send: send)
+                .modifier(NewSaleFoot(press: newSale ? core.shift?.newSale : nil, send: send))
+        default:
+            TillLoading()
+        }
+    }
+
+    /// The keypad over the list, up while the engine shows it, on a phone
+    /// or a narrow window. Only Close (the engine's Back) takes it down.
+    private var keypadUp: Binding<Bool> {
+        Binding(
+            get: { route == .keypad },
+            set: { _ in }
+        )
     }
 
     /// The stack's path, from the engine's screen; a swipe or Back that
     /// pops it tells the engine as many Backs.
     private var stackPath: Binding<[Route]> {
         Binding(
-            get: { TillScreen.stackPath(shown, keypad: core.keypad != nil) },
+            get: { TillScreen.stackPath(shown) },
             set: { path in
                 guard route != .settings else { return }
-                for _ in 0..<TillScreen.backs(from: route, toDepth: path.count, keypad: core.keypad != nil) {
+                for _ in 0..<TillScreen.backs(from: route, toDepth: path.count) {
                     core.send(.back)
                 }
             }
@@ -141,17 +233,14 @@ struct TillScreen: View {
     }
 
     /// The stack for `route`: the shift at its root, then the sale, then
-    /// its order. The code is a cover over its sale, not a page.
-    /// On a keypad till the keypad is the root and the shift's list a page
-    /// over it.
-    static func stackPath(_ route: Route, keypad: Bool = false) -> [Route] {
+    /// its order. The code is a cover over its sale, not a page, and so is
+    /// the keypad over the list (or the root beside it).
+    static func stackPath(_ route: Route) -> [Route] {
         switch route {
         case .sale(let orderId), .code(let orderId):
             [.sale(orderId: orderId)]
         case .order(let orderId):
             [.sale(orderId: orderId), .order(orderId: orderId)]
-        case .shift where keypad:
-            [.shift]
         default:
             []
         }
@@ -159,18 +248,17 @@ struct TillScreen: View {
 
     /// How deep the engine holds `route`: the shift, a sale, and a sale's
     /// code or order under it (its Back goes up one).
-    static func depth(_ route: Route, keypad: Bool = false) -> Int {
+    static func depth(_ route: Route) -> Int {
         switch route {
         case .sale: 1
         case .code, .order: 2
-        case .shift where keypad: 1
         default: 0
         }
     }
 
     /// How many Backs bring the engine from `route` to a stack `depth` deep.
-    static func backs(from route: Route, toDepth depth: Int, keypad: Bool = false) -> Int {
-        max(0, TillScreen.depth(route, keypad: keypad) - depth)
+    static func backs(from route: Route, toDepth depth: Int) -> Int {
+        max(0, TillScreen.depth(route) - depth)
     }
 
     /// The sale `route` shows, if it shows one.
@@ -183,23 +271,34 @@ struct TillScreen: View {
 
     // MARK: The shift
 
-    /// The stack's root: the keypad on a keypad till, else the shift.
     @ViewBuilder
-    private var root: some View {
-        if let keypad = core.keypad {
-            KeypadScreen(view: keypad, send: send)
-        } else {
-            shiftScreen(sidebar: false)
-        }
-    }
-
-    @ViewBuilder
-    private func shiftScreen(sidebar: Bool) -> some View {
+    private func shiftScreen(sidebar: Bool, selected: String? = nil, newSale: Bool = true) -> some View {
         if let shift = core.shift {
-            ShiftScreen(view: shift, sidebar: false, selected: nil, send: send)
+            ShiftScreen(view: shift, sidebar: sidebar, selected: selected, newSale: newSale, send: send)
         } else {
             TillLoading()
         }
+    }
+}
+
+/// New sale under a sale open beside a keypad till's list (core.md
+/// decision 257): the sale stays in the list, and the keypad comes back.
+struct NewSaleFoot: ViewModifier {
+    let press: Press?
+    let send: Send
+
+    func body(content: Content) -> some View {
+        content
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if let press {
+                    PrimaryPress(press: press, systemImage: "plus") { send(.newSale) }
+                        .frame(maxWidth: 440)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity)
+                        .background(Palette.ground)
+                }
+            }
     }
 }
 
