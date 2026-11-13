@@ -2145,3 +2145,24 @@ still strings across the till, the ledger, the screens and the bridge.
      docs/brand/fob-mark.svg kept as a vector in its own colours. Fob's
      page ("Get it for Android", `Effect::OpenUrl` on V2) opens in the
      browser, not as a sign-in.
+
+241. **The shop's own wallet scans on the GPU, on iPad and iPhone through
+     Metal, and only in the foreground.** (docs/view-key-mode.md §3.4,
+     §5.4, §10.) Fob's scanner now has a Metal backend on Apple's platforms
+     (monokulo-8ar's `metal` feature, turned on by `fob-scanner` for Apple
+     targets: Fob decision 425), so Till's iOS build links Metal and
+     Foundation (TillCore's `Package.swift`) beside the frameworks it
+     already did. Till sets no policy of its own: fob-wallet uses the GPU
+     once it has passed its startup vectors and this wallet's own check, and
+     scans on the cores until then or if it can't. The first scan starts the
+     GPU, so nothing runs for it before the wallet looks. The GPU is used
+     only in the foreground because the scans are: the runner polls the
+     wallet's stream only while the app is in front (decision 231), and
+     there's no background work in this mode. A scan that iOS stops as the
+     app leaves goes to the cores, and the GPU isn't given up for it. As the
+     app goes behind, the engine also has the GPU give back the buffers it
+     keeps between scans (`till_wallet::backend::rest_gpu`), tens of MB a
+     phone in the background shouldn't hold. Till's scans are small (§5.4):
+     it must work well on the cores alone, and the GPU only makes them
+     cheaper. How fast an iPad is at it needs the owner to run 8aR's
+     `gpu_check` and `scan_speed` on one.
