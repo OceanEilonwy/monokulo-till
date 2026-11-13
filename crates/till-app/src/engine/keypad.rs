@@ -100,12 +100,63 @@ impl State {
         let Some(currency) = self.parts.as_ref().and_then(|p| self.keypad_currency(p)) else {
             return;
         };
-        self.keypad.typed = keypad::press(&self.keypad.typed, key, currency);
+        let typed = keypad::press(&self.keypad.typed, key, currency);
+        if typed != self.keypad.typed || key == KeypadKey::Clear {
+            self.forget_charge();
+        }
+        self.keypad.typed = typed;
         self.keypad.problem = None;
     }
 
     pub(super) fn keypad_reference(&mut self, text: String) {
-        self.keypad.reference = text.chars().take(till_pos::keypad::REFERENCE_MAX).collect();
+        let reference: String = text.chars().take(till_pos::keypad::REFERENCE_MAX).collect();
+        if reference != self.keypad.reference {
+            self.forget_charge();
+        }
+        self.keypad.reference = reference;
+    }
+
+    /// The failed charge is given up: the cashier cleared the keypad or
+    /// changed what's typed, so the next Charge is another sale.
+    fn forget_charge(&self) {
+        if let Some(p) = &self.parts {
+            p.side.keypad.forget();
+        }
+    }
+
+    /// How long a failed charge waits for a retry (core.md decision 256):
+    /// as long as the payment it may have made lasts, the wallet link's
+    /// code expiry on the shop's own wallet; with Monokulo, whose store's
+    /// expiry the till learns only from an order, the longest a till's
+    /// code lasts.
+    fn charge_window(p: &Parts) -> i64 {
+        match p.side.model().wallet {
+            Some(link) => i64::from(link.expiry_minutes) * 60,
+            None => till_pos::keypad::DEFAULT_WINDOW,
+        }
+    }
+
+    /// After a restart, the charge that failed is typed on the keypad
+    /// again, ready to try with the same key; one past its window, or in
+    /// another currency than the keypad's now, is given up.
+    pub(super) fn restore_charge(&mut self) {
+        let Some(p) = &self.parts else { return };
+        if self.keypad.busy || !self.keypad.typed.is_empty() {
+            return;
+        }
+        p.side.keypad.set_window(Self::charge_window(p));
+        let now = Rfc3339Instant::from_second(self.clock.now().0);
+        let Some(sale) = p.side.keypad.restore(now) else {
+            return;
+        };
+        if self
+            .keypad_currency(p)
+            .is_some_and(|c| c != sale.amount.currency)
+        {
+            return p.side.keypad.forget();
+        }
+        self.keypad.typed = keypad::typed(sale.amount);
+        self.keypad.reference = sale.reference.unwrap_or_default();
     }
 
     /// Charge: the sale and its payment made, and its code opened. A charge
@@ -127,6 +178,7 @@ impl State {
             return;
         };
         p.side.keypad.set_merchant(&self.merchant_name(p));
+        p.side.keypad.set_window(Self::charge_window(p));
         let at = Rfc3339Instant::from_second(self.clock.now().0);
         let reference = self.keypad.reference.clone();
         let sale = p.side.keypad.charge(amount, Some(&reference), at);

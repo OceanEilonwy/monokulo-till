@@ -23,7 +23,7 @@ use till_types::Secret;
 use till_wallet::WalletBackend;
 
 use crate::ledger::AppLedger;
-use crate::store::{Kept, Model, PosCursor, PosTokenStore, Store, Tenders};
+use crate::store::{ChargeKept, Kept, Model, PosCursor, PosTokenStore, Store, Tenders};
 use crate::{EngineConfig, Platform};
 
 /// The app's long-lived parts that the leaf crates call back into.
@@ -42,7 +42,8 @@ pub(crate) struct Side {
     /// with: one wallet file is never opened twice in a process.
     wallet: Mutex<Option<(WalletLink, Arc<WalletBackend>)>>,
     /// Till's keypad, one for the process: a charge that failed waits in
-    /// it for the cashier to try again with the same key.
+    /// it, and in the store through a restart, for the cashier to try
+    /// again with the same key.
     pub keypad: Arc<till_pos::KeypadSource>,
 }
 
@@ -68,6 +69,14 @@ impl Side {
         let books = Arc::new(Books::new(ledger.clone(), claims));
         books.set_clock(clock.clone());
         let monokulo = MonokuloApi::new(http.clone(), identity_of(&config), clock.clone());
+        let charge_log: crate::store::Log = {
+            let kept = kept.clone();
+            Arc::new(move |line| kept.log(line))
+        };
+        let keypad = till_pos::KeypadSource::kept(Arc::new(ChargeKept::new(
+            kept.store().clone(),
+            charge_log,
+        )));
         Side {
             lock: Arc::new(FileLock::new(
                 PathBuf::from(&config.data_dir).join("sign-in.lock"),
@@ -82,7 +91,7 @@ impl Side {
             live: OnceLock::new(),
             wake_ups: OnceLock::new(),
             wallet: Mutex::new(None),
-            keypad: Arc::new(till_pos::KeypadSource::new()),
+            keypad: Arc::new(keypad),
         }
     }
 
