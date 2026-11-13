@@ -837,8 +837,8 @@ checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 
 [[package]]
 name = "fob-chain"
-version = "0.1.19"
-source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=112c0efab84d3a4557bf7af94af79ea3bf0de96b#112c0efab84d3a4557bf7af94af79ea3bf0de96b"
+version = "0.1.21"
+source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=94ad2b7aaeae495d7d766ae0ab8bf9508660e822#94ad2b7aaeae495d7d766ae0ab8bf9508660e822"
 dependencies = [
  "fob-monero",
  "hex",
@@ -858,8 +858,8 @@ dependencies = [
 
 [[package]]
 name = "fob-codes"
-version = "0.1.19"
-source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=112c0efab84d3a4557bf7af94af79ea3bf0de96b#112c0efab84d3a4557bf7af94af79ea3bf0de96b"
+version = "0.1.21"
+source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=94ad2b7aaeae495d7d766ae0ab8bf9508660e822#94ad2b7aaeae495d7d766ae0ab8bf9508660e822"
 dependencies = [
  "base64 0.22.1",
  "chacha20poly1305",
@@ -881,8 +881,8 @@ dependencies = [
 
 [[package]]
 name = "fob-keys"
-version = "0.1.19"
-source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=112c0efab84d3a4557bf7af94af79ea3bf0de96b#112c0efab84d3a4557bf7af94af79ea3bf0de96b"
+version = "0.1.21"
+source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=94ad2b7aaeae495d7d766ae0ab8bf9508660e822#94ad2b7aaeae495d7d766ae0ab8bf9508660e822"
 dependencies = [
  "chacha20poly1305",
  "curve25519-dalek",
@@ -899,8 +899,8 @@ dependencies = [
 
 [[package]]
 name = "fob-monero"
-version = "0.1.19"
-source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=112c0efab84d3a4557bf7af94af79ea3bf0de96b#112c0efab84d3a4557bf7af94af79ea3bf0de96b"
+version = "0.1.21"
+source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=94ad2b7aaeae495d7d766ae0ab8bf9508660e822#94ad2b7aaeae495d7d766ae0ab8bf9508660e822"
 dependencies = [
  "monero-wallet",
  "serde",
@@ -910,8 +910,8 @@ dependencies = [
 
 [[package]]
 name = "fob-price"
-version = "0.1.19"
-source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=112c0efab84d3a4557bf7af94af79ea3bf0de96b#112c0efab84d3a4557bf7af94af79ea3bf0de96b"
+version = "0.1.21"
+source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=94ad2b7aaeae495d7d766ae0ab8bf9508660e822#94ad2b7aaeae495d7d766ae0ab8bf9508660e822"
 dependencies = [
  "fob-monero",
  "reqwest",
@@ -924,8 +924,8 @@ dependencies = [
 
 [[package]]
 name = "fob-scanner"
-version = "0.1.19"
-source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=112c0efab84d3a4557bf7af94af79ea3bf0de96b#112c0efab84d3a4557bf7af94af79ea3bf0de96b"
+version = "0.1.21"
+source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=94ad2b7aaeae495d7d766ae0ab8bf9508660e822#94ad2b7aaeae495d7d766ae0ab8bf9508660e822"
 dependencies = [
  "curve25519-dalek",
  "hex",
@@ -935,8 +935,8 @@ dependencies = [
 
 [[package]]
 name = "fob-screens"
-version = "0.1.19"
-source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=112c0efab84d3a4557bf7af94af79ea3bf0de96b#112c0efab84d3a4557bf7af94af79ea3bf0de96b"
+version = "0.1.21"
+source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=94ad2b7aaeae495d7d766ae0ab8bf9508660e822#94ad2b7aaeae495d7d766ae0ab8bf9508660e822"
 dependencies = [
  "fob-codes",
  "fob-monero",
@@ -947,8 +947,8 @@ dependencies = [
 
 [[package]]
 name = "fob-vault"
-version = "0.1.19"
-source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=112c0efab84d3a4557bf7af94af79ea3bf0de96b#112c0efab84d3a4557bf7af94af79ea3bf0de96b"
+version = "0.1.21"
+source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=94ad2b7aaeae495d7d766ae0ab8bf9508660e822#94ad2b7aaeae495d7d766ae0ab8bf9508660e822"
 dependencies = [
  "argon2",
  "chacha20poly1305",
@@ -965,8 +965,8 @@ dependencies = [
 
 [[package]]
 name = "fob-wallet"
-version = "0.1.19"
-source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=112c0efab84d3a4557bf7af94af79ea3bf0de96b#112c0efab84d3a4557bf7af94af79ea3bf0de96b"
+version = "0.1.21"
+source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=94ad2b7aaeae495d7d766ae0ab8bf9508660e822#94ad2b7aaeae495d7d766ae0ab8bf9508660e822"
 dependencies = [
  "chacha20poly1305",
  "curve25519-dalek",
@@ -996,8 +996,8 @@ dependencies = [
 
 [[package]]
 name = "fob-words"
-version = "0.1.19"
-source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=112c0efab84d3a4557bf7af94af79ea3bf0de96b#112c0efab84d3a4557bf7af94af79ea3bf0de96b"
+version = "0.1.21"
+source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=94ad2b7aaeae495d7d766ae0ab8bf9508660e822#94ad2b7aaeae495d7d766ae0ab8bf9508660e822"
 dependencies = [
  "fob-chain",
  "fob-codes",

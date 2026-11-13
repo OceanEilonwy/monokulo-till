@@ -1,9 +1,9 @@
 //! How Till is paid (docs/view-key-mode.md §4, core.md decision 238): one
 //! trait, [`PaymentBackend`], in front of whatever makes and watches the
-//! till's payments. Today that is a store's own Monokulo
-//! ([`MonokuloBackend`]); the device's own wallet, through a node or the
-//! shop's light wallet server, comes next. [`FakeBackend`] stands in for
-//! either in tests.
+//! till's payments: a store's own Monokulo ([`MonokuloBackend`]), or the
+//! device's own wallet, through a node or the shop's light wallet server
+//! (till-wallet's `WalletBackend`). [`FakeBackend`] stands in for any of
+//! them in tests.
 //!
 //! The till and the engine (till-sales, till-app) hold an
 //! `Arc<dyn PaymentBackend>` and never a backend's internals. What a

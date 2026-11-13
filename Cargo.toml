@@ -46,10 +46,10 @@ rusqlite = { version = "0.42.0", default-features = false, features = ["bundled-
 # vendor OpenSSL for SQLCipher; Till brings its own (till-ffi on Android,
 # CommonCrypto on Apple: core.md decisions 150 and 229), so they're off.
 # fob-wallet's rusqlite and Till's must be one version: one SQLCipher links.
-fob-wallet = { git = "https://github.com/OceanEilonwy/monokulo-fob", rev = "112c0efab84d3a4557bf7af94af79ea3bf0de96b", default-features = false }
-fob-keys = { git = "https://github.com/OceanEilonwy/monokulo-fob", rev = "112c0efab84d3a4557bf7af94af79ea3bf0de96b" }
-fob-codes = { git = "https://github.com/OceanEilonwy/monokulo-fob", rev = "112c0efab84d3a4557bf7af94af79ea3bf0de96b" }
-fob-price = { git = "https://github.com/OceanEilonwy/monokulo-fob", rev = "112c0efab84d3a4557bf7af94af79ea3bf0de96b" }
+fob-wallet = { git = "https://github.com/OceanEilonwy/monokulo-fob", rev = "94ad2b7aaeae495d7d766ae0ab8bf9508660e822", default-features = false }
+fob-keys = { git = "https://github.com/OceanEilonwy/monokulo-fob", rev = "94ad2b7aaeae495d7d766ae0ab8bf9508660e822" }
+fob-codes = { git = "https://github.com/OceanEilonwy/monokulo-fob", rev = "94ad2b7aaeae495d7d766ae0ab8bf9508660e822" }
+fob-price = { git = "https://github.com/OceanEilonwy/monokulo-fob", rev = "94ad2b7aaeae495d7d766ae0ab8bf9508660e822" }
 till-wallet = { path = "crates/till-wallet" }
 zeroize = "1.8"
 
