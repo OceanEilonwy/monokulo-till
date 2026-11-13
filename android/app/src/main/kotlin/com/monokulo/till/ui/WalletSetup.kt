@@ -693,7 +693,7 @@ fun ThisTillScreen(view: ThisTillStep, heading: String, lead: String, stepLabel:
         Head(heading, lead)
         Spacer(Modifier.height(16.dp))
         view.number?.let { n -> Group(rows = listOf({ StepperRow(n, a.onNumber) })); Spacer(Modifier.height(18.dp)) }
-        view.node?.let { node -> NodeCard(node) { changing = true }; Spacer(Modifier.height(18.dp)) }
+        view.node?.let { node -> NodeCard(node, onChange = { changing = true }); Spacer(Modifier.height(18.dp)) }
         Group(rows = listOf({ StepperRow(view.paidAfter, a.steps.onPaidAfter) }, { StepperRow(view.expiry, a.steps.onExpiry) }))
         Notice(view.problem, Modifier.padding(16.dp))
         Spacer(Modifier.height(16.dp))
