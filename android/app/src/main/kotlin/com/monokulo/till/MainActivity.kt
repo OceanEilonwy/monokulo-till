@@ -300,6 +300,7 @@ class MainActivity : ComponentActivity() {
                     onSkip = { send(Action.Skip) },
                     onBack = { send(Action.Back) },
                     onCurrency = { send(Action.ChooseKeypadCurrency(it)) },
+                    onSearchCurrency = { send(Action.SearchKeypadCurrency(it)) },
                 ),
                 heading = view.heading, lead = view.lead,
             )

@@ -254,6 +254,7 @@ class ScreenshotTest {
         // Till's keypad as the point of sale (docs/view-key-mode.md §7).
         setup("pos-keypad-choose", PreviewStep.POS_KEYPAD_CHOOSE),
         setup("pos-keypad-currency", PreviewStep.POS_KEYPAD_CURRENCY),
+        setup("pos-keypad-currency-search", PreviewStep.POS_KEYPAD_CURRENCY_SEARCH),
         Shot("pos-keypad") { KeypadScreen(keypad("USD", "1250", "Sam", aside = true)) {} },
         Shot("pos-keypad-empty") { KeypadScreen(keypad("USD", "", "", aside = false)) {} },
         Shot("pos-keypad-xmr") { KeypadScreen(keypad("XMR", "0.05", "", aside = false)) {} },

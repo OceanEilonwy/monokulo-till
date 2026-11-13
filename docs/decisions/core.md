@@ -2399,3 +2399,20 @@ still strings across the till, the ledger, the screens and the bridge.
      is an order made through the till's connection like any other, and
      shows in Monokulo's web POS list and Orders page as such: nothing
      marks it either way.
+255. **The keypad's currencies have a search.** The Currency stage (and
+     the currencies under "Change the point of sale" in Settings) has a
+     search field over the list, which narrows it as it's typed in: by
+     name, code or symbol, whatever the case or accents ("aud",
+     "australian", "dollar", "zloty"), the same matching Fob's own
+     "Default currency" search uses (fob-price's `currency_list`), so a
+     word inside a name finds it too ("aud" also finds the Saudi riyal).
+     With nothing typed the list is as before, None (XMR only) and this
+     device's currency at the top; searching, the device's row is left out
+     as it's among the rest, None stays for "none", "xmr" or "monero", and
+     the matches are headed "N of 45". When nothing matches, "No currency
+     matches “…”" shows instead of the list and the stage stays
+     (`PosSetup::picks_currency`, not a non-empty list, says the currency
+     is the till's to choose). The query lives in the engine
+     (`Action::SearchKeypadCurrency`, at most 40 characters, not kept) and
+     the matching in till-wallet, so both platforms only draw the field: a
+     setup field's box with a magnifier and a clear button.
