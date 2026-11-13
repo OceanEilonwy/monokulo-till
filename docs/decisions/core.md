@@ -2609,3 +2609,14 @@ still strings across the till, the ledger, the screens and the bridge.
      Not ported: self-signed nodes, which need a WalletLink setting
      till-wallet doesn't have, and rechecking after a remove. A till on a
      light wallet server keeps its server dialog.
+264. **Erasing or disconnecting the till clears its notifications.**
+     (Owner, 2026-11-13: an alert from before "Erase this till" still
+     opened a QR code after setting up again.) `forget_here` now sends
+     `Effect::ClearNotifications`. Android cancels every notification
+     but the ongoing one, from the activity too, since the service may
+     already have stopped. iOS removes every delivered and pending
+     notification. That alert's sale had been found again: a fresh
+     setup's first look at Square starts two minutes back (Square lists
+     a payment late), and the wallet names its order by the Square
+     sale's reference, so the re-found sale had the old alert's order id
+     and a new, payable code.

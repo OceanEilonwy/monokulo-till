@@ -457,7 +457,11 @@ mod tests {
             ]
         );
         assert!(view.rows.iter().all(|r| r.mark == NodeMark::Checking));
-        let row = choice(&pending, &Line::Checking, std::slice::from_ref(&pending.url));
+        let row = choice(
+            &pending,
+            &Line::Checking,
+            std::slice::from_ref(&pending.url),
+        );
         assert_eq!(row.line, "Checking…");
         assert!(row.removable && !row.can_use && row.mark == NodeMark::Checking);
     }

@@ -2146,6 +2146,8 @@ impl State {
             self.problem = Some(format!("Couldn't forget the store: {e}"));
             return;
         }
+        // Nothing posted about the till that was may open a sale (decision 264).
+        self.effect(Effect::ClearNotifications);
         p.live.forget();
         p.side.forget_wallet();
         self.wallet = wallet::WalletForm::new(self.config.debug);

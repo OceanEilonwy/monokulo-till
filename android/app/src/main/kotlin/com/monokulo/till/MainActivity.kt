@@ -54,6 +54,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.monokulo.till.engine.CloseSheet
 import com.monokulo.till.engine.EngineStore
+import com.monokulo.till.notify.SaleNotifications
 import com.monokulo.till.engine.Nav
 import com.monokulo.till.engine.Work
 import com.monokulo.till.ui.AlertsScreen
@@ -517,6 +518,8 @@ class MainActivity : ComponentActivity() {
             is Effect.Haptic -> window.decorView.confirm()
             // TillService.follow copies, and posts the notifications, whether or not Till is on screen.
             is Effect.CopyText, is Effect.Notify, is Effect.ClearNotification -> Unit
+            // Erased or disconnected: here too, since the service may already have stopped (docs/decisions/core.md 264).
+            is Effect.ClearNotifications -> SaleNotifications(this).clearAll()
             // The overlay collapses its own panel; Till on screen has none up.
             is Effect.LowerPanel -> Unit
             // TillService.follow probes for Orbot whether or not this activity has started collecting yet.

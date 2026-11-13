@@ -3006,6 +3006,10 @@ fn disconnecting_a_wallet_deletes_its_file() {
     screen(&rx, Screen::Till);
     engine.send(Action::OpenSettings);
     engine.send(Action::Disconnect);
+    // Erased: nothing posted about the till that was opens a sale (decision 264).
+    wait_for(&rx, |heard| {
+        matches!(heard, Heard::Effect(Effect::ClearNotifications)).then_some(())
+    });
     screen(&rx, Screen::Welcome);
     assert!(platform.get("connection").is_none());
     assert!(!file.exists(), "the wallet file is gone");

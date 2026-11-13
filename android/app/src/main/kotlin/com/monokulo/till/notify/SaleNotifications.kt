@@ -233,6 +233,16 @@ class SaleNotifications(private val context: Context) {
         runCatching { NotificationManagerCompat.from(context).cancel(idOf(orderId)) }
     }
 
+    /** The till was erased: every sale's notice goes, so none opens a sale of the till that was. The ongoing one stays. */
+    fun clearAll() {
+        runCatching {
+            val manager = NotificationManagerCompat.from(context)
+            context.getSystemService(NotificationManager::class.java).activeNotifications
+                .filter { it.id != ONGOING_ID }
+                .forEach { manager.cancel(it.tag, it.id) }
+        }
+    }
+
     private fun summary(summary: EndedSummary): Notification = NotificationCompat.Builder(context, CHANNEL_SALES)
         .setSmallIcon(R.drawable.ic_mark)
         .setColor(accent)

@@ -1150,6 +1150,9 @@ pub enum Effect {
     ClearNotification {
         id: String,
     },
+    /// The till was erased or disconnected: every sale's notification goes,
+    /// so none opens a sale of the till that was (core.md decision 264).
+    ClearNotifications,
     Haptic {
         haptic: Haptic,
     },

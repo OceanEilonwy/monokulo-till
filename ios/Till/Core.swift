@@ -240,6 +240,8 @@ final class Core {
             }
         case .copyText(let text, _):
             UIPasteboard.general.string = text
+        case .clearNotifications:
+            SaleAlerts.clearAll()
         case .clearNotification(let id):
             SaleAlerts.clear(id)
         case .notify(let orderId, let notice, _, _, let quiet):

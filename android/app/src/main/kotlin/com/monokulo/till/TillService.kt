@@ -153,6 +153,7 @@ class TillService : LifecycleService() {
                     when (effect) {
                         is Effect.Notify -> notes.notice(effect.orderId, effect.notice, effect.paid, effect.timeoutMs, effect.quiet)
                         is Effect.ClearNotification -> notes.clear(effect.id)
+                        is Effect.ClearNotifications -> notes.clearAll()
                         is Effect.CopyText -> SaleNotifications.copyText(app, effect.text, effect.kind)
                         // Orbot's probe, as the app comes forward and as step 3 or Settings opens (docs/decisions/core.md 102).
                         is Effect.ProbeTor -> launch { TorProbe.probe(app.engineStore::send) }
