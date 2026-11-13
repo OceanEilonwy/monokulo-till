@@ -51,7 +51,9 @@ pub use background::{
 };
 pub use lifecycle::{BackgroundWork, set_background_work};
 use monokulo_client::PointOfSale;
-pub use preview::{TillPreview, preview_close, preview_panel, preview_sale, preview_shift};
+pub use preview::{
+    TillPreview, preview_close, preview_keypad, preview_panel, preview_sale, preview_shift,
+};
 pub use preview_sales::{
     PreviewPhase, PreviewSale, preview_phase_step, preview_sale_live, preview_sales_json,
 };
@@ -330,6 +332,8 @@ impl EngineConfig {
 pub enum Pos {
     Square,
     Clover,
+    /// Till's own keypad.
+    Till,
 }
 
 impl From<Pos> for PointOfSale {
@@ -337,6 +341,7 @@ impl From<Pos> for PointOfSale {
         match pos {
             Pos::Square => PointOfSale::Square,
             Pos::Clover => PointOfSale::Clover,
+            Pos::Till => PointOfSale::Till,
         }
     }
 }
@@ -407,8 +412,12 @@ pub enum Screen {
     ShowSales,
     /// 6: start the shift.
     Ready,
-    /// The shift: the till's home.
+    /// The shift: the till's home, or on a till whose point of sale is
+    /// its own keypad, the list of its sales ("Sales").
     Till,
+    /// Till's own keypad, the home of a till with no other point of sale
+    /// (docs/view-key-mode.md §7).
+    Keypad,
     /// One sale: its code while it's live, else its page.
     Sale {
         order_id: OrderId,
@@ -791,6 +800,24 @@ pub enum Action {
     /// chain caught up and the price asked for unless it's under a minute
     /// old (docs/view-key-mode.md §8).
     Refresh,
+    /// Step 4 or Settings with Till's keypad chosen, on the shop's own
+    /// wallet: the keypad's currency, or `XMR` for none.
+    ChooseKeypadCurrency {
+        code: String,
+    },
+    /// A key on the keypad, or on a hardware keyboard (digits, Backspace,
+    /// Escape for Clear).
+    KeypadPress {
+        key: till_screens::keypad::KeypadKey,
+    },
+    /// The keypad's reference as typed so far.
+    KeypadReference {
+        text: String,
+    },
+    /// The keypad's Charge, or Return on a hardware keyboard.
+    Charge,
+    /// The keypad's "Sales": the shift's list.
+    OpenSales,
 }
 
 impl Action {
@@ -891,6 +918,11 @@ impl Action {
             Action::SetNode { .. } => "SetNode",
             Action::ChoosePriceProvider { .. } => "ChoosePriceProvider",
             Action::Refresh => "Refresh",
+            Action::ChooseKeypadCurrency { .. } => "ChooseKeypadCurrency",
+            Action::KeypadPress { .. } => "KeypadPress",
+            Action::KeypadReference { .. } => "KeypadReference",
+            Action::Charge => "Charge",
+            Action::OpenSales => "OpenSales",
         }
     }
 }
@@ -947,6 +979,10 @@ pub enum Update {
     },
     /// The shift, as `till_screens::shift` draws it, once the till is set up.
     Shift { view: ShiftView },
+    /// Till's keypad, while it's the till's home.
+    Keypad {
+        view: till_screens::keypad::KeypadView,
+    },
     /// The sale on screen ([`Screen::Sale`], `Code` or `Order`): its live
     /// screen, its page, its enlarged code, and its whole order while the
     /// till has its receipt.

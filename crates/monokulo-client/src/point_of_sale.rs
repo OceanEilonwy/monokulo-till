@@ -11,17 +11,24 @@ use serde::{Deserialize, Serialize};
 pub enum PointOfSale {
     Square,
     Clover,
+    /// Till's own keypad on the device (docs/view-key-mode.md §7): no
+    /// sign-in, no webhook, so the Bell never sees it.
+    Till,
 }
 
 impl PointOfSale {
-    /// Every point of sale, in the order screens list them.
+    /// Every point of sale the till signs in to and a Bell rings for.
     pub const ALL: [PointOfSale; 2] = [PointOfSale::Square, PointOfSale::Clover];
+
+    /// Every point of sale, the keypad too, in the order screens list them.
+    pub const EVERY: [PointOfSale; 3] = [PointOfSale::Square, PointOfSale::Clover, PointOfSale::Till];
 
     /// The name on the wire, between the till and a Bell.
     pub fn wire(self) -> &'static str {
         match self {
             PointOfSale::Square => "square",
             PointOfSale::Clover => "clover",
+            PointOfSale::Till => "till",
         }
     }
 
@@ -30,13 +37,14 @@ impl PointOfSale {
         match self {
             PointOfSale::Square => "Square",
             PointOfSale::Clover => "Clover",
+            PointOfSale::Till => "Till",
         }
     }
 
     /// The point of sale `wire` names, or `None` for one this build doesn't
     /// know. Only the exact lowercase name counts.
     pub fn from_wire(wire: &str) -> Option<PointOfSale> {
-        PointOfSale::ALL.into_iter().find(|pos| pos.wire() == wire)
+        PointOfSale::EVERY.into_iter().find(|pos| pos.wire() == wire)
     }
 }
 
@@ -53,6 +61,13 @@ mod tests {
         assert_eq!(wires, ["square", "clover"]);
         let names: Vec<_> = PointOfSale::ALL.iter().map(|p| p.display_name()).collect();
         assert_eq!(names, ["Square", "Clover"]);
+    }
+
+    #[test]
+    fn the_keypad_is_till_on_the_wire_and_no_bells() {
+        assert_eq!(PointOfSale::from_wire("till"), Some(PointOfSale::Till));
+        assert_eq!(PointOfSale::Till.display_name(), "Till");
+        assert!(!PointOfSale::ALL.contains(&PointOfSale::Till));
     }
 
     #[test]

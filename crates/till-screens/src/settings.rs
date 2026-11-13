@@ -58,6 +58,9 @@ pub struct PosState {
     pub tender_name: String,
     /// Clover's Monero payment type, while signed in to Clover.
     pub tender: CloverTender,
+    /// Till's keypad: its currency, as written ("US dollar · USD", "None
+    /// (XMR only)"), when known.
+    pub keypad_currency: Option<String>,
 }
 
 impl PosState {
@@ -80,10 +83,12 @@ pub fn connected(
     location: bool,
     merchant: bool,
 ) -> bool {
-    signed_in
-        && match chosen {
+    chosen == Some(PointOfSale::Till)
+        || signed_in
+            && match chosen {
             Some(PointOfSale::Square) => location,
             Some(PointOfSale::Clover) => merchant,
+            Some(PointOfSale::Till) => true,
             None => false,
         }
 }
@@ -436,7 +441,7 @@ fn counters_section(
                     "Ring up any small sale on {}'s Square and choose Monero. Tap again to stop waiting.",
                     pos_text::this_device(device)
                 ),
-                PointOfSale::Clover => "Ring up any small sale on the Clover device at this counter and choose Monero. Tap again to stop waiting.".into(),
+                PointOfSale::Clover | PointOfSale::Till => "Ring up any small sale on the Clover device at this counter and choose Monero. Tap again to stop waiting.".into(),
             }
         } else if this.is_some() {
             format!(
@@ -542,6 +547,14 @@ pub enum PosSection {
         sign_out: String,
         change: String,
         footnotes: Vec<String>,
+    },
+    /// Till's own keypad: its currency, and Change the point of sale.
+    Keypad {
+        mark: PosMark,
+        name: String,
+        facts: Vec<Fact>,
+        change: String,
+        footnote: String,
     },
     /// Not signed in: the choice rows and the chosen one's sign-in.
     Choosing {
@@ -689,10 +702,11 @@ pub fn settings(input: &SettingsInput, device: Device, clock: DeviceClock) -> Se
         } else {
             Vec::new()
         },
-        counters: pos.filter(|_| input.pos.connected()).map(|pos| {
+        // The keypad has no devices to tell apart.
+        counters: pos.filter(|p| input.pos.connected() && *p != PointOfSale::Till).map(|pos| {
             let place = match pos {
                 PointOfSale::Square => input.pos.location.as_ref().map(|l| l.name.as_str()),
-                PointOfSale::Clover => input.pos.merchant.as_deref(),
+                PointOfSale::Clover | PointOfSale::Till => input.pos.merchant.as_deref(),
             };
             counters_section(&input.choices, pos, place, device, clock)
         }),
@@ -794,6 +808,19 @@ fn tor_section(
 
 fn pos_section(p: &PosState, device: Device) -> PosSection {
     match p.chosen {
+        Some(PointOfSale::Till) => PosSection::Keypad {
+            mark: PosMark::Till,
+            name: "Till".into(),
+            facts: vec![
+                Fact::new("Takes sales", "On this device's keypad"),
+                Fact::new(
+                    "Currency",
+                    p.keypad_currency.as_deref().unwrap_or("The store's"),
+                ),
+            ],
+            change: pos_text::CHANGE.into(),
+            footnote: "Type each sale's amount on the keypad and charge it. Nothing is signed in to.".into(),
+        },
         Some(chosen) if p.connected() => {
             let place_row = pos_text::place_row(Some(chosen));
             let (account, place, change_location) = match chosen {
@@ -808,7 +835,7 @@ fn pos_section(p: &PosState, device: Device) -> PosSection {
                         true,
                     )
                 }
-                PointOfSale::Clover => (
+                PointOfSale::Clover | PointOfSale::Till => (
                     None,
                     Fact::new(place_row, p.merchant.clone().unwrap_or_default()),
                     false,
@@ -853,7 +880,7 @@ pub(crate) fn pos_choices(
     enabled: bool,
     device: Device,
 ) -> Vec<PosChoice> {
-    PointOfSale::ALL
+    PointOfSale::EVERY
         .into_iter()
         .map(|pos| PosChoice {
             mark: mark(pos),
@@ -999,6 +1026,7 @@ mod tests {
                 merchant: None,
                 tender_name: "Monero".into(),
                 tender: CloverTender::Ready,
+                keypad_currency: None,
             },
             shift_on: true,
             alerts: false,
@@ -1121,6 +1149,7 @@ mod tests {
                 merchant: Some("The Bean Room".into()),
                 tender_name: "Monero".into(),
                 tender: CloverTender::AddInClover,
+                keypad_currency: None,
             },
             ..input()
         };
@@ -1156,6 +1185,7 @@ mod tests {
                 merchant: Some("The Bean Room".into()),
                 tender_name: "Monero".into(),
                 tender: CloverTender::Ready,
+                keypad_currency: None,
             },
             choices: SaleChoices {
                 counters: Counters {
@@ -1239,6 +1269,16 @@ mod tests {
                     choice: Choice {
                         label: "Clover".into(),
                         detail: Some("A Clover device".into()),
+                        selected: false,
+                        enabled: true,
+                    },
+                },
+                PosChoice {
+                    mark: PosMark::Till,
+                    mark_in_ink: true,
+                    choice: Choice {
+                        label: "Till".into(),
+                        detail: Some("No point of sale: a keypad on this device".into()),
                         selected: false,
                         enabled: true,
                     },

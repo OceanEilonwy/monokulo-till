@@ -45,7 +45,7 @@ pub fn refused(point_of_sale: PointOfSale) -> String {
 /// Clover merchant (its only location).
 pub fn place(point_of_sale: Option<PointOfSale>) -> &'static str {
     match point_of_sale {
-        Some(PointOfSale::Square) | None => "location",
+        Some(PointOfSale::Square | PointOfSale::Till) | None => "location",
         Some(PointOfSale::Clover) => "merchant",
     }
 }
@@ -53,7 +53,7 @@ pub fn place(point_of_sale: Option<PointOfSale>) -> &'static str {
 /// Whose account another registration of this device is under.
 pub fn account(point_of_sale: Option<PointOfSale>) -> String {
     match point_of_sale {
-        None => "account".into(),
+        None | Some(PointOfSale::Till) => "account".into(),
         Some(pos @ (PointOfSale::Square | PointOfSale::Clover)) => {
             format!("{} account", pos.display_name())
         }

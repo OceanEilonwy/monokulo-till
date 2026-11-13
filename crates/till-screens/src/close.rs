@@ -112,7 +112,7 @@ pub fn refunds_there(pos: Option<PointOfSale>, source: Option<PointOfSale>) -> b
     pos != source
         || match source {
             Some(PointOfSale::Square) => false,
-            Some(PointOfSale::Clover) | None => true,
+            Some(PointOfSale::Clover | PointOfSale::Till) | None => true,
         }
 }
 
@@ -127,6 +127,9 @@ pub fn detail(
     seconds_left: i64,
 ) -> String {
     match choice {
+        CloseChoice::RefundIt if pos == Some(PointOfSale::Till) => {
+            "Till closes it. Nothing was charged; give back any Monero that came by hand.".into()
+        }
         CloseChoice::RefundIt if refunds_there(pos, source.into()) => format!(
             "Till closes it and shows you how to refund it in {}.",
             pos_text::name(pos)

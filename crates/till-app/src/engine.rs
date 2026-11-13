@@ -40,6 +40,7 @@ use tokio::runtime::Handle;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio::sync::watch;
 
+mod keypad;
 mod till;
 mod wallet;
 
@@ -198,6 +199,7 @@ struct Published {
     bubble: Option<crate::BubbleView>,
     notification: Option<till_screens::NotificationView>,
     live_activity: Option<Option<till_screens::LiveActivityState>>,
+    keypad: Option<till_screens::keypad::KeypadView>,
 }
 
 pub(crate) struct State {
@@ -299,6 +301,8 @@ pub(crate) struct State {
     published: Published,
     /// Setting up a till on the shop's own wallet (decision 232).
     wallet: wallet::WalletForm,
+    /// What's typed on Till's keypad (docs/view-key-mode.md §7).
+    keypad: keypad::KeypadForm,
 }
 
 impl State {
@@ -313,6 +317,7 @@ impl State {
     ) -> State {
         State {
             wallet: wallet::WalletForm::new(config.debug),
+            keypad: keypad::KeypadForm::default(),
             tx,
             runtime,
             utc_offset: config.utc_offset,
@@ -673,7 +678,11 @@ impl State {
         if model.link().is_none() {
             Screen::Welcome
         } else if model.setup_done {
-            Screen::Till
+            if model.point_of_sale == Some(PointOfSale::Till) {
+                Screen::Keypad
+            } else {
+                Screen::Till
+            }
         } else if model.place_name().is_none() && !model.without_pos {
             // Not yet at a Square location or a Clover merchant.
             Screen::PointOfSale
@@ -801,7 +810,7 @@ impl State {
                     self.set_shift(true);
                 } else if self.keep(|m| m.setup_done = true) {
                     self.set_shift(true);
-                    self.go(Screen::Till);
+                    self.go_home();
                 }
             }
             Action::StopShift => self.set_shift(false),
@@ -897,6 +906,7 @@ impl State {
                     self.keep(|m| match pos {
                         crate::Pos::Square => m.square_base_url = url,
                         crate::Pos::Clover => m.clover_base_url = url,
+                        crate::Pos::Till => {}
                     });
                 }
             }
@@ -1037,6 +1047,15 @@ impl State {
             Action::SetNode { url } => self.set_node(url),
             Action::ChoosePriceProvider { name } => self.choose_price_provider(name),
             Action::Refresh => self.pull(),
+            Action::ChooseKeypadCurrency { code } => self.choose_keypad_currency(code),
+            Action::KeypadPress { key } => self.keypad_press(key),
+            Action::KeypadReference { text } => self.keypad_reference(text),
+            Action::Charge => self.charge(),
+            Action::OpenSales => {
+                if self.setup_done() {
+                    self.go(Screen::Till);
+                }
+            }
             Action::PaidInCash { order_id } => {
                 if let Some(p) = &self.parts {
                     p.runner.paid_in_cash(&order_id);
@@ -1444,6 +1463,8 @@ impl State {
             Screen::Alerts => self.go(Screen::PointOfSale),
             Screen::Float => self.go(Screen::Alerts),
             Screen::ShowSales => self.go(Screen::Alerts),
+            // The keypad has no other app to float over or switch from.
+            Screen::Ready if self.on_keypad() => self.go(Screen::Alerts),
             Screen::Ready if self.config.device == Device::Android => self.go(Screen::Float),
             Screen::Ready if self.config.device == Device::Ipad => self.go(Screen::ShowSales),
             Screen::Ready => self.go(Screen::Alerts),
@@ -1480,6 +1501,7 @@ impl State {
             Screen::ThisTill => self.finish_wallet(),
             Screen::Prices => self.prices_next(),
             Screen::Connected => self.go(Screen::PointOfSale),
+            Screen::PointOfSale if self.on_keypad() => self.keypad_pos_next(),
             Screen::PointOfSale => match self.pos_connected() {
                 (None, _) => {}
                 // O1's "Continue with Square": on to signing in (decision 121).
@@ -1490,6 +1512,7 @@ impl State {
                 (Some(_), true) => self.pos_done(),
             },
             Screen::Counter => self.after_pos(),
+            Screen::Alerts if self.on_keypad() => self.go(Screen::Ready),
             Screen::Alerts if self.config.device == Device::Android => self.go(Screen::Float),
             Screen::Alerts if self.config.device == Device::Ipad => self.go(Screen::ShowSales),
             Screen::Alerts => self.go(Screen::Ready),
@@ -1525,7 +1548,7 @@ impl State {
         if self.keep(|m| m.without_pos = true) {
             self.restart();
             let next = if self.setup_done() {
-                Screen::Till
+                self.shift_screen()
             } else {
                 Screen::Alerts
             };
@@ -1682,6 +1705,8 @@ impl State {
                 let url = side.clover_auth(through.as_deref()).authorize_url(&pkce);
                 (through, url)
             }
+            // The keypad has no sign-in.
+            PointOfSale::Till => return,
         };
         let pending = PendingSignIn {
             point_of_sale: pos,
@@ -1736,6 +1761,7 @@ impl State {
                 PointOfSale::Clover => finish_clover(&side, &pending, &redirect)
                     .await
                     .map(Finished::Clover),
+                PointOfSale::Till => unreachable!("a sign-in comes back to Square or Clover"),
             };
             apply(move |s| match finished {
                 Ok(finished) => {
@@ -1796,7 +1822,7 @@ impl State {
         self.go(if back_to_settings && setup_done {
             Screen::Settings
         } else if setup_done {
-            Screen::Till
+            self.shift_screen()
         } else {
             Screen::PointOfSale
         });
@@ -1932,7 +1958,8 @@ impl State {
         );
         self.left.insert(order_id);
         if on_it {
-            self.go(Screen::Till);
+            let shift = self.shift_screen();
+            self.go(shift);
         }
     }
 
@@ -2038,7 +2065,11 @@ impl State {
         retry_wake_ups(&p.wake_ups);
         self.before_settings = matches!(
             self.screen,
-            Screen::Till | Screen::Sale { .. } | Screen::Code { .. } | Screen::Order { .. }
+            Screen::Till
+                | Screen::Keypad
+                | Screen::Sale { .. }
+                | Screen::Code { .. }
+                | Screen::Order { .. }
         )
         .then(|| self.screen.clone());
         self.go(Screen::Settings);
@@ -2267,6 +2298,9 @@ impl State {
                 merchant: model.clover_merchant.as_ref().map(|m| m.name.clone()),
                 tender_name,
                 tender: self.tender_for_screen(),
+                keypad_currency: (chosen == Some(PointOfSale::Till))
+                    .then(|| self.keypad_currency_text(p))
+                    .flatten(),
             },
             shift_on: model.shift_on,
             alerts: self.alerts_allowed,
@@ -2368,6 +2402,12 @@ impl State {
                     setup: !model.setup_done,
                     confirmed: self.pos_confirmed,
                     this_till_only: p.side.wallet_mode(),
+                    currencies: if chosen == Some(PointOfSale::Till) {
+                        self.keypad_currencies(p)
+                    } else {
+                        Vec::new()
+                    },
+                    keypad_currency: model.keypad_currency.clone(),
                 })
             }
             Screen::Counter => {
@@ -2535,6 +2575,10 @@ impl State {
             ticks |= shift.ticks;
             send!(shift, shift, |view| Update::Shift { view });
         }
+        if self.keypad_mode() {
+            let view = self.keypad_view(p);
+            send!(keypad, view, |view| Update::Keypad { view });
+        }
         if let Some(sale) = self.sale_update(p) {
             if let Update::Sale { view, code, .. } = &sale {
                 ticks |= view.ticks || code.ticks;
@@ -2581,7 +2625,7 @@ impl State {
 /// Whether "No" on a sale of `pos` leaves the refund to the cashier there
 /// (Android: `Closing.refundsThere`).
 fn refunds_there(pos: PointOfSale, source: PointOfSale) -> bool {
-    pos != source || source == PointOfSale::Clover
+    pos != source || matches!(source, PointOfSale::Clover | PointOfSale::Till)
 }
 
 /// A Bell that couldn't be reached is tried again now, as what was in the

@@ -53,6 +53,7 @@ pub(crate) fn scope_of(model: &Model) -> Scope {
             .clover_merchant
             .as_ref()
             .map(|m| (PointOfSale::Clover, m.id.as_str())),
+        Some(PointOfSale::Till) => Some((PointOfSale::Till, "keypad")),
         None => None,
     };
     Scope::of(store, account)

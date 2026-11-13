@@ -131,6 +131,7 @@ impl PosEnvironment {
         match point_of_sale {
             PointOfSale::Square => SquareEnvironment::from_wire(wire).map(PosEnvironment::Square),
             PointOfSale::Clover => CloverEnvironment::from_wire(wire).map(PosEnvironment::Clover),
+            PointOfSale::Till => None,
         }
     }
 }

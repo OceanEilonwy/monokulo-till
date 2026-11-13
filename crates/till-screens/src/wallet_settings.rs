@@ -44,6 +44,8 @@ pub struct WalletSettingsInput {
     /// Each provider asked for the price as Settings opened; `None` while
     /// they're asked.
     pub price_checks: Option<Vec<crate::prices::ProviderCheck>>,
+    /// Till's keypad takes XMR only: no price is ever looked up.
+    pub xmr_only: bool,
     /// What the wallet backend warns of (`BackendInfo::warnings`).
     pub warnings: Vec<String>,
     pub busy: bool,
@@ -198,11 +200,16 @@ pub fn wallet_section(w: &WalletSettingsInput) -> WalletSection {
         prices: PricesRow {
             label: "Prices from".into(),
             value: match &w.currency {
+                _ if w.xmr_only => "None: XMR only".into(),
                 Some(currency) => format!("{} · {currency}", w.provider),
                 None => w.provider.clone(),
             },
-            providers: crate::prices::provider_rows(&prices),
-            asking: (w.price_checks.is_none() && w.currency.is_some())
+            providers: if w.xmr_only {
+                Vec::new()
+            } else {
+                crate::prices::provider_rows(&prices)
+            },
+            asking: (w.price_checks.is_none() && w.currency.is_some() && !w.xmr_only)
                 .then(|| "Asking each provider…".into()),
             footnote: crate::prices::PRIVACY.into(),
         },
@@ -236,6 +243,7 @@ mod tests {
             provider: "Kraken".into(),
             providers: vec!["Kraken".into(), "CoinGecko".into()],
             price_checks: None,
+            xmr_only: false,
             warnings: vec![],
             busy: false,
             problem: None,

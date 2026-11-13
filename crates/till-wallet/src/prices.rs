@@ -137,6 +137,62 @@ pub fn currency_plural(code: &str) -> String {
     fob_monero::fiat::currency(code).plural.to_owned()
 }
 
+/// One of the keypad's currencies, as fob-price lists them for Fob's
+/// "Default currency": XMR first (`code` "XMR", its name "None (XMR
+/// only)"), then this device's own, then all of them by name, each group's
+/// first row naming it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CurrencyChoice {
+    pub code: String,
+    pub name: String,
+    /// "AUD · Kraken, CoinGecko", or for XMR "No price is ever looked up".
+    pub detail: String,
+    pub sign: String,
+    pub group: Option<&'static str>,
+}
+
+/// The keypad's currencies (fob-price's `currency_list`), `phone` being
+/// the device's own currency, when known.
+pub fn currency_choices(phone: Option<&str>) -> Vec<CurrencyChoice> {
+    use fob_price::{CurrencyHeading, CurrencyLine};
+    let list = fob_price::currency_list(None, phone, "");
+    let mut rows = Vec::new();
+    for group in list.groups {
+        let heading = match group.heading {
+            CurrencyHeading::Monero => None,
+            CurrencyHeading::ThisDevice => Some("This device"),
+            CurrencyHeading::All { .. } | CurrencyHeading::Found { .. } => Some("Every currency"),
+        };
+        for (i, row) in group.rows.into_iter().enumerate() {
+            let (code, name, detail) = match (row.code, row.line) {
+                (Some(code), CurrencyLine::PricedBy { providers, .. }) => {
+                    let detail = format!("{code} · {}", providers.join(", "));
+                    (code, row.name, detail)
+                }
+                (code, _) => (
+                    code.unwrap_or_else(|| "XMR".into()),
+                    "None (XMR only)".into(),
+                    "No price is ever looked up".into(),
+                ),
+            };
+            rows.push(CurrencyChoice {
+                code,
+                name,
+                detail,
+                sign: row.sign,
+                group: if i == 0 { heading } else { None },
+            });
+        }
+    }
+    rows
+}
+
+/// "Australian dollar", as Fob names `code`; empty for one it doesn't
+/// know.
+pub fn currency_name(code: &str) -> String {
+    fob_monero::fiat::currency(code).name.to_owned()
+}
+
 /// The prices asked for so far, by currency, each with when it was given.
 pub struct Prices {
     source: Mutex<Arc<dyn PriceSource>>,
@@ -388,7 +444,7 @@ pub(crate) mod tests {
             prices.convert(&yen).await.unwrap().price.unwrap().rate,
             Price::new("160", "JPY")
         );
-        let xmr = Money::new(150, CurrencyCode::new("XMR").unwrap());
+        let xmr = Money::new(1_500_000_000_000, CurrencyCode::new("XMR").unwrap());
         let converted = prices.convert(&xmr).await.unwrap();
         assert_eq!(
             (converted.atomic, converted.price),
@@ -433,5 +489,17 @@ pub(crate) mod tests {
     fn a_currency_is_named_as_fob_names_it() {
         assert_eq!(currency_plural("AUD"), "Australian dollars");
         assert_eq!(currency_plural("XYZ"), "");
+    }
+
+    #[test]
+    fn the_keypads_currencies_are_xmr_then_this_devices_then_every_one() {
+        let rows = currency_choices(Some("AUD"));
+        assert_eq!(rows[0].code, "XMR");
+        assert_eq!(rows[0].name, "None (XMR only)");
+        assert_eq!(rows[1].code, "AUD");
+        assert_eq!(rows[1].group, Some("This device"));
+        assert_eq!(rows[1].detail, "AUD · Kraken, CoinGecko");
+        assert_eq!(rows[2].group, Some("Every currency"));
+        assert_eq!(rows.len(), 2 + 45);
     }
 }

@@ -166,12 +166,17 @@ fn read_leb128(data: &[u8]) -> Result<(usize, usize), DecodeError> {
 
 // ---- amounts ----------------------------------------------------------------
 
-/// Digits after the decimal point in a currency's minor unit: ISO 4217's,
-/// else 2 ([`CurrencyCode::minor_digits`], the table every crate of the
-/// till reads). Text that isn't a code at all has 2; the encoder refuses
-/// it as the currency's letters anyway.
+/// Digits after the decimal point in a currency's minor unit: ISO 4217's
+/// ([`CurrencyCode::iso_digits`], the table every crate of the till
+/// reads), else 2. XMR is 2 here though the till counts it in piconero:
+/// the format's digits are shared with every other reader of a code, so
+/// they don't follow the till's count. Text that isn't a code at all has
+/// 2; the encoder refuses it as the currency's letters anyway.
 fn exponent(currency: &str) -> u32 {
-    CurrencyCode::new(currency).map_or(2, |code| code.minor_digits())
+    CurrencyCode::new(currency)
+        .ok()
+        .and_then(|code| code.iso_digits())
+        .unwrap_or(2)
 }
 
 /// `x` as an integer count of 10^-exp, only if that count gives back exactly `x`.

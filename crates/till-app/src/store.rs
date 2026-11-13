@@ -121,6 +121,10 @@ pub mod keys {
     /// `alert`, and so is the dropped floating window's `pip` (decision
     /// 225).
     pub const SHOW_SALES: &str = "sales.show";
+    /// Till's keypad's currency (docs/view-key-mode.md §7), on the shop's
+    /// own wallet: an ISO 4217 code, or `XMR` for none; absent until
+    /// chosen, and with Monokulo, whose store has its own.
+    pub const KEYPAD_CURRENCY: &str = "keypad.currency";
     /// What Clover calls the merchant's devices (core.md decision 142): a
     /// JSON object of names by device id; absent until read.
     pub const CLOVER_DEVICES: &str = "clover.devices";
@@ -136,6 +140,8 @@ pub mod keys {
         match pos {
             PointOfSale::Square => "square.tokens",
             PointOfSale::Clover => "clover.tokens",
+            // Never written: the keypad has no sign-in.
+            PointOfSale::Till => "till.tokens",
         }
     }
 
@@ -465,6 +471,7 @@ impl Store {
             clover_devices: self.read(keys::CLOVER_DEVICES)?.unwrap_or_default(),
             cash_as_monero: self.switch(keys::CASH_AS_MONERO)?,
             show_sales: crate::ShowSales::from_wire(self.get(keys::SHOW_SALES)?.as_deref()),
+            keypad_currency: self.get(keys::KEYPAD_CURRENCY)?,
         })
     }
 
@@ -555,6 +562,9 @@ impl Store {
         }
         if old.cash_as_monero != new.cash_as_monero {
             self.put_switch(keys::CASH_AS_MONERO, new.cash_as_monero)?;
+        }
+        if old.keypad_currency != new.keypad_currency {
+            self.put(keys::KEYPAD_CURRENCY, new.keypad_currency.as_deref())?;
         }
         if old.show_sales != new.show_sales {
             self.put(keys::SHOW_SALES, new.show_sales.wire())?;
@@ -657,6 +667,9 @@ pub struct Model {
     pub cash_as_monero: bool,
     /// How a new sale shows up (core.md decision 120).
     pub show_sales: crate::ShowSales,
+    /// Till's keypad's currency on the shop's own wallet: a code, `XMR`
+    /// for none ([`keys::KEYPAD_CURRENCY`]).
+    pub keypad_currency: Option<String>,
 }
 
 impl Default for Model {
@@ -692,6 +705,7 @@ impl Default for Model {
             clover_devices: Default::default(),
             cash_as_monero: true,
             show_sales: crate::ShowSales::Alert,
+            keypad_currency: None,
         }
     }
 }
@@ -756,6 +770,9 @@ impl Model {
         match self.point_of_sale? {
             PointOfSale::Square => self.location.as_ref().map(|l| l.name.clone()),
             PointOfSale::Clover => self.clover_merchant.as_ref().map(|m| m.name.clone()),
+            // On the shop's own wallet, once its currency is chosen.
+            PointOfSale::Till => (self.wallet.is_none() || self.keypad_currency.is_some())
+                .then(|| "This till".to_owned()),
         }
     }
 }

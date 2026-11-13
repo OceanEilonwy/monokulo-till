@@ -149,6 +149,9 @@ pub struct SaleView {
     /// worked it out (docs/view-key-mode.md §8): the code screen names the
     /// provider and the price's time.
     pub price_used: Option<till_types::PriceUsed>,
+    /// Piconero a part payment brought, when one came: what goes back by
+    /// hand on Till's keypad, where nothing was charged at a point of sale.
+    pub received: Option<u64>,
     /// Another counter's sale, with this counter's device chosen.
     pub other_counter: bool,
     /// Its alerts are this till's: not another counter's, or every
@@ -348,6 +351,7 @@ pub fn view(
         waiting_for_order,
         renewable: order.is_some_and(|o| o.renew.is_some()),
         price_used: order.and_then(|o| o.price_used.clone()),
+        received: deciding.and_then(|a| a.observed.partial).filter(|r| *r > 0),
         alerts_here: !other_counter || settings.every_device,
         other_counter,
         live,

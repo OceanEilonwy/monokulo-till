@@ -26,6 +26,7 @@
 pub mod clover;
 mod environment;
 mod error;
+pub mod keypad;
 #[cfg(any(feature = "square", feature = "clover"))]
 mod http;
 mod money;
@@ -44,6 +45,7 @@ pub use error::PosError;
 pub use monokulo_client::{Clock, PointOfSale};
 pub use pkce::Pkce;
 pub use redirect::{AuthCode, OAuthRedirect, OAuthState};
+pub use keypad::KeypadSource;
 pub use source::{
     CursorStore, FoundSale, HandledMarker, ListedRefund, PaymentStatus, PosDeviceId, RefundByTill,
     RefundInPos, RefundKey, RefundStatus, Refunds, SaleOrder, SaleSource,

@@ -501,6 +501,55 @@ impl Till {
         Ok(())
     }
 
+    /// A charge on Till's keypad (docs/view-key-mode.md §7): its payment
+    /// made at once, through the backend as for a Square sale, and only
+    /// then the sale recorded (its payment, its one-line receipt and its
+    /// order), so a charge that failed leaves nothing on the till. The
+    /// payment's id, or what went wrong; the keypad keeps the charge, and
+    /// its idempotency key, for the cashier to try again.
+    pub async fn charge(&self, sale: &FoundSale) -> Result<OrderId, String> {
+        let order = self.create_order(sale).await;
+        let order = match order {
+            Ok(order) => order,
+            Err(e) => {
+                self.books.change(|s| TillState {
+                    problem: Some(e.clone()),
+                    ..s.clone()
+                });
+                return Err(e);
+            }
+        };
+        let seen = payment_seen(sale);
+        let key = seen.sale();
+        let updated_at = seen.updated_at;
+        self.record(Fact::PosPaymentSeen(seen));
+        let read = match self.source.order(sale).await {
+            Ok(read) => OrderRead {
+                sale: key.clone(),
+                updated_at,
+                receipt: None,
+                why: None,
+                customer_name: read.customer_name.clone(),
+            }
+            .with_receipt(read.receipt.as_ref(), sale),
+            Err(e) => OrderRead {
+                sale: key.clone(),
+                updated_at,
+                receipt: None,
+                why: Some(format!("Couldn't make the receipt: {e}")),
+                customer_name: None,
+            },
+        };
+        self.record(Fact::PosOrderRead(read));
+        self.created(&key, &order, sale);
+        self.source.handled(sale);
+        self.books.change(|s| TillState {
+            problem: None,
+            ..s.clone()
+        });
+        Ok(order.order_id)
+    }
+
     /// Records the order made for `key`, and what it said of itself
     /// (another till may have made it already, and the store's events may
     /// have moved it on, or renewed it).
@@ -1081,6 +1130,7 @@ fn refunds_cursor(pos: till_pos::PointOfSale) -> &'static str {
     match pos {
         till_pos::PointOfSale::Square => "square.refunds",
         till_pos::PointOfSale::Clover => "clover.refunds",
+        till_pos::PointOfSale::Till => "till.refunds",
     }
 }
 

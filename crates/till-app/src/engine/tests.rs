@@ -1639,9 +1639,14 @@ fn the_till_and_the_sales_screens_map_to_places_and_back() {
             order_id: "o".into(),
         },
     ] {
-        assert_eq!(of_place(place(&s)), Some(s));
+        assert_eq!(of_place(place(&s), &Screen::Till), Some(s));
     }
-    assert_eq!(of_place(place(&Screen::Settings)), None);
+    assert_eq!(of_place(place(&Screen::Settings), &Screen::Till), None);
+    // On a keypad till the shift's place is the keypad.
+    assert_eq!(
+        of_place(place(&Screen::Keypad), &Screen::Keypad),
+        Some(Screen::Keypad)
+    );
 }
 
 /// Waits up to 10 s for `server` to have a request that `pick` takes.
@@ -2594,4 +2599,102 @@ fn a_wallet_till_picks_its_price_provider_between_the_point_of_sale_and_alerts()
     screen(&rx, Screen::Prices);
     engine.send(Action::Back);
     screen(&rx, Screen::PointOfSale);
+}
+
+/// Till's keypad (docs/view-key-mode.md §7): on a till whose point of sale
+/// is its own keypad, the keypad is home; XMR only takes a decimal point;
+/// Charge makes the sale and opens its code, and leaving the code comes
+/// back to the keypad with the sale put aside, live.
+#[test]
+fn a_keypad_till_charges_from_its_keypad_and_puts_the_sale_aside() {
+    use till_screens::keypad::KeypadKey;
+    let config = config(None);
+    let (platform, _) = wallet_till(&config.data_dir);
+    platform.set("pos.kind", "till");
+    platform.set("keypad.currency", "XMR");
+    let (engine, rx, _) = start(config, platform.clone());
+    screen(&rx, Screen::Keypad);
+    let keypad = |rx: &Receiver<Heard>, want: &dyn Fn(&till_screens::keypad::KeypadView) -> bool| {
+        wait_for(rx, |heard| match heard {
+            Heard::Update(Update::Keypad { view }) if want(view) => Some(view.clone()),
+            _ => None,
+        })
+    };
+    let empty = keypad(&rx, &|v| v.amount == "0 XMR");
+    assert!(!empty.charge.enabled, "nothing to charge at zero");
+    assert!(empty.keys.iter().any(|k| k.key == KeypadKey::Point));
+    for key in [
+        KeypadKey::Digit { digit: 1 },
+        KeypadKey::Point,
+        KeypadKey::Digit { digit: 5 },
+    ] {
+        engine.send(Action::KeypadPress { key });
+    }
+    engine.send(Action::KeypadReference {
+        text: "Sam".into(),
+    });
+    let typed = keypad(&rx, &|v| v.amount == "1.5 XMR" && v.reference == "Sam");
+    assert_eq!(typed.charge.label, "Charge 1.5 XMR");
+    engine.send(Action::Charge);
+    let order_id = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Screen {
+            screen: Screen::Sale { order_id },
+        }) => Some(order_id.clone()),
+        _ => None,
+    });
+    engine.send(Action::Back);
+    screen(&rx, Screen::Keypad);
+    // Published as the sale was made, while its code was up.
+    let aside = engine.peek(|s| s.keypad_view(s.parts.as_ref().unwrap()));
+    assert_eq!(aside.aside.len(), 1, "{aside:?}");
+    assert_eq!(aside.aside[0].order_id, order_id);
+    assert_eq!(aside.aside[0].label, "Sam");
+    assert_eq!(aside.amount, "0 XMR", "the keypad is cleared for the next one");
+    engine.send(Action::OpenSales);
+    screen(&rx, Screen::Till);
+    engine.send(Action::Back);
+    screen(&rx, Screen::Keypad);
+}
+
+/// Setup with Till's keypad on the shop's own wallet: the keypad's currency
+/// is chosen on step 4, the wallet prices it, and Prices comes next; XMR
+/// only goes straight on to alerts.
+#[test]
+fn choosing_the_keypad_on_a_wallet_asks_for_its_currency_then_prices() {
+    let config = config(None);
+    let (platform, _) = wallet_till(&config.data_dir);
+    platform.remove("setup.done");
+    let (engine, rx, _) = start(config, platform.clone());
+    screen(&rx, Screen::PointOfSale);
+    engine.send(Action::ChoosePointOfSale {
+        pos: crate::Pos::Till,
+    });
+    wait_for(&rx, |_| (platform.get("pos.kind").as_deref() == Some("till")).then_some(()));
+    let choose = page_where(&rx, |page| match page {
+        OnboardingPage::PointOfSale { view } if view.next.as_ref().is_some_and(|n| n.label == "Continue with Till") => {
+            Some(view.clone())
+        }
+        _ => None,
+    });
+    assert!(choose.currencies.is_empty(), "the choice alone first");
+    engine.send(Action::Next);
+    let currency = page_where(&rx, |page| match page {
+        OnboardingPage::PointOfSale { view } if !view.currencies.is_empty() => Some(view.clone()),
+        _ => None,
+    });
+    assert_eq!(currency.currencies[0].name, "None (XMR only)");
+    assert!(!currency.next.unwrap().enabled, "Continue waits for a currency");
+    engine.send(Action::ChooseKeypadCurrency { code: "AUD".into() });
+    wait_for(&rx, |_| {
+        (kept_wallet(&platform).price_currency.as_deref() == Some("AUD")).then_some(())
+    });
+    assert_eq!(platform.get("keypad.currency").as_deref(), Some("AUD"));
+    engine.send(Action::Next);
+    screen(&rx, Screen::Prices);
+    engine.send(Action::Back);
+    screen(&rx, Screen::PointOfSale);
+    engine.send(Action::ChooseKeypadCurrency { code: "XMR".into() });
+    wait_for(&rx, |_| (platform.get("keypad.currency").as_deref() == Some("XMR")).then_some(()));
+    engine.send(Action::Next);
+    screen(&rx, Screen::Alerts);
 }

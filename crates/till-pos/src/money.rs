@@ -5,11 +5,15 @@
 use till_types::CurrencyCode;
 
 /// How many digits `currency`'s minor unit has, as a receipt counts it:
-/// [`CurrencyCode::minor_digits`] (the one ISO 4217 table), and 2 for text
-/// that isn't a code at all, which orf-codec refuses anyway.
+/// [`CurrencyCode::iso_digits`] (the one ISO 4217 table), and 2 for any
+/// other code (XMR too, as orf-codec counts it) or text that isn't a code
+/// at all, which orf-codec refuses anyway.
 #[cfg(any(feature = "square", feature = "clover"))]
 pub(crate) fn minor_digits(currency: &str) -> u32 {
-    CurrencyCode::new(currency).map_or(2, |code| code.minor_digits())
+    CurrencyCode::new(currency)
+        .ok()
+        .and_then(|code| code.iso_digits())
+        .unwrap_or(2)
 }
 
 /// `minor` with the decimal point `digits` places from the right, as the

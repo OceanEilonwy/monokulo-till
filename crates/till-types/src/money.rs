@@ -70,11 +70,17 @@ impl CurrencyCode {
     }
 
     /// How many digits an amount in the currency is counted in: ISO 4217's
-    /// ([`iso_digits`](Self::iso_digits)), else 2, as Java's `Currency`
-    /// answered for a code it didn't know. Every amount the till counts in
-    /// minor units, and every receipt orf-codec encodes, uses this.
+    /// ([`iso_digits`](Self::iso_digits)); XMR's 12, in piconero, as Till's
+    /// keypad takes it with no fiat currency (docs/view-key-mode.md §7);
+    /// else 2, as Java's `Currency` answered for a code it didn't know.
+    /// Every amount the till counts in minor units, and every receipt
+    /// orf-codec encodes, uses this.
     pub fn minor_digits(&self) -> u32 {
-        self.iso_digits().unwrap_or(2)
+        match self.iso_digits() {
+            Some(digits) => digits,
+            None if self.as_str() == "XMR" => 12,
+            None => 2,
+        }
     }
 }
 
@@ -425,7 +431,7 @@ mod tests {
     }
 
     #[test]
-    fn digits_follow_iso_4217_and_unknown_codes_count_in_two() {
+    fn digits_follow_iso_4217_xmr_counts_in_piconero_and_unknown_codes_in_two() {
         for (text, iso, minor) in [
             ("USD", Some(2), 2),
             ("JPY", Some(0), 0),
@@ -434,7 +440,8 @@ mod tests {
             ("CLF", Some(4), 4),
             ("UYW", Some(4), 4),
             ("XAU", Some(0), 0),
-            ("XMR", None, 2),
+            ("XMR", None, 12),
+            ("XYZ", None, 2),
         ] {
             assert_eq!(code(text).iso_digits(), iso, "{text}");
             assert_eq!(code(text).minor_digits(), minor, "{text}");

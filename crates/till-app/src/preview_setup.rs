@@ -70,6 +70,11 @@ pub enum PreviewStep {
     /// Prices with Fob's choice picked, one provider not answering
     /// (`vk-prices-fob`).
     VkPricesFob,
+    /// Step 4 with Till's keypad chosen (`pos-keypad-choose`).
+    PosKeypadChoose,
+    /// Step 4's keypad currency on the shop's own wallet, Australian
+    /// dollars chosen (`pos-keypad-currency`).
+    PosKeypadCurrency,
 }
 
 const HOST: &str = "pay.thebeanroom.com";
@@ -191,21 +196,56 @@ pub fn preview_onboarding(
             alerts: true,
             bubble: false,
         },
+        PreviewStep::PosKeypadChoose => Step::PointOfSale(PosSetup {
+            chosen: Some(PointOfSale::Till),
+            setup: true,
+            this_till_only: true,
+            ..PosSetup::default()
+        }),
+        PreviewStep::PosKeypadCurrency => Step::PointOfSale(PosSetup {
+            chosen: Some(PointOfSale::Till),
+            setup: true,
+            confirmed: true,
+            this_till_only: true,
+            currencies: keypad_currencies(Some("AUD")),
+            keypad_currency: Some("AUD".into()),
+            ..PosSetup::default()
+        }),
         PreviewStep::VkPrices | PreviewStep::VkPricesFob => {
             Step::Prices(prices_input(step == PreviewStep::VkPricesFob))
         }
         step => Step::Wallet(wallet_step(step, name)),
     };
-    let wallet = matches!(step, Step::Wallet(_) | Step::Prices(_));
+    let keypad = matches!(&step, Step::PointOfSale(s) if s.chosen == Some(PointOfSale::Till));
+    let wallet = keypad || matches!(step, Step::Wallet(_) | Step::Prices(_));
     onboarding::onboarding(
         &OnboardingInput {
             step,
-            pos: (!wallet).then_some(PointOfSale::Square),
+            pos: if keypad {
+                Some(PointOfSale::Till)
+            } else {
+                (!wallet).then_some(PointOfSale::Square)
+            },
             wallet,
         },
         device,
         &Money(platform),
     )
+}
+
+/// The keypad's currencies, as fob-price lists them, `chosen` ticked.
+fn keypad_currencies(chosen: Option<&str>) -> Vec<till_screens::onboarding::CurrencyRow> {
+    till_wallet::prices::currency_choices(Some("AUD"))
+        .into_iter()
+        .map(|c| till_screens::onboarding::CurrencyRow {
+            selected: chosen == Some(c.code.as_str()),
+            code: c.code,
+            name: c.name,
+            detail: c.detail,
+            sign: c.sign,
+            group: c.group.map(str::to_owned),
+        })
+        .collect()
 }
 
 /// The sample's prices in Australian dollars: Kraken's and CoinGecko's
@@ -338,7 +378,12 @@ fn clock(now: i64) -> DeviceClock {
 /// alerts allowed, at `now` (Unix seconds).
 #[cfg_attr(feature = "uniffi", uniffi::export)]
 pub fn preview_settings(device: Device, now: i64) -> SettingsView {
-    let input = SettingsInput {
+    settings::settings(&monokulo_settings_input(device), device, clock(now))
+}
+
+/// What [`preview_settings`] draws.
+fn monokulo_settings_input(device: Device) -> SettingsInput {
+    SettingsInput {
         connection: Some(Connection::new("key", format!("https://{HOST}"))),
         store: store(device_name(device)),
         live: true,
@@ -349,6 +394,7 @@ pub fn preview_settings(device: Device, now: i64) -> SettingsView {
             merchant: None,
             tender_name: "Monero".into(),
             tender: CloverTender::Ready,
+            keypad_currency: None,
         },
         shift_on: true,
         alerts: true,
@@ -362,8 +408,7 @@ pub fn preview_settings(device: Device, now: i64) -> SettingsView {
         code_in_island: false,
         choices: SaleChoices::default(),
         wallet: None,
-    };
-    settings::settings(&input, device, clock(now))
+    }
 }
 
 /// Which Settings the screenshots draw besides the Monokulo store's.
@@ -378,6 +423,9 @@ pub enum PreviewSettings {
     /// The same, typed in by hand as till 51, with what the wallet warns
     /// of (`vk-settings-warning`).
     VkSettingsWarning,
+    /// The sample Monokulo store with Till's keypad as its point of sale
+    /// (`pos-keypad-settings`).
+    PosKeypad,
 }
 
 /// Settings as `look` says, on `device` at `now`.
@@ -386,6 +434,15 @@ pub fn preview_settings_of(look: PreviewSettings, device: Device, now: i64) -> S
     use till_screens::wallet_settings::WalletSettingsInput;
     if look == PreviewSettings::Monokulo {
         return preview_settings(device, now);
+    }
+    if look == PreviewSettings::PosKeypad {
+        let mut input = monokulo_settings_input(device);
+        input.pos = PosState {
+            chosen: Some(PointOfSale::Till),
+            keypad_currency: Some("USD".into()),
+            ..PosState::default()
+        };
+        return settings::settings(&input, device, clock(now));
     }
     let warning = look == PreviewSettings::VkSettingsWarning;
     let input = SettingsInput {
@@ -399,6 +456,7 @@ pub fn preview_settings_of(look: PreviewSettings, device: Device, now: i64) -> S
             merchant: None,
             tender_name: "Monero".into(),
             tender: CloverTender::Ready,
+            keypad_currency: None,
         },
         shift_on: true,
         alerts: true,
@@ -444,6 +502,7 @@ pub fn preview_settings_of(look: PreviewSettings, device: Device, now: i64) -> S
                     failure: None,
                 },
             ]),
+            xmr_only: false,
             warnings: if warning {
                 vec![
                     "Another till may be using till number 51.".into(),

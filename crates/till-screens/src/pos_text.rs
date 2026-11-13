@@ -19,7 +19,7 @@ pub use crate::view::mark;
 /// colour, black or white; Clover's keeps its green.
 pub fn mark_in_ink(pos: PointOfSale) -> bool {
     match pos {
-        PointOfSale::Square => true,
+        PointOfSale::Square | PointOfSale::Till => true,
         PointOfSale::Clover => false,
     }
 }
@@ -86,6 +86,7 @@ pub fn choice_detail(pos: PointOfSale) -> &'static str {
     match pos {
         PointOfSale::Square => "Square Point of Sale on a phone, tablet or Register",
         PointOfSale::Clover => "A Clover device",
+        PointOfSale::Till => "No point of sale: a keypad on this device",
     }
 }
 
@@ -123,6 +124,7 @@ pub fn permissions(pos: PointOfSale) -> String {
             "Till can read payments, orders and locations, and refund a Monero sale that's never paid."
         }
         PointOfSale::Clover => "Till can read payments and orders, and add a Monero payment type.",
+        PointOfSale::Till => return "Type the amount on Till's keypad and charge: no sign-in.".into(),
     };
     format!(
         "{can} Your {} sign-in stays on this device: Monokulo never sees it, or what was bought.",
@@ -135,6 +137,7 @@ pub fn at_the_till(pos: PointOfSale) -> &'static str {
     match pos {
         PointOfSale::Square => "In Square Point of Sale",
         PointOfSale::Clover => "On your Clover device",
+        PointOfSale::Till => "On this device",
     }
 }
 
@@ -188,6 +191,7 @@ pub fn test_sale_waiting(pos: PointOfSale) -> String {
     let after = match pos {
         PointOfSale::Square => "Any amount, you can refund it after.".to_owned(),
         PointOfSale::Clover => format!("Any amount; refund it in {} after.", refund_where(pos)),
+        PointOfSale::Till => "Any amount.".to_owned(),
     };
     format!("Waiting for a test sale… {after}")
 }
@@ -195,7 +199,7 @@ pub fn test_sale_waiting(pos: PointOfSale) -> String {
 pub fn test_sale_found(pos: PointOfSale, amount: &str) -> String {
     let at = match pos {
         PointOfSale::Square => pos.display_name(),
-        PointOfSale::Clover => refund_where(pos),
+        PointOfSale::Clover | PointOfSale::Till => refund_where(pos),
     };
     format!("Test sale found: {amount}. Refund it in {at} when you like.")
 }
@@ -223,7 +227,7 @@ pub fn no_locations() -> String {
 pub fn float_over(pos: Option<PointOfSale>) -> &'static str {
     match pos {
         Some(PointOfSale::Square) => "Square",
-        Some(PointOfSale::Clover) | None => "other apps",
+        Some(PointOfSale::Clover | PointOfSale::Till) | None => "other apps",
     }
 }
 
@@ -243,6 +247,7 @@ pub fn ready_start(pos: Option<PointOfSale>) -> &'static str {
     match pos {
         Some(PointOfSale::Square) => "Start Till and switch to Square.",
         Some(PointOfSale::Clover) => "Start Till and ring up on your Clover device.",
+        Some(PointOfSale::Till) => "Start Till and type the first sale's amount on its keypad.",
         None => "Start Till.",
     }
 }
@@ -386,6 +391,7 @@ pub fn receipt_label(pos: Option<PointOfSale>, receipt_id: &str) -> String {
     match pos {
         Some(PointOfSale::Square) => format!("Square receipt {receipt_id}"),
         Some(PointOfSale::Clover) => format!("Clover order {receipt_id}"),
+        Some(PointOfSale::Till) => format!("Till sale {receipt_id}"),
         None => format!("Receipt {receipt_id}"),
     }
 }
@@ -408,6 +414,7 @@ pub fn waiting_hint(pos: Option<PointOfSale>) -> &'static str {
         Some(PointOfSale::Clover) => {
             "The code appears here, and the bubble lights up, when you choose Monero on the Clover device."
         }
+        Some(PointOfSale::Till) => "Each sale you charge on the keypad shows here." ,
         None => {
             "The code appears here, and the bubble lights up, when another till rings up a Monero sale."
         }
@@ -424,7 +431,10 @@ pub fn start_hint(pos: Option<PointOfSale>) -> String {
 /// The refund sheet's title (acceptance T4.1), for the point of sale that
 /// took the sale.
 pub fn refund_sheet_title(pos: PointOfSale) -> String {
-    format!("Refund in {}", pos.display_name())
+    match pos {
+        PointOfSale::Till => "Give it back by hand".into(),
+        _ => format!("Refund in {}", pos.display_name()),
+    }
 }
 
 /// Where at `pos` the cashier refunds a sale.
@@ -432,6 +442,7 @@ pub fn refund_where(pos: PointOfSale) -> &'static str {
     match pos {
         PointOfSale::Square => "Square's Transactions",
         PointOfSale::Clover => "Clover's Orders app",
+        PointOfSale::Till => "your wallet",
     }
 }
 
@@ -446,6 +457,11 @@ pub fn refund_sheet_body(
     time: Option<&str>,
     amount: &str,
 ) -> String {
+    if pos == PointOfSale::Till {
+        return format!(
+            "Nothing was taken at a point of sale for this sale ({amount}). If any Monero arrived, give it back: ask the customer for a return address and send it from your wallet. Tap {REFUNDED_IT} once it's done."
+        );
+    }
     let order = order.map(|o| format!("order {o}"));
     let what: Vec<&str> = [order.as_deref(), time, Some(amount)]
         .into_iter()

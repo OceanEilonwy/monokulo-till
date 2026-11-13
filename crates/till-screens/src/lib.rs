@@ -47,6 +47,7 @@ pub mod counters;
 mod decimal;
 #[cfg(test)]
 mod fixtures;
+pub mod keypad;
 pub mod live_activity;
 pub mod notification;
 pub mod onboarding;

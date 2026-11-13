@@ -2742,3 +2742,42 @@ async fn with_only_this_tills_payments_a_backend_event_never_makes_a_sale() {
     till.on_change(&payment);
     assert_eq!(till.state().sales.len(), 1);
 }
+
+/// Till's keypad (docs/view-key-mode.md §7): a charge is made at once, and
+/// recorded only once its payment is; one that failed leaves nothing, and
+/// tried again with the same amount and reference has the same key.
+#[tokio::test]
+async fn a_keypad_charge_records_its_sale_only_once_its_payment_is_made() {
+    let f = fixture().await;
+    let keypad = Arc::new(till_pos::KeypadSource::new());
+    keypad.set_merchant("Corner Café");
+    let backend = Arc::new(till_payments::FakeBackend::new(
+        till_payments::Sharing::ThisTill,
+    ));
+    let till = Till::new(keypad.clone(), backend.clone(), f.books()).with_clock(Arc::new(clock(0)));
+    let amount = till_types::Money::new(840, till_types::CurrencyCode::USD);
+    let at: Rfc3339Instant = "2026-11-13T10:00:00Z".parse().unwrap();
+    let sale = keypad.charge(amount, Some("Sam"), at.clone());
+    backend.fail_next("no answer");
+    assert!(till.charge(&sale).await.is_err());
+    assert!(till.state().sales.is_empty(), "nothing recorded");
+    assert!(till.state().problem.is_some());
+    let again = keypad.charge(amount, Some("Sam"), at.clone());
+    assert_eq!(Till::idempotency_key(&again), Till::idempotency_key(&sale));
+    let order_id = till.charge(&again).await.unwrap();
+    let sales = till.state().sales;
+    assert_eq!(sales.len(), 1);
+    let made = &sales[0];
+    assert_eq!(made.order_id, order_id);
+    assert_eq!(made.reference.as_deref(), Some("Sam"));
+    assert!(made.live(), "its code is up");
+    assert!(made.code.has_receipt, "the one-line receipt is in the code");
+    assert_eq!(made.found.as_ref().unwrap().point_of_sale, PointOfSale::Till);
+    assert!(keypad.pending().is_empty(), "handled");
+    assert_eq!(backend.made(), 1);
+    assert_eq!(
+        made.extras.price_used.as_ref().map(|p| p.provider.as_str()),
+        Some("Fake"),
+        "the rate it was priced at"
+    );
+}

@@ -41,7 +41,7 @@ pub(crate) const TICK: Duration = Duration::from_secs(1);
 /// The till's place for `screen`, as the sales move it.
 pub(crate) fn place(screen: &Screen) -> TillPlace {
     match screen {
-        Screen::Till => TillPlace::Shift,
+        Screen::Till | Screen::Keypad => TillPlace::Shift,
         Screen::Sale { order_id } => TillPlace::Sale {
             order_id: order_id.clone(),
         },
@@ -56,9 +56,9 @@ pub(crate) fn place(screen: &Screen) -> TillPlace {
 }
 
 /// The screen for `place`; `None` for the places the sales never reach.
-pub(crate) fn screen(place: TillPlace) -> Option<Screen> {
+pub(crate) fn screen(place: TillPlace, shift: &Screen) -> Option<Screen> {
     Some(match place {
-        TillPlace::Shift => Screen::Till,
+        TillPlace::Shift => shift.clone(),
         TillPlace::Sale { order_id } => Screen::Sale { order_id },
         TillPlace::Code { order_id } => Screen::Code { order_id },
         TillPlace::Order { order_id } => Screen::Order { order_id },
@@ -70,7 +70,7 @@ pub(crate) fn screen(place: TillPlace) -> Option<Screen> {
 /// code and order, Settings over them all.
 fn depth(screen: &Screen) -> Option<u8> {
     match screen {
-        Screen::Till => Some(0),
+        Screen::Till | Screen::Keypad => Some(0),
         Screen::Sale { .. } => Some(1),
         Screen::Code { .. } | Screen::Order { .. } => Some(2),
         Screen::Settings => Some(3),
@@ -99,7 +99,7 @@ fn setup_step(screen: &Screen) -> Option<u8> {
         Screen::Float => 11,
         Screen::ShowSales => 12,
         Screen::Ready => 13,
-        Screen::Till => 14,
+        Screen::Till | Screen::Keypad => 14,
         _ => return None,
     })
 }
@@ -157,7 +157,7 @@ impl State {
             &self.live_before,
             false,
         );
-        screen(next).unwrap_or_else(|| from.clone())
+        screen(next, &self.shift_screen()).unwrap_or_else(|| from.clone())
     }
 
     /// The sales that never rise out of the shift on their own: those the
@@ -187,11 +187,14 @@ impl State {
         let sales = self.sales();
         let here = place(&self.screen);
         if here != TillPlace::Other {
-            let resting = self.resting_on.as_ref() == Some(&Screen::Till);
+            // On the keypad a sale comes up because it was charged: none rises
+            // out of a list at rest.
+            let resting =
+                self.resting_on.as_ref() == Some(&Screen::Till) && !self.keypad_mode();
             let left = self.left_or_quiet();
             let next = till_nav::follow(&here, &sales, &left, &self.live_before, resting);
             if next != here
-                && let Some(next) = screen(next.clone())
+                && let Some(next) = screen(next.clone(), &self.shift_screen())
             {
                 // Put there by the sales, not the cashier (M7).
                 self.by_itself = true;
@@ -290,7 +293,9 @@ impl State {
     /// goes back to Settings.
     pub(super) fn back_enabled(&self) -> bool {
         match self.screen {
-            Screen::Welcome | Screen::Till => false,
+            Screen::Welcome | Screen::Keypad => false,
+            // On a keypad till the list goes back to the keypad.
+            Screen::Till => self.keypad_mode(),
             // O2 goes back to the choice (decision 121).
             Screen::PointOfSale => self.setup_done() || self.pos_confirmed,
             _ => true,
@@ -301,7 +306,8 @@ impl State {
     /// gesture previews. `None` where Back shows no preview.
     pub(super) fn back_target(&self) -> Option<Screen> {
         match &self.screen {
-            Screen::Sale { .. } => Some(Screen::Till),
+            Screen::Sale { .. } => Some(self.shift_screen()),
+            Screen::Till if self.keypad_mode() => Some(Screen::Keypad),
             Screen::Code { order_id } | Screen::Order { order_id } => Some(Screen::Sale {
                 order_id: order_id.clone(),
             }),
