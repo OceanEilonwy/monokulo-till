@@ -158,7 +158,7 @@ impl State {
             &self.live_before,
             false,
         );
-        screen(next, &self.shift_screen()).unwrap_or_else(|| from.clone())
+        screen(next, &Screen::Till).unwrap_or_else(|| from.clone())
     }
 
     /// The sales that never rise out of the shift on their own: those the
@@ -194,7 +194,7 @@ impl State {
             let left = self.left_or_quiet();
             let next = till_nav::follow(&here, &sales, &left, &self.live_before, resting);
             if next != here
-                && let Some(next) = screen(next.clone(), &self.shift_screen())
+                && let Some(next) = screen(next.clone(), &Screen::Till)
             {
                 // Put there by the sales, not the cashier (M7).
                 self.by_itself = true;
@@ -293,9 +293,9 @@ impl State {
     /// goes back to Settings.
     pub(super) fn back_enabled(&self) -> bool {
         match self.screen {
-            Screen::Welcome | Screen::Keypad => false,
-            // On a keypad till the list goes back to the keypad.
-            Screen::Till => self.keypad_mode(),
+            // The keypad goes back to the list it opened from (core.md
+            // decision 257).
+            Screen::Welcome | Screen::Till => false,
             // O2 goes back to the choice (decision 121).
             Screen::PointOfSale => self.setup_done() || self.pos_confirmed,
             _ => true,
@@ -306,8 +306,7 @@ impl State {
     /// gesture previews. `None` where Back shows no preview.
     pub(super) fn back_target(&self) -> Option<Screen> {
         match &self.screen {
-            Screen::Sale { .. } => Some(self.shift_screen()),
-            Screen::Till if self.keypad_mode() => Some(Screen::Keypad),
+            Screen::Sale { .. } | Screen::Keypad => Some(Screen::Till),
             Screen::Code { order_id } | Screen::Order { order_id } => Some(Screen::Sale {
                 order_id: order_id.clone(),
             }),

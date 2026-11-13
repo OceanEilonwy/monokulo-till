@@ -838,8 +838,8 @@ pub enum Action {
     },
     /// The keypad's Charge, or Return on a hardware keyboard.
     Charge,
-    /// The keypad's "Sales": the shift's list.
-    OpenSales,
+    /// The sales' New sale, on a keypad till: the keypad (core.md decision 257).
+    NewSale,
 }
 
 impl Action {
@@ -947,7 +947,7 @@ impl Action {
             Action::KeypadPress { .. } => "KeypadPress",
             Action::KeypadReference { .. } => "KeypadReference",
             Action::Charge => "Charge",
-            Action::OpenSales => "OpenSales",
+            Action::NewSale => "NewSale",
         }
     }
 }

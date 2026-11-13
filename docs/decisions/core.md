@@ -2362,7 +2362,9 @@ still strings across the till, the ledger, the screens and the bridge.
      sales' moves map the shift's place to the keypad, and no sale rises
      out of a list at rest, since each comes from a Charge that opens it.
      The live sales show over the keys as "Put aside · n", each opening its
-     code, so a code is put aside for the next customer and stays live. On
+     code, so a code is put aside for the next customer and stays live.
+     (Replaced by decision 257: the list is home, New sale opens the
+     keypad, and there's no strip.) On
      iOS the keypad is the navigation stack's root and the list a page over
      it; on Android the stage shows `Screen.Keypad`.
 250. **Charge makes the payment first, then records the sale.** The keypad
@@ -2493,3 +2495,45 @@ still strings across the till, the ledger, the screens and the bridge.
      while a stale amount isn't left on the keypad. One in another currency
      than the keypad's now is given up. The error the keypad showed isn't
      kept: after a restart the amount is simply ready to charge.
+
+## View-key mode: the keypad, simpler (2026-11-13)
+
+257. **On a keypad till the list is home, and New sale opens the keypad.**
+     (Owner, 2026-11-13, proposal C on the canvas page "Till keypad ·
+     simpler"; replaces decision 249's keypad home and its "Put aside · n"
+     strip.) The strip repeated the list's Waiting for payment section,
+     which already holds every live code. Now a keypad till opens on the
+     shift's list (`Screen::Till`), as a Square or Clover till does, and
+     its `ShiftView::new_sale` ("New sale"; iOS a full-width button at the
+     bottom, Android an extended floating button) sends `Action::NewSale`
+     (which replaces `OpenSales`) to open `Screen::Keypad`. The keypad is
+     titled "New sale" with a Close (✕) that goes back to the list, and it
+     has no Settings or Sales of its own. Charge opens the sale's code, and
+     leaving it returns to the list, where the sale waits, live. On a wide
+     screen (iPad landscape, an Android tablet at the expanded width) the
+     list and keypad sit side by side: the keypad is on the right while the
+     list or keypad is the screen, and a sale's screens take its place
+     there, with New sale bringing the keypad back. The engine sends
+     `Update::Keypad` with `Update::Shift` on every keypad till, so the
+     platform needs nothing more to draw both. A failed charge kept through
+     a restart (decision 256) is typed on the keypad again, ready when New
+     sale opens it. A keypad till has no total for the shift: its
+     `ShiftHeader::show_total` is false (no takings, no paid count), its
+     summary is only "Since 9:02 AM", and New shift's confirmation drops
+     "The total starts again at zero".
+258. **The keypad's reference sits on top, and its keyboard's Done doesn't
+     charge.** (Owner, variant 1 of "Where Charge goes".) From the top:
+     the reference, the amount, the keys, then Charge, so the keys sit
+     between the field and Charge and a tap meant for the field can't
+     charge. The on-screen keyboard's Done (or Return while the field has
+     focus) only closes the keyboard and gives the keys focus back; Return
+     with the keys focused still charges (decision 250). On every screen
+     the keys keep the iPhone's shape, 113 × 84 pt: on a larger screen the
+     keypad column narrows (about 440–460 pt on an iPad) rather than the
+     keys stretching wide.
+259. **Till's dark theme is OLED black, as Fob's.** (Owner, 2026-11-13.)
+     Both platforms take Fob's `OledColors`: page #000000; cards #0C0B0A,
+     held by #2A2723 outlines; fills #181613; ink #F2EEE6; muted #B0A999;
+     orange text #FF8F45; paid #5CC88A. The accent stays #FF6600 with
+     #111111 on it. Android's dark ground was #1C1B19, and iOS's cards
+     were too, on a black ground.

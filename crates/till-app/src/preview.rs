@@ -129,10 +129,9 @@ pub fn preview_shift(preview: TillPreview, platform: Arc<dyn Platform>) -> Optio
     ))
 }
 
-/// Till's keypad (docs/view-key-mode.md §7) for `preview`'s sales, the
-/// live ones put aside over it: `typed` as the keypad keeps it (minor units
-/// in a fiat currency, the decimal in XMR), in `currency`, with
-/// `reference` and, when given, `problem`.
+/// Till's keypad (docs/view-key-mode.md §7): `typed` as the keypad keeps it
+/// (minor units in a fiat currency, the decimal in XMR), in `currency`,
+/// with `reference` and, when given, `preview`'s problem.
 #[cfg_attr(feature = "uniffi", uniffi::export)]
 pub fn preview_keypad(
     preview: TillPreview,
@@ -147,8 +146,6 @@ pub fn preview_keypad(
         reference,
         busy: false,
         problem: preview.problem.clone(),
-        sales: preview.sales()?,
-        clock: preview.clock(),
     };
     Some(till_screens::keypad::keypad(
         &input,

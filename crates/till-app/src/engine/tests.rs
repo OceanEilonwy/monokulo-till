@@ -3108,18 +3108,29 @@ fn a_wallet_till_picks_its_price_provider_between_the_point_of_sale_and_alerts()
     screen(&rx, Screen::PointOfSale);
 }
 
-/// Till's keypad (docs/view-key-mode.md §7): on a till whose point of sale
-/// is its own keypad, the keypad is home; XMR only takes a decimal point;
-/// Charge makes the sale and opens its code, and leaving the code comes
-/// back to the keypad with the sale put aside, live.
+/// Till's keypad (docs/view-key-mode.md §7, core.md decision 257): on a
+/// till whose point of sale is its own keypad, the list is home and New
+/// sale opens the keypad, whose Back returns to it; XMR only takes a
+/// decimal point; Charge makes the sale and opens its code, and leaving the
+/// code comes back to the list, the sale live in it.
 #[test]
-fn a_keypad_till_charges_from_its_keypad_and_puts_the_sale_aside() {
+fn a_keypad_till_opens_its_keypad_from_the_list_and_charges() {
     use till_screens::keypad::KeypadKey;
     let config = config(None);
     let (platform, _) = wallet_till(&config.data_dir);
     platform.set("pos.kind", "till");
     platform.set("keypad.currency", "XMR");
     let (engine, rx, _) = start(config, platform.clone());
+    screen(&rx, Screen::Till);
+    let list = engine.peek(|s| s.shift_view(s.parts.as_ref().unwrap()));
+    assert_eq!(list.new_sale.map(|p| p.label).as_deref(), Some("New sale"));
+    assert!(!engine.peek(|s| s.back_enabled()), "the list is home");
+    engine.send(Action::NewSale);
+    screen(&rx, Screen::Keypad);
+    assert_eq!(engine.peek(|s| s.back_target()), Some(Screen::Till));
+    engine.send(Action::Back);
+    screen(&rx, Screen::Till);
+    engine.send(Action::NewSale);
     screen(&rx, Screen::Keypad);
     let keypad = |rx: &Receiver<Heard>,
                   want: &dyn Fn(&till_screens::keypad::KeypadView) -> bool| {
@@ -3128,7 +3139,13 @@ fn a_keypad_till_charges_from_its_keypad_and_puts_the_sale_aside() {
             _ => None,
         })
     };
-    let empty = keypad(&rx, &|v| v.amount == "0 XMR");
+    // Sent with the list as the till started: the same view since.
+    let empty = engine.peek(|s| s.keypad_view(s.parts.as_ref().unwrap()));
+    assert_eq!(empty.amount, "0 XMR");
+    assert_eq!(
+        (empty.title.as_str(), empty.close.as_str()),
+        ("New sale", "Close")
+    );
     assert!(!empty.charge.enabled, "nothing to charge at zero");
     assert!(empty.keys.iter().any(|k| k.key == KeypadKey::Point));
     for key in [
@@ -3149,20 +3166,26 @@ fn a_keypad_till_charges_from_its_keypad_and_puts_the_sale_aside() {
         _ => None,
     });
     engine.send(Action::Back);
-    screen(&rx, Screen::Keypad);
-    // Published as the sale was made, while its code was up.
-    let aside = engine.peek(|s| s.keypad_view(s.parts.as_ref().unwrap()));
-    assert_eq!(aside.aside.len(), 1, "{aside:?}");
-    assert_eq!(aside.aside[0].order_id, order_id);
-    assert_eq!(aside.aside[0].label, "Sam");
+    screen(&rx, Screen::Till);
+    let live = engine.peek(|s| {
+        s.parts
+            .as_ref()
+            .unwrap()
+            .runner
+            .state()
+            .till
+            .sales
+            .into_iter()
+            .filter(|sale| sale.live())
+            .map(|sale| sale.order_id)
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(live, [order_id], "waiting for payment in the list");
+    let keypad = engine.peek(|s| s.keypad_view(s.parts.as_ref().unwrap()));
     assert_eq!(
-        aside.amount, "0 XMR",
+        keypad.amount, "0 XMR",
         "the keypad is cleared for the next one"
     );
-    engine.send(Action::OpenSales);
-    screen(&rx, Screen::Till);
-    engine.send(Action::Back);
-    screen(&rx, Screen::Keypad);
 }
 
 /// A keypad charge that failed survives a restart (core.md decision 256):
@@ -3190,7 +3213,7 @@ fn a_failed_keypad_charge_comes_back_after_a_restart_with_its_key() {
     };
     platform.set("keypad.charge", &serde_json::to_string(&kept).unwrap());
     let (engine, rx, _) = start(config.clone(), platform.clone());
-    screen(&rx, Screen::Keypad);
+    screen(&rx, Screen::Till);
     let restored = wait_for(&rx, |heard| match heard {
         Heard::Update(Update::Keypad { view: Some(view) }) if view.amount == "1.5 XMR" => {
             Some(view.clone())
@@ -3227,7 +3250,7 @@ fn a_failed_keypad_charge_comes_back_after_a_restart_with_its_key() {
     // Cleared on the keypad: forgotten, and not typed again on a restart.
     platform.set("keypad.charge", &serde_json::to_string(&kept).unwrap());
     let (engine, rx, _) = start(config.clone(), platform.clone());
-    screen(&rx, Screen::Keypad);
+    screen(&rx, Screen::Till);
     wait_for(&rx, |heard| match heard {
         Heard::Update(Update::Keypad { view: Some(view) }) if view.amount == "1.5 XMR" => Some(()),
         _ => None,

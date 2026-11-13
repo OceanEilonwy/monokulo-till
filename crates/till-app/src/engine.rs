@@ -679,11 +679,8 @@ impl State {
         if model.link().is_none() {
             Screen::Welcome
         } else if model.setup_done {
-            if model.point_of_sale == Some(PointOfSale::Till) {
-                Screen::Keypad
-            } else {
-                Screen::Till
-            }
+            // A keypad till's home is its list too (core.md decision 257).
+            Screen::Till
         } else if model.place_name().is_none() && !model.without_pos {
             // Not yet at a Square location or a Clover merchant.
             Screen::PointOfSale
@@ -1059,11 +1056,7 @@ impl State {
             Action::KeypadPress { key } => self.keypad_press(key),
             Action::KeypadReference { text } => self.keypad_reference(text),
             Action::Charge => self.charge(),
-            Action::OpenSales => {
-                if self.setup_done() {
-                    self.go(Screen::Till);
-                }
-            }
+            Action::NewSale => self.new_sale(),
             Action::PaidInCash { order_id } => {
                 if let Some(p) = &self.parts {
                     p.runner.paid_in_cash(&order_id);
@@ -1558,7 +1551,7 @@ impl State {
         if self.keep(|m| m.without_pos = true) {
             self.restart();
             let next = if self.setup_done() {
-                self.shift_screen()
+                Screen::Till
             } else {
                 Screen::Alerts
             };
@@ -1832,7 +1825,7 @@ impl State {
         self.go(if back_to_settings && setup_done {
             Screen::Settings
         } else if setup_done {
-            self.shift_screen()
+            Screen::Till
         } else {
             Screen::PointOfSale
         });
@@ -1968,7 +1961,7 @@ impl State {
         );
         self.left.insert(order_id);
         if on_it {
-            let shift = self.shift_screen();
+            let shift = Screen::Till;
             self.go(shift);
         }
     }

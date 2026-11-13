@@ -1,9 +1,9 @@
 //! Till's own keypad as the point of sale (docs/view-key-mode.md §7): the
-//! keypad is the till's home once set up (`Screen::Keypad`), the shift's
-//! list of sales a tap away ("Sales"), and a sale's code comes back to the
-//! keypad when it's left, put aside as a live sale for the next customer.
-//! Charge makes the sale and its payment at once (`Till::charge`) and opens
-//! its code.
+//! shift's list is home, as on every till, and its New sale opens the
+//! keypad (`Screen::Keypad`; core.md decision 257). Charge makes the sale
+//! and its payment at once (`Till::charge`) and opens its code; left, the
+//! code goes back to the list, where the sale waits, live, under Waiting
+//! for payment.
 
 use monokulo_client::PointOfSale;
 use till_pos::Rfc3339Instant;
@@ -79,13 +79,11 @@ impl State {
         })
     }
 
-    /// Where the sales step back to: the keypad on a keypad till, else the
-    /// shift.
-    pub(super) fn shift_screen(&self) -> Screen {
+    /// New sale: the keypad, over the sales it opens from (core.md decision
+    /// 257).
+    pub(super) fn new_sale(&mut self) {
         if self.keypad_mode() {
-            Screen::Keypad
-        } else {
-            Screen::Till
+            self.go(Screen::Keypad);
         }
     }
 
@@ -232,7 +230,8 @@ impl State {
         }
     }
 
-    /// The keypad, while it's home.
+    /// The keypad, on a keypad till: sent with the list, which a wide
+    /// screen draws beside it.
     pub(super) fn keypad_view(&self, p: &Parts) -> KeypadView {
         let input = KeypadInput {
             currency: self.keypad_currency(p),
@@ -240,8 +239,6 @@ impl State {
             reference: self.keypad.reference.clone(),
             busy: self.keypad.busy,
             problem: self.keypad.problem.clone(),
-            sales: p.runner.state().till.sales,
-            clock: self.device_clock(),
         };
         keypad::keypad(&input, self.config.device, &Money(self.platform.clone()))
     }
