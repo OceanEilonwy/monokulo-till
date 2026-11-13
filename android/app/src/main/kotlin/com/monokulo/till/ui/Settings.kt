@@ -172,9 +172,12 @@ fun SettingsScreen(s: SettingsView, a: SettingsActions) = Page(
         Footnote(shift.footnote)
     }
 
-    SectionLabel("Alerts")
-    Group(rows = listOf({ SwitchRow("New sale alerts", s.alerts.on, { a.onAlerts() }) }))
-    Footnote(s.alerts.footnote)
+    // A keypad till shows no notifications (core.md decision 260).
+    if (s.notifications) {
+        SectionLabel("Alerts")
+        Group(rows = listOf({ SwitchRow("New sale alerts", s.alerts.on, { a.onAlerts() }) }))
+        Footnote(s.alerts.footnote)
+    }
 
     s.bubble?.let { bubble ->
         SectionLabel("Bubble")

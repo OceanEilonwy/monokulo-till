@@ -25,6 +25,8 @@ object MkIcons {
         }.build()
 
     val Back = icon("back", 24f, "M20 12H5M11 5l-7 7 7 7" to 2.2f)
+    /** A keypad till's New sale. */
+    val Add = icon("add", 24f, "M12 5v14M5 12h14" to 2.4f)
     /** V2's ways to enter a wallet: a code in a frame, a key, and lines of words (the boards' VkWallet). */
     val WalletCode = icon(
         "wallet code", 24f,

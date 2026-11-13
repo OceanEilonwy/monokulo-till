@@ -64,7 +64,7 @@ object EngineStore {
     val settings: StateFlow<SettingsView?> = mutableSettings.asStateFlow()
     val nav: StateFlow<Nav> = mutableNav.asStateFlow()
     val shift: StateFlow<ShiftView?> = mutableShift.asStateFlow()
-    /** Till's keypad, while it's the till's home. */
+    /** Till's keypad, on a keypad till: opened by New sale, and beside the sales on a wide screen. */
     val keypad: StateFlow<KeypadView?> = mutableKeypad.asStateFlow()
     /** The sale on screen, as each of its screens draws it; kept while it leaves. */
     val sale: StateFlow<Update.Sale?> = mutableSale.asStateFlow()
