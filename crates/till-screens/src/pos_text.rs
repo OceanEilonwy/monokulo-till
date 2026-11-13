@@ -366,11 +366,18 @@ pub fn place_of<'a>(
 }
 
 pub fn refunded_in(pos: Option<PointOfSale>) -> String {
-    format!("Refunded in {}", name(pos))
+    match pos {
+        // Nothing was charged on the keypad: what came went back by hand.
+        Some(PointOfSale::Till) => "Given back by hand".into(),
+        _ => format!("Refunded in {}", name(pos)),
+    }
 }
 
 pub fn refund_it_in(pos: Option<PointOfSale>) -> String {
-    format!("refund it in {}", name(pos))
+    match pos {
+        Some(PointOfSale::Till) => "give back what came by hand".into(),
+        _ => format!("refund it in {}", name(pos)),
+    }
 }
 
 pub fn refund_button(pos: Option<PointOfSale>, amount: &str) -> String {
