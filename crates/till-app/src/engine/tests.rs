@@ -2578,7 +2578,10 @@ fn a_wallet_till_picks_its_price_provider_between_the_point_of_sale_and_alerts()
     assert_eq!(prices.intro_bold, "US dollars");
     let names: Vec<_> = prices.providers.iter().map(|p| p.name.as_str()).collect();
     assert_eq!(names, ["Kraken", "CoinGecko"]);
-    assert!(prices.providers[0].selected, "the first that prices dollars");
+    assert!(
+        prices.providers[0].selected,
+        "the first that prices dollars"
+    );
     engine.send(Action::ChoosePriceProvider {
         name: "CoinGecko".into(),
     });

@@ -447,7 +447,12 @@ mod tests {
             at: UnixSeconds(at() - 60),
         });
         let clock = la(at());
-        let view = sale(&input(priced.clone(), SQUARE), Device::Android, clock, &money);
+        let view = sale(
+            &input(priced.clone(), SQUARE),
+            Device::Android,
+            clock,
+            &money,
+        );
         let when = crate::time::time(UnixSeconds(at() - 60), clock);
         assert_eq!(view.price_line, Some(format!("Kraken · price from {when}")));
         let code = crate::code::code(

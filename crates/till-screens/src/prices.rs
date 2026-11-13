@@ -138,15 +138,15 @@ pub fn prices_step(p: &PricesInput) -> PricesStep {
         intro_bold: p.plural.clone(),
         intro_after: ", checked as this page opens. Tap a provider to pick it.".into(),
         section: "Price from".into(),
-        asking: p
-            .checks
-            .is_none()
-            .then(|| "Asking each provider…".into()),
+        asking: p.checks.is_none().then(|| "Asking each provider…".into()),
         providers: provider_rows(p),
         summary: summary(p),
-        from_fob: p
-            .from_fob
-            .then(|| format!("{} is Fob's price source. Pick another if you like.", p.provider)),
+        from_fob: p.from_fob.then(|| {
+            format!(
+                "{} is Fob's price source. Pick another if you like.",
+                p.provider
+            )
+        }),
         footnote: PRIVACY.into(),
         next: Press::new("Continue").enabled(!p.busy).busy(p.busy),
         problem: p.problem.clone(),
@@ -183,7 +183,10 @@ mod tests {
     fn while_asking_each_provider_is_offered_with_no_price_yet() {
         let step = prices_step(&input());
         assert_eq!(
-            format!("{}{}{}", step.intro_before, step.intro_bold, step.intro_after),
+            format!(
+                "{}{}{}",
+                step.intro_before, step.intro_bold, step.intro_after
+            ),
             "Prices in Australian dollars, checked as this page opens. Tap a provider to pick it."
         );
         assert_eq!(step.asking.as_deref(), Some("Asking each provider…"));
