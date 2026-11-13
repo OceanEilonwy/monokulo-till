@@ -12,6 +12,7 @@ use crate::order_text::{OrderCard, order_card};
 use crate::shift::StateIcon;
 use crate::time::{DeviceClock, time};
 use crate::view::{Fact, Press};
+use crate::wallet_setup::PaymentsMode;
 use crate::{pos_text, sale_text};
 
 /// The colour roles behind a page's hero glyph and its note.
@@ -113,13 +114,16 @@ pub fn header(sale: &TillSale, till: Option<PointOfSale>, location: Option<&str>
 /// sale was rung up at a point of sale this till has since changed from, so
 /// the till can't refund it or see its refund, and says to refund it there;
 /// one already told to refund it there keeps Refund, for the cashier's word
-/// that it's done.
+/// that it's done. `by` is what tells the till of payments, which says who
+/// watches for a late one ([`Watch`]).
 pub fn page(
     sale: &TillSale,
     pos: Option<PointOfSale>,
     clock: DeviceClock,
     elsewhere: bool,
+    by: PaymentsMode,
 ) -> SalePageModel {
+    let watch = Watch(by);
     let name = pos_text::name(pos);
     let status = sale_text::status(sale, pos);
     let has_it = pos_text::has_it_as_monero(pos);
@@ -132,9 +136,12 @@ pub fn page(
     let rung_up = fact("Rung up", Some(sale.created_at));
     let ended = fact(ended_label(sale.phase), sale.ended_at);
     let watching = if sale.settled {
-        "Monokulo has stopped watching it."
+        watch.stopped().to_owned()
     } else {
-        "Monokulo keeps watching for a late payment for a while: if one arrives, this sale turns paid."
+        format!(
+            "{}: if one arrives, this sale turns paid.",
+            watch.keeps(false)
+        )
     };
     let refunded_because = || {
         if sale.closed_at.is_some() {
@@ -235,14 +242,15 @@ pub fn page(
         },
         Standing::Closed => {
             let then = if sale.settled {
-                "Monokulo has stopped watching it.".to_owned()
+                watch.stopped().to_owned()
             } else if sale.expires_at > UnixSeconds(clock.now) {
                 format!(
-                    "The code is still live until {}, and Monokulo keeps watching for a late payment after that: if one arrives, this sale turns paid.",
-                    at(sale.expires_at)
+                    "The code is still live until {}, and {}: if one arrives, this sale turns paid.",
+                    at(sale.expires_at),
+                    watch.keeps(true)
                 )
             } else {
-                watching.to_owned()
+                watching
             };
             SalePageModel {
                 actions: vec![PageAction::Refund, PageAction::ShowCodeAgain],
@@ -262,14 +270,14 @@ pub fn page(
         // late-payment rule as small print.
         Standing::Expired => {
             let line = if sale.phase == SalePhase::Cancelled {
-                "Cancelled in Monokulo".to_owned()
+                watch.cancelled().to_owned()
             } else {
                 format!("The code ran out at {}", at(sale.expires_at))
             };
             let footnote = if sale.settled {
-                "Monokulo has stopped watching it."
+                watch.stopped()
             } else {
-                "A late payment still counts: Till keeps watching and the sale turns paid."
+                watch.late_counts()
             };
             SalePageModel {
                 heading: "Not paid".into(),
@@ -595,6 +603,71 @@ fn nothing_to_do(pos: Option<PointOfSale>) -> String {
     )
 }
 
+/// Who watches for a late payment, in a page's words (core.md decision
+/// 252). Monokulo does, on its server, for a while after the code runs out,
+/// whether Till is open or not. With the shop's own wallet it's Till itself,
+/// and with a light wallet server it's Till asking the server: either way
+/// for the late window (a day after the code runs out), and only while Till
+/// is open in the foreground (decision 231); a payment that came meanwhile
+/// is found when it next opens.
+struct Watch(PaymentsMode);
+
+impl Watch {
+    /// Nothing more will be watched for.
+    fn stopped(&self) -> &'static str {
+        match self.0 {
+            PaymentsMode::Monokulo => "Monokulo has stopped watching it.",
+            PaymentsMode::Wallet | PaymentsMode::LightServer => "Till has stopped watching it.",
+        }
+    }
+
+    /// "Monokulo keeps watching for a late payment for a while", to be
+    /// followed by what happens if one comes; `after_that` for a code still
+    /// live, whose watch starts when it runs out.
+    fn keeps(&self, after_that: bool) -> String {
+        let after = if after_that { " after that" } else { "" };
+        match self.0 {
+            PaymentsMode::Monokulo if after_that => {
+                "Monokulo keeps watching for a late payment after that".into()
+            }
+            PaymentsMode::Monokulo => {
+                "Monokulo keeps watching for a late payment for a while".into()
+            }
+            PaymentsMode::Wallet => {
+                format!(
+                    "Till keeps watching for a late payment for a day{after}, whenever it's open"
+                )
+            }
+            PaymentsMode::LightServer => format!(
+                "Till keeps asking your light wallet server for a late payment for a day{after}, whenever it's open"
+            ),
+        }
+    }
+
+    /// An expired sale's small print, while a late payment would count.
+    fn late_counts(&self) -> &'static str {
+        match self.0 {
+            PaymentsMode::Monokulo => {
+                "A late payment still counts: Till keeps watching and the sale turns paid."
+            }
+            PaymentsMode::Wallet => {
+                "A late payment still counts for a day: Till sees it whenever it's open, and the sale turns paid."
+            }
+            PaymentsMode::LightServer => {
+                "A late payment still counts for a day: Till hears of it from your light wallet server whenever it's open, and the sale turns paid."
+            }
+        }
+    }
+
+    /// A cancelled sale's line: only Monokulo cancels an order by itself.
+    fn cancelled(&self) -> &'static str {
+        match self.0 {
+            PaymentsMode::Monokulo => "Cancelled in Monokulo",
+            PaymentsMode::Wallet | PaymentsMode::LightServer => "Cancelled",
+        }
+    }
+}
+
 /// What a sale's page shows.
 #[derive(Clone, Debug)]
 pub struct SalePageInput {
@@ -610,6 +683,8 @@ pub struct SalePageInput {
     pub refunding: bool,
     /// An offered cash sale's order is being made ("Take it in Monero").
     pub taking: bool,
+    /// What tells the till of payments: who watches for a late one.
+    pub by: PaymentsMode,
 }
 
 /// A button on the page: the action, its words, and whether it can be
@@ -664,7 +739,7 @@ pub fn sale_page(
 ) -> SalePageView {
     let sale = &input.sale;
     let header = header(sale, input.till, input.location.as_deref());
-    let model = page(sale, header.pos, clock, header.elsewhere);
+    let model = page(sale, header.pos, clock, header.elsewhere, input.by);
     // When it was rung up; where from only for another till's sale.
     let rung_up = (sale.created_at > UnixSeconds(0)).then(|| time(sale.created_at, clock));
     let amount = sale_text::amount(sale, money);
@@ -732,6 +807,17 @@ mod tests {
 
     const SQUARE: Option<PointOfSale> = Some(PointOfSale::Square);
     const CLOVER: Option<PointOfSale> = Some(PointOfSale::Clover);
+
+    /// The page of a till on Monokulo, as every test here but the wallet's
+    /// has it.
+    fn page(
+        sale: &TillSale,
+        pos: Option<PointOfSale>,
+        clock: DeviceClock,
+        elsewhere: bool,
+    ) -> SalePageModel {
+        super::page(sale, pos, clock, elsewhere, PaymentsMode::Monokulo)
+    }
 
     fn labels(model: &SalePageModel) -> Vec<&str> {
         model.facts.iter().map(|f| f.label.as_str()).collect()
@@ -1122,6 +1208,137 @@ mod tests {
         assert_eq!(cancelled.facts.last().unwrap().label, "Cancelled");
     }
 
+    #[test]
+    fn a_till_on_its_own_wallet_says_till_watches_while_its_open() {
+        use PaymentsMode::{LightServer, Wallet};
+        let at = at();
+        let of = |sale: &TillSale, by| super::page(sale, SQUARE, la(at), false, by);
+        let closed = sale_of("c").closed_at(at).build();
+        assert_eq!(
+            note(&of(&closed, Wallet)),
+            "Square has this sale as Monero. If the customer isn't paying, refund it. Till keeps watching for a late payment for a day, whenever it's open: if one arrives, this sale turns paid."
+        );
+        assert_eq!(
+            note(&of(&closed, LightServer)),
+            "Square has this sale as Monero. If the customer isn't paying, refund it. Till keeps asking your light wallet server for a late payment for a day, whenever it's open: if one arrives, this sale turns paid."
+        );
+        let still_live = TillSale {
+            expires_at: UnixSeconds(at + 1440),
+            ..closed.clone()
+        };
+        assert!(
+            note(&of(&still_live, Wallet)).ends_with(
+                "The code is still live until 4:22 PM, and Till keeps watching for a late payment for a day after that, whenever it's open: if one arrives, this sale turns paid."
+            ),
+            "{}",
+            note(&of(&still_live, Wallet))
+        );
+        let settled_closed = TillSale {
+            settled: true,
+            ..closed.clone()
+        };
+        assert!(note(&of(&settled_closed, Wallet)).ends_with(" Till has stopped watching it."));
+
+        let expired = sale_of("e").phase(SalePhase::Expired).ended_at(at).build();
+        assert_eq!(
+            of(&expired, Wallet).footnote.as_deref(),
+            Some(
+                "A late payment still counts for a day: Till sees it whenever it's open, and the sale turns paid."
+            )
+        );
+        assert_eq!(
+            of(&expired, LightServer).footnote.as_deref(),
+            Some(
+                "A late payment still counts for a day: Till hears of it from your light wallet server whenever it's open, and the sale turns paid."
+            )
+        );
+        let settled = TillSale {
+            settled: true,
+            ..expired.clone()
+        };
+        for by in [Wallet, LightServer] {
+            assert_eq!(
+                of(&settled, by).footnote.as_deref(),
+                Some("Till has stopped watching it."),
+                "past the late window (decision 230)"
+            );
+        }
+        let cancelled = sale_of("x")
+            .phase(SalePhase::Cancelled)
+            .ended_at(at)
+            .build();
+        assert_eq!(of(&cancelled, Wallet).line, "Cancelled");
+        assert_eq!(
+            page(&cancelled, SQUARE, la(at), false).line,
+            "Cancelled in Monokulo"
+        );
+
+        // No page of a wallet's sale names Monokulo.
+        let shift = fixture_shift();
+        let sales = [
+            closed,
+            still_live,
+            settled_closed,
+            expired,
+            settled,
+            cancelled,
+        ]
+        .into_iter()
+        .chain(shift.iter().cloned());
+        for sale in sales {
+            for by in [Wallet, LightServer] {
+                let model = of(&sale, by);
+                let words = [
+                    Some(model.line.as_str()),
+                    model.note.as_ref().map(|n| n.text.as_str()),
+                    model.footnote.as_deref(),
+                ];
+                assert!(
+                    words.iter().flatten().all(|w| !w.contains("Monokulo")),
+                    "{}: {words:?}",
+                    sale.order_id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_page_says_who_watches_as_its_input_says() {
+        let at = at();
+        let closed = sale_of("c").closed_at(at).build();
+        let on = |by| {
+            sale_page(
+                &SalePageInput {
+                    by,
+                    ..input(closed.clone())
+                },
+                la(at),
+                &money,
+            )
+        };
+        assert!(
+            on(PaymentsMode::Monokulo)
+                .note
+                .unwrap()
+                .text
+                .contains("Monokulo keeps watching")
+        );
+        assert!(
+            on(PaymentsMode::Wallet)
+                .note
+                .unwrap()
+                .text
+                .contains("Till keeps watching")
+        );
+        assert!(
+            on(PaymentsMode::LightServer)
+                .note
+                .unwrap()
+                .text
+                .contains("your light wallet server")
+        );
+    }
+
     // The page itself.
 
     fn input(sale: TillSale) -> SalePageInput {
@@ -1132,6 +1349,7 @@ mod tests {
             refund_problem: None,
             refunding: false,
             taking: false,
+            by: PaymentsMode::Monokulo,
         }
     }
 

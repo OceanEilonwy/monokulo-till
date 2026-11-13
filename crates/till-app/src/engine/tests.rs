@@ -2400,6 +2400,13 @@ fn a_light_wallet_server_is_checked_then_kept_with_the_wallet() {
     };
     assert_eq!(wallet.light_server.as_deref(), Some(server.as_str()));
     assert!(!wallet.light_self_signed);
+    engine.peek(|s| {
+        assert_eq!(
+            s.parts.as_ref().unwrap().side.payments_mode(),
+            PaymentsMode::LightServer,
+            "a sale's page says Till asks the server (core.md 252)"
+        );
+    });
     assert_eq!(wallet.network, "stagenet");
     assert_eq!(
         wallet.node.as_deref(),
@@ -2552,6 +2559,7 @@ fn a_till_on_its_own_wallet_has_no_foreground_service_and_no_bell() {
     engine.peek(|s| {
         let p = s.parts.as_ref().unwrap();
         assert!(p.side.wallet_mode());
+        assert_eq!(p.side.payments_mode(), PaymentsMode::Wallet);
         assert_eq!(
             till_bell::PosSide::signed_in(&*p.side).unwrap(),
             None,
