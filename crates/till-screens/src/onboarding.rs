@@ -346,7 +346,7 @@ impl Phase {
 
     /// The iPhone's bar: none on Welcome, and no "How sales show up". V1
     /// counts as connecting the store until the wallet is chosen.
-    fn progress(self, wallet: bool) -> Option<StepProgress> {
+    fn progress(self, wallet: bool, keypad: bool) -> Option<StepProgress> {
         let monokulo = [
             Phase::Store,
             Phase::PointOfSale,
@@ -362,7 +362,14 @@ impl Phase {
             Phase::Alerts,
             Phase::Ready,
         ];
-        let steps: &[Phase] = if wallet { &own } else { &monokulo };
+        let steps: Vec<Phase> = if wallet {
+            own.to_vec()
+        } else {
+            monokulo.to_vec()
+        }
+        .into_iter()
+        .filter(|p| !(keypad && *p == Phase::Alerts))
+        .collect();
         let this = if !wallet && self == Phase::Payments {
             Phase::Store
         } else {
@@ -869,6 +876,8 @@ pub fn onboarding(
         }
     };
     let phase = phase(&input.step);
+    // A keypad till has no alerts step (core.md decision 260).
+    let keypad = pos == Some(PointOfSale::Till);
     let mut words = words(&page, device);
     match &input.step {
         Step::Wallet(WalletStep::FobConnected(c)) => {
@@ -894,12 +903,12 @@ pub fn onboarding(
             .filter(|_| labelled && device == Device::Android)
             .map(|n| format!("Step {n} of {STEPS}")),
         rail: match (device, phase) {
-            (Device::Ipad, Some(current)) => rail(current, input.wallet),
+            (Device::Ipad, Some(current)) => rail(current, input.wallet, keypad),
             _ => Vec::new(),
         },
         progress: phase
             .filter(|_| device == Device::Iphone)
-            .and_then(|p| p.progress(input.wallet)),
+            .and_then(|p| p.progress(input.wallet, keypad)),
         page,
     }
 }
@@ -1501,7 +1510,14 @@ fn ready_page(
     alerts: bool,
     bubble: bool,
 ) -> OnboardingPage {
+    let keypad = pos == Some(PointOfSale::Till);
     let (heading, lead) = match device {
+        // A keypad till waits for nothing: the cashier opens each sale
+        // (core.md decision 260).
+        _ if keypad => (
+            "You're ready".to_owned(),
+            pos_text::ready_start(pos).to_owned(),
+        ),
         Device::Android => ("You're ready".to_owned(), pos_text::ready_lead(pos, bubble)),
         Device::Iphone => (
             "You're ready".to_owned(),
@@ -1531,13 +1547,15 @@ fn ready_page(
             value: location.unwrap_or("Not connected").into(),
             done: location.is_some(),
         },
-        Check {
+    ];
+    if !keypad {
+        checks.push(Check {
             name: "Alerts".into(),
             value: on_off(alerts).into(),
             done: alerts,
-        },
-    ];
-    if device == Device::Android {
+        });
+    }
+    if device == Device::Android && !keypad {
         checks.push(Check {
             name: "Bubble".into(),
             value: if bubble { "On" } else { "Notifications only" }.into(),
@@ -1551,8 +1569,9 @@ fn ready_page(
     }
 }
 
-/// iPad's step rail, with `current` lit.
-fn rail(current: Phase, wallet: bool) -> Vec<RailStep> {
+/// iPad's step rail, with `current` lit; a keypad till's has neither
+/// Alerts nor How sales show up (decisions 248, 260).
+fn rail(current: Phase, wallet: bool, keypad: bool) -> Vec<RailStep> {
     let steps: &[(Phase, &str)] = if wallet {
         &Phase::WALLET_RAIL
     } else {
@@ -1567,6 +1586,7 @@ fn rail(current: Phase, wallet: bool) -> Vec<RailStep> {
     steps
         .iter()
         .copied()
+        .filter(|(phase, _)| !(keypad && matches!(phase, Phase::Alerts | Phase::ShowSales)))
         .zip(1..)
         .map(|((phase, label), number)| RailStep {
             number,

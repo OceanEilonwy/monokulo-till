@@ -2537,3 +2537,21 @@ still strings across the till, the ledger, the screens and the bridge.
      orange text #FF8F45; paid #5CC88A. The accent stays #FF6600 with
      #111111 on it. Android's dark ground was #1C1B19, and iOS's cards
      were too, on a black ground.
+260. **A keypad till shows no notifications.** (Owner, 2026-11-13.) The
+     cashier makes every sale on the till, so nothing needs announcing.
+     On a keypad till the engine posts no new-sale alert and no paid,
+     unpaid or overpaid notice (`deliver`, and the background look's
+     alerts and ongoing face). Its `NotificationView` is empty, it has no
+     Live Activity and no bubble, and Android runs no foreground service,
+     which would need an ongoing notification (as on the shop's own
+     wallet, decision 231). With Monokulo the stream picks up again when
+     Till opens. Setup skips the Alerts step: after the point of sale, or
+     Prices, comes Ready, whose lead is "Start Till and tap New sale to
+     charge your first customer." and which has no Alerts or Bubble
+     check. The rail and progress bar leave Alerts out, and Back from
+     Ready goes to Prices or the point of sale. So neither platform asks
+     for notification permission. Settings hides its Notifications
+     section (`SettingsView::notifications`), the iOS alerts status, the
+     Dynamic Island section and iPad's How sales show up, and the empty
+     till's chips drop "Alerts on/off". An overpaid keypad sale is still
+     shown on its sale page.

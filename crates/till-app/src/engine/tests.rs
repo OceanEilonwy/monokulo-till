@@ -3354,7 +3354,47 @@ fn choosing_the_keypad_on_a_wallet_asks_for_its_currency_then_prices() {
         (platform.get("keypad.currency").as_deref() == Some("XMR")).then_some(())
     });
     engine.send(Action::Next);
-    screen(&rx, Screen::Alerts);
+    // No alerts step on a keypad till (core.md decision 260): setup ends,
+    // and Back goes to the point of sale, with no prices for XMR only.
+    screen(&rx, Screen::Ready);
+    let ready = engine.peek(|s| {
+        let p = s.parts.as_ref().unwrap();
+        let input = s.onboarding_input(p).unwrap();
+        till_screens::onboarding::onboarding(
+            &input,
+            s.config.device,
+            &crate::phases::Money(s.platform.clone()),
+        )
+    });
+    assert!(
+        !format!("{ready:?}").contains("\"Alerts\""),
+        "no Alerts check or step: {ready:?}"
+    );
+    engine.send(Action::Back);
+    screen(&rx, Screen::PointOfSale);
+}
+
+/// A keypad till shows no notifications (core.md decision 260): no Live
+/// Activity, no notification view, no bubble and no foreground service.
+#[test]
+fn a_keypad_till_shows_no_notifications() {
+    let config = config(None);
+    let (platform, _) = wallet_till(&config.data_dir);
+    platform.set("pos.kind", "till");
+    platform.set("keypad.currency", "XMR");
+    let (engine, rx, _) = start(config, platform.clone());
+    screen(&rx, Screen::Till);
+    let (notification, live, bubble) = engine.peek(|s| {
+        let p = s.parts.as_ref().unwrap();
+        (
+            s.notification_view(p),
+            s.live_activity_state(p),
+            s.has_bubble(),
+        )
+    });
+    assert_eq!((notification.ongoing, notification.alert), (None, None));
+    assert_eq!(live, None);
+    assert!(!bubble);
 }
 
 /// Prices runs on a till through the shop's light wallet server too: it's

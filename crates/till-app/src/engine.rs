@@ -1360,7 +1360,8 @@ impl State {
     /// §6), then says so: a new sale's alert while the app is behind; a
     /// payment's paid moment and haptic, with a notice while behind; a
     /// code that ran out unpaid. Notices are posted on Android, on iPad
-    /// and on an iPhone without the Live Activity (the owner's fix 2).
+    /// and on an iPhone without the Live Activity (the owner's fix 2); on a
+    /// keypad till none are, nor alerts (core.md decision 260).
     fn deliver(&mut self, claims: Vec<Claim>) {
         if claims.is_empty() {
             return;
@@ -1371,14 +1372,15 @@ impl State {
         let till = model.point_of_sale;
         let money = Money(self.platform.clone());
         let android = self.config.device == Device::Android;
-        let notices = android || !self.live_activity_on(&model);
+        let keypad = till == Some(PointOfSale::Till);
+        let notices = !keypad && (android || !self.live_activity_on(&model));
         let quiet = self.visible;
         for claim in claims {
             let sale = TillSale::of_view(&claim.view);
             let order_id = sale.order_id.clone();
             match claim.kind {
                 AlertKind::NewSale => {
-                    if !self.visible {
+                    if !self.visible && !keypad {
                         self.alert_for = Some(order_id);
                     }
                 }
@@ -1400,6 +1402,8 @@ impl State {
                     }
                 }
                 // Always a notice, even beside a Live Activity: money is owed.
+                // A keypad till's sale page says so instead.
+                AlertKind::Overpaid if keypad => {}
                 AlertKind::Overpaid => self.effect(Effect::Notify {
                     order_id,
                     notice: notification::overpaid_notice(&sale, &money),
@@ -1465,8 +1469,13 @@ impl State {
             Screen::Alerts => self.go(Screen::PointOfSale),
             Screen::Float => self.go(Screen::Alerts),
             Screen::ShowSales => self.go(Screen::Alerts),
-            // The keypad has no other app to float over or switch from.
-            Screen::Ready if self.on_keypad() => self.go(Screen::Alerts),
+            // The keypad has no other app to float over or switch from, and
+            // shows no notifications, so no alerts step (decision 260).
+            Screen::Ready if self.on_keypad() && self.prices_due() => {
+                self.go(Screen::Prices);
+                self.check_prices();
+            }
+            Screen::Ready if self.on_keypad() => self.go(Screen::PointOfSale),
             Screen::Ready if self.config.device == Device::Android => self.go(Screen::Float),
             Screen::Ready if self.config.device == Device::Ipad => self.go(Screen::ShowSales),
             Screen::Ready => self.go(Screen::Alerts),
@@ -2568,8 +2577,10 @@ impl State {
         let Some(p) = &self.parts else { return };
         let device = self.config.device;
         let clock = self.device_clock();
-        // No foreground service for the shop's own wallet (decision 231).
-        let running = p.runner.state().running && !p.side.wallet_mode();
+        // No foreground service for the shop's own wallet (decision 231),
+        // nor on a keypad till, whose ongoing notification it would need
+        // (decision 260).
+        let running = p.runner.state().running && !p.side.wallet_mode() && !self.on_keypad();
         let onboarding = self
             .onboarding_input(p)
             .map(|input| onboarding::onboarding(&input, device, &Money(self.platform.clone())));

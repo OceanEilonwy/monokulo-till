@@ -802,6 +802,9 @@ decision 258):
   again with a tap.
 - **No total for the shift**: a keypad till's list shows since when, not
   the takings.
+- **No notifications** (core.md decision 260): no alerts, notices, Live
+  Activity, bubble or ongoing notification, and setup has no Alerts step.
+  The cashier makes each sale on the till, so nothing needs announcing.
 
 **The currency**:
 

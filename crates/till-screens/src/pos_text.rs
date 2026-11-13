@@ -249,7 +249,7 @@ pub fn ready_start(pos: Option<PointOfSale>) -> &'static str {
     match pos {
         Some(PointOfSale::Square) => "Start Till and switch to Square.",
         Some(PointOfSale::Clover) => "Start Till and ring up on your Clover device.",
-        Some(PointOfSale::Till) => "Start Till and type the first sale's amount on its keypad.",
+        Some(PointOfSale::Till) => "Start Till and tap New sale to charge your first customer.",
         None => "Start Till.",
     }
 }

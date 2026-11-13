@@ -355,6 +355,10 @@ pub struct SettingsView {
     pub pos_title: String,
     #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
     pub alerts_title: String,
+    /// Whether the Notifications section shows: not on a keypad till,
+    /// which shows no notifications (core.md decision 260).
+    #[cfg_attr(feature = "uniffi", uniffi(default = true))]
+    pub notifications: bool,
     #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
     pub wake_ups_title: String,
     #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
@@ -646,6 +650,9 @@ pub fn settings(input: &SettingsInput, device: Device, clock: DeviceClock) -> Se
     // Square names the device that took each payment and has a cash
     // tender; Clover's payments are read by their Monero tender alone.
     let square_connected = pos == Some(PointOfSale::Square) && input.pos.connected();
+    // A keypad till shows no notifications, floats over nothing and has
+    // no Live Activity (core.md decision 260).
+    let keypad = pos == Some(PointOfSale::Till);
     let mut view = SettingsView {
         store: input
             .connection
@@ -669,7 +676,7 @@ pub fn settings(input: &SettingsInput, device: Device, clock: DeviceClock) -> Se
             on: input.alerts,
             footnote: alerts_footnote(input.alerts, device).into(),
         },
-        bubble: android.then(|| SwitchSection {
+        bubble: (android && !keypad).then(|| SwitchSection {
             on: input.bubble_wanted && input.bubble_allowed,
             footnote: if !input.bubble_allowed {
                 "Android hasn't allowed Till to display over other apps, so sales show in the notification only.".into()
@@ -688,7 +695,7 @@ pub fn settings(input: &SettingsInput, device: Device, clock: DeviceClock) -> Se
                 row: wake_ups_row(&input.wake_ups, device),
             }
         },
-        island: (device == Device::Iphone)
+        island: (device == Device::Iphone && !keypad)
             .then(|| IslandSection::new(input.live_activity, input.code_in_island)),
         stand_ins: if input.debug {
             PointOfSale::ALL
@@ -711,8 +718,8 @@ pub fn settings(input: &SettingsInput, device: Device, clock: DeviceClock) -> Se
             counters_section(&input.choices, pos, place, device, clock)
         }),
         cash: square_connected.then(|| cash_section(&input.choices)),
-        alerts_status: device.is_ios().then(|| alerts_status(input.alerts)),
-        show_sales: (device == Device::Ipad).then(|| ShowSalesSection {
+        alerts_status: (device.is_ios() && !keypad).then(|| alerts_status(input.alerts)),
+        show_sales: (device == Device::Ipad && !keypad).then(|| ShowSalesSection {
             choices: show_sales_choices(input.choices.show_sales, pos),
             side_by_side: (input.choices.show_sales == ShowSales::SideBySide)
                 .then(|| SIDE_BY_SIDE_HOW.into()),
@@ -722,6 +729,7 @@ pub fn settings(input: &SettingsInput, device: Device, clock: DeviceClock) -> Se
         store_title: "Store".into(),
         pos_title: pos_text::POINT_OF_SALE.into(),
         alerts_title: "Notifications".into(),
+        notifications: !keypad,
         wake_ups_title: "Wake-ups".into(),
         developer_title: "Developer (debug builds)".into(),
         disconnect: "Disconnect this device".into(),

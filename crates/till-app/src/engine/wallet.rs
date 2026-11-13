@@ -708,7 +708,17 @@ impl State {
             self.go(Screen::Prices);
             self.check_prices();
         } else {
-            self.go(Screen::Alerts);
+            self.go(self.alerts_step());
+        }
+    }
+
+    /// Setup's alerts step, or on a keypad till, which shows no
+    /// notifications, the end of setup (core.md decision 260).
+    pub(super) fn alerts_step(&self) -> Screen {
+        if self.on_keypad() {
+            Screen::Ready
+        } else {
+            Screen::Alerts
         }
     }
 
@@ -717,7 +727,7 @@ impl State {
     pub(super) fn prices_next(&mut self) {
         let Some(model) = self.model() else { return };
         let Some(currency) = price_currency(&model) else {
-            return self.go(Screen::Alerts);
+            return self.go(self.alerts_step());
         };
         let provider = model.wallet.as_ref().map(|link| {
             till_wallet::prices::provider_name(link.price_provider.as_deref(), Some(&currency))
@@ -727,7 +737,7 @@ impl State {
                 link.price_currency = Some(currency);
                 link.price_provider = provider;
             },
-            |s| s.go(Screen::Alerts),
+            |s| s.go(s.alerts_step()),
         );
     }
 

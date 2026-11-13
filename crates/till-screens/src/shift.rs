@@ -751,7 +751,11 @@ pub fn status_chips(input: &ShiftInput) -> Vec<StatusChip> {
     } else {
         chip(StatusChipKind::NotWatching, "Not watching", Tone::Muted)
     }];
-    match input.alerts {
+    // A keypad till shows no notifications (core.md decision 260).
+    let alerts = input
+        .alerts
+        .filter(|_| input.till != Some(PointOfSale::Till));
+    match alerts {
         Some(true) => chips.push(chip(StatusChipKind::AlertsOn, "Alerts on", Tone::Plain)),
         Some(false) => chips.push(chip(StatusChipKind::AlertsOff, "Alerts off", Tone::Warn)),
         None => {}
