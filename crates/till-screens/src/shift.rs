@@ -1585,6 +1585,7 @@ pub(crate) mod tests {
     fn a_clover_tills_rows_and_pages_name_clover_and_a_sale_to_refund_in_clover_needs_action() {
         use crate::close::{self, CloseChoice};
         use crate::sale_page::{PageAction, page};
+        use crate::wallet_setup::PaymentsMode::Monokulo;
         use SalePhase::*;
         let at = at();
         let sub = |sale: &TillSale| triple(sale, CLOVER, 0).0;
@@ -1621,7 +1622,7 @@ pub(crate) mod tests {
             sale_text::status(&pending, CLOVER),
             "Not paid · refund it in Clover"
         );
-        let p = page(&pending, CLOVER, la(at), false);
+        let p = page(&pending, CLOVER, la(at), false, Monokulo);
         assert_eq!(p.actions, [PageAction::Refund]);
         assert_eq!(
             p.note.as_ref().map(|n| n.text.as_str()),
@@ -1631,7 +1632,7 @@ pub(crate) mod tests {
         );
         assert_eq!(p.facts.last().unwrap().label, "Told to refund it");
         assert_eq!(
-            page(&sale_of("c").closed_at(at).build(), CLOVER, la(at), false)
+            page(&sale_of("c").closed_at(at).build(), CLOVER, la(at), false, Monokulo)
                 .note
                 .map(|n| n.text),
             Some(

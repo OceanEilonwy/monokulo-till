@@ -153,6 +153,11 @@ enum Screenshots {
         let pricedPreview = preview([priced], ipad: ipad)
         let pricedShift = previewShift(preview: pricedPreview, platform: platform).map { Update.shift(view: $0) }
         let pricedSale = previewSale(preview: pricedPreview, orderId: "w1", platform: platform)
+        // A sale whose code ran out on a till on the shop's own wallet: Till,
+        // not Monokulo, watches for a late payment (core.md decision 252).
+        var walletPreview = full
+        walletPreview.payments = .wallet
+        let walletExpired = previewSale(preview: walletPreview, orderId: "e1", platform: platform)
         // Sales charged on Till's keypad, two put aside for the next customer.
         let keypadSales = [
             PreviewSale(
@@ -253,6 +258,7 @@ enum Screenshots {
             Shot(name: "vk-light-server", updates: step(.vkLightServer, .lightServer)),
             Shot(name: "vk-light-this-till", updates: step(.vkLightThisTill, .thisTill)),
             Shot(name: "vk-light-settings", screen: walletSettings(.vkLightSettings)),
+            Shot(name: "vk-sale-expired", updates: till(.sale(orderId: "e1"), shift, walletExpired)),
         ]
         // Till's keypad as the point of sale (docs/view-key-mode.md §7).
         shots += [

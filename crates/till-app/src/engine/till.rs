@@ -405,6 +405,7 @@ impl State {
                 refund_problem: runner.till.refund_problems.get(order_id).cloned(),
                 refunding: self.refunding.contains(order_id),
                 taking: self.taking.contains(order_id),
+                by: p.side.payments_mode(),
             },
             clock,
             &money,

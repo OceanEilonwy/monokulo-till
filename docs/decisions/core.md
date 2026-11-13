@@ -2399,3 +2399,22 @@ still strings across the till, the ledger, the screens and the bridge.
      is an order made through the till's connection like any other, and
      shows in Monokulo's web POS list and Orders page as such: nothing
      marks it either way.
+252. **A sale's page says who watches for a late payment.** With Monokulo
+     its words are unchanged: "Monokulo keeps watching for a late payment
+     for a while", "Monokulo has stopped watching it.", "Cancelled in
+     Monokulo". On the shop's own wallet it's Till itself, and only while
+     it's open (decision 231), for the late window of a day after the code
+     runs out (decision 230): "Till keeps watching for a late payment for a
+     day, whenever it's open: if one arrives, this sale turns paid.", an
+     expired sale's small print "A late payment still counts for a day:
+     Till sees it whenever it's open, and the sale turns paid.", and once
+     the window has passed "Till has stopped watching it.". With a light
+     wallet server, Till asks the server: "Till keeps asking your light
+     wallet server for a late payment for a day, whenever it's open", and
+     "Till hears of it from your light wallet server whenever it's open".
+     "Whenever it's open", not "while": a payment that came while Till was
+     closed is found when it next opens. A cancelled wallet sale says only
+     "Cancelled". `SalePageInput::by` carries the till's `PaymentsMode`
+     (`Side::payments_mode`: a wallet link with a light server is
+     LightServer), and the previews' `TillPreview::payments`, Monokulo when
+     not said, draws the screenshot `vk-sale-expired`.
