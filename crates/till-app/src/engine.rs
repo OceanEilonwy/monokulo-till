@@ -1039,6 +1039,10 @@ impl State {
             Action::StepPaidAfter { up } => self.step_paid_after(up),
             Action::StepCodeExpiry { up } => self.step_code_expiry(up),
             Action::SetNode { url } => self.set_node(url),
+            Action::CheckNodes => self.check_nodes(),
+            Action::CheckNewNode { url } => self.check_new_node(url),
+            Action::CloseNewNode => self.close_new_node(),
+            Action::RemoveNode { url } => self.remove_node(url),
             Action::EditLightServer { url, self_signed } => {
                 self.edit_light_server(url, self_signed)
             }

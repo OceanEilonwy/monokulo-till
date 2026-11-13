@@ -180,6 +180,8 @@ pub struct ThisTillSetup {
     /// Through a light wallet server: the node is the one its proofs are
     /// checked with.
     pub light: bool,
+    /// Change, as Fob's Node screen.
+    pub chooser: Box<crate::node_chooser::NodeChooserInput>,
 }
 
 /// V1.
@@ -391,6 +393,11 @@ pub struct NodeRow {
     /// `Action::SetLightServer`'s `self_signed`. `None` for a node.
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub self_signed: Option<Choice>,
+    /// Change, as Fob's Node screen ([`crate::node_chooser`]): for a node,
+    /// in D4 and Settings. `None` on a light wallet server, whose Change
+    /// is the address and the switch, as above.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub chooser: Option<crate::node_chooser::NodeChooser>,
 }
 
 /// D4.
@@ -881,6 +888,7 @@ pub fn this_till_step(t: &ThisTillSetup) -> ThisTillStep {
                 .collect(),
             choices: t.node_choices.clone(),
             self_signed: None,
+            chooser: Some(crate::node_chooser::node_chooser(&t.chooser)),
         }),
         paid_after: paid_after(t.confirmations, false),
         expiry: expiry(t.expiry_minutes),
@@ -1112,8 +1120,14 @@ mod tests {
             busy: false,
             problem: None,
             light: false,
+            chooser: Default::default(),
         };
         let view = this_till_step(&t);
+        let chooser = view.node.as_ref().unwrap().chooser.as_ref().unwrap();
+        assert_eq!(
+            chooser.title, "Node",
+            "D4's Change is Fob's Node screen too"
+        );
         let number = view.number.unwrap();
         assert_eq!(
             (number.value.as_str(), number.detail.as_deref()),

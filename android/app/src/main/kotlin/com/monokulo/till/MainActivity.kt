@@ -479,6 +479,7 @@ class MainActivity : ComponentActivity() {
                     onNode = { send(Action.SetNode(it)) },
                     onNext = { send(Action.Next) },
                     onBack = { send(Action.Back) },
+                    send = { send(it) },
                 ),
             )
             is OnboardingPage.Prices -> PricesScreen(

@@ -59,6 +59,9 @@ pub struct WalletSettingsInput {
     /// A sale is waiting for payment: another wallet would never see it
     /// paid, so the wallet can't change yet.
     pub live_sales: bool,
+    /// The node's Change, as Fob's Node screen; left out on a light
+    /// wallet server, whose row is the server's.
+    pub chooser: crate::node_chooser::NodeChooserInput,
 }
 
 /// The price source: whose prices convert the sale's currency.
@@ -228,6 +231,7 @@ pub fn wallet_section(w: &WalletSettingsInput) -> WalletSection {
                 .collect(),
             choices,
             self_signed: light.then(|| self_signed_choice(w.light_self_signed, !w.busy)),
+            chooser: (!light).then(|| crate::node_chooser::node_chooser(&w.chooser)),
         }),
         // Shortened to fit beside its stepper (owner, 2026-11-13).
         paid_after: SetupStepper {
@@ -311,6 +315,7 @@ mod tests {
             busy: false,
             problem: None,
             live_sales: false,
+            chooser: Default::default(),
         }
     }
 
@@ -327,7 +332,10 @@ mod tests {
         assert_eq!(view.prices.value, "Kraken · AUD");
         assert!(view.prices.providers[0].selected);
         assert_eq!(view.prices.asking.as_deref(), Some("Asking each provider…"));
-        assert_eq!(view.node.unwrap().value, "node.example.com:18089");
+        let node = view.node.unwrap();
+        assert_eq!(node.value, "node.example.com:18089");
+        let chooser = node.chooser.expect("Fob's Node screen");
+        assert_eq!(chooser.section, "Change node");
     }
 
     #[test]
@@ -344,6 +352,7 @@ mod tests {
             ("Light wallet server", "lws.example.com:8443")
         );
         assert!(row.choices.is_empty(), "no default servers");
+        assert!(row.chooser.is_none(), "a server has no node list");
         let switch = row.self_signed.unwrap();
         assert_eq!(switch.label, "Accept its own certificate", "setup's words");
         assert!(!switch.selected && switch.enabled);

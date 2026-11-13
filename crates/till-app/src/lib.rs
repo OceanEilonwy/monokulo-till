@@ -791,6 +791,21 @@ pub enum Action {
     SetNode {
         url: String,
     },
+    /// The node's Change opened, or its Check again (Fob's Node screen):
+    /// the node in use checked again, and every other node at once.
+    CheckNodes,
+    /// Add your own node's Check: the address typed, checked as Fob checks
+    /// a node; its Use is `SetNode`.
+    CheckNewNode {
+        url: String,
+    },
+    /// Add your own node closed: a node whose check passed is kept on the
+    /// list, as Fob keeps it.
+    CloseNewNode,
+    /// A node this till was given, taken off the list.
+    RemoveNode {
+        url: String,
+    },
     /// The light wallet server's address as typed, and whether its own
     /// certificate is accepted: each change sends both. Continue
     /// (`Action::Next`) checks it.
@@ -936,6 +951,10 @@ impl Action {
             Action::StepPaidAfter { .. } => "StepPaidAfter",
             Action::StepCodeExpiry { .. } => "StepCodeExpiry",
             Action::SetNode { .. } => "SetNode",
+            Action::CheckNodes => "CheckNodes",
+            Action::CheckNewNode { .. } => "CheckNewNode",
+            Action::CloseNewNode => "CloseNewNode",
+            Action::RemoveNode { .. } => "RemoveNode",
             Action::EditLightServer { .. } => "EditLightServer",
             Action::SetLightServer { .. } => "SetLightServer",
             Action::ChoosePriceProvider { .. } => "ChoosePriceProvider",

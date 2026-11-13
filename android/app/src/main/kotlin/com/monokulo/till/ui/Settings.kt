@@ -241,7 +241,11 @@ private fun WalletSettings(w: WalletSection, a: SettingsActions) {
     w.node?.let { node ->
         Spacer(Modifier.height(16.dp))
         NodeCard(node, { changingNode = true }, { a.send(Action.SetLightServer(node.url, it)) })
-        if (changingNode) {
+        val chooser = node.chooser
+        // A node's Change is Fob's Node screen; a light wallet server's, its address and switch.
+        if (changingNode && chooser != null) {
+            NodeChooserDialog(chooser, a.send, onDismiss = { changingNode = false })
+        } else if (changingNode) {
             NodeDialog(node) { url, selfSigned ->
                 changingNode = false
                 when {

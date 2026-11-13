@@ -2588,3 +2588,24 @@ still strings across the till, the ledger, the screens and the bridge.
      them; a build's own stand-in (tests, a local server) still comes
      from its config. `tools/square-sandbox` takes `SQUARE_SANDBOX_HOST`
      for a public name reached through a router's port forwarding.
+263. **Settings' node chooser is Fob's Node screen.** (Owner, 2026-11-13:
+     "Copy the node selection dialog from Fob wallet".) The node row's
+     Change opens Fob's design on both platforms, in Settings › Payments
+     and D4 (`NodeRow::chooser`, `till_screens::node_chooser`):
+     - the node in use, with its verdict and each check (Certificate,
+       Answers, Right network, Up to date, Sends blocks) streamed as it
+       finishes;
+     - "Change node": every other node (the network's defaults, then the
+       till's own), all checked at once, each with its dot, one line
+       ("120 ms · in sync · fastest"), Use only when every check passed,
+       and a bin on the till's own;
+     - "Add your own node", whose sheet checks an address before Use
+       ("Use it anyway" when only Up to date failed).
+     Actions: `CheckNodes`, `CheckNewNode`, `CloseNewNode`, `RemoveNode`,
+     with `SetNode` as Use. Fob's wording, "Fob" made "Till". till-app
+     calls fob-wallet's `node::check` and `check_all` directly (now a
+     normal dependency). The till's own nodes are kept by Till, under
+     `wallet.nodes`, since fob-wallet keeps its list inside the backend.
+     Not ported: self-signed nodes, which need a WalletLink setting
+     till-wallet doesn't have, and rechecking after a remove. A till on a
+     light wallet server keeps its server dialog.

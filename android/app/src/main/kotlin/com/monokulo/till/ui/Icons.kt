@@ -88,4 +88,12 @@ object MkIcons {
     /** The keypad's delete key: a tag pointing left with a cross in it, as Monokulo's web POS draws it. */
     val Backspace = icon("delete", 24f, "M8.5 5h11a1.5 1.5 0 0 1 1.5 1.5v11a1.5 1.5 0 0 1-1.5 1.5h-11L3 12Z" to 2f, "M11.5 9.5l5 5M16.5 9.5l-5 5" to 2f)
     val Shrink = icon("shrink", 24f, "M4 10h6V4M20 14h-6v6M10 10L3 3M14 14l7 7" to 2.2f)
+
+    /** The node's Change, as Fob's Node screen draws it: Check again, Remove, and a check's running dots, dash and "!". */
+    val Refresh = icon("refresh", 24f, "M20 11a8 8 0 1 0-2.3 5.7 M20 4v7h-7" to 2f)
+    val Trash = icon("trash", 24f, "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" to 2f)
+    val Dots = icon("dots", 24f, "M6 12h.5 M12 12h.5 M18 12h.5" to 3f)
+    val Dash = icon("dash", 24f, "M8 12h8" to 3f)
+    val Alert = icon("alert", 24f, "M12 7v6 M12 17v.5" to 3f)
+    val Check = icon("check", 24f, "M5 12.5l4.5 4.5L19 7.5" to 3f)
 }

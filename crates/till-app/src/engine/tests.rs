@@ -7,6 +7,7 @@ use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
 use monokulo_client::FixedClock;
+use till_screens::node_chooser::{NodeMark, NodeUse};
 use till_screens::onboarding::OnboardingPage;
 use till_screens::shift::ShiftFilter;
 use till_screens::wallet_setup::{CheckMark, PaymentsMode};
@@ -2709,6 +2710,204 @@ fn light_server_settings_show_and_change_the_server() {
     let kept = kept_wallet(&platform);
     assert_eq!(kept.node, link.node, "the node for proofs stays");
     assert_eq!(kept.file_key, link.file_key, "the same wallet");
+    // A server's row has no node list: setup's address and switch.
+    let row = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view.wallet.clone().and_then(|w| w.node),
+        _ => None,
+    });
+    assert!(row.chooser.is_none());
+    // Fob's node actions do nothing on a server.
+    engine.send(Action::CheckNodes);
+    engine.send(Action::RemoveNode {
+        url: second.clone(),
+    });
+    assert_eq!(
+        kept_wallet(&platform).light_server.as_deref(),
+        Some(second.as_str())
+    );
+}
+
+/// A local address nothing listens on.
+fn dead_node() -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port())
+}
+
+/// The owner, 2026-11-13: the node's Change is Fob's Node screen. Settings
+/// lists the network's other nodes and the till's own, checked at once;
+/// one of the till's own can be removed; one added by hand is checked, and
+/// kept on closing only if it passed.
+#[test]
+fn settings_change_node_lists_checks_adds_and_removes_nodes_as_fob_does() {
+    let config = config(None);
+    let (platform, link) = wallet_till(&config.data_dir);
+    let mine = dead_node();
+    platform.set("wallet.nodes", &serde_json::to_string(&[&mine]).unwrap());
+    let (engine, rx, _) = start(config, platform.clone());
+    screen(&rx, Screen::Till);
+    engine.send(Action::OpenSettings);
+    let chooser = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view
+            .wallet
+            .clone()
+            .and_then(|w| w.node)
+            .and_then(|n| n.chooser),
+        _ => None,
+    });
+    assert_eq!(
+        (chooser.title.as_str(), chooser.section.as_str()),
+        ("Node", "Change node")
+    );
+    assert_eq!(chooser.add.label, "Add your own node");
+
+    engine.send(Action::CheckNodes);
+    let listed = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view
+            .wallet
+            .clone()
+            .and_then(|w| w.node)
+            .and_then(|n| n.chooser)
+            .filter(|c| !c.choices.is_empty()),
+        _ => None,
+    });
+    let current = link.node.clone().unwrap();
+    assert!(
+        listed.choices.iter().all(|c| c.url != current),
+        "not the one in use"
+    );
+    let own = listed
+        .choices
+        .iter()
+        .find(|c| c.url == mine)
+        .expect("the till's own");
+    assert!(own.remove);
+    assert_eq!(
+        own.remove_said,
+        format!("Remove {}", &mine["http://".len()..])
+    );
+    assert!(
+        listed
+            .choices
+            .iter()
+            .filter(|c| c.url != mine)
+            .all(|c| !c.remove),
+        "the network's own stay"
+    );
+    // The till's own doesn't answer: its line says so, without Use.
+    let dead = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view
+            .wallet
+            .clone()
+            .and_then(|w| w.node)
+            .and_then(|n| n.chooser)
+            .and_then(|c| c.choices.into_iter().find(|c| c.url == mine))
+            .filter(|c| c.mark == NodeMark::Fail),
+        _ => None,
+    });
+    assert!(dead.use_node.is_none());
+    assert_ne!(dead.line, "Checking…");
+
+    engine.send(Action::RemoveNode { url: mine.clone() });
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view
+            .wallet
+            .clone()
+            .and_then(|w| w.node)
+            .and_then(|n| n.chooser)
+            .filter(|c| c.choices.iter().all(|c| c.url != mine))
+            .map(|_| ()),
+        _ => None,
+    });
+    assert_eq!(platform.get("wallet.nodes"), None);
+
+    // One added by hand that doesn't answer: Use stays off, and closing
+    // doesn't keep it.
+    let typed = dead_node();
+    engine.send(Action::CheckNewNode {
+        url: format!(" {typed} "),
+    });
+    let sheet = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view
+            .wallet
+            .clone()
+            .and_then(|w| w.node)
+            .and_then(|n| n.chooser)
+            .map(|c| c.new_node)
+            .filter(|s| s.report.as_ref().is_some_and(|r| !r.checking)),
+        _ => None,
+    });
+    assert_eq!(sheet.checked, typed, "as typed, trimmed");
+    let report = sheet.report.unwrap();
+    assert_eq!(report.verdict, "Doesn't answer");
+    assert_eq!(report.usable, NodeUse::No);
+    assert!(!sheet.use_node.enabled);
+    assert_eq!(sheet.check_again.label, "Check again");
+    engine.send(Action::CloseNewNode);
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view
+            .wallet
+            .clone()
+            .and_then(|w| w.node)
+            .and_then(|n| n.chooser)
+            .filter(|c| c.new_node.report.is_none())
+            .map(|_| ()),
+        _ => None,
+    });
+    assert_eq!(
+        platform.get("wallet.nodes"),
+        None,
+        "a node that failed isn't kept"
+    );
+    assert_eq!(
+        kept_wallet(&platform).node,
+        link.node,
+        "the node in use stays"
+    );
+}
+
+/// Fob keeps the node left and the one chosen on its list; the network's
+/// own aren't kept, as they're always there. A change the wallet refuses
+/// leaves the node as it was and says why.
+#[test]
+fn settings_use_of_a_node_that_refuses_keeps_the_node_in_use() {
+    let config = config(None);
+    let (platform, link) = wallet_till(&config.data_dir);
+    let (engine, rx, _) = start(config, platform.clone());
+    screen(&rx, Screen::Till);
+    engine.send(Action::OpenSettings);
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view.wallet.clone(),
+        _ => None,
+    });
+    let dead = dead_node();
+    engine.send(Action::SetNode { url: dead.clone() });
+    // "Changing node" while the wallet tries it.
+    let changing = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view
+            .wallet
+            .clone()
+            .and_then(|w| w.node)
+            .and_then(|n| n.chooser)
+            .and_then(|c| c.changing),
+        _ => None,
+    });
+    assert_eq!(changing, &dead["http://".len()..]);
+    let section = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view.wallet.clone().filter(|w| {
+            w.problem.is_some()
+                && w.node
+                    .as_ref()
+                    .is_some_and(|n| n.chooser.as_ref().is_some_and(|c| c.changing.is_none()))
+        }),
+        _ => None,
+    });
+    assert!(section.problem.unwrap().starts_with("Couldn't change that"));
+    assert_eq!(kept_wallet(&platform).node, link.node);
+    assert_eq!(
+        platform.get("wallet.nodes"),
+        None,
+        "nothing kept when refused"
+    );
 }
 
 /// Decision 253: Settings' "Accept its own certificate" switch changes the

@@ -77,15 +77,22 @@ struct WalletSettings: View {
                 }
             }
             .sheet(isPresented: $changingNode) {
-                NodeSheet(node: node) { url, selfSigned in
-                    changingNode = false
-                    if let selfSigned {
-                        send(.setLightServer(url: url, selfSigned: selfSigned))
-                    } else {
-                        send(.setNode(url: url))
+                // A node's Change is Fob's Node screen; a light wallet
+                // server's, its address and switch.
+                if let chooser = node.chooser {
+                    NodeChooserSheet(chooser: chooser, send: send)
+                        .presentationDetents([.large])
+                } else {
+                    NodeSheet(node: node) { url, selfSigned in
+                        changingNode = false
+                        if let selfSigned {
+                            send(.setLightServer(url: url, selfSigned: selfSigned))
+                        } else {
+                            send(.setNode(url: url))
+                        }
                     }
+                    .presentationDetents([.medium, .large])
                 }
-                .presentationDetents([.medium, .large])
             }
         }
         Section {

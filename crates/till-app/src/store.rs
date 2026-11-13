@@ -123,6 +123,10 @@ pub mod keys {
     /// own wallet: an ISO 4217 code, or `XMR` for none; absent until
     /// chosen, and with Monokulo, whose store has its own.
     pub const KEYPAD_CURRENCY: &str = "keypad.currency";
+    /// The nodes this till was given besides its network's own (Fob's
+    /// custom nodes), for the node's Change: a JSON array of addresses;
+    /// absent when none.
+    pub const WALLET_NODES: &str = "wallet.nodes";
     /// The keypad's charge that failed, while it waits to be tried again
     /// with its idempotency key (`till_pos::keypad::PendingCharge`'s JSON,
     /// core.md decision 256): absent otherwise. Not part of the model, and
@@ -469,6 +473,7 @@ impl Store {
             cash_as_monero: self.switch(keys::CASH_AS_MONERO)?,
             show_sales: crate::ShowSales::from_wire(self.get(keys::SHOW_SALES)?.as_deref()),
             keypad_currency: self.get(keys::KEYPAD_CURRENCY)?,
+            custom_nodes: self.read(keys::WALLET_NODES)?.unwrap_or_default(),
         })
     }
 
@@ -556,6 +561,10 @@ impl Store {
         }
         if old.keypad_currency != new.keypad_currency {
             self.put(keys::KEYPAD_CURRENCY, new.keypad_currency.as_deref())?;
+        }
+        if old.custom_nodes != new.custom_nodes {
+            let nodes = (!new.custom_nodes.is_empty()).then_some(&new.custom_nodes);
+            self.write(keys::WALLET_NODES, nodes)?;
         }
         if old.show_sales != new.show_sales {
             self.put(keys::SHOW_SALES, new.show_sales.wire())?;
@@ -657,6 +666,9 @@ pub struct Model {
     /// Till's keypad's currency on the shop's own wallet: a code, `XMR`
     /// for none ([`keys::KEYPAD_CURRENCY`]).
     pub keypad_currency: Option<String>,
+    /// The nodes this till was given besides its network's own, as
+    /// fob-wallet normalises them ([`keys::WALLET_NODES`]).
+    pub custom_nodes: Vec<String>,
 }
 
 impl Default for Model {
@@ -691,6 +703,7 @@ impl Default for Model {
             cash_as_monero: true,
             show_sales: crate::ShowSales::Alert,
             keypad_currency: None,
+            custom_nodes: Vec::new(),
         }
     }
 }

@@ -34,6 +34,8 @@ use super::{State, apply};
 use crate::store::{Model, keys};
 use crate::{Effect, Screen};
 
+mod nodes;
+
 /// Where "Don't have Fob? Get it for Android" goes: Fob's releases.
 pub(crate) const FOB_URL: &str = "https://github.com/OceanEilonwy/monokulo-fob/releases";
 
@@ -81,6 +83,17 @@ pub(crate) struct WalletForm {
     /// Bumped with each check of the server.
     light_checking: u64,
     light_busy: bool,
+    /// The node in use's whole report, as Fob's Node screen shows it, and
+    /// the address it was checked at (under `checking`, with `checks`).
+    report: Option<(String, fob_wallet::node::Report)>,
+    /// The other nodes, each with its line once checked.
+    choices: Vec<(fob_wallet::node::Report, fob_wallet::node::Line)>,
+    choices_checking: u64,
+    /// Add your own node's address as typed, and its report.
+    new_node: Option<(String, fob_wallet::node::Report)>,
+    new_checking: u64,
+    /// Settings: the node the wallet is changing to, until it has.
+    changing: Option<String>,
 }
 
 impl WalletForm {
@@ -116,6 +129,12 @@ impl WalletForm {
             light_passed: None,
             light_checking: 0,
             light_busy: false,
+            report: None,
+            choices: Vec::new(),
+            choices_checking: 0,
+            new_node: None,
+            new_checking: 0,
+            changing: None,
         }
     }
 
@@ -542,7 +561,9 @@ impl State {
         form.expiry_minutes = step(&EXPIRY_STEPS, form.expiry_minutes, up);
     }
 
-    /// D4's node, checked now as Fob checks one.
+    /// D4's node, checked now as Fob checks one; in Settings, the wallet
+    /// changed to it ([`State::change_node`]). The node left and the one
+    /// chosen are kept on the list, as Fob keeps them.
     pub(super) fn set_node(&mut self, url: String) {
         let url = url.trim().to_owned();
         if url.is_empty() {
@@ -554,18 +575,16 @@ impl State {
             if let Some(self_signed) = self.light_self_signed() {
                 return self.set_light_server(url, self_signed);
             }
-            let node = url.clone();
-            self.change_wallet(move |link| {
-                link.node = Some(node);
-                if let Some(fob) = &mut link.fob {
-                    fob.node_from_fob = false;
-                }
-            });
+            return self.change_node(url);
         }
-        if !self.in_wallet_settings() {
-            self.form().node = Some(url.clone());
-        }
+        let left = self.form().node.replace(url.clone());
+        self.form().new_node = None;
+        self.keep_nodes([left, Some(url.clone())].into_iter().flatten());
         self.run_node_check(url);
+        // The list is checked again while it's up, as Fob's is.
+        if !self.wallet.choices.is_empty() {
+            self.check_other_nodes();
+        }
     }
 
     /// Whether the light wallet server's own certificate is accepted, on a
@@ -595,28 +614,6 @@ impl State {
             link.light_self_signed = self_signed;
         });
         self.run_light_check(url, self_signed, false);
-    }
-
-    /// The node at `url` checked as Fob checks one, its lines shown as
-    /// they come.
-    fn run_node_check(&mut self, url: String) {
-        let network = self.wallet.network();
-        let form = self.form();
-        form.checks = vec![("Checking the node…".into(), CheckMark::Checking)];
-        form.checking += 1;
-        let token = form.checking;
-        self.task(async move {
-            let checks = setup::check_node(network, &url).await;
-            apply(move |s| {
-                if s.wallet.checking != token {
-                    return;
-                }
-                s.wallet.checks = checks
-                    .into_iter()
-                    .map(|c| (c.text, check_mark(c.state)))
-                    .collect();
-            })
-        });
     }
 
     /// B4's and C4's Continue: D4 for the node when Fob shared none, else
@@ -747,10 +744,13 @@ impl State {
             self.new_runner();
             return self.go(Screen::Settings);
         }
+        // The nodes D4's Change was given stay on the list.
+        let nodes = kept.model().custom_nodes;
         let kept_it = kept.forget_all().and_then(|()| {
             kept.update(|m| {
                 m.connection = None;
                 m.wallet = Some(link.clone());
+                m.custom_nodes = nodes;
             })
         });
         if let Err(e) = kept_it {
@@ -948,6 +948,7 @@ impl State {
         }
         let Some(backend) = p.side.wallet_backend(&old) else {
             self.problem = Some("Couldn't open the wallet to change it.".into());
+            self.wallet.changing = None;
             return;
         };
         let side = p.side.clone();
@@ -964,7 +965,13 @@ impl State {
                 }),
                 Err(e) => {
                     let said = e.say();
-                    apply(move |s| s.problem = Some(format!("Couldn't change that: {said}")))
+                    apply(move |s| {
+                        s.problem = Some(format!("Couldn't change that: {said}"));
+                        // Refused: the node before is the one in use, checked again.
+                        if s.wallet.changing.take().is_some() {
+                            s.recheck_node_in_use();
+                        }
+                    })
                 }
             }
         });
@@ -1045,6 +1052,10 @@ impl State {
             busy: self.busy,
             problem: self.problem.clone(),
             live_sales: Self::has_live_sales(p),
+            chooser: self.node_chooser_input(
+                link.node.as_deref().filter(|_| link.light_server.is_none()),
+                &model.custom_nodes,
+            ),
         })
     }
 
@@ -1173,6 +1184,10 @@ impl State {
                 busy: self.busy,
                 problem: self.problem.clone(),
                 light: form.light(),
+                chooser: Box::new(self.node_chooser_input(
+                    form.node.as_deref(),
+                    &self.model().map(|m| m.custom_nodes).unwrap_or_default(),
+                )),
             }),
             Screen::LightServer => WalletStep::LightServer(LightServerSetup {
                 url: form.light_url.clone(),

@@ -383,7 +383,73 @@ fn wallet_step(step: PreviewStep, device_name: &str) -> WalletStep {
             busy: false,
             problem: None,
             light: step == PreviewStep::VkLightThisTill,
+            chooser: Box::new(preview_chooser(NODE)),
         }),
+    }
+}
+
+/// The node's Change as Fob's Node screen, for the previews: `url` working,
+/// a public node in sync and the fastest, one that didn't answer, and one
+/// this till was given.
+fn preview_chooser(url: &str) -> till_screens::node_chooser::NodeChooserInput {
+    use till_screens::node_chooser::{
+        NodeCheckLine, NodeChoiceInput, NodeChooserInput, NodeMark, NodeReport, NodeUse,
+    };
+    let row = |title: &str, result: &str, second: Option<&str>| NodeCheckLine {
+        title: title.into(),
+        result: result.into(),
+        second: second.map(Into::into),
+        mark: NodeMark::Pass,
+        label: format!("{title}: {result}"),
+    };
+    let choice = |url: &str, line: &str, mark: NodeMark, removable: bool| NodeChoiceInput {
+        url: url.into(),
+        address: till_screens::wallet_setup::node_address(url),
+        line: line.into(),
+        mark,
+        can_use: mark == NodeMark::Pass,
+        removable,
+    };
+    NodeChooserInput {
+        current: Some(NodeReport {
+            url: url.into(),
+            address: till_screens::wallet_setup::node_address(url),
+            verdict: "Working".into(),
+            mark: NodeMark::Pass,
+            rows: vec![
+                row("Certificate", "valid", None),
+                row("Answers", "84 ms", None),
+                row("Right network", "mainnet", None),
+                row("Up to date", "block 3,412,880 · 1 min ago", None),
+                row("Sends blocks to Till", "31 blocks/s", Some("1.8 MB/s")),
+            ],
+            usable: NodeUse::Use,
+            checking: false,
+        }),
+        changing: None,
+        choices: vec![
+            choice(
+                "https://xmr-node.cakewallet.com:18081",
+                "120 ms · in sync · fastest",
+                NodeMark::Pass,
+                false,
+            ),
+            choice(
+                "https://node.sethforprivacy.com:443",
+                "Didn't answer in 5 s",
+                NodeMark::Fail,
+                false,
+            ),
+            choice(
+                "http://192.168.1.20:18081",
+                "40 ms · in sync",
+                NodeMark::Pass,
+                true,
+            ),
+        ],
+        new_node: None,
+        busy: false,
+        problem: None,
     }
 }
 
@@ -572,6 +638,7 @@ pub fn preview_settings_of(look: PreviewSettings, device: Device, now: i64) -> S
             busy: false,
             problem: None,
             live_sales: false,
+            chooser: preview_chooser("https://node.example.com:18089"),
         }),
     };
     settings::settings(&input, device, clock(now))
