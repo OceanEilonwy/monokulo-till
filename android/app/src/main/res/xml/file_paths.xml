@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What the app's FileProvider may hand out: a sale's code shared as a picture (ShareCode.kt). -->
+<paths>
+    <cache-path name="shared" path="shared/" />
+</paths>

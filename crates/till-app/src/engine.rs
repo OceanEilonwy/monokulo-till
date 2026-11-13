@@ -241,6 +241,8 @@ pub(crate) struct State {
     counter: Option<CounterChoice>,
     /// Step 4 is past choosing the point of sale (O1), on to signing in.
     pos_confirmed: bool,
+    /// The wallet is being changed from Settings (core.md decision 261).
+    changing_wallet: bool,
     /// "Find this device again" waits for a sale that isn't one of these.
     finding: Option<BTreeSet<OrderId>>,
     /// The Clover devices whose names were asked for since the till
@@ -347,6 +349,7 @@ impl State {
             taking: BTreeSet::new(),
             counter: None,
             pos_confirmed: false,
+            changing_wallet: false,
             finding: None,
             devices_asked: BTreeSet::new(),
             refund_sheet: None,
@@ -1032,6 +1035,7 @@ impl State {
             Action::ChooseWalletWay { way } => self.choose_wallet_way(way),
             Action::FobAnswer { text } => self.fob_answer(text),
             Action::UseAnotherWallet => self.use_another_wallet(),
+            Action::ChangeWallet => self.change_to_another_wallet(),
             Action::ScanWalletCode { text } => self.wallet_code(Some(text)),
             Action::PasteWalletCode { text } => self.wallet_code(text),
             Action::EditWalletKeys {

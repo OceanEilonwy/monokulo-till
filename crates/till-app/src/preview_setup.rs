@@ -575,6 +575,7 @@ pub fn preview_settings_of(look: PreviewSettings, device: Device, now: i64) -> S
             },
             busy: false,
             problem: None,
+            live_sales: false,
         }),
     };
     settings::settings(&input, device, clock(now))

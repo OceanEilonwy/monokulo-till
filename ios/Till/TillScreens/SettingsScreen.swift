@@ -67,6 +67,17 @@ struct SettingsScreen: View {
                         }
                     }
                 }
+                // Change the wallet, as the point of sale changes (core.md
+                // decision 261): off while a sale waits for payment.
+                if let wallet = view.wallet, let change = wallet.change {
+                    Section {
+                        Button(change.label) { send(.changeWallet) }
+                            .foregroundStyle(change.enabled ? Palette.link : Palette.secondary)
+                            .disabled(!change.enabled)
+                    } footer: {
+                        Text(wallet.changeFootnote)
+                    }
+                }
                 Section {
                     Button(view.disconnect, role: .destructive) { askDisconnect = true }
                         .foregroundStyle(Palette.danger)

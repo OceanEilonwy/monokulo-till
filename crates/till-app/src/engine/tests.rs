@@ -3417,3 +3417,74 @@ fn a_light_server_till_is_asked_where_prices_come_from_too() {
     engine.send(Action::Back);
     screen(&rx, Screen::Prices);
 }
+
+/// Settings' "Change the wallet" (core.md decision 261): setup's V2 filled
+/// in from the wallet in use, Back to Settings; linking another wallet
+/// keeps the point of sale and setup and comes back to Settings.
+#[test]
+fn the_wallet_changes_from_settings_keeping_the_point_of_sale() {
+    let config = config(None);
+    let (platform, old) = wallet_till_with(
+        &config.data_dir,
+        till_wallet::WalletSetup {
+            settled_confirmations: 15,
+            ..till_wallet::WalletSetup::new(2)
+        },
+    );
+    platform.set("pos.kind", "till");
+    platform.set("keypad.currency", "XMR");
+    let (engine, rx, _) = start(config, platform.clone());
+    screen(&rx, Screen::Till);
+    engine.send(Action::OpenSettings);
+    screen(&rx, Screen::Settings);
+    let section = engine.peek(|s| {
+        let p = s.parts.as_ref().unwrap();
+        s.wallet_settings(p, &p.side.model())
+            .map(|w| till_screens::wallet_settings::wallet_section(&w))
+    });
+    let change = section.and_then(|w| w.change).expect("Change the wallet");
+    assert_eq!(change.label, "Change the wallet");
+    assert!(change.enabled, "no sale waits for payment");
+
+    engine.send(Action::ChangeWallet);
+    screen(&rx, Screen::WalletEntry);
+    engine.send(Action::Back);
+    screen(&rx, Screen::Settings);
+
+    engine.send(Action::ChangeWallet);
+    screen(&rx, Screen::WalletEntry);
+    engine.send(Action::ChooseWalletWay {
+        way: till_screens::wallet_setup::WalletWay::Keys,
+    });
+    screen(&rx, Screen::WalletKeys);
+    let keys = fob_keys::Keys::generate(till_wallet::Network::Stagenet).keys;
+    engine.send(Action::EditWalletKeys {
+        network: till_screens::wallet_setup::WalletNetwork::Stagenet,
+        address: keys.primary_address(),
+        view_key: keys.view_key_hex().to_string(),
+    });
+    page_where(&rx, |page| match page {
+        OnboardingPage::WalletKeys { view } if view.next.enabled => Some(()),
+        _ => None,
+    });
+    engine.send(Action::Next);
+    screen(&rx, Screen::ThisTill);
+    // Filled in from the wallet in use.
+    page_where(&rx, |page| match page {
+        OnboardingPage::ThisTill { view }
+            if view.number.as_ref().is_some_and(|n| n.value == "2")
+                && view.paid_after.value == "15 confirmations" =>
+        {
+            Some(())
+        }
+        _ => None,
+    });
+    engine.poke(|s| s.finish_wallet());
+    screen(&rx, Screen::Settings);
+    let new = kept_wallet(&platform);
+    assert_ne!(new.file_key, old.file_key, "another wallet");
+    assert_eq!((new.till_number, new.settled_confirmations), (2, 15));
+    assert_eq!(platform.get("setup.done").as_deref(), Some("true"));
+    assert_eq!(platform.get("pos.kind").as_deref(), Some("till"));
+    assert_eq!(platform.get("keypad.currency").as_deref(), Some("XMR"));
+}

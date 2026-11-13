@@ -72,6 +72,17 @@
             android:name=".notify.CopyReceiver"
             android:exported="false" />
 
+        <!-- A sale's "Share": its code as a picture, read by the app it is shared to. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <!-- The Bell's dings, through a UnifiedPush distributor (docs/design.md §3, §5), handed to the engine.
              The connector's own manifest brings the distributor <queries>, its receiver
              and WAKE_LOCK; this is the one part the app declares itself. -->

@@ -287,6 +287,11 @@ private fun WarningLine(text: String) = Row(
 @Composable
 private fun WalletDisconnect(w: WalletSection, a: SettingsActions) {
     var asking by remember { mutableStateOf(false) }
+    // Change the wallet, as the point of sale changes (docs/decisions/core.md 261): off while a sale waits.
+    w.change?.let { change ->
+        Group(rows = listOf({ ActionRow(change.label, { if (change.enabled) a.send(Action.ChangeWallet) }, if (change.enabled) mk.link else mk.muted) }))
+        Footnote(w.changeFootnote)
+    }
     Group(rows = listOf({ ActionRow(w.disconnect.label, { if (w.disconnect.enabled) asking = true }, mk.danger) }))
     Footnote(w.disconnectFootnote)
     if (asking) {

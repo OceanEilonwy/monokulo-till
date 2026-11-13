@@ -273,7 +273,12 @@ class MainActivity : ComponentActivity() {
         val target = flows.screen.value == s
         val close = flows.close.value.takeIf { target }
         val shift = flows.shift.value
+        // A sale charged on the keypad comes straight up in the keypad's place: the shift is never shown between them,
+        // even for the frame or two before the sale's own update is in. Read once, as the screen is first composed.
+        val stage = LocalStage.current
+        val charged = remember(id) { id != null && stage?.from() == Screen.Keypad }
         when {
+            face == null && charged -> Box(Modifier.fillMaxSize().background(mk.ground))
             // A sale not drawn (yet) shows the shift until it is.
             face == null -> if (shift != null) ShiftScreen(shift, actions, shiftPlace, close?.takeIf { s == Screen.Till })
             s is Screen.Code -> CodeScreen(face) { send(Action.Back) }

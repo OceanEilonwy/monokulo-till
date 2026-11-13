@@ -56,6 +56,9 @@ pub struct WalletSettingsInput {
     pub warnings: Vec<String>,
     pub busy: bool,
     pub problem: Option<String>,
+    /// A sale is waiting for payment: another wallet would never see it
+    /// paid, so the wallet can't change yet.
+    pub live_sales: bool,
 }
 
 /// The price source: whose prices convert the sale's currency.
@@ -113,7 +116,21 @@ pub struct WalletSection {
     pub disconnect_ask: String,
     pub disconnect_ask_detail: String,
     pub disconnect_confirm: String,
+    /// "Change the wallet", as "Change the point of sale" is (core.md
+    /// decision 261): setup's wallet step, back to Settings after. Off
+    /// while a sale waits for payment.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub change: Option<Press>,
+    /// Under it: what's kept, or why it's off.
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub change_footnote: String,
 }
+
+/// Under "Change the wallet": what changes and what's kept.
+pub const CHANGE_FOOTNOTE: &str =
+    "Connect another wallet. The point of sale, its sales and these settings stay.";
+/// Under "Change the wallet" while a sale waits for payment.
+pub const CHANGE_WAITING: &str = "A sale is waiting for payment. Another wallet wouldn't see it paid, so finish or close it first.";
 
 /// The row of a till on the shop's light wallet server.
 pub const LIGHT_SERVER_LABEL: &str = "Light wallet server";
@@ -258,6 +275,13 @@ pub fn wallet_section(w: &WalletSettingsInput) -> WalletSection {
         disconnect_ask: "Disconnect this wallet?".into(),
         disconnect_ask_detail: DISCONNECT_DETAIL.into(),
         disconnect_confirm: "Disconnect".into(),
+        change: Some(Press::new("Change the wallet").enabled(!w.busy && !w.live_sales)),
+        change_footnote: if w.live_sales {
+            CHANGE_WAITING
+        } else {
+            CHANGE_FOOTNOTE
+        }
+        .into(),
     }
 }
 
@@ -286,6 +310,7 @@ mod tests {
             warnings: vec![],
             busy: false,
             problem: None,
+            live_sales: false,
         }
     }
 

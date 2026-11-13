@@ -44,6 +44,9 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -392,7 +395,14 @@ fun SaleBar(title: String, subtitle: String, orderId: String, actions: TillActio
         // The till's own words for where the sale is from replace Square's once its receipt is in: they fade through.
         val through = motion.fadeThrough.fraction
         val quick = motion.fadeQuick.fraction
-        AnimatedContent(subtitle, transitionSpec = { (fadeIn(through) togetherWith fadeOut(quick)).using(null) }, label = "sale from") { words ->
+        // Keyed on its words without their digits, so the countdown ticking ("29:04 left") changes in place each second
+        // and only new words fade through.
+        AnimatedContent(
+            subtitle,
+            transitionSpec = { (fadeIn(through) togetherWith fadeOut(quick)).using(null) },
+            label = "sale from",
+            contentKey = { words -> words.filterNot(Char::isDigit) },
+        ) { words ->
             Text(words, fontSize = 13.sp, color = mk.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
@@ -552,18 +562,45 @@ private fun RingTick(paid: Boolean) {
 }
 
 @Composable
-private fun Buttons(sale: SaleFace, actions: TillActions) = Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-    val copy = sale.view.copyAddress
-    OutlineButton(copy.label, { actions.send(Action.CopyAddress(sale.orderId)) }, Modifier.weight(1f), height = 56.dp, size = 15, enabled = copy.enabled, icon = MkIcons.Copy, oneLine = true)
-    val back = sale.view.backToPos
+private fun Buttons(sale: SaleFace, actions: TillActions) = Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    val view = sale.view
+    // Copy address and Share only while the code is on screen: from the moment the payment is seen there is nothing
+    // left to pay (core.md decision 224). Two to a row, each on one line.
+    if (view.showsCode) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            val copy = view.copyAddress
+            OutlineButton(copy.label, { actions.send(Action.CopyAddress(sale.orderId)) }, Modifier.weight(1f), height = 56.dp, size = 15, enabled = copy.enabled, icon = MkIcons.Copy, oneLine = true)
+            ShareCodeButton(view, Modifier.weight(1f))
+        }
+    }
     val open = actions.onBackToPos
-    if (back != null && open != null) {
-        BackToPosButton(back.press.label, back.mark, { open(back.mark) }, Modifier.weight(1f), enabled = back.press.enabled)
+    val back = view.backToPos?.takeIf { open != null }
+    if (back != null || view.cash.isNotEmpty()) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (back != null && open != null) {
+                BackToPosButton(back.press.label, back.mark, { open(back.mark) }, Modifier.weight(1f), enabled = back.press.enabled)
+            }
+            // A cash sale's "Paid in cash" (docs/decisions/core.md 116).
+            for (button in view.cash) {
+                OutlineButton(button.press.label, { actions.send(cashAction(button.action, sale.orderId)) }, Modifier.weight(1f), height = 56.dp, enabled = button.press.enabled)
+            }
+        }
     }
-    // A cash sale's "Paid in cash" (docs/decisions/core.md 116).
-    for (button in sale.view.cash) {
-        OutlineButton(button.press.label, { actions.send(cashAction(button.action, sale.orderId)) }, Modifier.weight(1f), height = 56.dp, enabled = button.press.enabled)
-    }
+}
+
+/**
+ * "Share": the system share sheet with the whole code as a picture, the payment's URI as text and the sale's share
+ * title, for a customer paying from another device.
+ */
+@Composable
+private fun ShareCodeButton(view: SaleView, modifier: Modifier) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    OutlineButton(
+        view.share.ifEmpty { "Share" },
+        { scope.launch { shareCode(context, view.code, view.shareTitle) } },
+        modifier, height = 56.dp, size = 15, icon = MkIcons.Share, oneLine = true,
+    )
 }
 
 /** [card] as the engine wrote it, on a sale or its page: see the receipt's [OrderCard]. */

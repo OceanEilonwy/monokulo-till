@@ -216,8 +216,54 @@ impl State {
         }
     }
 
-    /// V2's Back: to the light wallet server's step when there is one.
+    /// A sale is waiting for payment: another wallet would never see it
+    /// paid.
+    fn has_live_sales(p: &super::Parts) -> bool {
+        p.runner.state().till.sales.iter().any(|sale| sale.live())
+    }
+
+    /// Settings' "Change the wallet" (core.md decision 261): setup's V2,
+    /// with the form filled in from the wallet in use (network, till
+    /// number, node or light server, confirmations, expiry), and back to
+    /// Settings once linked or on Back. Not while a sale waits for payment.
+    pub(super) fn change_to_another_wallet(&mut self) {
+        let Some(p) = &self.parts else { return };
+        if !self.setup_done() || !p.side.wallet_mode() || Self::has_live_sales(p) {
+            return;
+        }
+        let Some(link) = p.side.model().wallet else {
+            return;
+        };
+        let mut form = WalletForm::new(self.config.debug);
+        form.network = wallet_network(till_wallet::backend::network_of(&link));
+        form.till_number = link.till_number;
+        form.node = link.node.clone();
+        form.confirmations = link.settled_confirmations;
+        form.expiry_minutes = link.expiry_minutes;
+        match &link.light_server {
+            Some(url) => {
+                form.mode = Some(PaymentsMode::LightServer);
+                form.light_url = url.clone();
+                form.light_self_signed = link.light_self_signed;
+                form.light_passed = Some((url.clone(), link.light_self_signed));
+            }
+            None => form.mode = Some(PaymentsMode::Wallet),
+        }
+        self.wallet = form;
+        self.keep_fob_request(None);
+        self.changing_wallet = true;
+        self.go(Screen::WalletEntry);
+    }
+
+    /// V2's Back: to the light wallet server's step when there is one; to
+    /// Settings when the wallet is being changed from there.
     pub(super) fn wallet_entry_back(&mut self) {
+        if self.changing_wallet {
+            self.changing_wallet = false;
+            self.wallet = WalletForm::new(self.config.debug);
+            self.keep_fob_request(None);
+            return self.go(Screen::Settings);
+        }
         let to = if self.wallet.light() {
             Screen::LightServer
         } else {
@@ -639,6 +685,25 @@ impl State {
                 (keys, form.with_light_server(setup))
             }
         };
+        let mut wallet_setup = wallet_setup;
+        if self.changing_wallet {
+            // The till's prices are its point of sale's currency: kept,
+            // with the new wallet's provider when it prices that currency.
+            let old = p.side.model().wallet;
+            if let Some(currency) = old.as_ref().and_then(|l| l.price_currency.clone()) {
+                let provider = wallet_setup
+                    .price_provider
+                    .clone()
+                    .filter(|_| wallet_setup.price_currency.as_deref() == Some(currency.as_str()))
+                    .or(old.and_then(|l| l.price_provider));
+                wallet_setup.price_currency = Some(currency);
+                wallet_setup.price_provider = provider;
+            }
+            // The old wallet lets go of its file before the new one takes
+            // its place.
+            p.runner.stop();
+            p.side.forget_wallet();
+        }
         let data_dir = PathBuf::from(&self.config.data_dir);
         let wake_ups = p.wake_ups.clone();
         let clock = self.clock.clone();
@@ -665,6 +730,23 @@ impl State {
         let Some(p) = &self.parts else { return };
         let link = backend.link();
         let kept = p.side.kept.clone();
+        if self.changing_wallet {
+            // Changed from Settings (decision 261): only the wallet changes.
+            self.changing_wallet = false;
+            if let Err(e) = kept.update(|m| m.wallet = Some(link.clone())) {
+                self.problem = Some(format!("Couldn't keep the wallet: {e}"));
+                return;
+            }
+            p.side.adopt_wallet(backend);
+            p.live.forget();
+            p.live.read(p.side.backend().as_ref());
+            self.generation += 1;
+            self.left.clear();
+            self.wallet = WalletForm::new(self.config.debug);
+            self.keep_fob_request(None);
+            self.new_runner();
+            return self.go(Screen::Settings);
+        }
         let kept_it = kept.forget_all().and_then(|()| {
             kept.update(|m| {
                 m.connection = None;
@@ -962,6 +1044,7 @@ impl State {
             warnings: now.backend.map(|b| b.warnings).unwrap_or_default(),
             busy: self.busy,
             problem: self.problem.clone(),
+            live_sales: Self::has_live_sales(p),
         })
     }
 

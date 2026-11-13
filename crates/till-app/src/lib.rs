@@ -748,6 +748,9 @@ pub enum Action {
     /// C4's "Use another wallet": back to V2, what Fob handed over
     /// forgotten.
     UseAnotherWallet,
+    /// Settings' "Change the wallet": setup's wallet step, back to Settings
+    /// after (core.md decision 261).
+    ChangeWallet,
     /// D1's camera read a code.
     ScanWalletCode {
         text: String,
@@ -929,6 +932,7 @@ impl Action {
             Action::ChooseWalletWay { .. } => "ChooseWalletWay",
             Action::FobAnswer { .. } => "FobAnswer",
             Action::UseAnotherWallet => "UseAnotherWallet",
+            Action::ChangeWallet => "ChangeWallet",
             Action::ScanWalletCode { .. } => "ScanWalletCode",
             Action::PasteWalletCode { .. } => "PasteWalletCode",
             Action::EditWalletKeys { .. } => "EditWalletKeys",

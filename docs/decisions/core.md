@@ -2555,3 +2555,22 @@ still strings across the till, the ledger, the screens and the bridge.
      Dynamic Island section and iPad's How sales show up, and the empty
      till's chips drop "Alerts on/off". An overpaid keypad sale is still
      shown on its sale page.
+261. **The wallet changes from Settings, as the point of sale does.**
+     (Owner, 2026-11-13: "I can change the till system, but I cannot change
+     my wallet the same way".) A till on the shop's own wallet has
+     "Change the wallet" over Disconnect (`WalletSection::change`). It
+     sends `Action::ChangeWallet`, which opens setup's V2 with the form
+     filled in from the wallet in use: network, till number, node or
+     light server (taken as checked), confirmations and expiry. Back
+     returns to Settings. Linking another wallet keeps everything else,
+     not the `forget_all` a first wallet does: the point of sale and its
+     sign-in, the keypad currency, setup, the shift and the sales. It also
+     keeps the price currency, which is the point of sale's, with the new
+     wallet's provider when that one prices it. The old wallet lets go of
+     its file first (the runner stopped, the backend dropped); the new one
+     takes its place, a new runner starts, and Settings opens again. The
+     button is off while a sale waits for payment ("finish or close it
+     first"): the new wallet can't see payments to the old wallet's
+     addresses, so that sale would never turn paid. If making the new
+     wallet fails, the old wallet's file is already gone: setup shows
+     why on the step, and Continue tries again.

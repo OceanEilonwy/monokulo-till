@@ -55,6 +55,12 @@ object MkIcons {
         "M10.5 8h7a2.5 2.5 0 0 1 2.5 2.5v7a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 8 17.5v-7A2.5 2.5 0 0 1 10.5 8Z" to 2f,
         "M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" to 2f,
     )
+    /** Three joined dots: share, as Android's share sheet draws it. */
+    val Share = icon(
+        "share", 24f,
+        "M18 3a3 3 0 1 0 0.01 0Z M6 9a3 3 0 1 0 0.01 0Z M18 15a3 3 0 1 0 0.01 0Z" to 2f,
+        "M8.6 10.5l6.8-4 M8.6 13.5l6.8 4" to 2f,
+    )
     val Clock = icon("clock", 24f, "M12 3a9 9 0 1 0 0.01 0Z" to 2f, "M12 7v5.5l3.5 2" to 2f)
     val Bell = icon("bell", 24f, "M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15L6 16Z M10 20.5a2 2 0 0 0 4 0" to 1.8f)
     /** An X: the tinted button that opens the close sheet, and a sale closed on another till. */
