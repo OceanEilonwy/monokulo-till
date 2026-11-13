@@ -27,7 +27,9 @@
 //! port differs) is the name the link uses and the only one answered at
 //! the network address. It's plain http: the key crosses the internet
 //! unencrypted, which is only acceptable because the sandbox moves no
-//! real money.
+//! real money. `SQUARE_SANDBOX_OPEN=1` drops the key altogether, for
+//! testing: then anyone who reaches the address can ring up and refund
+//! sandbox sales (forms are still only taken from the page itself).
 
 mod pages;
 mod square;
@@ -110,12 +112,18 @@ struct App {
 struct Network {
     host: String,
     key: String,
+    /// `SQUARE_SANDBOX_OPEN`: no key asked for at the network address.
+    open: bool,
 }
 
 impl Network {
     /// The link to open on another device: the page with its key.
     fn link(&self) -> String {
-        format!("http://{}/?key={}", self.host, self.key)
+        if self.open {
+            format!("http://{}/", self.host)
+        } else {
+            format!("http://{}/?key={}", self.host, self.key)
+        }
     }
 }
 
@@ -203,7 +211,7 @@ fn refusal(request: &Request, port: u16, network: Option<&Network>) -> Option<&'
     let ours = [format!("127.0.0.1:{port}"), format!("localhost:{port}")];
     match network {
         Some(network) if host == network.host => {
-            if !has_key(request, &network.key) {
+            if !network.open && !has_key(request, &network.key) {
                 return Some("Open this page from the link (or QR code) the program printed.");
             }
         }
@@ -483,6 +491,7 @@ async fn main() {
             let network = Network {
                 host,
                 key: uuid::Uuid::new_v4().simple().to_string(),
+                open: std::env::var("SQUARE_SANDBOX_OPEN").is_ok_and(|v| v == "1" || v == "true"),
             };
             println!(
                 "\nOn another device on this network (keep the link to yourself: it rings up and refunds sales):\n{}\n",
@@ -726,6 +735,7 @@ mod tests {
             network: Some(Network {
                 host: host.clone(),
                 key: key.to_owned(),
+                open: false,
             }),
         });
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
