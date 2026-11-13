@@ -2400,27 +2400,6 @@ still strings across the till, the ledger, the screens and the bridge.
      shows in Monokulo's web POS list and Orders page as such: nothing
      marks it either way.
 
-## View-key mode: the light server's certificate in Settings (2026-11-13)
-
-253. **Settings changes the light server's "Accept its own certificate"
-     too.** Setup's switch, with setup's words
-     (`wallet_setup::self_signed_choice`), sits in Settings' light server
-     card under the row (`NodeRow::self_signed`, `None` for a node) and in
-     Change beside the address. Either sends `Action::SetLightServer`
-     with the address and the setting together (the node row's `SetNode`
-     on a light server keeps the setting as it stands). As with a new
-     address, the wallet checks the server first: fob-wallet's
-     `set_light_server` refuses one that doesn't answer, is on another
-     network or doesn't watch subaddresses, and then nothing changes and
-     Settings says why; only once it passes does the link keep the new
-     setting. The lines under the row are checked again with the new
-     setting. Till keeps no key of its own for the server: fob-wallet
-     holds the trusted key, and `set_light_server` replaces it whenever
-     the address or the setting changes (the key its check saw with the
-     switch on, none with it off), so a server is never held to another
-     address's key, or to a key it was trusted with before the switch was
-     turned off and on again.
-
 ## View-key mode: follow-ups (2026-11-13)
 
 252. **A sale's page says who watches for a late payment.** With Monokulo
@@ -2442,6 +2421,24 @@ still strings across the till, the ledger, the screens and the bridge.
      (`Side::payments_mode`: a wallet link with a light server is
      LightServer), and the previews' `TillPreview::payments`, Monokulo when
      not said, draws the screenshot `vk-sale-expired`.
+253. **Settings changes the light server's "Accept its own certificate"
+     too.** Setup's switch, with setup's words
+     (`wallet_setup::self_signed_choice`), sits in Settings' light server
+     card under the row (`NodeRow::self_signed`, `None` for a node) and in
+     Change beside the address. Either sends `Action::SetLightServer`
+     with the address and the setting together (the node row's `SetNode`
+     on a light server keeps the setting as it stands). As with a new
+     address, the wallet checks the server first: fob-wallet's
+     `set_light_server` refuses one that doesn't answer, is on another
+     network or doesn't watch subaddresses, and then nothing changes and
+     Settings says why; only once it passes does the link keep the new
+     setting. The lines under the row are checked again with the new
+     setting. Till keeps no key of its own for the server: fob-wallet
+     holds the trusted key, and `set_light_server` replaces it whenever
+     the address or the setting changes (the key its check saw with the
+     switch on, none with it off), so a server is never held to another
+     address's key, or to a key it was trusted with before the switch was
+     turned off and on again.
 254. **A Connect to Fob request made through a light wallet server keeps
      the server with it.** C1's request is kept as a secret so Fob's answer
      still opens after a restart; it used to come back as a node till,
