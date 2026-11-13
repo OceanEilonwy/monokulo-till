@@ -28,10 +28,19 @@ jobs:
           shared-key: rust
       - name: Format
         run: cargo fmt --all --check
-      # The Rust core (docs/ios-plan.md §2) and orf-codec. receipt-qr needs a
-      # downloaded corpus to run, so it is only built (by Clippy, below).
+      # The Rust core (docs/ios-plan.md §2). orf-codec and receipt-qr are
+      # tested in their own repository, monokulo-orf (core.md decision 241).
       - name: Test
-        run: cargo test --locked --workspace --exclude receipt-qr
+        run: cargo test --locked --workspace
+      # One orf-codec in the build: Till's pin and the one Fob's crates take
+      # must be the same commit of monokulo-orf, or a receipt from one isn't
+      # the other's (core.md decision 241). With two, `cargo tree -i` can't
+      # say which one it means and fails.
+      - name: One orf-codec
+        run: |
+          if ! cargo tree --locked --workspace -e normal -i orf-codec --depth 0; then
+            echo "::error::two orf-codec crates: pin monokulo-orf at the rev Fob uses"; exit 1
+          fi
       # monokulo-client's contract test against Monokulo's OpenAPI document at
       # the commit the Android app pins (docs/decisions/android.md 53),
       # generated as the Android job does, sharing its cached checkout. It
