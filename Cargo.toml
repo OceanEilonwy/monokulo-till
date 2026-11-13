@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "tools/receipt-qr", "tools/screenshot-compare", "tools/square-sandbox"]
+members = ["crates/*", "tools/screenshot-compare", "tools/square-sandbox"]
 
 [workspace.package]
 edition = "2024"
@@ -20,8 +20,13 @@ till-app = { path = "crates/till-app" }
 till-screens = { path = "crates/till-screens" }
 till-types = { path = "crates/till-types" }
 till-ledger = { path = "crates/till-ledger" }
-orf-codec = { path = "crates/orf-codec" }
-orf-codec-ffi = { path = "crates/orf-codec-ffi" }
+# The receipt module (docs/view-key-mode.md §3.1), in its own repository, at
+# the commit Fob's crates below pin too: two commits would be two
+# orf-codecs, and a receipt from one wouldn't be the other's. For local work
+# on the codec, add a [patch."https://github.com/OceanEilonwy/monokulo-orf"]
+# entry pointing at a checkout, and don't commit it.
+orf-codec = { git = "https://github.com/OceanEilonwy/monokulo-orf", rev = "f141c91ccc0eb41a5e96c3e6df0e730e5a5d398b" }
+orf-codec-ffi = { git = "https://github.com/OceanEilonwy/monokulo-orf", rev = "f141c91ccc0eb41a5e96c3e6df0e730e5a5d398b" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 thiserror = "2"
@@ -46,10 +51,10 @@ rusqlite = { version = "0.42.0", default-features = false, features = ["bundled-
 # vendor OpenSSL for SQLCipher; Till brings its own (till-ffi on Android,
 # CommonCrypto on Apple: core.md decisions 150 and 229), so they're off.
 # fob-wallet's rusqlite and Till's must be one version: one SQLCipher links.
-fob-wallet = { git = "https://github.com/OceanEilonwy/monokulo-fob", rev = "94ad2b7aaeae495d7d766ae0ab8bf9508660e822", default-features = false }
-fob-keys = { git = "https://github.com/OceanEilonwy/monokulo-fob", rev = "94ad2b7aaeae495d7d766ae0ab8bf9508660e822" }
-fob-codes = { git = "https://github.com/OceanEilonwy/monokulo-fob", rev = "94ad2b7aaeae495d7d766ae0ab8bf9508660e822" }
-fob-price = { git = "https://github.com/OceanEilonwy/monokulo-fob", rev = "94ad2b7aaeae495d7d766ae0ab8bf9508660e822" }
+fob-wallet = { git = "https://github.com/OceanEilonwy/monokulo-fob", rev = "b96a5b1249565ccec98d2e480d21cfb15d549907", default-features = false }
+fob-keys = { git = "https://github.com/OceanEilonwy/monokulo-fob", rev = "b96a5b1249565ccec98d2e480d21cfb15d549907" }
+fob-codes = { git = "https://github.com/OceanEilonwy/monokulo-fob", rev = "b96a5b1249565ccec98d2e480d21cfb15d549907" }
+fob-price = { git = "https://github.com/OceanEilonwy/monokulo-fob", rev = "b96a5b1249565ccec98d2e480d21cfb15d549907" }
 till-wallet = { path = "crates/till-wallet" }
 zeroize = "1.8"
 
@@ -95,7 +100,7 @@ opt-level = 3
 [profile.dev.package.pbkdf2]
 opt-level = 3
 
-# orf-codec-ffi's library as the Android app ships it, once per ABI: small.
+# till-ffi's library as the Android app ships it, once per ABI: small.
 # (Release builds for this machine keep the defaults: UniFFI's bindgen reads
 # its metadata from symbols that LTO and stripping remove.)
 [profile.android]

@@ -34,6 +34,15 @@ pub const FOCUSED: Duration = Duration::from_secs(2);
 pub const OPEN: Duration = Duration::from_secs(10);
 pub const IDLE: Duration = Duration::from_secs(60);
 
+/// The app left the foreground, and the wallet stopped looking with it
+/// (§10): gives back the memory the GPU kept between scans, tens of MB, so
+/// a phone in the background holds none of it. The next scan, back in
+/// front, makes it again. A scan still finishing keeps its memory, and
+/// nothing is lost if the GPU was never used (core.md decision 243).
+pub fn rest_gpu() {
+    fob_wallet::scanning::rest();
+}
+
 /// Where a wallet file is, in `data_dir`.
 pub fn wallet_path(data_dir: &Path) -> PathBuf {
     data_dir.join(WALLET_FILE)
@@ -209,7 +218,7 @@ impl WalletBackend {
             .listen(Arc::new(Listener(Arc::downgrade(&inner))));
         // The wallet is new at setup, with nothing before it to find: a
         // light server is never asked to scan from block 0 for it
-        // (decision 242).
+        // (decision 244).
         inner.wallet.set_light_import(false);
         WalletBackend { inner }
     }

@@ -2645,7 +2645,7 @@ fn wallet_settings_show_the_wallet_and_change_its_link() {
     assert_eq!(kept.price_provider.as_deref(), Some("CoinGecko"));
 }
 
-/// Decision 243: on a light wallet server, Settings shows the server in
+/// Decision 245: on a light wallet server, Settings shows the server in
 /// the node's row, checks it as it opens, and Change takes a new server
 /// (checked by the wallet first), never a node.
 #[test]
