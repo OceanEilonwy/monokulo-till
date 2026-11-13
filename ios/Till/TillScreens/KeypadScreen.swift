@@ -9,7 +9,7 @@ import TillCore
 /// point, Delete, Escape to clear and Return to charge.
 ///
 /// The keys share the height left under the amount, between a phone held in
-/// one hand's 60 points and a counter iPad's 96, in a column no wider than
+/// one hand's 56 points and a counter iPad's 112, in a column no wider than
 /// a hand spans on iPad.
 struct KeypadScreen: View {
     let view: KeypadView
@@ -75,7 +75,7 @@ struct KeypadScreen: View {
     /// Each key's height for a screen `height` tall.
     static func keyHeight(_ height: CGFloat, aside: Bool) -> CGFloat {
         let left = height - (aside ? 330 : 250)
-        return min(96, max(56, left / 4 - 10))
+        return min(112, max(56, left / 4 - 10))
     }
 
     /// What a hardware key does: digits and the point type, Delete deletes,
@@ -110,6 +110,7 @@ struct KeypadScreen: View {
             if let clear = view.clear {
                 Button(clear.label) { send(.keypadPress(key: clear.key)) }
                     .font(.title3.weight(.semibold))
+                    .foregroundStyle(Palette.link)
                     .frame(minWidth: minimumTarget, minHeight: minimumTarget)
                     .accessibilityLabel(clear.said)
             }

@@ -1026,6 +1026,17 @@ fn words(page: &OnboardingPage, device: Device) -> Words {
                     "Which currency does Till charge in?",
                     "The keypad takes amounts in it, and Till works out the XMR at the price you choose next. With XMR only, Till never looks up a price.",
                 ),
+                (Some(PosStage::Choose), _)
+                    if view
+                        .choices
+                        .iter()
+                        .any(|c| c.choice.selected && c.mark == PosMark::Till) =>
+                {
+                    said(
+                        "Which point of sale do you use?",
+                        "With no point of sale, Till's own keypad takes each sale on this device. Nothing to sign in to.",
+                    )
+                }
                 (Some(PosStage::Choose), _) => said(
                     "Which point of sale do you use?",
                     "Till signs in to it to see each Monero sale the moment you ring it up.",

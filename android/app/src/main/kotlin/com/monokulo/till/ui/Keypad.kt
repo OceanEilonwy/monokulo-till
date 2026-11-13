@@ -88,7 +88,7 @@ fun KeypadScreen(view: KeypadView, send: (Action) -> Unit) {
                 CircleButton(MkIcons.Settings, view.settings, { send(Action.OpenSettings) }, ground = mk.chip, tint = mk.ink, iconSize = 20.dp)
             }
             BoxWithConstraints(Modifier.weight(1f).widthIn(max = 520.dp).fillMaxWidth().padding(horizontal = 16.dp)) {
-                val keyHeight = min(96.dp, maxOf(56.dp, (maxHeight - if (view.aside.isEmpty()) 250.dp else 330.dp) / 4 - 10.dp))
+                val keyHeight = min(112.dp, maxOf(56.dp, (maxHeight - if (view.aside.isEmpty()) 250.dp else 330.dp) / 4 - 10.dp))
                 Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (view.aside.isNotEmpty()) Aside(view.asideTitle, view.aside, send)
                     Spacer(Modifier.weight(1f))
@@ -133,7 +133,7 @@ fun keypadKey(event: KeyEvent): Action? {
 /** The amount, large, shrinking to fit; XMR's Clear beside it, since the point takes its key. */
 @Composable
 private fun Amount(view: KeypadView, send: (Action) -> Unit) = Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-    BoxWithConstraints(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
         val size = when {
             view.amount.length > 16 -> 32
             view.amount.length > 11 -> 42
@@ -165,7 +165,7 @@ private fun Key(key: KeypadButton, height: Dp, modifier: Modifier, onPress: () -
     contentAlignment = Alignment.Center,
 ) {
     if (key.key == KeypadKey.Backspace) {
-        Icon(MkIcons.Back, contentDescription = null, modifier = Modifier.size(26.dp))
+        Icon(MkIcons.Backspace, contentDescription = null, modifier = Modifier.size(28.dp))
     } else {
         Text(key.label, fontSize = minOf(40f, height.value * 0.45f).sp, fontWeight = FontWeight.Medium)
     }

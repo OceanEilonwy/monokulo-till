@@ -77,5 +77,7 @@ object MkIcons {
     /** A shop front: the whole location, in the counter step. */
     val Store = icon("store", 24f, "M4 9l1.5-5h13L20 9 M4 9h16v1.5a2.7 2.7 0 0 1-5.3 0 2.7 2.7 0 0 1-5.4 0 2.7 2.7 0 0 1-5.3 0Z M5.5 12.5V20h13v-7.5 M10 20v-4.5h4V20" to 1.8f)
 
+    /** The keypad's delete key: a tag pointing left with a cross in it, as Monokulo's web POS draws it. */
+    val Backspace = icon("delete", 24f, "M8.5 5h11a1.5 1.5 0 0 1 1.5 1.5v11a1.5 1.5 0 0 1-1.5 1.5h-11L3 12Z" to 2f, "M11.5 9.5l5 5M16.5 9.5l-5 5" to 2f)
     val Shrink = icon("shrink", 24f, "M4 10h6V4M20 14h-6v6M10 10L3 3M14 14l7 7" to 2.2f)
 }
