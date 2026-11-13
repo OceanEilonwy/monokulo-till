@@ -394,6 +394,9 @@ pub enum Screen {
     /// After the point of sale, on the shop's own wallet with a fiat
     /// currency: where prices come from (docs/view-key-mode.md §8).
     Prices,
+    /// The shop's light wallet server, checked before the wallet
+    /// (docs/view-key-mode.md §5.7, §11.1).
+    LightServer,
     /// 2: scan or paste the store's connect code.
     Scan,
     /// 3: connect to the server, then check the store it is.
@@ -786,9 +789,16 @@ pub enum Action {
         up: bool,
     },
     /// D4's Change: the node's address, typed or one of `choices`. It's
-    /// checked at once.
+    /// checked at once. In Settings on a light wallet server, the server's.
     SetNode {
         url: String,
+    },
+    /// The light wallet server's address as typed, and whether its own
+    /// certificate is accepted: each change sends both. Continue
+    /// (`Action::Next`) checks it.
+    EditLightServer {
+        url: String,
+        self_signed: bool,
     },
     /// The price source on Prices or in Settings: one of its providers'
     /// names ("CoinGecko").
@@ -916,6 +926,7 @@ impl Action {
             Action::StepPaidAfter { .. } => "StepPaidAfter",
             Action::StepCodeExpiry { .. } => "StepCodeExpiry",
             Action::SetNode { .. } => "SetNode",
+            Action::EditLightServer { .. } => "EditLightServer",
             Action::ChoosePriceProvider { .. } => "ChoosePriceProvider",
             Action::Refresh => "Refresh",
             Action::ChooseKeypadCurrency { .. } => "ChooseKeypadCurrency",

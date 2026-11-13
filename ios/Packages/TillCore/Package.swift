@@ -23,10 +23,14 @@ let package = Package(
                 // reqwest reads proxy settings through SystemConfiguration.
                 // SQLCipher encrypts the ledger with CommonCrypto, which is
                 // in libSystem, and asks Security and CoreFoundation for
-                // random bytes (docs/decisions/core.md 150).
+                // random bytes (docs/decisions/core.md 150). The wallet
+                // scans on the GPU through Metal, whose errors come as
+                // Foundation's (core.md decision 243).
                 .linkedFramework("Security"),
                 .linkedFramework("SystemConfiguration"),
                 .linkedFramework("CoreFoundation"),
+                .linkedFramework("Foundation"),
+                .linkedFramework("Metal"),
             ]
         ),
     ]

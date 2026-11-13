@@ -85,6 +85,7 @@ import uniffi.till_screens.FobConnectedStep
 import uniffi.till_screens.FobPattern
 import uniffi.till_screens.FobRequestStep
 import uniffi.till_screens.KeyField
+import uniffi.till_screens.LightServerStep
 import uniffi.till_screens.ModeChoice
 import uniffi.till_screens.ModeStep
 import uniffi.till_screens.NodeRow
@@ -613,6 +614,69 @@ fun WalletSeedScreen(
             }
         }
         Muted(view.footnote, Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp))
+        Notice(view.problem, Modifier.padding(16.dp))
+        Spacer(Modifier.height(16.dp))
+    }
+}
+
+/**
+ * The shop's light wallet server (docs/view-key-mode.md §5.7): its address, whether its own certificate is accepted,
+ * the checks once Continue has run them, and what the server sees. Each change sends both; Continue checks first.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun LightServerScreen(
+    view: LightServerStep, heading: String, lead: String, stepLabel: String?,
+    onEdit: (url: String, selfSigned: Boolean) -> Unit, onNext: () -> Unit, onBack: () -> Unit,
+) {
+    var url by remember { mutableStateOf(view.url) }
+    Page(
+        top = { BackBar(onBack) },
+        bottom = {
+            Muted(view.footnote, align = TextAlign.Center)
+            Foot(view.next, onNext, stepLabel)
+        },
+    ) {
+        Head(heading, lead)
+        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(view.fieldLabel, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            OutlinedTextField(
+                value = url, onValueChange = { url = it; onEdit(it, view.selfSigned.selected) },
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = view.fieldLabel },
+                singleLine = true,
+                placeholder = { Text(view.placeholder, color = mk.muted) },
+                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Uri),
+                shape = RoundedCornerShape(10.dp),
+                isError = view.checks.any { it.mark == CheckMark.FAILED },
+                enabled = view.selfSigned.enabled,
+                colors = fieldColours(),
+            )
+        }
+        Spacer(Modifier.height(18.dp))
+        Group(rows = listOf({
+            SwitchRow(
+                view.selfSigned.label, view.selfSigned.selected, { onEdit(url, it) },
+                enabled = view.selfSigned.enabled, detail = view.selfSigned.detail,
+            )
+        }))
+        if (view.checks.isNotEmpty()) {
+            FlowRow(
+                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(18.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                view.checks.forEach { check ->
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        when (check.mark) {
+                            CheckMark.PASSED -> Icon(MkIcons.Tick, "Passed", tint = mk.paid, modifier = Modifier.size(16.dp))
+                            CheckMark.FAILED -> Icon(MkIcons.Warning, "Failed", tint = mk.danger, modifier = Modifier.size(16.dp))
+                            CheckMark.CHECKING -> LoadingMark(16.dp, label = "Checking")
+                        }
+                        Text(check.text, fontSize = 15.sp)
+                    }
+                }
+            }
+        }
         Notice(view.problem, Modifier.padding(16.dp))
         Spacer(Modifier.height(16.dp))
     }

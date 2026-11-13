@@ -1312,9 +1312,7 @@ fn apply(
     match fact {
         Fact::OrderCreated(o) => created.push(o.order_id.clone()),
         Fact::Snapshot(s) => {
-            if let Some(o) = &s.shared.order {
-                created.push(o.order.order_id.clone());
-            }
+            created.extend(s.shared.orders().map(|o| o.order.order_id.clone()));
             for alert in &s.alerts {
                 set_alert(
                     conn,
@@ -1538,5 +1536,137 @@ fn apply_global(conn: &Connection, fact: &Fact) -> Result<bool, LedgerError> {
         Fact::Foreground { until } => set_meta("foreground_until", until.0.to_string()),
         Fact::Imported { from, count } => set_meta("imported_from", format!("{from}:{count}")),
         _ => Ok(false),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use monokulo_client::{PointOfSale, SalePhase};
+
+    use super::*;
+    use crate::facts::{OrderCreated, OrderObserved, PaymentSeen, Tender};
+    use crate::model::PaymentPhase;
+    use crate::{TestClock, UnixSeconds};
+
+    const NOW: i64 = 1_794_247_200_000;
+
+    fn order(id: &str, follows: Option<&str>, expires_at: i64) -> Fact {
+        Fact::OrderCreated(OrderCreated {
+            sale: SaleKey::pos(PointOfSale::Square, "p1"),
+            order_id: id.into(),
+            url: Some(id.into()),
+            payment_uri: format!("monero:7{id}?tx_amount=0.15"),
+            address: format!("7{id}"),
+            xmr: "0.15".into(),
+            price: till_types::Price::new("24.50", "USD"),
+            reference: None,
+            expires_at: UnixSeconds(expires_at),
+            confirmations_required: Some(10),
+            device_name: None,
+            renew: Some(id.into()),
+            price_used: None,
+            follows: follows.map(Into::into),
+        })
+    }
+
+    fn observed(id: &str, phase: SalePhase, is_final: bool) -> Fact {
+        Fact::OrderObserved(OrderObserved {
+            order_id: id.into(),
+            phase,
+            confirmations: Some(0),
+            is_final,
+            received: None,
+            overpaid: false,
+            quote: None,
+            renew: None,
+        })
+    }
+
+    /// A database the build before this one wrote (projection version 3,
+    /// schema 1) opens: its projections are rebuilt from its journal, whose
+    /// bodies read as they were, the schema stays as it was (so that build,
+    /// put back, still opens it), and the sale then takes its next order
+    /// (core.md decision 241).
+    #[test]
+    fn a_ledger_from_the_build_before_rebuilds_and_takes_a_sales_next_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(db::FILE_NAME);
+        let key = KeyMaterial {
+            key: [7; 32],
+            salt: [9; 16],
+        };
+        let clock = TestClock::at(NOW);
+        let scope = Scope::of("store", Some((PointOfSale::Square, "M1")));
+        let open = || {
+            Ledger::open(
+                &path,
+                &key,
+                scope.clone(),
+                Process::App,
+                Arc::new(clock.clone()),
+            )
+            .unwrap()
+        };
+        let sale = SaleKey::pos(PointOfSale::Square, "p1");
+        let first = NOW / 1000 + 900;
+
+        let mut l = open();
+        l.record(Fact::PosPaymentSeen(PaymentSeen {
+            pos: PointOfSale::Square,
+            payment: "p1".into(),
+            amount: till_types::Money::new(2450, "USD".parse().unwrap()),
+            tender: Tender::Monero,
+            status: "COMPLETED".into(),
+            device_id: None,
+            device_name: None,
+            receipt_number: None,
+            order_ref: None,
+            title: None,
+            created_at: "2026-11-09T17:00:00Z".parse().unwrap(),
+            updated_at: UnixMillis(1),
+        }))
+        .unwrap();
+        l.record(order("w1", None, first)).unwrap();
+        l.record(observed("w1", SalePhase::Expired, false)).unwrap();
+        let body: Vec<u8> = l
+            .conn
+            .query_row(
+                "SELECT body FROM journal WHERE kind = 'OrderCreated'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            !String::from_utf8(body).unwrap().contains("follows"),
+            "a first order's body is what the build before wrote"
+        );
+        // As the build before left it: its version, and a projection this
+        // build must not trust.
+        l.conn
+            .execute_batch(
+                r#"UPDATE meta SET value = '3' WHERE name = 'projection_version';
+                   UPDATE sales SET shared = '{"pos":{"payment":null,"order":null},"order":null,"refund":null}';"#,
+            )
+            .unwrap();
+        l.close().unwrap();
+
+        let mut l = open();
+        let meta = |l: &Ledger, name: &str| meta_get(&l.conn, name).unwrap();
+        assert_eq!(meta(&l, "projection_version").as_deref(), Some("4"));
+        assert_eq!(meta(&l, "schema_version").as_deref(), Some("1"));
+        let v = l.sale(&sale).unwrap().unwrap();
+        assert_eq!(
+            (v.order_id.as_str(), v.payment),
+            ("w1", Some(PaymentPhase::Expired))
+        );
+
+        l.record(order("w2", Some("w1"), first + 1_200)).unwrap();
+        l.record(observed("w1", SalePhase::Paid, true)).unwrap();
+        let v = l.sale(&sale).unwrap().unwrap();
+        assert_eq!((v.order_id.as_str(), v.phase), ("w2", SalePhase::Paid));
+        let before = l.dump_projections().unwrap();
+        l.close().unwrap();
+        let l = open();
+        assert_eq!(before, l.dump_projections().unwrap());
     }
 }

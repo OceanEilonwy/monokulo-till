@@ -14,8 +14,8 @@ use till_screens::onboarding::{self, CloverTender, CounterSetup, OnboardingInput
 use till_screens::settings::{self, PosState, SaleChoices, SettingsInput, ShowSales, StoreNow};
 use till_screens::wake_ups::{self, WakeUpsInput};
 use till_screens::wallet_setup::{
-    CheckMark, FobConnectedSetup, KeysSetup, PaymentsMode, ThisTillSetup, ViewKeyIssue,
-    WalletNetwork, WalletStep,
+    CheckMark, FobConnectedSetup, KeysSetup, LightServerSetup, PaymentsMode, ThisTillSetup,
+    ViewKeyIssue, WalletNetwork, WalletStep,
 };
 use till_screens::{Device, DeviceClock, OnboardingView, SettingsView, WakeUpsView};
 
@@ -70,6 +70,13 @@ pub enum PreviewStep {
     /// Prices with Fob's choice picked, one provider not answering
     /// (`vk-prices-fob`).
     VkPricesFob,
+    /// V1 with the shop's light wallet server chosen (`vk-light-mode`).
+    VkLightMode,
+    /// The light wallet server's address, checked (`vk-light-server`).
+    VkLightServer,
+    /// D4 through a light wallet server: the node checks its proofs
+    /// (`vk-light-this-till`).
+    VkLightThisTill,
     /// Step 4 with Till's keypad chosen (`pos-keypad-choose`).
     PosKeypadChoose,
     /// Step 4's keypad currency on the shop's own wallet, Australian
@@ -284,6 +291,20 @@ fn wallet_step(step: PreviewStep, device_name: &str) -> WalletStep {
         PreviewStep::VkMode => WalletStep::Mode {
             chosen: Some(PaymentsMode::Wallet),
         },
+        PreviewStep::VkLightMode => WalletStep::Mode {
+            chosen: Some(PaymentsMode::LightServer),
+        },
+        PreviewStep::VkLightServer => WalletStep::LightServer(LightServerSetup {
+            url: LIGHT_SERVER.into(),
+            self_signed: false,
+            checks: vec![
+                ("Answers in 0.2 s".into(), CheckMark::Passed),
+                ("Mainnet".into(), CheckMark::Passed),
+                ("Watches subaddresses".into(), CheckMark::Passed),
+            ],
+            busy: false,
+            problem: None,
+        }),
         PreviewStep::VkWallet => WalletStep::Entry,
         PreviewStep::VkPadRequest => {
             // A fixed key, so every screenshot draws the same code and
@@ -345,9 +366,13 @@ fn wallet_step(step: PreviewStep, device_name: &str) -> WalletStep {
             expiry_minutes: 30,
             busy: false,
             problem: None,
+            light: step == PreviewStep::VkLightThisTill,
         }),
     }
 }
+
+/// The sample light wallet server.
+const LIGHT_SERVER: &str = "https://lws.example.com:8443";
 
 fn wake_ups_input() -> WakeUpsInput {
     WakeUpsInput {
@@ -423,6 +448,9 @@ pub enum PreviewSettings {
     /// The same, typed in by hand as till 51, with what the wallet warns
     /// of (`vk-settings-warning`).
     VkSettingsWarning,
+    /// A till typed in by hand as till 2, through the shop's light wallet
+    /// server (`vk-light-settings`).
+    VkLightSettings,
     /// The sample Monokulo store with Till's keypad as its point of sale
     /// (`pos-keypad-settings`).
     PosKeypad,
@@ -445,6 +473,7 @@ pub fn preview_settings_of(look: PreviewSettings, device: Device, now: i64) -> S
         return settings::settings(&input, device, clock(now));
     }
     let warning = look == PreviewSettings::VkSettingsWarning;
+    let light = look == PreviewSettings::VkLightSettings;
     let input = SettingsInput {
         connection: None,
         store: StoreNow::default(),
@@ -477,15 +506,29 @@ pub fn preview_settings_of(look: PreviewSettings, device: Device, now: i64) -> S
             address: "4A8xSAMPLEADDRESS0000000000000000000000000000000000000000000000000000000000000000000000009fQ2".into(),
             network: WalletNetwork::Mainnet,
             node: Some("https://node.example.com:18089".into()),
-            till_number: if warning { 51 } else { 1 },
-            fob: (!warning).then(|| ("Corner Café".into(), "Till (Corner Café)".into())),
+            light_server: light.then(|| LIGHT_SERVER.into()),
+            till_number: match look {
+                PreviewSettings::VkSettingsWarning => 51,
+                PreviewSettings::VkLightSettings => 2,
+                _ => 1,
+            },
+            fob: (!warning && !light)
+                .then(|| ("Corner Café".into(), "Till (Corner Café)".into())),
             confirmations: 10,
             expiry_minutes: 30,
-            checks: vec![
-                ("Answers in 0.4 s".into(), CheckMark::Passed),
-                ("Mainnet".into(), CheckMark::Passed),
-                ("Up to date".into(), CheckMark::Passed),
-            ],
+            checks: if light {
+                vec![
+                    ("Answers in 0.2 s".into(), CheckMark::Passed),
+                    ("Mainnet".into(), CheckMark::Passed),
+                    ("Watches subaddresses".into(), CheckMark::Passed),
+                ]
+            } else {
+                vec![
+                    ("Answers in 0.4 s".into(), CheckMark::Passed),
+                    ("Mainnet".into(), CheckMark::Passed),
+                    ("Up to date".into(), CheckMark::Passed),
+                ]
+            },
             node_choices: till_wallet::setup::default_nodes(till_wallet::Network::Mainnet),
             currency: Some("USD".into()),
             provider: "Kraken".into(),
@@ -530,7 +573,7 @@ mod tests {
     use crate::testing::FakePlatform;
     use till_screens::onboarding::OnboardingPage;
 
-    const STEPS: [PreviewStep; 22] = [
+    const STEPS: [PreviewStep; 25] = [
         PreviewStep::Welcome,
         PreviewStep::Scan,
         PreviewStep::Confirm,
@@ -553,6 +596,9 @@ mod tests {
         PreviewStep::VkKeysError,
         PreviewStep::VkSeed,
         PreviewStep::VkThisTill,
+        PreviewStep::VkLightMode,
+        PreviewStep::VkLightServer,
+        PreviewStep::VkLightThisTill,
     ];
 
     #[test]
@@ -637,6 +683,49 @@ mod tests {
         let rail = view(PreviewStep::VkThisTill, Device::Ipad).rail;
         assert_eq!(rail[3].label, "This till");
         assert_eq!(rail[3].state, till_screens::onboarding::RailState::Current);
+    }
+
+    #[test]
+    fn the_light_server_boards_say_the_server_sees_every_payment() {
+        let platform: Arc<dyn Platform> = Arc::new(FakePlatform::default());
+        let view = |step, device| preview_onboarding(step, device, platform.clone());
+        let OnboardingPage::PaymentsMode { view: mode } =
+            view(PreviewStep::VkLightMode, Device::Ipad).page
+        else {
+            panic!("V1")
+        };
+        assert!(mode.choices[2].selected && mode.choices[2].enabled);
+        let server = view(PreviewStep::VkLightServer, Device::Ipad);
+        assert_eq!(server.heading, "Your light wallet server");
+        assert_eq!(
+            server.rail[1].state,
+            till_screens::onboarding::RailState::Current
+        );
+        let OnboardingPage::LightServer { view: step } = server.page else {
+            panic!("the server's step")
+        };
+        assert!(step.footnote.contains("sees every payment"));
+        assert!(step.next.enabled);
+        let android = view(PreviewStep::VkLightServer, Device::Android);
+        assert_eq!(
+            android
+                .step_label
+                .as_deref()
+                .map(|l| l.starts_with("Step 2 ")),
+            Some(true)
+        );
+        let this_till = view(PreviewStep::VkLightThisTill, Device::Iphone);
+        assert!(this_till.lead.contains("checks your server's proofs"));
+        let OnboardingPage::ThisTill { view: d4 } = this_till.page else {
+            panic!("D4")
+        };
+        assert_eq!(d4.node.unwrap().label, "Node for proofs");
+        let settings = preview_settings_of(PreviewSettings::VkLightSettings, Device::Ipad, 1_000)
+            .wallet
+            .unwrap();
+        assert_eq!(settings.mode.value, "Your light wallet server");
+        assert_eq!(settings.node.unwrap().label, "Light wallet server");
+        assert_eq!(settings.till_number.unwrap().value, "2");
     }
 
     #[test]

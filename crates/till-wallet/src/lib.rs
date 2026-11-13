@@ -12,8 +12,8 @@
 //! - [`keys`]: the ways in: typed, a wallet code, or a seed phrase that is
 //!   wiped as soon as the view key is taken from it.
 //! - [`connect`]: Connect to Fob, Till's side.
-//! - [`setup`]: the wallet file made at the end of setup, and the node's
-//!   checks.
+//! - [`setup`]: the wallet file made at the end of setup, and the checks
+//!   of a node or of the shop's light wallet server.
 
 pub mod backend;
 pub mod connect;
@@ -25,4 +25,7 @@ pub mod status;
 pub use backend::{WALLET_FILE, WalletBackend, wallet_path};
 pub use connect::{AnswerProblem, FobRequest, Granted, Pattern};
 pub use keys::{Network, ViewKeys};
-pub use setup::{CheckState, Made, NodeCheck, WalletSetup, make_wallet, remove_wallet};
+pub use setup::{
+    CheckState, LightCheck, Made, NodeCheck, WalletSetup, check_light_server, make_wallet,
+    remove_wallet,
+};

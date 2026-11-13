@@ -17,8 +17,8 @@ use crate::pos_text;
 use crate::settings::{ShowSales, StoreNow, connected, pos_choices, show_sales_choices};
 use crate::view::{Device, Fact, PosChoice, PosMark, Press, capitalised, mark, on_off};
 use crate::wallet_setup::{
-    self, FobConnectedStep, FobRequestStep, ModeStep, ThisTillStep, WalletCodeStep,
-    WalletEntryStep, WalletKeysStep, WalletSeedStep, WalletStep,
+    self, FobConnectedStep, FobRequestStep, LightServerStep, ModeStep, ThisTillStep,
+    WalletCodeStep, WalletEntryStep, WalletKeysStep, WalletSeedStep, WalletStep,
 };
 
 /// How many steps setting up takes, on every device.
@@ -561,6 +561,10 @@ pub enum OnboardingPage {
     Prices {
         view: crate::prices::PricesStep,
     },
+    /// The shop's light wallet server: its address, checked.
+    LightServer {
+        view: LightServerStep,
+    },
 }
 
 /// Step 4: the choice, then the chosen point of sale's card.
@@ -849,6 +853,9 @@ pub fn onboarding(
             words.lead = wallet_setup::fob_connected_lead(c, device);
         }
         Step::Wallet(WalletStep::Keys(k)) => words.lead = wallet_setup::keys_lead(k.network),
+        Step::Wallet(WalletStep::ThisTill(t)) if t.light => {
+            words.lead = wallet_setup::this_till_light_lead(t.number.is_some()).into();
+        }
         _ => {}
     }
     OnboardingView {
@@ -888,7 +895,9 @@ fn phase(step: &Step) -> Option<Phase> {
         Step::Float { .. } => return None,
         Step::ShowSales { .. } => Phase::ShowSales,
         Step::Ready { .. } => Phase::Ready,
-        Step::Wallet(WalletStep::Mode { .. }) => Phase::Payments,
+        Step::Wallet(WalletStep::Mode { .. }) | Step::Wallet(WalletStep::LightServer(_)) => {
+            Phase::Payments
+        }
         Step::Wallet(WalletStep::ThisTill(_)) => Phase::ThisTill,
         Step::Wallet(_) => Phase::Wallet,
     })
@@ -935,6 +944,9 @@ fn wallet_page(step: &WalletStep, device: Device) -> OnboardingPage {
         },
         WalletStep::ThisTill(t) => OnboardingPage::ThisTill {
             view: wallet_setup::this_till_step(t),
+        },
+        WalletStep::LightServer(l) => OnboardingPage::LightServer {
+            view: wallet_setup::light_server_step(l),
         },
     }
 }
@@ -1107,6 +1119,10 @@ fn words(page: &OnboardingPage, device: Device) -> Words {
         OnboardingPage::Prices { .. } => said(
             "Where should prices come from?",
             "Till turns each sale's price into XMR at the price one of these gives.",
+        ),
+        OnboardingPage::LightServer { .. } => said(
+            wallet_setup::LIGHT_SERVER_HEADING,
+            wallet_setup::LIGHT_SERVER_LEAD,
         ),
     }
 }

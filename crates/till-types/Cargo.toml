@@ -16,3 +16,6 @@ rusqlite = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json.workspace = true
+# Only to check that orf-codec's copy of the ISO 4217 table agrees with
+# this one (src/money.rs).
+orf-codec.workspace = true

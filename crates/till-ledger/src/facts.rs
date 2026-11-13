@@ -156,9 +156,10 @@ pub struct RefundSeen {
 }
 
 /// The order create-order made (or, on a till without a POS, the order a
-/// Monokulo event or read described). A sale has one (core.md decision
-/// 167); a body written before then may carry an `attempt`, which is
-/// ignored (decision 173).
+/// Monokulo event or read described). A Monokulo sale has one (core.md
+/// decision 167); a body written before then may carry an `attempt`,
+/// which is ignored (decision 173). A wallet sale's New code makes its
+/// next one, which says the order it `follows` (decision 241).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct OrderCreated {
     pub sale: SaleKey,
@@ -194,6 +195,13 @@ pub struct OrderCreated {
     /// order's body, and its hash, are what they were.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub price_used: Option<PriceUsed>,
+    /// The sale's order this one follows: New code on a wallet payment
+    /// makes the sale's next order (core.md decision 241), and the earlier
+    /// one stays the sale's, still watched. `None` for a sale's first
+    /// order and every Monokulo order, and left out of the body then, so
+    /// those bodies and their hashes are what they were.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub follows: Option<OrderId>,
 }
 
 /// The price and expiry an order had when Monokulo said something about
@@ -412,6 +420,10 @@ pub enum ShiftMark {
 /// One fact. Shared facts are what the sources said; local facts what
 /// this device did. Times in local facts are this device's, Unix ms.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "facts are written one at a time, so boxing an order would save nothing"
+)]
 pub enum Fact {
     PosPaymentSeen(PaymentSeen),
     PosOrderRead(OrderRead),

@@ -387,8 +387,8 @@ disconnecting take the registration back first.
 
 ## 4. The receipt
 
-The payment code can carry the whole receipt (`orf-codec`, in this
-repository: an Open Receipt Format document compacted into one
+The payment code can carry the whole receipt (`orf-codec`, in its own
+repository, monokulo-orf: an Open Receipt Format document compacted into one
 `orf=<digits>` query parameter). What someone bought must not reach
 monokulo, the Bell, the push relay, or anything else between the till and
 the customer.
@@ -995,10 +995,8 @@ GitHub description:
 monokular/
   README.md
   Cargo.toml                    Rust workspace
-  crates/
-    orf-codec/                  ORF receipts to and from `orf=<digits>` (library, no Monero, no QR)
-    orf-codec-ffi/              UniFFI bindings: a Kotlin package and a Swift package
-  tools/receipt-qr/             corpus, dictionary training and QR size measurements
+  crates/                       (orf-codec, orf-codec-ffi and tools/receipt-qr are in
+                                OceanEilonwy/monokulo-orf, pinned by rev: view-key-mode.md §3.1)
   protocol/                     the contract with monokulo and the Bell
                                 (Monokulo's own OpenAPI document isn't kept here: it is
                                 generated from the commit in android/gradle.properties'
@@ -1044,7 +1042,7 @@ monokular/
   docs/
     architecture.md  release.md
   .github/workflows/
-    rust.yml                    orf-codec and orf-codec-ffi: tests; clippy over the workspace
+    rust.yml                    the Rust core: tests; clippy over the workspace
     core.yml                    TillKit on Linux (swift test) + android core (JVM tests)
     ios.yml                     macos runner: XcodeGen, build, UI snapshots, development .ipa artifact
     android.yml                 ubuntu: build, unit tests, debug APK artifact

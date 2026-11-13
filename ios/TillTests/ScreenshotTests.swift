@@ -249,6 +249,10 @@ enum Screenshots {
             Shot(name: "vk-prices-code", updates: till(.sale(orderId: "w1"), pricedShift, pricedSale)),
             Shot(name: "vk-settings", screen: walletSettings(.vkSettings)),
             Shot(name: "vk-settings-warning", screen: walletSettings(.vkSettingsWarning)),
+            Shot(name: "vk-light-mode", updates: step(.vkLightMode, .paymentsMode)),
+            Shot(name: "vk-light-server", updates: step(.vkLightServer, .lightServer)),
+            Shot(name: "vk-light-this-till", updates: step(.vkLightThisTill, .thisTill)),
+            Shot(name: "vk-light-settings", screen: walletSettings(.vkLightSettings)),
         ]
         // Till's keypad as the point of sale (docs/view-key-mode.md §7).
         shots += [
