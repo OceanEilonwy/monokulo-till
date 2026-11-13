@@ -81,25 +81,14 @@ struct SaleScreen: View {
         }
     }
 
-    /// Copy address and Return to Square side by side, each on one line, then
-    /// a cash sale's Paid in cash.
+    /// Return to Square, then a cash sale's Paid in cash. No Copy address:
+    /// Share in the bar sends the code, and the whole sale fits on the
+    /// screen (owner, 2026-11-13).
     @ViewBuilder
     private var foot: some View {
         VStack(spacing: 8) {
-            HStack(spacing: 10) {
-                if view.showsCode {
-                    Button {
-                        send(.copyAddress(orderId: orderId))
-                    } label: {
-                        Label(view.copyAddress.label, systemImage: "doc.on.doc")
-                            .lineLimit(1)
-                    }
-                    .buttonStyle(.secondary)
-                    .disabled(!view.copyAddress.enabled)
-                }
-                if let returnToSquare, let back = view.backToPos {
-                    ReturnToSquareWide(label: back.press.label, action: returnToSquare)
-                }
+            if let returnToSquare, let back = view.backToPos {
+                ReturnToSquareWide(label: back.press.label, action: returnToSquare)
             }
             ForEach(Array(view.cash.enumerated()), id: \.offset) { _, button in
                 LinkPress(press: button.press) { send(CashButtons.action(button.action, orderId: orderId)) }

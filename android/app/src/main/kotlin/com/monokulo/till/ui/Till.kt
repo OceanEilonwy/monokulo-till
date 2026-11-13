@@ -261,6 +261,7 @@ private fun LiveSale(sale: SaleFace, actions: TillActions, ground: GroundTrack) 
                     SaleBar(
                         view.title, view.titleLine, sale.orderId, actions,
                         onClose = { actions.send(Action.AskClose(sale.orderId)) }.takeIf { view.closes },
+                        share = view.takeIf { it.showsCode },
                     )
                 }
                 if (wide) {
@@ -306,7 +307,10 @@ private fun LiveSale(sale: SaleFace, actions: TillActions, ground: GroundTrack) 
                     ) {
                         Box(words) { Amount(sale, actions) }
                         // The status is the code card's foot (board 8): one white card, the code its own surface above it.
-                        val side = codeSide(this@BoxWithConstraints.maxWidth)
+                        // Small enough that the bar, amount, code, status and order card fit at once, without scrolling
+                        // (owner, 2026-11-13); a Back to Square or cash row under it takes its share too.
+                        val below = if (view.cash.isNotEmpty() || (view.backToPos != null && actions.onBackToPos != null)) 432.dp else 360.dp
+                        val side = min(codeSide(this@BoxWithConstraints.maxWidth), this@BoxWithConstraints.maxHeight - below).coerceAtLeast(180.dp)
                         if (view.showsCode) {
                             Column(Modifier.width(side)) {
                                 Code(sale, side, card, ground, footed = true, onEnlarge = enlarge)
@@ -384,7 +388,14 @@ private val PhoneMaxWidth = 560.dp
  * and on a live sale the tinted X that asks whether the customer is paying.
  */
 @Composable
-fun SaleBar(title: String, subtitle: String, orderId: String, actions: TillActions, onClose: (() -> Unit)? = null) = Row(
+fun SaleBar(
+    title: String,
+    subtitle: String,
+    orderId: String,
+    actions: TillActions,
+    onClose: (() -> Unit)? = null,
+    share: SaleView? = null,
+) = Row(
     Modifier.fillMaxWidth().height(64.dp).padding(start = 4.dp, end = 12.dp),
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -406,7 +417,9 @@ fun SaleBar(title: String, subtitle: String, orderId: String, actions: TillActio
             Text(words, fontSize = 13.sp, color = mk.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
-    // No Settings here: they open from the shift (owner, round 4).
+    // No Settings here: they open from the shift (owner, round 4). Share sits in the bar while the code shows, so the
+    // whole sale fits on the screen (owner, 2026-11-13).
+    if (share != null) ShareCodeIcon(share)
     if (onClose != null) {
         Spacer(Modifier.width(4.dp))
         CircleButton(MkIcons.Close, "Close sale", onClose, ground = mk.dangerGround, tint = mk.danger, iconSize = 16.dp)
@@ -564,15 +577,7 @@ private fun RingTick(paid: Boolean) {
 @Composable
 private fun Buttons(sale: SaleFace, actions: TillActions) = Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
     val view = sale.view
-    // Copy address and Share only while the code is on screen: from the moment the payment is seen there is nothing
-    // left to pay (core.md decision 224). Two to a row, each on one line.
-    if (view.showsCode) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            val copy = view.copyAddress
-            OutlineButton(copy.label, { actions.send(Action.CopyAddress(sale.orderId)) }, Modifier.weight(1f), height = 56.dp, size = 15, enabled = copy.enabled, icon = MkIcons.Copy, oneLine = true)
-            ShareCodeButton(view, Modifier.weight(1f))
-        }
-    }
+    // No Copy address, and Share is in the bar (owner, 2026-11-13): the whole sale fits on the screen.
     val open = actions.onBackToPos
     val back = view.backToPos?.takeIf { open != null }
     if (back != null || view.cash.isNotEmpty()) {
@@ -593,13 +598,13 @@ private fun Buttons(sale: SaleFace, actions: TillActions) = Column(Modifier.fill
  * title, for a customer paying from another device.
  */
 @Composable
-private fun ShareCodeButton(view: SaleView, modifier: Modifier) {
+private fun ShareCodeIcon(view: SaleView) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    OutlineButton(
-        view.share.ifEmpty { "Share" },
+    RoundIconButton(
+        MkIcons.Share, view.share.ifEmpty { "Share" },
         { scope.launch { shareCode(context, view.code, view.shareTitle) } },
-        modifier, height = 56.dp, size = 15, icon = MkIcons.Share, oneLine = true,
+        iconSize = 22.dp,
     )
 }
 
