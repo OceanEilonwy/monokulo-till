@@ -1063,6 +1063,8 @@ struct LightServerPage: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
                 }
+                // The card's own margin undone: it lines up with the field.
+                .padding(.horizontal, -16)
                 if !step.checks.isEmpty {
                     FlowRow(spacing: 18, lineSpacing: 8) {
                         ForEach(Array(step.checks.enumerated()), id: \.offset) { _, check in
