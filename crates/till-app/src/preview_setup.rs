@@ -82,6 +82,9 @@ pub enum PreviewStep {
     /// Step 4's keypad currency on the shop's own wallet, Australian
     /// dollars chosen (`pos-keypad-currency`).
     PosKeypadCurrency,
+    /// The keypad's currencies searched for "dollar"
+    /// (`pos-keypad-currency-search`).
+    PosKeypadCurrencySearch,
 }
 
 const HOST: &str = "pay.thebeanroom.com";
@@ -209,15 +212,24 @@ pub fn preview_onboarding(
             this_till_only: true,
             ..PosSetup::default()
         }),
-        PreviewStep::PosKeypadCurrency => Step::PointOfSale(PosSetup {
-            chosen: Some(PointOfSale::Till),
-            setup: true,
-            confirmed: true,
-            this_till_only: true,
-            currencies: keypad_currencies(Some("AUD")),
-            keypad_currency: Some("AUD".into()),
-            ..PosSetup::default()
-        }),
+        PreviewStep::PosKeypadCurrency | PreviewStep::PosKeypadCurrencySearch => {
+            let query = if step == PreviewStep::PosKeypadCurrencySearch {
+                "dollar"
+            } else {
+                ""
+            };
+            Step::PointOfSale(PosSetup {
+                chosen: Some(PointOfSale::Till),
+                setup: true,
+                confirmed: true,
+                this_till_only: true,
+                currencies: keypad_currencies(Some("AUD"), query),
+                keypad_currency: Some("AUD".into()),
+                picks_currency: true,
+                currency_query: query.into(),
+                ..PosSetup::default()
+            })
+        }
         PreviewStep::VkPrices | PreviewStep::VkPricesFob => {
             Step::Prices(prices_input(step == PreviewStep::VkPricesFob))
         }
@@ -240,9 +252,13 @@ pub fn preview_onboarding(
     )
 }
 
-/// The keypad's currencies, as fob-price lists them, `chosen` ticked.
-fn keypad_currencies(chosen: Option<&str>) -> Vec<till_screens::onboarding::CurrencyRow> {
-    till_wallet::prices::currency_choices(Some("AUD"))
+/// The keypad's currencies, as fob-price lists them for `query`, `chosen`
+/// ticked.
+fn keypad_currencies(
+    chosen: Option<&str>,
+    query: &str,
+) -> Vec<till_screens::onboarding::CurrencyRow> {
+    till_wallet::prices::currency_choices(Some("AUD"), query)
         .into_iter()
         .map(|c| till_screens::onboarding::CurrencyRow {
             selected: chosen == Some(c.code.as_str()),
@@ -250,7 +266,7 @@ fn keypad_currencies(chosen: Option<&str>) -> Vec<till_screens::onboarding::Curr
             name: c.name,
             detail: c.detail,
             sign: c.sign,
-            group: c.group.map(str::to_owned),
+            group: c.group,
         })
         .collect()
 }
@@ -507,6 +523,8 @@ pub fn preview_settings_of(look: PreviewSettings, device: Device, now: i64) -> S
             network: WalletNetwork::Mainnet,
             node: Some("https://node.example.com:18089".into()),
             light_server: light.then(|| LIGHT_SERVER.into()),
+            // A server the shop runs, with its own certificate.
+            light_self_signed: light,
             till_number: match look {
                 PreviewSettings::VkSettingsWarning => 51,
                 PreviewSettings::VkLightSettings => 2,
@@ -521,6 +539,7 @@ pub fn preview_settings_of(look: PreviewSettings, device: Device, now: i64) -> S
                     ("Answers in 0.2 s".into(), CheckMark::Passed),
                     ("Mainnet".into(), CheckMark::Passed),
                     ("Watches subaddresses".into(), CheckMark::Passed),
+                    ("Key 3f9a c41e 07b2 d58c…".into(), CheckMark::Passed),
                 ]
             } else {
                 vec![
@@ -724,7 +743,11 @@ mod tests {
             .wallet
             .unwrap();
         assert_eq!(settings.mode.value, "Your light wallet server");
-        assert_eq!(settings.node.unwrap().label, "Light wallet server");
+        let row = settings.node.unwrap();
+        assert_eq!(row.label, "Light wallet server");
+        let switch = row.self_signed.unwrap();
+        assert_eq!(switch.label, "Accept its own certificate");
+        assert!(switch.selected);
         assert_eq!(settings.till_number.unwrap().value, "2");
     }
 

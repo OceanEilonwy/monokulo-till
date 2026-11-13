@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -78,6 +79,7 @@ import uniffi.till_screens.CloseView
 import uniffi.till_screens.Device
 import uniffi.till_screens.OnboardingPage
 import uniffi.till_screens.OnboardingView
+import uniffi.till_screens.PaymentsMode
 import uniffi.till_screens.PosMark
 import uniffi.till_screens.SettingsView
 import uniffi.till_screens.ShiftView
@@ -129,7 +131,8 @@ class ScreenshotTest {
             }
             TillTheme(dark) {
                 CompositionLocalProvider(LocalMotion provides Motion.Still, LocalPointOfSale provides PosMark.SQUARE) {
-                    Box(Modifier.fillMaxSize().background(mk.ground)) { shot.content() }
+                    // Keyed by name, so a field's remembered text starts afresh with each shot.
+                    Box(Modifier.fillMaxSize().background(mk.ground)) { key(shot.name) { shot.content() } }
                 }
             }
         }
@@ -198,6 +201,11 @@ class ScreenshotTest {
         SaleFace.of(previewSale(priced, "w1", TestPlatform) as Update.Sale)
     }
 
+    /** A sale whose code ran out on a till on the shop's own wallet: Till, not Monokulo, watches for a late payment (core.md decision 252). */
+    private val walletExpiredFace by lazy {
+        SaleFace.of(previewSale(full.copy(payments = PaymentsMode.WALLET), "e1", TestPlatform) as Update.Sale)
+    }
+
     /** Sales charged on Till's keypad, two put aside for the next customer. */
     private val keypadSales = listOf(
         PreviewSale(orderId = "k1", phase = PreviewPhase.WAITING, amount = "8.40", reference = "Sam", expiresAt = now + 840, foundPos = Pos.TILL, createdAt = now - 60),
@@ -254,6 +262,7 @@ class ScreenshotTest {
         // Till's keypad as the point of sale (docs/view-key-mode.md §7).
         setup("pos-keypad-choose", PreviewStep.POS_KEYPAD_CHOOSE),
         setup("pos-keypad-currency", PreviewStep.POS_KEYPAD_CURRENCY),
+        setup("pos-keypad-currency-search", PreviewStep.POS_KEYPAD_CURRENCY_SEARCH),
         Shot("pos-keypad") { KeypadScreen(keypad("USD", "1250", "Sam", aside = true)) {} },
         Shot("pos-keypad-empty") { KeypadScreen(keypad("USD", "", "", aside = false)) {} },
         Shot("pos-keypad-xmr") { KeypadScreen(keypad("XMR", "0.05", "", aside = false)) {} },
@@ -275,6 +284,7 @@ class ScreenshotTest {
         Shot("vk-settings") { SettingsScreen(previewSettingsOf(PreviewSettings.VK_SETTINGS, Device.ANDROID, now), settingsActions) },
         Shot("vk-settings-warning") { SettingsScreen(previewSettingsOf(PreviewSettings.VK_SETTINGS_WARNING, Device.ANDROID, now), settingsActions) },
         Shot("vk-light-settings") { SettingsScreen(previewSettingsOf(PreviewSettings.VK_LIGHT_SETTINGS, Device.ANDROID, now), settingsActions) },
+        Shot("vk-sale-expired") { SaleScreen(walletExpiredFace, noActions, null) },
     )
 
     private fun landscapeShots() = listOf(

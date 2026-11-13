@@ -47,6 +47,15 @@ struct WalletSettings: View {
         if let node = wallet.node {
             Section {
                 nodeRow(node)
+                if let choice = node.selfSigned {
+                    SelfSignedToggle(
+                        choice: choice,
+                        isOn: Binding(
+                            get: { choice.selected },
+                            set: { send(.setLightServer(url: node.url, selfSigned: $0)) }
+                        )
+                    )
+                }
                 if !node.checks.isEmpty {
                     FlowRow(spacing: 18, lineSpacing: 8) {
                         ForEach(Array(node.checks.enumerated()), id: \.offset) { _, check in
@@ -57,9 +66,13 @@ struct WalletSettings: View {
                 }
             }
             .sheet(isPresented: $changingNode) {
-                NodeSheet(node: node) { url in
+                NodeSheet(node: node) { url, selfSigned in
                     changingNode = false
-                    send(.setNode(url: url))
+                    if let selfSigned {
+                        send(.setLightServer(url: url, selfSigned: selfSigned))
+                    } else {
+                        send(.setNode(url: url))
+                    }
                 }
                 .presentationDetents([.medium, .large])
             }

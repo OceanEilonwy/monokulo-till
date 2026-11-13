@@ -1051,9 +1051,11 @@ impl State {
             Action::EditLightServer { url, self_signed } => {
                 self.edit_light_server(url, self_signed)
             }
+            Action::SetLightServer { url, self_signed } => self.set_light_server(url, self_signed),
             Action::ChoosePriceProvider { name } => self.choose_price_provider(name),
             Action::Refresh => self.pull(),
             Action::ChooseKeypadCurrency { code } => self.choose_keypad_currency(code),
+            Action::SearchKeypadCurrency { query } => self.search_keypad_currency(query),
             Action::KeypadPress { key } => self.keypad_press(key),
             Action::KeypadReference { text } => self.keypad_reference(text),
             Action::Charge => self.charge(),
@@ -2416,6 +2418,9 @@ impl State {
                         Vec::new()
                     },
                     keypad_currency: model.keypad_currency.clone(),
+                    picks_currency: chosen == Some(PointOfSale::Till)
+                        && State::picks_keypad_currency(p),
+                    currency_query: self.keypad.currency_query.clone(),
                 })
             }
             Screen::Counter => {

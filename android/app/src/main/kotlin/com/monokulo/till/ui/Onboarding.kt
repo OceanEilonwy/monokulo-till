@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,7 +25,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,6 +44,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
@@ -53,6 +57,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -70,6 +75,7 @@ import uniffi.till_screens.PosChoice
 import uniffi.till_screens.PosMark
 import uniffi.till_screens.PosStage
 import uniffi.till_screens.CurrencyRow
+import uniffi.till_screens.CurrencySearch
 import uniffi.till_screens.PosStep
 import uniffi.till_screens.TestStatus
 import uniffi.till_screens.SampleAlert
@@ -311,6 +317,8 @@ class PosSetupActions(
     val onBack: () -> Unit,
     /** Till's keypad: its currency picked, by code ("XMR" for none). */
     val onCurrency: (String) -> Unit = {},
+    /** Till's keypad: the currency search as typed (core.md 255). */
+    val onSearchCurrency: (String) -> Unit = {},
 )
 
 /**
@@ -339,6 +347,7 @@ fun PointOfSaleScreen(step: PosStep, stepLabel: String?, a: PosSetupActions, hea
         PosStage.SIGN_IN -> step.card?.let { card -> PosAccount(card, a, heading, lead) }
         PosStage.CURRENCY -> {
             PageHead(heading, lead)
+            step.currencySearch?.let { CurrencySearchField(it, a.onSearchCurrency, Modifier.padding(top = 16.dp)) }
             CurrencyGroups(step.currencies, a.onCurrency)
         }
         PosStage.TEST_SALE -> step.card?.let { card ->
@@ -355,8 +364,9 @@ fun PointOfSaleScreen(step: PosStep, stepLabel: String?, a: PosSetupActions, hea
                 PosAccount(card, a)
                 PosAtTheTill(card, a, testRow = true)
             }
-            if (step.currencies.isNotEmpty()) {
+            if (step.currencies.isNotEmpty() || step.currencySearch != null) {
                 SectionLabel("Currency")
+                step.currencySearch?.let { CurrencySearchField(it, a.onSearchCurrency) }
                 CurrencyGroups(step.currencies, a.onCurrency)
             }
         }
@@ -412,6 +422,62 @@ fun PosChoices(choices: List<PosChoice>, onChoose: (PosMark) -> Unit) = Group(
         }
     },
 )
+
+/**
+ * The search over the keypad's currencies (core.md 255), in a setup field's box: each change goes to the engine, which
+ * narrows the list, and says instead of it when nothing matches. A magnifier leads; a clear button empties it.
+ */
+@Composable
+private fun CurrencySearchField(search: CurrencySearch, onSearch: (String) -> Unit, modifier: Modifier = Modifier) {
+    var text by remember { mutableStateOf(search.query) }
+    val type = { typed: String -> text = typed; onSearch(typed) }
+    OutlinedTextField(
+        value = text, onValueChange = type,
+        modifier = modifier.padding(horizontal = 16.dp).fillMaxWidth().semantics { contentDescription = search.placeholder },
+        singleLine = true,
+        placeholder = { Text(search.placeholder, color = mk.muted) },
+        leadingIcon = { SearchGlyph() },
+        trailingIcon = if (text.isEmpty()) null else {
+            { ClearGlyph(Modifier.clickable(onClickLabel = "Clear the search") { type("") }) }
+        },
+        keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, imeAction = ImeAction.Search),
+        shape = RoundedCornerShape(10.dp),
+        colors = fieldColours(),
+    )
+    search.empty?.let {
+        Text(
+            it, Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 28.dp),
+            color = mk.muted, fontSize = 15.sp, textAlign = TextAlign.Center,
+        )
+    }
+}
+
+/** A magnifier, decorative. */
+@Composable
+private fun SearchGlyph() {
+    val ink = mk.muted
+    Canvas(Modifier.size(18.dp).clearAndSetSemantics {}) {
+        val r = size.minDimension * 0.34f
+        val c = Offset(r + 1.dp.toPx(), r + 1.dp.toPx())
+        drawCircle(ink, r, c, style = Stroke(2.dp.toPx()))
+        val d = r * 0.72f
+        drawLine(ink, Offset(c.x + d, c.y + d), Offset(size.width - 1.dp.toPx(), size.height - 1.dp.toPx()), 2.dp.toPx(), StrokeCap.Round)
+    }
+}
+
+/** A cross in a filled circle, as the clear button. */
+@Composable
+private fun ClearGlyph(modifier: Modifier) = Box(modifier.size(40.dp), contentAlignment = Alignment.Center) {
+    val fill = mk.muted
+    val ink = mk.card
+    Canvas(Modifier.size(18.dp)) {
+        drawCircle(fill)
+        val a = size.minDimension * 0.32f
+        val b = size.minDimension - a
+        drawLine(ink, Offset(a, a), Offset(b, b), 1.8.dp.toPx(), StrokeCap.Round)
+        drawLine(ink, Offset(a, b), Offset(b, a), 1.8.dp.toPx(), StrokeCap.Round)
+    }
+}
 
 /**
  * Till's keypad's currencies (docs/view-key-mode.md §7), as Fob lists them: None (XMR only), this device's, then every

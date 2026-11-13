@@ -22,7 +22,12 @@ pub(crate) struct KeypadForm {
     reference: String,
     busy: bool,
     problem: Option<String>,
+    /// The search over the keypad's currencies, as typed (core.md 255).
+    pub(super) currency_query: String,
 }
+
+/// The longest currency search kept: longer than any currency's name.
+const CURRENCY_QUERY_MAX: usize = 40;
 
 impl State {
     /// The till's point of sale is its own keypad, and setup is done: the
@@ -42,8 +47,9 @@ impl State {
     /// on the shop's own wallet its currency, then as any point of sale
     /// once connected (Prices, or back to Settings).
     pub(super) fn keypad_pos_next(&mut self) {
-        let Some(model) = self.model() else { return };
-        let needs_currency = model.wallet.is_some() && model.connection.is_none();
+        let Some(p) = &self.parts else { return };
+        let needs_currency = State::picks_keypad_currency(p);
+        let model = p.side.model();
         if !model.setup_done && !self.pos_confirmed {
             if needs_currency {
                 self.pos_confirmed = true;
@@ -240,19 +246,32 @@ impl State {
         keypad::keypad(&input, self.config.device, &Money(self.platform.clone()))
     }
 
-    /// The keypad's currencies to choose, on the shop's own wallet; none
-    /// with Monokulo, whose store has its own.
-    pub(super) fn keypad_currencies(&self, p: &Parts) -> Vec<CurrencyRow> {
+    /// The currency search as typed: the keypad's currencies narrow to
+    /// what it matches (core.md 255).
+    pub(super) fn search_keypad_currency(&mut self, query: String) {
+        self.keypad.currency_query = query.chars().take(CURRENCY_QUERY_MAX).collect();
+    }
+
+    /// The keypad's currency is the till's to choose: on the shop's own
+    /// wallet, not with Monokulo, whose store has its own.
+    pub(super) fn picks_keypad_currency(p: &Parts) -> bool {
         let model = p.side.model();
-        if model.wallet.is_none() || model.connection.is_some() {
+        model.wallet.is_some() && model.connection.is_none()
+    }
+
+    /// The keypad's currencies to choose, on the shop's own wallet, those
+    /// the search matches; none with Monokulo, whose store has its own.
+    pub(super) fn keypad_currencies(&self, p: &Parts) -> Vec<CurrencyRow> {
+        if !State::picks_keypad_currency(p) {
             return Vec::new();
         }
+        let model = p.side.model();
         let home = self
             .platform
             .currency_symbols("USD".into())
             .home
             .filter(|h| !h.is_empty());
-        till_wallet::prices::currency_choices(home.as_deref())
+        till_wallet::prices::currency_choices(home.as_deref(), &self.keypad.currency_query)
             .into_iter()
             .map(|c| CurrencyRow {
                 selected: model.keypad_currency.as_deref() == Some(c.code.as_str()),
@@ -260,7 +279,7 @@ impl State {
                 name: c.name,
                 detail: c.detail,
                 sign: c.sign,
-                group: c.group.map(str::to_owned),
+                group: c.group,
             })
             .collect()
     }

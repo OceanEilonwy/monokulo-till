@@ -2285,7 +2285,7 @@ still strings across the till, the ledger, the screens and the bridge.
      a new address, checked by the wallet before it's kept, with no
      default servers to offer), "Proofs checked with" the node, and a
      footnote that the server sees every payment. The certificate setting
-     can't be changed in Settings. Open question 3 (moving between a node
+     is changed in Settings too (decision 253). Open question 3 (moving between a node
      and a light server without setting up again) is not in this round, as
      the owner chose: Disconnect and set up again.
 
@@ -2402,6 +2402,43 @@ still strings across the till, the ledger, the screens and the bridge.
 
 ## View-key mode: follow-ups (2026-11-13)
 
+252. **A sale's page says who watches for a late payment.** With Monokulo
+     its words are unchanged: "Monokulo keeps watching for a late payment
+     for a while", "Monokulo has stopped watching it.", "Cancelled in
+     Monokulo". On the shop's own wallet it's Till itself, and only while
+     it's open (decision 231), for the late window of a day after the code
+     runs out (decision 230): "Till keeps watching for a late payment for a
+     day, whenever it's open: if one arrives, this sale turns paid.", an
+     expired sale's small print "A late payment still counts for a day:
+     Till sees it whenever it's open, and the sale turns paid.", and once
+     the window has passed "Till has stopped watching it.". With a light
+     wallet server, Till asks the server: "Till keeps asking your light
+     wallet server for a late payment for a day, whenever it's open", and
+     "Till hears of it from your light wallet server whenever it's open".
+     "Whenever it's open", not "while": a payment that came while Till was
+     closed is found when it next opens. A cancelled wallet sale says only
+     "Cancelled". `SalePageInput::by` carries the till's `PaymentsMode`
+     (`Side::payments_mode`: a wallet link with a light server is
+     LightServer), and the previews' `TillPreview::payments`, Monokulo when
+     not said, draws the screenshot `vk-sale-expired`.
+253. **Settings changes the light server's "Accept its own certificate"
+     too.** Setup's switch, with setup's words
+     (`wallet_setup::self_signed_choice`), sits in Settings' light server
+     card under the row (`NodeRow::self_signed`, `None` for a node) and in
+     Change beside the address. Either sends `Action::SetLightServer`
+     with the address and the setting together (the node row's `SetNode`
+     on a light server keeps the setting as it stands). As with a new
+     address, the wallet checks the server first: fob-wallet's
+     `set_light_server` refuses one that doesn't answer, is on another
+     network or doesn't watch subaddresses, and then nothing changes and
+     Settings says why; only once it passes does the link keep the new
+     setting. The lines under the row are checked again with the new
+     setting. Till keeps no key of its own for the server: fob-wallet
+     holds the trusted key, and `set_light_server` replaces it whenever
+     the address or the setting changes (the key its check saw with the
+     switch on, none with it off), so a server is never held to another
+     address's key, or to a key it was trusted with before the switch was
+     turned off and on again.
 254. **A Connect to Fob request made through a light wallet server keeps
      the server with it.** C1's request is kept as a secret so Fob's answer
      still opens after a restart; it used to come back as a node till,
@@ -2414,6 +2451,23 @@ still strings across the till, the ledger, the screens and the bridge.
      check passed before the request could be made), so Fob's answer goes
      on to This till and the light server's link as if there had been no
      restart.
+255. **The keypad's currencies have a search.** The Currency stage (and
+     the currencies under "Change the point of sale" in Settings) has a
+     search field over the list, which narrows it as it's typed in: by
+     name, code or symbol, whatever the case or accents ("aud",
+     "australian", "dollar", "zloty"), the same matching Fob's own
+     "Default currency" search uses (fob-price's `currency_list`), so a
+     word inside a name finds it too ("aud" also finds the Saudi riyal).
+     With nothing typed the list is as before, None (XMR only) and this
+     device's currency at the top; searching, the device's row is left out
+     as it's among the rest, None stays for "none", "xmr" or "monero", and
+     the matches are headed "N of 45". When nothing matches, "No currency
+     matches “…”" shows instead of the list and the stage stays
+     (`PosSetup::picks_currency`, not a non-empty list, says the currency
+     is the till's to choose). The query lives in the engine
+     (`Action::SearchKeypadCurrency`, at most 40 characters, not kept) and
+     the matching in till-wallet, so both platforms only draw the field: a
+     setup field's box with a magnifier and a clear button.
 
 256. **A keypad charge that failed is kept through a restart, in the
      settings store.** The first request may have reached the backend and

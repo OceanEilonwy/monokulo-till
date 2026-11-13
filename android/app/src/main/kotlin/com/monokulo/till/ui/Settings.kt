@@ -243,8 +243,17 @@ private fun WalletSettings(w: WalletSection, a: SettingsActions) {
     w.lookahead?.let { WarningLine(it) }
     w.node?.let { node ->
         Spacer(Modifier.height(16.dp))
-        NodeCard(node) { changingNode = true }
-        if (changingNode) NodeDialog(node) { url -> changingNode = false; url?.let { a.send(Action.SetNode(it)) } }
+        NodeCard(node, { changingNode = true }, { a.send(Action.SetLightServer(node.url, it)) })
+        if (changingNode) {
+            NodeDialog(node) { url, selfSigned ->
+                changingNode = false
+                when {
+                    url == null -> {}
+                    selfSigned != null -> a.send(Action.SetLightServer(url, selfSigned))
+                    else -> a.send(Action.SetNode(url))
+                }
+            }
+        }
     }
     Spacer(Modifier.height(16.dp))
     Group(

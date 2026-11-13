@@ -382,6 +382,11 @@ pub struct NodeRow {
     pub checks: Vec<NodeCheckRow>,
     /// Fob's default nodes, offered under Change.
     pub choices: Vec<String>,
+    /// In Settings on a light wallet server, setup's "Accept its own
+    /// certificate" switch under the row and in Change:
+    /// `Action::SetLightServer`'s `self_signed`. `None` for a node.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub self_signed: Option<Choice>,
 }
 
 /// D4.
@@ -432,21 +437,27 @@ pub const LIGHT_SERVER_SEES: &str = "Your server gets this wallet's view key, so
 /// D4's node, through a light wallet server.
 pub const PROOF_NODE: &str = "Node for proofs";
 
+/// "Accept its own certificate": the light wallet server's switch, in
+/// setup and in Settings.
+pub fn self_signed_choice(selected: bool, enabled: bool) -> Choice {
+    Choice {
+        label: "Accept its own certificate".into(),
+        detail: Some(
+            "For a server with a self-signed certificate. Till then talks to it only while it answers with the same key."
+                .into(),
+        ),
+        selected,
+        enabled,
+    }
+}
+
 /// What the light wallet server step shows.
 pub fn light_server_step(l: &LightServerSetup) -> LightServerStep {
     LightServerStep {
         field_label: "Server address".into(),
         url: l.url.clone(),
         placeholder: "https://lws.example.com:8443".into(),
-        self_signed: Choice {
-            label: "Accept its own certificate".into(),
-            detail: Some(
-                "For a server with a self-signed certificate. Till then talks to it only while it answers with the same key."
-                    .into(),
-            ),
-            selected: l.self_signed,
-            enabled: !l.busy,
-        },
+        self_signed: self_signed_choice(l.self_signed, !l.busy),
         checks: l
             .checks
             .iter()
@@ -861,6 +872,7 @@ pub fn this_till_step(t: &ThisTillSetup) -> ThisTillStep {
                 })
                 .collect(),
             choices: t.node_choices.clone(),
+            self_signed: None,
         }),
         paid_after: paid_after(t.confirmations, false),
         expiry: expiry(t.expiry_minutes),
