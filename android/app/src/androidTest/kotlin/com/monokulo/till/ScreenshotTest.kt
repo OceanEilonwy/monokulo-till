@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -129,7 +130,8 @@ class ScreenshotTest {
             }
             TillTheme(dark) {
                 CompositionLocalProvider(LocalMotion provides Motion.Still, LocalPointOfSale provides PosMark.SQUARE) {
-                    Box(Modifier.fillMaxSize().background(mk.ground)) { shot.content() }
+                    // Keyed by name, so a field's remembered text starts afresh with each shot.
+                    Box(Modifier.fillMaxSize().background(mk.ground)) { key(shot.name) { shot.content() } }
                 }
             }
         }
