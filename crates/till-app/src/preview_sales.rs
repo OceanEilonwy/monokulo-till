@@ -100,6 +100,12 @@ pub struct PreviewSale {
     pub confirmations: Option<u32>,
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub confirmations_required: Option<u32>,
+    /// The price provider the till's own wallet priced it with ("Kraken"),
+    /// at `price_at` (Unix seconds): the code names them.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub price_provider: Option<String>,
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub price_at: Option<i64>,
 }
 
 impl PreviewSale {
@@ -130,6 +136,8 @@ impl PreviewSale {
             refund_pending_at: None,
             confirmations: None,
             confirmations_required: None,
+            price_provider: None,
+            price_at: None,
         }
     }
 
@@ -187,7 +195,17 @@ impl PreviewSale {
             offered: false,
             kept_as_cash_at: None,
             paid_in_cash_at: None,
-            extras: till_sales::SaleExtras::default(),
+            extras: till_sales::SaleExtras {
+                price_used: self
+                    .price_provider
+                    .clone()
+                    .map(|provider| till_types::PriceUsed {
+                        provider,
+                        rate: till_pos::Price::new("162.40", self.currency.as_str()),
+                        at: UnixSeconds(self.price_at.unwrap_or(self.created_at)),
+                    }),
+                ..till_sales::SaleExtras::default()
+            },
         }
     }
 }

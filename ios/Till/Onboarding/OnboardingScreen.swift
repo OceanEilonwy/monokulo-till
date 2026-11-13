@@ -99,6 +99,8 @@ struct OnboardingScreen: View {
             WalletSeedPage(step: view, view: onboarding, send: send)
         case .thisTill(let view):
             ThisTillPage(step: view, view: onboarding, send: send)
+        case .prices(let view):
+            PricesPage(step: view, view: onboarding, send: send)
         }
     }
 }

@@ -168,6 +168,13 @@ struct SaleScreen: View {
                 .font(.subheadline.monospacedDigit())
                 .foregroundStyle(Palette.secondary)
                 .lineLimit(1)
+            if let priceLine = view.priceLine {
+                Text(priceLine)
+                    .font(.footnote.monospacedDigit())
+                    .foregroundStyle(Palette.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
         }
         .frame(maxWidth: .infinity)
     }
@@ -431,6 +438,12 @@ struct CodeScreen: View {
                             .font(.subheadline.monospacedDigit())
                             .foregroundStyle(Color(hex: 0x5A564C))
                             .lineLimit(1)
+                        if let priceLine = view.priceLine {
+                            Text(priceLine)
+                                .font(.footnote.monospacedDigit())
+                                .foregroundStyle(Color(hex: 0x5A564C))
+                                .lineLimit(1)
+                        }
                     }
                     .accessibilityElement(children: .combine)
                     Spacer(minLength: 8)
@@ -465,6 +478,12 @@ struct CodeScreen: View {
                     .font(.subheadline.monospacedDigit())
                     .foregroundStyle(Color(hex: 0x5A564C))
                     .lineLimit(1)
+                if let priceLine = view.priceLine {
+                    Text(priceLine)
+                        .font(.footnote.monospacedDigit())
+                        .foregroundStyle(Color(hex: 0x5A564C))
+                        .lineLimit(1)
+                }
                 QRCodeView(text: view.code, label: view.codeSaid, size: side, padding: 12, cornerRadius: 0)
                 PaymentProgress(step: Int(view.step), status: view.scan)
                     .frame(maxWidth: side)

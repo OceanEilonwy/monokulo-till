@@ -2145,3 +2145,46 @@ still strings across the till, the ledger, the screens and the bridge.
      docs/brand/fob-mark.svg kept as a vector in its own colours. Fob's
      page ("Get it for Android", `Effect::OpenUrl` on V2) opens in the
      browser, not as a sign-in.
+
+## View-key mode: prices (2026-11-13)
+
+241. **Setup asks where prices come from, after the point of sale.**
+     (Owner, 2026-11-12, docs/view-key-mode.md §8, §11.1.) A till on the
+     shop's own wallet whose point of sale has a fiat currency some
+     fob-price provider prices goes from the point of sale (or C4's
+     counter) to `Screen::Prices` before Alerts, and Alerts' Back returns
+     to it. The step copies Fob's Price from: only the providers that
+     price the currency (`providers_for`), each asked for the price as the
+     page opens with fob-price's `check` over the web, its answer written
+     as Fob writes it ("A$845.10") or why it gave none in fob-words' words
+     ("Not answering"); one that gave none can't be picked, but the one in
+     use stays picked. Fob's intro names the currency by Fob's plural
+     ("Prices in **Australian dollars**…"). Connected through Fob with its
+     price source shared, Fob's provider is picked and said so, but the
+     step still shows (the owner's call this round; the spec had it
+     skipped). Picking sends `ChoosePriceProvider`, which now works on
+     Prices as in Settings; Continue keeps the currency and provider in the
+     wallet's link (so the wallet keeps that price fresh) and goes on. The
+     currency is the point of sale's: the Square location's, the Clover
+     merchant's, else the one Fob shared (`price_currency`). Settings'
+     price source draws the same rows (`ProviderRow`), checked as Settings
+     opens. The test sale on the point-of-sale step, which comes first, is
+     priced by the provider picked by default (Fob's, else the first).
+     The rail and the iPhone bar count Prices (board VkRail) between Point
+     of sale and Alerts.
+242. **The price is kept fresh in the foreground, and the code says where
+     it came from.** (docs/view-key-mode.md §8.) The wallet's event
+     stream, which runs only while Till is in the foreground (decision
+     231), asks for the link's currency's price after a turn whenever the
+     one it has is 5 minutes old (fob-price's `REFRESH`); `refresh`, run as
+     the stream opens and on pull to refresh, asks unless it's under a
+     minute old (`PULL_REFRESH`). A failure there is silent: a code still
+     asks first and refuses with the reason when the price is over 10
+     minutes old (decision 230). Pull to refresh is new on the shift on
+     both platforms (`Action::Refresh`, `Till::pull`): the open payments
+     read again, the backend asked even with none open, and the point of
+     sale looked at now. The ledger's view and `TillSale`'s extras carry
+     the order's `price_used`, and the sale's live screen and enlarged code
+     show "Kraken · price from 14:02" (Fob's words) under the XMR; a
+     Monokulo order has none. B4's merged Paid after line now uses
+     Settings' words, "10 confirmations · about 20 minutes".
