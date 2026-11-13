@@ -438,6 +438,13 @@ pub fn page(
             ..model
         }
     };
+    if sale
+        .found
+        .as_ref()
+        .is_some_and(|f| f.point_of_sale == PointOfSale::Till)
+    {
+        keypad_page(sale, &mut here);
+    }
     if sale.cash() && here.actions.contains(&PageAction::Refund) {
         // Never refunded through the point of sale (core.md decision 116).
         here.actions.retain(|&a| a != PageAction::Refund);
@@ -451,6 +458,30 @@ pub fn page(
     }
     ledger_lines(sale, &mut here);
     here
+}
+
+/// A sale charged on Till's keypad: nothing was taken at a point of sale,
+/// so there's nothing to refund there. What Monero came in part goes back
+/// by hand, as Monokulo's web POS has it (docs/view-key-mode.md §7): Refund
+/// then takes the cashier's word; with nothing come, there's nothing to do.
+fn keypad_page(sale: &TillSale, here: &mut SalePageModel) {
+    if !here.actions.contains(&PageAction::Refund) {
+        return;
+    }
+    match sale.extras.received {
+        Some(received) => {
+            let xmr = monokulo_client::payment_uri::xmr(received);
+            here.note = Some(PageNote::card(format!(
+                "{xmr} XMR came in before it ended. Give it back by hand: ask the customer for a return address and send it from your wallet, then tap Gave it back."
+            )));
+        }
+        None => {
+            here.actions.retain(|&a| a != PageAction::Refund);
+            here.note = Some(PageNote::card(
+                "Nothing was paid, and nothing was charged anywhere else, so there's nothing to give back.",
+            ));
+        }
+    }
 }
 
 /// What the ledger adds to a page (docs/ledger.md §5, §7): New code on a
@@ -643,6 +674,9 @@ pub fn sale_page(
         .map(|&action| PageButton {
             action,
             press: match action {
+                PageAction::Refund if header.pos == Some(PointOfSale::Till) => {
+                    Press::new("Gave it back").enabled(!input.refunding)
+                }
                 PageAction::Refund => Press::new(pos_text::refund_button(header.pos, &amount))
                     .enabled(!input.refunding),
                 PageAction::ShowCodeAgain => Press::new("Show the code again"),
@@ -711,6 +745,34 @@ mod tests {
         let mut sale = sale;
         sale.found.as_mut().unwrap().point_of_sale = PointOfSale::Clover;
         sale
+    }
+
+    #[test]
+    fn a_keypad_sale_gives_back_by_hand_only_what_came() {
+        const TILL: Option<PointOfSale> = Some(PointOfSale::Till);
+        let mut sale = sale_of("k1")
+            .phase(SalePhase::Expired)
+            .ended_at(at() - 60)
+            .build();
+        sale.found.as_mut().unwrap().point_of_sale = PointOfSale::Till;
+        let model = page(&sale, TILL, la(at()), false);
+        assert!(
+            !model.actions.contains(&PageAction::Refund),
+            "nothing to refund"
+        );
+        assert!(
+            note(&model).contains("nothing to give back"),
+            "{}",
+            note(&model)
+        );
+        sale.extras.received = Some(10_000_000_000);
+        let model = page(&sale, TILL, la(at()), false);
+        assert_eq!(model.actions, [PageAction::Refund]);
+        assert!(
+            note(&model).starts_with("0.01 XMR came in"),
+            "{}",
+            note(&model)
+        );
     }
 
     #[test]

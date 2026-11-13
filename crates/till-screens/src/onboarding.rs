@@ -76,6 +76,32 @@ pub struct PosSetup {
     /// docs/view-key-mode.md §6): with no point of sale it would show
     /// nothing, so "Set up later" isn't offered.
     pub this_till_only: bool,
+    /// Till's keypad: the currencies to choose from, on the shop's own
+    /// wallet (docs/view-key-mode.md §7); empty with Monokulo, whose store
+    /// has its own.
+    pub currencies: Vec<CurrencyRow>,
+    /// The keypad's currency chosen so far: its code, "XMR" for none.
+    pub keypad_currency: Option<String>,
+}
+
+/// One of the keypad's currencies to choose (fob-price's list): "None (XMR
+/// only)" first, then this device's own, then all of them by name. Picking
+/// one sends `Action::ChooseKeypadCurrency` with its code.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct CurrencyRow {
+    /// ISO 4217, or "XMR" for none.
+    pub code: String,
+    /// "Australian dollar", "None (XMR only)".
+    pub name: String,
+    /// "AUD · Kraken, CoinGecko", "No price is ever looked up".
+    pub detail: String,
+    /// "A$", "ɱ": drawn in the row's circle.
+    pub sign: String,
+    pub selected: bool,
+    /// Over its group, on the group's first row: "This device",
+    /// "Every currency".
+    pub group: Option<String>,
 }
 
 /// C4's state: the test sale and the device it came from.
@@ -355,6 +381,9 @@ pub enum PosStage {
     Choose,
     /// "Sign in to Square": the card, the sign-in and Back.
     SignIn,
+    /// Till's keypad on the shop's own wallet: which currency it charges
+    /// in, or none (XMR only).
+    Currency,
     /// "Try a test sale": the steps at the point of sale, and the status
     /// bar beside "Skip the test" and Continue.
     TestSale,
@@ -566,6 +595,10 @@ pub struct PosStep {
     /// Counter".
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub connected: Option<String>,
+    /// Till's keypad: the currencies to choose, on the Currency stage (and
+    /// from Settings), the chosen one ticked.
+    #[cfg_attr(feature = "uniffi", uniffi(default = []))]
+    pub currencies: Vec<CurrencyRow>,
 }
 
 /// The chosen point of sale's card: its sign-in, its location or merchant,
@@ -998,8 +1031,24 @@ fn words(page: &OnboardingPage, device: Device) -> Words {
             let name = view.card.as_ref().map(|card| match card.mark {
                 PosMark::Square => PointOfSale::Square,
                 PosMark::Clover => PointOfSale::Clover,
+                PosMark::Till => PointOfSale::Till,
             });
             match (view.stage, name) {
+                (Some(PosStage::Currency), _) => said(
+                    "Which currency does Till charge in?",
+                    "The keypad takes amounts in it, and Till works out the XMR at the price you choose next. With XMR only, Till never looks up a price.",
+                ),
+                (Some(PosStage::Choose), _)
+                    if view
+                        .choices
+                        .iter()
+                        .any(|c| c.choice.selected && c.mark == PosMark::Till) =>
+                {
+                    said(
+                        "Which point of sale do you use?",
+                        "With no point of sale, Till's own keypad takes each sale on this device. Nothing to sign in to.",
+                    )
+                }
                 (Some(PosStage::Choose), _) => said(
                     "Which point of sale do you use?",
                     "Till signs in to it to see each Monero sale the moment you ring it up.",
@@ -1199,6 +1248,14 @@ fn connected_page(host: &str, encrypted: bool, now: &StoreNow) -> OnboardingPage
 fn stage(s: &PosSetup) -> Option<PosStage> {
     if !s.setup {
         None
+    } else if s.chosen == Some(PointOfSale::Till) {
+        // No sign-in and no test sale: the keypad's currency, where it's
+        // the till's to choose.
+        if s.confirmed && !s.currencies.is_empty() {
+            Some(PosStage::Currency)
+        } else {
+            Some(PosStage::Choose)
+        }
     } else if s.connected() {
         Some(PosStage::TestSale)
     } else if s.confirmed && s.chosen.is_some() {
@@ -1209,6 +1266,9 @@ fn stage(s: &PosSetup) -> Option<PosStage> {
 }
 
 fn pos_step(s: &PosSetup, device: Device) -> PosStep {
+    if s.chosen == Some(PointOfSale::Till) {
+        return keypad_step(s, device);
+    }
     let connected = s.connected();
     let stage = stage(s);
     let later = || Press::new(pos_text::SET_UP_LATER).enabled(!s.busy);
@@ -1272,6 +1332,36 @@ fn pos_step(s: &PosSetup, device: Device) -> PosStep {
         connected: (stage == Some(PosStage::TestSale))
             .then(|| connected_line(s))
             .flatten(),
+        currencies: Vec::new(),
+    }
+}
+
+/// Step 4 with Till's keypad chosen: "Continue with Till", then on the
+/// shop's own wallet its currency; from Settings the choice and the
+/// currencies together, and Done.
+fn keypad_step(s: &PosSetup, device: Device) -> PosStep {
+    let stage = stage(s);
+    let chosen_currency = s.keypad_currency.is_some() || s.currencies.is_empty();
+    let next = match stage {
+        Some(PosStage::Choose) => Press::new("Continue with Till").enabled(!s.busy),
+        Some(_) => Press::new("Continue").enabled(chosen_currency && !s.busy),
+        None => Press::new("Done").enabled(chosen_currency && !s.busy),
+    };
+    PosStep {
+        back: !s.setup || stage == Some(PosStage::Currency),
+        choices: pos_choices(s.chosen, !s.busy, device),
+        card: None,
+        next: Some(next),
+        skip: None,
+        stage,
+        skip_footnote: None,
+        status: None,
+        connected: None,
+        currencies: if stage == Some(PosStage::Choose) {
+            Vec::new()
+        } else {
+            s.currencies.clone()
+        },
     }
 }
 
@@ -1290,6 +1380,7 @@ fn connected_line(s: &PosSetup) -> Option<String> {
             )
         }
         PointOfSale::Clover => (s.merchant.clone()?, None),
+        PointOfSale::Till => return None,
     };
     let mut parts = vec![format!("Connected to {who}")];
     parts.extend(place.filter(|place| !place.is_empty() && *place != who));
@@ -1314,7 +1405,7 @@ fn pos_card(pos: PointOfSale, s: &PosSetup) -> PosCard {
                 Some(Fact::new(pos_text::place_row(Some(pos)), &location.name)),
             )
         }
-        (PointOfSale::Clover, true) => (
+        (PointOfSale::Clover | PointOfSale::Till, true) => (
             Account::Connected {
                 who: s.merchant.clone().unwrap_or_default(),
             },
@@ -1325,7 +1416,7 @@ fn pos_card(pos: PointOfSale, s: &PosSetup) -> PosCard {
     let add_by_hand =
         pos == PointOfSale::Clover && connected && s.tender == CloverTender::AddInClover;
     let (steps_title, steps) = match pos {
-        PointOfSale::Square => (
+        PointOfSale::Square | PointOfSale::Till => (
             pos_text::SQUARE_STEPS_TITLE,
             pos_text::SQUARE_STEPS.map(String::from).to_vec(),
         ),
@@ -1806,6 +1897,12 @@ mod tests {
                 Choice {
                     label: "Clover".into(),
                     detail: Some("A Clover device".into()),
+                    selected: false,
+                    enabled: true,
+                },
+                Choice {
+                    label: "Till".into(),
+                    detail: Some("No point of sale: a keypad on this device".into()),
                     selected: false,
                     enabled: true,
                 },

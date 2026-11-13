@@ -31,17 +31,21 @@ import uniffi.till_screens.PosMark
  * the name beside it is what TalkBack reads.
  */
 @Composable
-fun PosMark(pos: PosMark, size: Dp, modifier: Modifier = Modifier, tint: Color? = null) = Icon(
-    painterResource(
-        when (pos) {
-            PosMark.SQUARE -> R.drawable.ic_pos_square
-            PosMark.CLOVER -> R.drawable.ic_pos_clover
-        },
-    ),
-    contentDescription = null,
-    modifier = modifier.size(size),
-    tint = tint ?: if (pos == PosMark.SQUARE) mk.ink else Color.Unspecified,
-)
+fun PosMark(pos: PosMark, size: Dp, modifier: Modifier = Modifier, tint: Color? = null) {
+    // Till's own keypad wears Till's mark.
+    if (pos == PosMark.TILL) return Box(modifier.size(size), contentAlignment = Alignment.Center) { TillWidget(size) }
+    Icon(
+        painterResource(
+            when (pos) {
+                PosMark.SQUARE -> R.drawable.ic_pos_square
+                PosMark.CLOVER, PosMark.TILL -> R.drawable.ic_pos_clover
+            },
+        ),
+        contentDescription = null,
+        modifier = modifier.size(size),
+        tint = tint ?: if (pos == PosMark.SQUARE) mk.ink else Color.Unspecified,
+    )
+}
 
 /** The mark on its 40 dp inset tile, leading a point of sale's row (the design's Logos board, A). */
 @Composable

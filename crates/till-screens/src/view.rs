@@ -76,6 +76,8 @@ impl Fact {
 pub enum PosMark {
     Square,
     Clover,
+    /// Till's own keypad: the Till mark.
+    Till,
 }
 
 /// One row of a radio group: a point of sale, a way wake-ups come.
@@ -264,6 +266,7 @@ pub fn mark(pos: PointOfSale) -> PosMark {
     match pos {
         PointOfSale::Square => PosMark::Square,
         PointOfSale::Clover => PosMark::Clover,
+        PointOfSale::Till => PosMark::Till,
     }
 }
 

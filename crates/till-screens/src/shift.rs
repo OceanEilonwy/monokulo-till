@@ -650,6 +650,7 @@ fn ring_it_up(pos: PointOfSale, lead: &str) -> String {
     match pos {
         PointOfSale::Square => format!("{lead} in Square and choose Monero."),
         PointOfSale::Clover => format!("{lead} on the Clover device and choose Monero."),
+        PointOfSale::Till => format!("{lead} on the keypad and charge it."),
     }
 }
 

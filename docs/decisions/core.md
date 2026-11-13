@@ -2331,3 +2331,71 @@ still strings across the till, the ledger, the screens and the bridge.
      show "Kraken · price from 14:02" (Fob's words) under the XMR; a
      Monokulo order has none. B4's merged Paid after line now uses
      Settings' words, "10 confirmations · about 20 minutes".
+
+## View-key mode: the Till keypad (2026-11-13)
+
+248. **"Till" is a third point of sale, chosen like the others.** (Owner,
+     2026-11-12, docs/view-key-mode.md §7, §11.1.) `PointOfSale::Till`,
+     wire name `"till"`, is offered after Square and Clover
+     (`PointOfSale::EVERY`); `PointOfSale::ALL` stays the two a till signs
+     in to and a Bell rings for, so the Bell never sees the keypad (no
+     registration, `PosSide::signed_in` says none). Its sales are
+     `tl:<payment>` in the ledger, beside `sq:` and `cl:`, and its mark is
+     Till's own. Step 4's "Continue with Till" needs no sign-in or test
+     sale: with Monokulo the keypad charges in the store's base currency and
+     setup goes on; on the shop's own wallet a Currency stage follows,
+     fob-price's list as Fob's "Default currency" draws it (None (XMR only),
+     this device's currency, then all 45 by name), kept as
+     `keypad.currency` (`XMR` for none), and a fiat choice becomes the
+     wallet link's price currency. Prices follows for a fiat currency;
+     with XMR only no price is ever asked for and Settings' price source
+     says so. Android's bubble and the iPad's "How sales show up" are
+     skipped: there's no other app to float over or switch from. Settings
+     shows the keypad and its currency, and "Change the point of sale".
+249. **On a keypad till the keypad is home, and the sales a page over it.**
+     Once set up, the engine's home is `Screen::Keypad` (`Update::Keypad`,
+     `None` on any other till), not the shift: the cashier's first act is
+     typing an amount, as in Monokulo's web POS. "Sales" opens the shift's
+     list (`Screen::Till`, `Action::OpenSales`), whose Back returns to the
+     keypad; Settings opens from the keypad's toolbar as from the shift. A
+     sale's code, left, goes back to the keypad (`shift_screen`): the
+     sales' moves map the shift's place to the keypad, and no sale rises
+     out of a list at rest, since each comes from a Charge that opens it.
+     The live sales show over the keys as "Put aside · n", each opening its
+     code, so a code is put aside for the next customer and stays live. On
+     iOS the keypad is the navigation stack's root and the list a page over
+     it; on Android the stage shows `Screen.Keypad`.
+250. **Charge makes the payment first, then records the sale.** The keypad
+     is modelled on the web POS: keys 1 to 9, C, 0 and delete; in a fiat
+     currency digits fill from the right in its minor units (ISO 4217's,
+     whole units for yen), at most nine whole digits; in XMR a point key
+     and up to 12 decimals, Clear moving beside the amount; an optional
+     reference ("Customer name or note", at most 120 characters) which
+     names the sale on Till's screens and is the payment's reference
+     (Monokulo's `merchant_order_id`); Charge off at zero. A hardware
+     keyboard types too: digits, the point, Backspace or Delete, Escape to
+     clear, Return to charge. `KeypadSource` (till-pos) makes the sale, a
+     `FoundSale` with a random `kp-` id, and keeps it until handled, so a
+     Charge tried again with the same amount and reference is the same
+     sale and the same idempotency key. `Till::charge` asks the backend
+     first and records the payment, its one-line receipt and its order only
+     once it's made, so a failed charge leaves no sale waiting on the till;
+     the keypad says why and keeps what was typed. The keypad's source lists
+     no sales of its own (`new_sales` is empty): a failed charge is never
+     made later behind the cashier's back. The receipt is one ORF line, the
+     amount described by the reference (or "Sale"), from the store's name
+     or Fob's wallet's, country `ZZ` (the keypad doesn't know it). XMR now
+     counts in piconero in the till (`CurrencyCode::minor_digits` is 12 for
+     XMR), while orf-codec and receipts keep their shared 2: an XMR amount
+     needing more decimals carries no receipt in its code. An XMR price is
+     shown without its trailing zeros. A keypad sale has nothing to refund
+     at a point of sale (`Refunds::ByHand`): with nothing paid its page
+     says there's nothing to give back, and what came in part ("0.01 XMR
+     came in", the ledger's `received`) is given back by hand from the
+     wallet, Refund ("Gave it back") taking the cashier's word; an overpaid
+     one asks for the extra back as before.
+251. **Keypad sales are ordinary Monokulo orders.** (Owner's default for
+     the spec's open question 4, 2026-11-13.) With Monokulo, a keypad sale
+     is an order made through the till's connection like any other, and
+     shows in Monokulo's web POS list and Orders page as such: nothing
+     marks it either way.

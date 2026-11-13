@@ -37,6 +37,17 @@ struct TillScreenTests {
         #expect(TillScreen.stackPath(.order(orderId: "o1")) == [.sale(orderId: "o1"), .order(orderId: "o1")])
     }
 
+    @Test func onAKeypadTillTheKeypadIsTheRootAndTheSalesAPageOverIt() {
+        #expect(TillScreen.stackPath(.keypad, keypad: true) == [])
+        #expect(TillScreen.stackPath(.shift, keypad: true) == [.shift])
+        #expect(TillScreen.backs(from: .shift, toDepth: 0, keypad: true) == 1)
+        #expect(TillScreen.stackPath(.sale(orderId: "o1"), keypad: true) == [.sale(orderId: "o1")])
+        #expect(KeypadScreen.action(.return, characters: "\r") == .charge)
+        #expect(KeypadScreen.action(KeyEquivalent("7"), characters: "7") == .keypadPress(key: .digit(digit: 7)))
+        #expect(KeypadScreen.action(.escape, characters: "") == .keypadPress(key: .clear))
+        #expect(KeypadScreen.action(KeyEquivalent("x"), characters: "x") == nil)
+    }
+
     @Test func aSwipeBackIsAsManyBacksAsItPops() {
         #expect(TillScreen.backs(from: .sale(orderId: "o1"), toDepth: 0) == 1)
         #expect(TillScreen.backs(from: .order(orderId: "o1"), toDepth: 1) == 1)

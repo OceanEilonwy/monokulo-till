@@ -19,7 +19,15 @@ use crate::time::{DeviceClock, time};
 /// POS gave none.
 pub fn title(sale: &TillSale) -> String {
     let reference = sale.reference.as_deref().unwrap_or("").trim();
-    if reference.is_empty() {
+    // A sale charged on Till's keypad is named by its reference as typed
+    // ("Sam", "Table 4"), as Monokulo's web POS names it.
+    let keypad = sale
+        .found
+        .as_ref()
+        .is_some_and(|f| f.point_of_sale == PointOfSale::Till);
+    if keypad && !reference.is_empty() {
+        reference.into()
+    } else if reference.is_empty() {
         "Monero sale".into()
     } else if reference.starts_with('#') {
         format!("Sale {reference}")

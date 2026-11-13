@@ -70,12 +70,19 @@ impl CurrencyCode {
     }
 
     /// How many digits an amount in the currency is counted in: ISO 4217's
-    /// ([`iso_digits`](Self::iso_digits)), else 2, as Java's `Currency`
-    /// answered for a code it didn't know. Every amount the till counts in
-    /// minor units uses this, and every receipt orf-codec encodes the same
-    /// (from its own copy of the table, which a test here checks).
+    /// ([`iso_digits`](Self::iso_digits)); XMR's 12, in piconero, as Till's
+    /// keypad takes it with no fiat currency (docs/view-key-mode.md §7);
+    /// else 2, as Java's `Currency` answered for a code it didn't know.
+    /// Every amount the till counts in minor units uses this. orf-codec
+    /// encodes receipts from its own copy of the table, the same but for
+    /// XMR, which it counts in 2 as every reader of a code does (a test
+    /// here checks).
     pub fn minor_digits(&self) -> u32 {
-        self.iso_digits().unwrap_or(2)
+        match self.iso_digits() {
+            Some(digits) => digits,
+            None if self.as_str() == "XMR" => 12,
+            None => 2,
+        }
     }
 }
 
@@ -426,7 +433,7 @@ mod tests {
     }
 
     #[test]
-    fn digits_follow_iso_4217_and_unknown_codes_count_in_two() {
+    fn digits_follow_iso_4217_xmr_counts_in_piconero_and_unknown_codes_in_two() {
         for (text, iso, minor) in [
             ("USD", Some(2), 2),
             ("JPY", Some(0), 0),
@@ -435,7 +442,8 @@ mod tests {
             ("CLF", Some(4), 4),
             ("UYW", Some(4), 4),
             ("XAU", Some(0), 0),
-            ("XMR", None, 2),
+            ("XMR", None, 12),
+            ("XYZ", None, 2),
         ] {
             assert_eq!(code(text).iso_digits(), iso, "{text}");
             assert_eq!(code(text).minor_digits(), minor, "{text}");
@@ -445,7 +453,10 @@ mod tests {
     /// orf-codec, in its own repository since docs/view-key-mode.md §3.1,
     /// keeps a copy of this table to encode a receipt's amounts in: the two
     /// must give every code the same digits, or a receipt's amounts would
-    /// be refused or rounded differently from the sale's.
+    /// be refused or rounded differently from the sale's. XMR alone differs,
+    /// on purpose: the till counts it in piconero, the receipt format in 2
+    /// (core.md decision 250), so an XMR amount needing more decimals
+    /// carries no receipt.
     #[test]
     fn orf_codec_counts_every_code_in_the_same_digits() {
         let others = ["XMR", "BTC", "ABC", "usd", " eur "];
@@ -455,6 +466,11 @@ mod tests {
                 code(text).iso_digits(),
                 "{text}"
             );
+            if text == "XMR" {
+                assert_eq!(orf_codec::currency::minor_digits(text), 2);
+                assert_eq!(code(text).minor_digits(), 12);
+                continue;
+            }
             assert_eq!(
                 orf_codec::currency::minor_digits(text),
                 code(text).minor_digits(),

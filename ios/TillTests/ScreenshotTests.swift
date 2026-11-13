@@ -153,6 +153,37 @@ enum Screenshots {
         let pricedPreview = preview([priced], ipad: ipad)
         let pricedShift = previewShift(preview: pricedPreview, platform: platform).map { Update.shift(view: $0) }
         let pricedSale = previewSale(preview: pricedPreview, orderId: "w1", platform: platform)
+        // Sales charged on Till's keypad, two put aside for the next customer.
+        let keypadSales = [
+            PreviewSale(
+                orderId: "k1", phase: .waiting, amount: "8.40", reference: "Sam", expiresAt: now + 840,
+                foundPos: .till, createdAt: now - 60
+            ),
+            PreviewSale(
+                orderId: "k2", phase: .seen, amount: "12.00", reference: "Table 4", expiresAt: now + 600,
+                foundPos: .till, createdAt: now - 120, seenAt: now - 30
+            ),
+        ]
+        func keypadPreview(_ sales: [PreviewSale]) -> TillPreview {
+            TillPreview(
+                salesJson: previewSalesJson(sales: sales),
+                now: now,
+                device: ipad ? .ipad : .iphone,
+                till: .till,
+                store: "The Bean Room",
+                location: nil,
+                live: true,
+                problem: nil,
+                startedAt: now - 3_600
+            )
+        }
+        func keypad(_ currency: String, _ typed: String, _ reference: String, aside: Bool) -> Update {
+            .keypad(view: previewKeypad(
+                preview: keypadPreview(aside ? keypadSales : []), currency: currency, typed: typed,
+                reference: reference, platform: platform
+            ))
+        }
+        let keypadSale = previewSale(preview: keypadPreview(keypadSales), orderId: "k1", platform: platform)
         let close = previewClose(preview: full, orderId: "w1", platform: platform)
             .map { Update.closeSheet(orderId: "w1", view: $0) }
         let settingsUp = till(.settings, shift, settings, .wakeUps(view: wakeUps))
@@ -222,6 +253,16 @@ enum Screenshots {
             Shot(name: "vk-light-server", updates: step(.vkLightServer, .lightServer)),
             Shot(name: "vk-light-this-till", updates: step(.vkLightThisTill, .thisTill)),
             Shot(name: "vk-light-settings", screen: walletSettings(.vkLightSettings)),
+        ]
+        // Till's keypad as the point of sale (docs/view-key-mode.md §7).
+        shots += [
+            Shot(name: "pos-keypad-choose", updates: step(.posKeypadChoose, .pointOfSale)),
+            Shot(name: "pos-keypad-currency", updates: step(.posKeypadCurrency, .pointOfSale)),
+            Shot(name: "pos-keypad", updates: [.screen(screen: .keypad), keypad("USD", "1250", "Sam", aside: true)]),
+            Shot(name: "pos-keypad-empty", updates: [.screen(screen: .keypad), keypad("USD", "", "", aside: false)]),
+            Shot(name: "pos-keypad-xmr", updates: [.screen(screen: .keypad), keypad("XMR", "0.05", "", aside: false)]),
+            Shot(name: "pos-keypad-sale", updates: [.screen(screen: .sale(orderId: "k1")), keypad("USD", "", "", aside: true)] + (keypadSale.map { [$0] } ?? [])),
+            Shot(name: "pos-keypad-settings", updates: till(.settings, keypad("USD", "", "", aside: false), Update.settings(view: previewSettingsOf(look: .posKeypad, device: device, now: now)))),
         ]
         shots += [
             Shot(name: "setup-6-ready", updates: step(.ready, .ready)),

@@ -28,6 +28,7 @@ mod environment;
 mod error;
 #[cfg(any(feature = "square", feature = "clover"))]
 mod http;
+pub mod keypad;
 mod money;
 mod pkce;
 #[cfg(any(feature = "square", feature = "clover"))]
@@ -41,6 +42,7 @@ mod tokens;
 
 pub use environment::{CloverEnvironment, PosEnvironment, SquareEnvironment};
 pub use error::PosError;
+pub use keypad::KeypadSource;
 pub use monokulo_client::{Clock, PointOfSale};
 pub use pkce::Pkce;
 pub use redirect::{AuthCode, OAuthRedirect, OAuthState};

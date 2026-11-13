@@ -71,6 +71,8 @@ import com.monokulo.till.ui.LightServerScreen
 import com.monokulo.till.ui.ThisTillActions
 import com.monokulo.till.ui.ThisTillScreen
 import com.monokulo.till.ui.PricesScreen
+import com.monokulo.till.ui.KeypadScreen
+import uniffi.till_screens.KeypadView
 import com.monokulo.till.ui.WalletCodeScreen
 import com.monokulo.till.ui.WalletEntryScreen
 import com.monokulo.till.ui.WalletKeysScreen
@@ -152,6 +154,7 @@ class MainActivity : ComponentActivity() {
                     onboarding = store.onboarding.collectAsStateWithLifecycle(),
                     settings = store.settings.collectAsStateWithLifecycle(),
                     shift = store.shift.collectAsStateWithLifecycle(),
+                    keypad = store.keypad.collectAsStateWithLifecycle(),
                     sale = store.sale.collectAsStateWithLifecycle(),
                     close = store.close.collectAsStateWithLifecycle(),
                     refund = store.refund.collectAsStateWithLifecycle(),
@@ -200,6 +203,7 @@ class MainActivity : ComponentActivity() {
             TillStage(stage, cameUpByItself = { flows.nav.value.byItself }, scrub, way = { flows.nav.value.way }) { s ->
                 when (s) {
                     Screen.Till, is Screen.Sale, is Screen.Code, is Screen.Order -> TillScreens(s, flows, actions, shiftPlace)
+                    Screen.Keypad -> flows.keypad.value?.let { KeypadScreen(it, ::send) }
                     else -> SetupScreens(s, flows)
                 }
             }
@@ -214,6 +218,7 @@ class MainActivity : ComponentActivity() {
         val onboarding: State<OnboardingView?>,
         val settings: State<SettingsView?>,
         val shift: State<ShiftView?>,
+        val keypad: State<KeypadView?>,
         val sale: State<Update.Sale?>,
         val close: State<CloseSheet>,
         val refund: State<RefundSheetView?>,
@@ -294,6 +299,7 @@ class MainActivity : ComponentActivity() {
                     onLookAgain = { send(Action.LookAgain) },
                     onSkip = { send(Action.Skip) },
                     onBack = { send(Action.Back) },
+                    onCurrency = { send(Action.ChooseKeypadCurrency(it)) },
                 ),
                 heading = view.heading, lead = view.lead,
             )
@@ -499,7 +505,7 @@ class MainActivity : ComponentActivity() {
     private fun backToPos(pos: PosMark) {
         val app = when (pos) {
             PosMark.SQUARE -> packageManager.getLaunchIntentForPackage(SQUARE_POS)
-            PosMark.CLOVER -> return
+            PosMark.CLOVER, PosMark.TILL -> return
         }
         if (app != null) startActivity(app) else moveTaskToBack(true)
     }

@@ -29,6 +29,8 @@ final class Core {
     /// The till's screens (`Update.shift`, `.sale`, `.closeSheet`,
     /// `.refundSheet`, `.settings`, `.wakeUps`): nil until the engine says.
     private(set) var shift: ShiftView?
+    /// Till's keypad, while it's the till's home (`Update.keypad`).
+    private(set) var keypad: KeypadView?
     private(set) var sale: SaleScreens?
     private(set) var closeSheet: CloseSheet?
     private(set) var refundSheet: RefundSheetView?
@@ -182,6 +184,8 @@ final class Core {
         case .nav(let byItself, _, _, _, _): self.byItself = byItself
         case .shift(let view):
             shift = view
+        case .keypad(let view):
+            keypad = view
         case .sale(let orderId, let view, let page, let code, let order):
             sale = SaleScreens(orderId: orderId, view: view, page: page, code: code, order: order)
         case .closeSheet(let orderId, let view):

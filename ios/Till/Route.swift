@@ -6,8 +6,10 @@ import TillCore
 enum Route: Hashable {
     case starting
     case onboarding
-    /// The shift, the till's home.
+    /// The shift, the till's home; on a keypad till, its list of sales.
     case shift
+    /// Till's keypad, the home of a till with no other point of sale.
+    case keypad
     /// One sale: its code while it's live, else its page.
     case sale(orderId: String)
     /// A live sale's code, enlarged for the customer.
@@ -25,6 +27,8 @@ enum Route: Hashable {
             return .onboarding
         case .till:
             return .shift
+        case .keypad:
+            return .keypad
         case .sale(let orderId):
             return .sale(orderId: orderId)
         case .code(let orderId):

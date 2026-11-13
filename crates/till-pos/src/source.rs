@@ -69,6 +69,9 @@ pub enum Refunds<'a> {
     /// words: what the cashier is told names the sale's own point of sale
     /// ([`FoundSale::point_of_sale`]), worded in the app (decision 136).
     InPos(&'a dyn RefundInPos),
+    /// Nothing was taken at a point of sale (Till's own keypad): what came
+    /// in Monero goes back by hand, and the till takes the cashier's word.
+    ByHand,
 }
 
 /// A point of sale the till refunds through.
@@ -244,10 +247,10 @@ mod kotlin_name {
 
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<PointOfSale, D::Error> {
         let name = String::deserialize(d)?;
-        PointOfSale::ALL
+        PointOfSale::EVERY
             .into_iter()
             .find(|pos| pos.display_name() == name)
-            .ok_or_else(|| D::Error::unknown_variant(&name, &["Square", "Clover"]))
+            .ok_or_else(|| D::Error::unknown_variant(&name, &["Square", "Clover", "Till"]))
     }
 }
 

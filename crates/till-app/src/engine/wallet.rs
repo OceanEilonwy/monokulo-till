@@ -789,6 +789,22 @@ impl State {
         });
     }
 
+    /// The keypad's currency chosen: the wallet prices it from now on.
+    pub(super) fn change_wallet_currency(&mut self, code: String) {
+        let Some(model) = self.model() else { return };
+        if model.wallet.is_none() || model.connection.is_some() {
+            return;
+        }
+        self.change_wallet(move |link| {
+            if link.price_currency.as_deref() != Some(code.as_str()) {
+                link.price_currency = Some(code);
+                if let Some(fob) = &mut link.fob {
+                    fob.prices_from_fob = false;
+                }
+            }
+        });
+    }
+
     /// Changes the wallet's link as `change` says: the wallet is set up
     /// that way first (a new node checked by it), then the link kept.
     /// Refused, nothing changes and Settings says why.
@@ -902,6 +918,8 @@ impl State {
             node_choices: setup::default_nodes(network),
             providers: till_wallet::prices::provider_names(currency.as_deref()),
             price_checks: self.wallet.price_checks.clone(),
+            xmr_only: model.point_of_sale == Some(monokulo_client::PointOfSale::Till)
+                && model.keypad_currency.as_deref() == Some("XMR"),
             provider,
             currency,
             warnings: now.backend.map(|b| b.warnings).unwrap_or_default(),
@@ -1050,6 +1068,8 @@ pub(super) fn price_currency(model: &Model) -> Option<String> {
             .clover_merchant
             .as_ref()
             .map(|m| m.currency.to_string()),
+        // XMR only: no price is ever asked for.
+        Some(PointOfSale::Till) => return model.keypad_currency.clone().filter(|c| c != "XMR"),
         None => None,
     };
     pos.or_else(|| model.wallet.as_ref()?.price_currency.clone())

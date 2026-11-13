@@ -20,8 +20,9 @@ pub use monokulo_client::OrderId;
 /// station): till-pos's, one type from the payment to the journal.
 pub use till_pos::PosDeviceId as DeviceId;
 
-/// One sale. Written as text in the database: `sq:<payment>` and
-/// `cl:<payment>` for a sale this till can see in its point of sale,
+/// One sale. Written as text in the database: `sq:<payment>`,
+/// `cl:<payment>` and `tl:<payment>` (Till's keypad) for a sale this till
+/// can see in its point of sale,
 /// `mk:<order>` for one known only from Monokulo.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum SaleKey {
@@ -58,6 +59,10 @@ impl SaleKey {
                 pos: PointOfSale::Clover,
                 payment,
             } => format!("cl:{payment}"),
+            SaleKey::Pos {
+                pos: PointOfSale::Till,
+                payment,
+            } => format!("tl:{payment}"),
             SaleKey::Order(order) => format!("mk:{order}"),
         }
     }
@@ -71,6 +76,7 @@ impl SaleKey {
         Some(match prefix {
             "sq" => SaleKey::pos(PointOfSale::Square, id),
             "cl" => SaleKey::pos(PointOfSale::Clover, id),
+            "tl" => SaleKey::pos(PointOfSale::Till, id),
             "mk" => SaleKey::order(id),
             _ => return None,
         })
@@ -213,6 +219,7 @@ mod tests {
         for key in [
             SaleKey::pos(PointOfSale::Square, "p1"),
             SaleKey::pos(PointOfSale::Clover, "p:2"),
+            SaleKey::pos(PointOfSale::Till, "kp-1f"),
             SaleKey::order("ord_9"),
         ] {
             assert_eq!(SaleKey::parse(&key.text()), Some(key.clone()));

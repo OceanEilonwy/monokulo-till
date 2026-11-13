@@ -125,6 +125,34 @@ pub fn preview_shift(preview: TillPreview, platform: Arc<dyn Platform>) -> Optio
     ))
 }
 
+/// Till's keypad (docs/view-key-mode.md §7) for `preview`'s sales, the
+/// live ones put aside over it: `typed` as the keypad keeps it (minor units
+/// in a fiat currency, the decimal in XMR), in `currency`, with
+/// `reference` and, when given, `problem`.
+#[cfg_attr(feature = "uniffi", uniffi::export)]
+pub fn preview_keypad(
+    preview: TillPreview,
+    currency: String,
+    typed: String,
+    reference: String,
+    platform: Arc<dyn Platform>,
+) -> Option<till_screens::keypad::KeypadView> {
+    let input = till_screens::keypad::KeypadInput {
+        currency: till_types::CurrencyCode::new(&currency).ok(),
+        typed,
+        reference,
+        busy: false,
+        problem: preview.problem.clone(),
+        sales: preview.sales()?,
+        clock: preview.clock(),
+    };
+    Some(till_screens::keypad::keypad(
+        &input,
+        preview.device(),
+        &Money(platform),
+    ))
+}
+
 /// The screens of the sale `order_id` ([`Update::Sale`]), as the engine
 /// would publish them with it on screen; `None` when there's no such sale.
 #[cfg_attr(feature = "uniffi", uniffi::export)]

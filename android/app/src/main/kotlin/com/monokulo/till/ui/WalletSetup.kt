@@ -541,7 +541,7 @@ fun WalletKeysScreen(
 }
 
 @Composable
-private fun fieldColours() = OutlinedTextFieldDefaults.colors(
+internal fun fieldColours() = OutlinedTextFieldDefaults.colors(
     focusedBorderColor = mk.ink, unfocusedBorderColor = mk.edge, errorBorderColor = mk.danger,
     focusedContainerColor = mk.card, unfocusedContainerColor = mk.card, errorContainerColor = mk.card, cursorColor = mk.ink,
 )

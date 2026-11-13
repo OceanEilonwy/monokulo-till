@@ -41,6 +41,9 @@ pub(crate) struct Side {
     /// The device's own wallet, opened once for the link it was opened
     /// with: one wallet file is never opened twice in a process.
     wallet: Mutex<Option<(WalletLink, Arc<WalletBackend>)>>,
+    /// Till's keypad, one for the process: a charge that failed waits in
+    /// it for the cashier to try again with the same key.
+    pub keypad: Arc<till_pos::KeypadSource>,
 }
 
 impl Side {
@@ -79,6 +82,7 @@ impl Side {
             live: OnceLock::new(),
             wake_ups: OnceLock::new(),
             wallet: Mutex::new(None),
+            keypad: Arc::new(till_pos::KeypadSource::new()),
         }
     }
 
@@ -372,6 +376,7 @@ impl Side {
                 }
                 Some(Arc::new(self.clover_source(merchant)))
             }
+            PointOfSale::Till => Some(self.keypad.clone()),
         }
     }
 
@@ -379,8 +384,13 @@ impl Side {
     /// application they came through, its location or merchant and the
     /// remembered tender id (acceptance T1.4).
     pub fn sign_out_here(&self, pos: PointOfSale) {
+        if pos == PointOfSale::Till {
+            // No sign-in; its currency goes with it.
+            return self.update(|m| m.keypad_currency = None);
+        }
         self.tokens(pos).save(None);
         match pos {
+            PointOfSale::Till => {}
             PointOfSale::Square => self.update(|m| {
                 m.square_application_id = None;
                 m.location = None;
@@ -536,7 +546,7 @@ impl PosSide for Side {
                     _ => None,
                 }
             }
-            None => None,
+            Some(PointOfSale::Till) | None => None,
         })
     }
 
@@ -544,7 +554,7 @@ impl PosSide for Side {
         let token = match self.model().point_of_sale {
             Some(PointOfSale::Square) => self.square_auth(None).access_token().await,
             Some(PointOfSale::Clover) => self.clover_auth(None).access_token().await,
-            None => return Ok(None),
+            Some(PointOfSale::Till) | None => return Ok(None),
         };
         match token {
             Ok(token) => Ok(Some(token)),

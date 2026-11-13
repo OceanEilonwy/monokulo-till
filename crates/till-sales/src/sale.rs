@@ -210,6 +210,9 @@ pub struct SaleExtras {
     /// screen names the provider and the price's time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub price_used: Option<till_types::PriceUsed>,
+    /// Piconero a part payment brought, when one came.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub received: Option<u64>,
 }
 
 impl SaleExtras {
@@ -279,6 +282,7 @@ impl TillSale {
                 other_counter: v.other_counter,
                 clock_lapsed: lapsed,
                 price_used: v.price_used.clone(),
+                received: v.received,
             },
         }
     }

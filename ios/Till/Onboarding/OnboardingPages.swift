@@ -262,6 +262,7 @@ func pos(_ mark: PosMark) -> Pos {
     switch mark {
     case .square: .square
     case .clover: .clover
+    case .till: .till
     }
 }
 
@@ -278,6 +279,8 @@ func chosenPos(step: PosStep?, settings: PosSection?) -> PosMark? {
         return mark
     case .choosing(let choices, _, _):
         return choices.first { $0.choice.selected }?.mark
+    case .keypad(let mark, _, _, _, _):
+        return mark
     default:
         return nil
     }
@@ -319,6 +322,10 @@ struct PointOfSalePage: View {
                 if let card = step.card {
                     PosAccountSection(card: card, heading: view.heading, lead: view.lead, send: send)
                 }
+            case .some(.currency):
+                PageTop(heading: view.heading, lead: view.lead)
+                CurrencyCard(rows: step.currencies, send: send)
+                    .padding(.top, 20)
             case .some(.testSale):
                 if let card = step.card {
                     PosConnectedLine(line: step.connected, changeLocation: card.changeLocation, send: send)
@@ -344,6 +351,10 @@ struct PointOfSalePage: View {
                 if let card = step.card {
                     PosAccountSection(card: card, send: send)
                     PosTillSteps(card: card, testRow: true, send: send)
+                }
+                if !step.currencies.isEmpty {
+                    SectionLabel(text: "Currency")
+                    CurrencyCard(rows: step.currencies, send: send)
                 }
             }
         } bottom: {
@@ -373,7 +384,7 @@ struct PosChoiceTiles: View {
     var body: some View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .top, spacing: 16) { tiles }
-                .frame(minWidth: 520)
+                .frame(minWidth: CGFloat(choices.count) * 220)
             VStack(spacing: 12) { tiles }
         }
         .padding(.horizontal, 16)
@@ -420,6 +431,88 @@ struct PosChoiceTiles: View {
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(choice.choice.selected ? .isSelected : [])
         }
+    }
+}
+
+/// Till's keypad's currencies (docs/view-key-mode.md §7), as Fob lists
+/// them: None (XMR only), this device's, then every one, each with its
+/// sign in a circle and who prices it, ticked when chosen.
+struct CurrencyCard: View {
+    let rows: [CurrencyRow]
+    let send: Send
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(groups, id: \.offset) { _, group in
+                if let heading = group.first?.group {
+                    SectionLabel(text: heading)
+                }
+                Card {
+                    ForEach(Array(group.enumerated()), id: \.offset) { index, row in
+                        if index > 0 {
+                            Hairline()
+                        }
+                        CurrencyLine(row: row) { send(.chooseKeypadCurrency(code: row.code)) }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The rows cut where a group starts.
+    private var groups: [(offset: Int, element: [CurrencyRow])] {
+        var groups: [[CurrencyRow]] = []
+        for row in rows {
+            if row.group != nil || groups.isEmpty {
+                groups.append([row])
+            } else {
+                groups[groups.count - 1].append(row)
+            }
+        }
+        return Array(groups.enumerated()).map { (offset: $0.offset, element: $0.element) }
+    }
+}
+
+/// One currency: its sign in a circle, its name, who prices it, and a tick.
+struct CurrencyLine: View {
+    let row: CurrencyRow
+    let action: @MainActor () -> Void
+
+    var body: some View {
+        Button {
+            action()
+        } label: {
+            HStack(spacing: 14) {
+                Text(row.sign)
+                    .font(.subheadline.weight(.semibold))
+                    .minimumScaleFactor(0.6)
+                    .lineLimit(1)
+                    .frame(width: 36, height: 36)
+                    .background(Circle().fill(Palette.ground))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(row.name)
+                    Text(row.detail)
+                        .font(.subheadline)
+                        .foregroundStyle(Palette.secondary)
+                }
+                Spacer(minLength: 8)
+                if row.selected {
+                    Image(systemName: "checkmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Palette.link)
+                        .accessibilityHidden(true)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .frame(minHeight: 56)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Palette.ink)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(row.selected ? [.isButton, .isSelected] : .isButton)
     }
 }
 
