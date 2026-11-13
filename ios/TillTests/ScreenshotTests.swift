@@ -207,6 +207,10 @@ enum Screenshots {
             Shot(name: "vk-this-till", updates: step(.vkThisTill, .thisTill)),
             Shot(name: "vk-settings", screen: walletSettings(.vkSettings)),
             Shot(name: "vk-settings-warning", screen: walletSettings(.vkSettingsWarning)),
+            Shot(name: "vk-light-mode", updates: step(.vkLightMode, .paymentsMode)),
+            Shot(name: "vk-light-server", updates: step(.vkLightServer, .lightServer)),
+            Shot(name: "vk-light-this-till", updates: step(.vkLightThisTill, .thisTill)),
+            Shot(name: "vk-light-settings", screen: walletSettings(.vkLightSettings)),
         ]
         shots += [
             Shot(name: "setup-6-ready", updates: step(.ready, .ready)),

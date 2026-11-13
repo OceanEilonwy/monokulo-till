@@ -19,6 +19,7 @@ struct OnboardingTests {
         let setup: [Screen] = [
             .welcome, .scan, .confirm, .connected, .pointOfSale, .locations, .counter, .alerts, .float, .showSales, .ready,
             .paymentsMode, .walletEntry, .fobRequest, .fobConnected, .walletCode, .walletKeys, .walletSeed, .thisTill,
+            .lightServer,
         ]
         for screen in setup {
             #expect(Route.of(screen) == .onboarding)

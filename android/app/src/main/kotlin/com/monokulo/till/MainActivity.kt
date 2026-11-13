@@ -67,6 +67,7 @@ import com.monokulo.till.ui.FobConnectedScreen
 import com.monokulo.till.ui.FobRequestScreen
 import com.monokulo.till.ui.PaymentsModeScreen
 import com.monokulo.till.ui.StepperActions
+import com.monokulo.till.ui.LightServerScreen
 import com.monokulo.till.ui.ThisTillActions
 import com.monokulo.till.ui.ThisTillScreen
 import com.monokulo.till.ui.WalletCodeScreen
@@ -365,6 +366,11 @@ class MainActivity : ComponentActivity() {
                 onEnter = { send(Action.EnterSeed(it)) },
                 onBack = { send(Action.Back) },
             )
+            is OnboardingPage.LightServer -> LightServerScreen(
+                page.view, view.heading, view.lead, step,
+                onEdit = { url, selfSigned -> send(Action.EditLightServer(url, selfSigned)) },
+                onNext = { send(Action.Next) }, onBack = { send(Action.Back) },
+            )
             is OnboardingPage.ThisTill -> ThisTillScreen(
                 page.view, view.heading, view.lead, step,
                 ThisTillActions(
@@ -533,4 +539,5 @@ private fun OnboardingPage.isFor(screen: Screen): Boolean = when (this) {
     is OnboardingPage.WalletKeys -> screen == Screen.WalletKeys
     is OnboardingPage.WalletSeed -> screen == Screen.WalletSeed
     is OnboardingPage.ThisTill -> screen == Screen.ThisTill
+    is OnboardingPage.LightServer -> screen == Screen.LightServer
 }

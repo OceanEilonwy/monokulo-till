@@ -1015,6 +1015,84 @@ struct SeedWordField: View {
     }
 }
 
+/// The shop's light wallet server (docs/view-key-mode.md §5.7): its
+/// address, whether its own certificate is accepted, its checks once
+/// Continue has run them, and what the server sees. Each change sends both;
+/// Continue checks the server first and goes on when it passes.
+struct LightServerPage: View {
+    let step: LightServerStep
+    let view: OnboardingView
+    let send: Send
+
+    @State private var url = ""
+
+    var body: some View {
+        StepPage(back: { send(.back) }) {
+            PageTop(heading: view.heading, lead: view.lead)
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    FieldLabel(text: step.fieldLabel)
+                    TextField(step.placeholder, text: $url)
+                        .accessibilityLabel(step.fieldLabel)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                        .textContentType(.URL)
+                        .submitLabel(.continue)
+                        .onSubmit { send(.next) }
+                        .disabled(!step.selfSigned.enabled)
+                        .fieldBox(problem: step.checks.contains { $0.mark == .failed })
+                        .onChange(of: url) { edit(selfSigned: step.selfSigned.selected) }
+                }
+                Card {
+                    Toggle(isOn: Binding(
+                        get: { step.selfSigned.selected },
+                        set: { edit(selfSigned: $0) }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(step.selfSigned.label)
+                            if let detail = step.selfSigned.detail {
+                                Text(detail)
+                                    .font(.footnote)
+                                    .foregroundStyle(Palette.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                    .disabled(!step.selfSigned.enabled)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                }
+                if !step.checks.isEmpty {
+                    FlowRow(spacing: 18, lineSpacing: 8) {
+                        ForEach(Array(step.checks.enumerated()), id: \.offset) { _, check in
+                            NodeCheck(check: check)
+                        }
+                    }
+                    .padding(.horizontal, 4)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            ProblemNote(text: step.problem)
+        } bottom: {
+            PrimaryPress(press: step.next) { send(.next) }
+            Text(step.footnote)
+                .font(.footnote)
+                .foregroundStyle(Palette.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .onAppear {
+            if url.isEmpty { url = step.url }
+        }
+    }
+
+    private func edit(selfSigned: Bool) {
+        send(.editLightServer(url: url, selfSigned: selfSigned))
+    }
+}
+
 /// D4 (VkTillNo): the till's number, the node and its checks, Paid after
 /// and the code's expiry.
 struct ThisTillPage: View {
