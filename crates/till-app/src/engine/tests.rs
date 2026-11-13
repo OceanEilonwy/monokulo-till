@@ -2645,7 +2645,7 @@ fn wallet_settings_show_the_wallet_and_change_its_link() {
     assert_eq!(kept.price_provider.as_deref(), Some("CoinGecko"));
 }
 
-/// Decision 242: on a light wallet server, Settings shows the server in
+/// Decision 243: on a light wallet server, Settings shows the server in
 /// the node's row, checks it as it opens, and Change takes a new server
 /// (checked by the wallet first), never a node.
 #[test]
@@ -2713,6 +2713,129 @@ fn disconnecting_a_wallet_deletes_its_file() {
     screen(&rx, Screen::Welcome);
     assert!(platform.get("connection").is_none());
     assert!(!file.exists(), "the wallet file is gone");
+}
+
+/// Decision 241: a wallet payment whose code ran out unpaid offers New
+/// code, as a Monokulo one does; while its code is up, it doesn't.
+#[test]
+fn a_wallet_payment_whose_code_ran_out_offers_new_code() {
+    let config = config(None);
+    let (platform, _) = wallet_till(&config.data_dir);
+    let (engine, rx, _) = start(config, platform);
+    screen(&rx, Screen::Till);
+    // A keyed request in this till's account, as the wallet backend says
+    // it stands while its code is up and once it ran out.
+    let request = fob_wallet::KeyedRequest {
+        id: 1,
+        key: "sq:pay_w".into(),
+        account: 2,
+        minor: 1,
+        address: "7Sub".into(),
+        base: 84_000_000_000,
+        tag: 123_456,
+        atomic: 84_000_123_456,
+        created: 1_761_149_220,
+        expires_at: 1_761_150_000,
+        height: 100,
+        cancelled: None,
+        note: Some("bP9m".into()),
+    };
+    let at = |now: u64| till_wallet::backend::payment_of(&request, &[], 10, now as i64, None);
+    let (live, ran_out) = (at(request.expires_at - 60), at(request.expires_at + 60));
+    assert!(live.renew.is_some(), "a wallet payment offers New code");
+    let order_id = live.order_id.as_str().to_owned();
+    let made = order_id.clone();
+    let observed = |p: &till_payments::Payment| {
+        till_ledger::Fact::OrderObserved(till_ledger::OrderObserved {
+            order_id: till_ledger::OrderId::new(p.order_id.as_str()),
+            phase: p.phase,
+            confirmations: Some(p.confirmations),
+            is_final: p.is_final,
+            received: Some(p.received),
+            overpaid: p.overpaid,
+            quote: None,
+            renew: p.renew.clone(),
+        })
+    };
+    let (seen_live, seen_ran_out) = (observed(&live), observed(&ran_out));
+    let renew = live.renew.clone();
+    engine.poke(move |s| {
+        let books = s.parts.as_ref().unwrap().side.books();
+        books.record(till_ledger::Fact::PosPaymentSeen(
+            till_ledger::PaymentSeen {
+                pos: monokulo_client::PointOfSale::Square,
+                payment: till_ledger::PaymentId::new("pay_w"),
+                amount: till_types::Money::new(1388, till_types::CurrencyCode::USD),
+                tender: till_ledger::Tender::Monero,
+                status: "COMPLETED".into(),
+                device_id: None,
+                device_name: None,
+                receipt_number: Some("bP9m".into()),
+                order_ref: None,
+                title: None,
+                created_at: "2026-10-22T16:07:00Z".parse().unwrap(),
+                updated_at: till_types::UnixMillis(1_761_149_220_000),
+            },
+        ));
+        books.record(till_ledger::Fact::OrderCreated(till_ledger::OrderCreated {
+            sale: till_ledger::SaleKey::pos(monokulo_client::PointOfSale::Square, "pay_w"),
+            order_id: till_ledger::OrderId::new(made.as_str()),
+            url: Some(made.clone()),
+            payment_uri: "monero:7Sub?tx_amount=0.084123456".into(),
+            address: "7Sub".into(),
+            xmr: "0.084123456".into(),
+            price: till_types::Price::new("13.88", "USD"),
+            reference: Some("bP9m".into()),
+            expires_at: till_types::UnixSeconds(1_761_150_000),
+            confirmations_required: Some(10),
+            device_name: None,
+            renew,
+            price_used: None,
+            follows: None,
+        }));
+        books.record(seen_live);
+    });
+    let actions = |rx: &Receiver<Heard>, line: &str| {
+        wait_for(rx, |heard| match heard {
+            Heard::Update(Update::Sale {
+                order_id: o, page, ..
+            }) if o.as_str() == order_id && page.line.starts_with(line) => {
+                Some(page.buttons.iter().map(|b| b.action).collect::<Vec<_>>())
+            }
+            _ => None,
+        })
+    };
+    engine.send(Action::OpenSale {
+        order_id: order_id.as_str().into(),
+    });
+    let live = actions(&rx, "");
+    assert!(
+        !live.contains(&till_screens::sale_page::PageAction::NewCode),
+        "{live:?}"
+    );
+    engine.poke(move |s| {
+        let books = s.parts.as_ref().unwrap().side.books();
+        books.record(seen_ran_out);
+    });
+    let ended = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Sale {
+            order_id: o, page, ..
+        }) if o.as_str() == order_id
+            && page
+                .buttons
+                .iter()
+                .any(|b| b.action == till_screens::sale_page::PageAction::NewCode) =>
+        {
+            Some(page.clone())
+        }
+        _ => None,
+    });
+    let new_code = ended
+        .buttons
+        .iter()
+        .find(|b| b.action == till_screens::sale_page::PageAction::NewCode)
+        .unwrap();
+    assert_eq!(new_code.press.label, "New code");
 }
 
 /// Connect to Fob's request outlives the process: a till started again

@@ -58,13 +58,22 @@ pub trait PaymentBackend: Send + Sync {
     async fn refresh(&self, refs: &[PaymentRef]) -> Result<Vec<Payment>, BackendError>;
 
     /// A new code for a payment whose code ran out unpaid (New code,
-    /// core.md decisions 167 to 172): the same payment and address with a
-    /// new price and expiry. `renew` is the payment's [`Payment::renew`],
-    /// `expires_at` the expiry of the code being replaced, so two tills
-    /// asking at once get one renewal. A backend that gives no `renew`
-    /// never has this asked of it; by default it refuses.
-    async fn renew(&self, renew: &str, expires_at: UnixSeconds) -> Result<Payment, BackendError> {
-        let _ = (renew, expires_at);
+    /// core.md decisions 167 to 172, 241). `renew` is the payment's
+    /// [`Payment::renew`], `expires_at` the expiry of the code being
+    /// replaced, so two tills asking at once, or a retry, get one new code;
+    /// `amount` the sale's price, for a backend that converts it again.
+    /// Monokulo renews the same payment, at the same address, with a new
+    /// price and expiry; the device's own wallet makes the sale's next
+    /// payment, at another address, and keeps watching the one replaced. A
+    /// backend that gives no `renew` never has this asked of it; by
+    /// default it refuses.
+    async fn renew(
+        &self,
+        renew: &str,
+        expires_at: UnixSeconds,
+        amount: &Money,
+    ) -> Result<Payment, BackendError> {
+        let _ = (renew, expires_at, amount);
         Err(BackendError::Unsupported("make a new code for a sale"))
     }
 

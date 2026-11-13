@@ -195,7 +195,7 @@ impl LightCheck {
 /// (`/get_version`, which sends nothing of the wallet's): it answers within
 /// 10 s, on a network Till knows, watching subaddresses. A server on the
 /// other network Till knows is checked as on that one, and says so, since
-/// setup takes the wallet's network from it (core.md decision 242).
+/// setup takes the wallet's network from it (core.md decision 243).
 pub async fn check_light_server(preferred: Network, url: &str, self_signed: bool) -> LightCheck {
     let started = std::time::Instant::now();
     let report = light::check(preferred, url, self_signed, None).await;

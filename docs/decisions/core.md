@@ -1919,8 +1919,8 @@ still strings across the till, the ledger, the screens and the bridge.
      made when it can't be had; XMR passes through), rounds it to a
      millionth of an XMR so the wallet's amount tag has the digits below to
      itself, and makes a keyed request with the payment's idempotency key:
-     the same key gives the same payment, so New code and a retried charge
-     never make a second one. The payment's reference and order id are
+     the same key gives the same payment, so a retried charge never makes
+     a second one (New code makes the sale's next on purpose, 241). The payment's reference and order id are
      `w:<account>:<index>:<tag>:<request id>`. Where it stands is mokulo's
      `derive_status` and `covering`, lifted with their 29 cases, over the
      payments toward the request that weren't double spent, with Settled
@@ -2045,7 +2045,9 @@ still strings across the till, the ledger, the screens and the bridge.
      (decisions 167 to 172) keeps one order and one address with a new
      quote. Making New code work for the wallet needs the ledger to take a
      sale's next order, so the backend still gives no `renew` and the
-     till never offers New code for a wallet payment.
+     till never offers New code for a wallet payment. Replaced by 241:
+     the ledger takes a sale's next order, and New code works for the
+     wallet.
 237. **Till follows Monokulo's order stream, and an order's counts are plain
      numbers.** (Owner, 2026-11-12.) Monokulo's sale events (`mk:events`)
      carried no confirmations, threshold or amount received, so `Payment`
@@ -2145,7 +2147,53 @@ still strings across the till, the ledger, the screens and the bridge.
      docs/brand/fob-mark.svg kept as a vector in its own colours. Fob's
      page ("Get it for Android", `Effect::OpenUrl` on V2) opens in the
      browser, not as a sign-in.
-241. **A light wallet server is the same wallet backend, polled at the
+
+## View-key mode, round 2: New code for wallet payments (2026-11-13)
+
+241. **New code on a wallet payment makes the sale's next order, and the
+     sale keeps every order it had.** (Owner, 2026-11-13; replaces 236.)
+     A keyed request can't be re-priced in place, so the wallet's
+     `renew` makes another: at the current price, on an address from the
+     pool (never the replaced one's, which its late window still holds),
+     with its own tag, keyed by the sale's key and the replaced request's
+     id (`sq:…#<id>`), so a retry or a second tap gives the same request
+     and each request is replaced once. Every wallet payment carries a
+     `renew` (its own reference), so New code is offered exactly where it
+     is for Monokulo (`TillSale::may_new_code`, unchanged). The wallet
+     refuses as Monokulo refuses a renewal (Monokulo's order-renewal
+     decision 1), in the cashier's words: a payment reached the code
+     (seen, part paid or spent twice: a new price over money that arrived
+     would hide it), it was called off, its code hasn't run out, its late
+     window is over, or the till's code isn't the request's. So a code
+     underpaid then expired gets no new one, as with Monokulo; the spec's
+     "New code for the rest" (§5.3) isn't built. `PaymentBackend::renew`
+     gains the sale's price, which Monokulo ignores and the wallet
+     converts again, and `BackendError::Refused` carries words shown as
+     they are.
+     The till records the answer, when its id isn't the order's, as
+     `OrderCreated` with `follows`: the order it replaces, left out of
+     every other body so those bodies and their hashes are unchanged.
+     `SharedSale` gains `earlier`, the sale's other orders, oldest first;
+     `order` stays the latest (one no other follows, of two the later
+     code), whose code, id, address and expiry the sale shows. Every order
+     stays linked to the sale (`orders`), so the wallet's stream, which
+     watches every request through its late window, still reaches the
+     earlier one. The sale's phase is `SharedSale::leading`: a paid order
+     (the latest first), then the latest when money reached it or was
+     reversed, then an earlier one money reached (the customer paid the old
+     code late), else the latest; so a late payment to the replaced
+     request pays the sale and shows in the history, and the earlier
+     code's ending never ends the next. Only an earlier order a later one
+     follows can lead: a second order with no `follows` is still an older
+     build's (173), kept but never leading, so a Monokulo sale is as
+     before. The join keeps every order and places them by which it has,
+     so it stays commutative, and replay, compaction (a snapshot links
+     every order) and rebuilds give the same state. The projections'
+     version goes to 4, so a ledger from before rebuilds from its journal;
+     the schema doesn't change (the `orders` table already maps any number
+     of orders to a sale), so the build before, put back, still opens the
+     database and rebuilds it its way.
+242. **A light wallet server is the same wallet backend, polled at the
      same pace.** (docs/view-key-mode.md §5.7.) `WalletBackend` sets
      fob-wallet's backend to `Light { url, self_signed }` when the link
      names a server (`WalletLink::light_server`, and the new
@@ -2166,7 +2214,7 @@ still strings across the till, the ledger, the screens and the bridge.
      wallet yet (monokulo-lws `--create approve`) shows in Settings'
      warnings: "Your light wallet server hasn't approved this till yet.
      Payments show once it does."
-242. **The light wallet server is set up before the wallet, and its network
+243. **The light wallet server is set up before the wallet, and its network
      is the wallet's.** (§11.1.) V1's "Your light wallet server" leads to
      its own page: the server's address, "Accept its own certificate" (a
      switch, fob-wallet's `self_signed`, held to the key it first answers

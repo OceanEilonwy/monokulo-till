@@ -236,7 +236,7 @@ impl State {
 
     /// The light wallet server's Continue: the server checked (once for
     /// what's typed), then on to the wallet when it passes. The wallet's
-    /// network becomes the server's (core.md decision 242).
+    /// network becomes the server's (core.md decision 243).
     pub(super) fn light_server_next(&mut self) {
         let form = &self.wallet;
         let typed = (form.light_url.trim().to_owned(), form.light_self_signed);

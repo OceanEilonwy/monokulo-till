@@ -2742,3 +2742,83 @@ async fn with_only_this_tills_payments_a_backend_event_never_makes_a_sale() {
     till.on_change(&payment);
     assert_eq!(till.state().sales.len(), 1);
 }
+
+/// New code on a wallet payment (core.md decision 241), offered where it
+/// is for a Monokulo one: the sale's next payment, at another address,
+/// recorded as following the one whose code ran out, which the sale still
+/// counts. Asked again, nothing more is made.
+#[tokio::test]
+async fn new_code_on_a_wallet_payment_makes_the_sales_next_payment() {
+    let f = fixture().await;
+    let backend = Arc::new(
+        till_payments::FakeBackend::new(till_payments::Sharing::ThisTill).with_new_codes(),
+    );
+    let till = this_till(&f, FakeSource::new(vec![sale()]), backend.clone());
+    till.check().await;
+    let first = backend.payment(&PaymentRef::new("fake:1")).unwrap();
+    assert!(only(&till).extras.renewable);
+    assert!(
+        !only(&till).may_new_code(),
+        "not while it's live: {:?}",
+        only(&till).phase
+    );
+    let expired = Payment {
+        phase: SalePhase::Expired,
+        ..first.clone()
+    };
+    till.on_change(&expired);
+    assert!(only(&till).may_new_code());
+
+    assert_eq!(
+        till.new_code(&"fake_1".into()).await.as_deref(),
+        Ok("fake_2")
+    );
+    let shown = only(&till);
+    assert_eq!(
+        (
+            shown.order_id.as_str(),
+            shown.phase,
+            shown.code.uri.as_str()
+        ),
+        (
+            "fake_2",
+            SalePhase::Waiting,
+            "monero:8Fake2?tx_amount=0.1388"
+        )
+    );
+    assert!(shown.live());
+    assert_eq!(backend.made(), 2);
+    let key = till_ledger::SaleKey::pos(PointOfSale::Square, "pay_monero");
+    let row = f.books().row(&key).unwrap();
+    assert_eq!(
+        row.shared
+            .order
+            .as_ref()
+            .unwrap()
+            .order
+            .follows
+            .as_ref()
+            .map(|o| o.as_str()),
+        Some("fake_1")
+    );
+    assert_eq!(row.shared.earlier.len(), 1);
+
+    // A second tap (or a retry) on the sale as it now is asks for the next
+    // code's replacement only once it runs out.
+    assert!(till.new_code(&"fake_2".into()).await.is_err());
+    assert_eq!(backend.made(), 2);
+
+    // The customer paid the old code late: the sale is paid.
+    till.on_change(&Payment {
+        phase: SalePhase::Paid,
+        is_final: true,
+        confirmations: 10,
+        received: first.xmr_piconero,
+        ..first
+    });
+    let paid = only(&till);
+    assert_eq!(
+        (paid.order_id.as_str(), paid.phase),
+        ("fake_2", SalePhase::Paid)
+    );
+}
