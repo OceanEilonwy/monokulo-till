@@ -149,16 +149,20 @@ impl CloverSource {
                 None => return Ok(Vec::new()),
             },
         };
-        let since = match self.cursor.since()? {
-            Some(since) => since,
+        // The first look starts the cursor now and reaches no further back:
+        // a sale rung up before the till was set up isn't its to show (core.md
+        // decision 265).
+        let (since, first) = match self.cursor.since()? {
+            Some(since) => (since, false),
             None => {
                 let now = Rfc3339Instant::from_second(at.0);
                 self.cursor.save(&now, &[]);
-                now
+                (now, true)
             }
         };
+        let overlap = if first { 0 } else { OVERLAP_SECONDS * 1000 };
         let from = UnixMillis(since.as_millisecond())
-            .plus(-OVERLAP_SECONDS * 1000)
+            .plus(-overlap)
             .max(at.plus(-FURTHEST_BACK_SECONDS).to_millis());
         let handled = self.cursor.handled()?;
         let mut payments: Vec<CloverPayment> = self

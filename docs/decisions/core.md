@@ -2620,3 +2620,11 @@ still strings across the till, the ledger, the screens and the bridge.
      a payment late), and the wallet names its order by the Square
      sale's reference, so the re-found sale had the old alert's order id
      and a new, payable code.
+265. **A till's first look at its point of sale doesn't reach back.**
+     (Owner, 2026-11-13.) The first look after setup starts the cursor
+     now, as before, but asks Square or Clover for nothing earlier.
+     Later looks still overlap by two minutes, for payments Square or
+     Clover list late. So a sale rung up before the till was set up (or
+     before it was erased and set up again) isn't found and shown as
+     new. The cost is a payment rung up during setup itself and listed
+     late, which is missed.

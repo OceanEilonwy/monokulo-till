@@ -78,17 +78,24 @@ impl SaleSource for SquareSource {
     /// The location's Monero payments from two minutes before the cursor
     /// (Square can list a payment late), less those handled as they are now:
     /// one Square changed since it was handled (its `updated_at`) is given
-    /// again. The first look starts the cursor now.
+    /// again. The first look starts the cursor now, and reaches no further
+    /// back: a sale rung up before the till was set up isn't its to show
+    /// (core.md decision 265).
     async fn new_sales(&self) -> Result<Vec<FoundSale>, PosError> {
-        let since = match self.cursor.since()? {
-            Some(since) => since,
+        let (since, first) = match self.cursor.since()? {
+            Some(since) => (since, false),
             None => {
                 let now = Rfc3339Instant::from_second(self.clock.now().0);
                 self.cursor.save(&now, &[]);
-                now
+                (now, true)
             }
         };
-        let from = Rfc3339Instant::from(since.timestamp()).earlier_by(OVERLAP_SECONDS);
+        let from = Rfc3339Instant::from(since.timestamp());
+        let from = if first {
+            from
+        } else {
+            from.earlier_by(OVERLAP_SECONDS)
+        };
         let handled = self.cursor.handled()?;
         let payments = self.api.payments(&self.location.id, &from).await?;
         Ok(payments
