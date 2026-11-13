@@ -3047,7 +3047,11 @@ fn a_failed_keypad_charge_comes_back_after_a_restart_with_its_key() {
             .filter_map(|t| t.found.map(|f| f.id))
             .collect()
     });
-    assert_eq!(ids, std::slice::from_ref(&kept.sale.id), "the same sale, the same key");
+    assert_eq!(
+        ids,
+        std::slice::from_ref(&kept.sale.id),
+        "the same sale, the same key"
+    );
     assert!(
         platform.get("keypad.charge").is_none(),
         "forgotten once made"
