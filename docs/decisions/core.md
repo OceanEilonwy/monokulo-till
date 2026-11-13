@@ -2574,3 +2574,17 @@ still strings across the till, the ledger, the screens and the bridge.
      addresses, so that sale would never turn paid. If making the new
      wallet fails, the old wallet's file is already gone: setup shows
      why on the step, and Continue tries again.
+262. **Settings: Change the wallet sits in Payments, Erase this till, no
+     stand-ins.** (Owner, 2026-11-13.) "Change the wallet" (decision 261)
+     is the last row of the Payments section, with its footnote, rather
+     than beside Disconnect. The wallet's Disconnect is now "Erase this
+     till" ("Erase this till?", "Erase"), and its footnote says what goes:
+     the copy of the wallet and its keys, the point of sale's sign-in and
+     this shift's sales, then setup starts again. Paid after reads "10
+     conf." and is said in full (`SetupStepper::value_said`). The debug
+     builds' Square and Clover stand-in address fields are gone
+     (`SettingsView::stand_ins`, `Action::SetBaseUrl`, the
+     `debug.square.base` and `debug.clover.base` keys), since nobody used
+     them; a build's own stand-in (tests, a local server) still comes
+     from its config. `tools/square-sandbox` takes `SQUARE_SANDBOX_HOST`
+     for a public name reached through a router's port forwarding.
