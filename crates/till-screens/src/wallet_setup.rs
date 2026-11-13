@@ -267,12 +267,16 @@ pub struct FobRequestStep {
 pub struct SetupStepper {
     /// "Paid after".
     pub label: String,
-    /// "10 confirmations".
+    /// "10 confirmations"; Settings' shorter "10 conf.".
     pub value: String,
     /// "About 20 minutes".
     pub detail: Option<String>,
     pub minus: Press,
     pub plus: Press,
+    /// What a screen reader says for [`Self::value`] when it's shortened:
+    /// "10 confirmations" for "10 conf."; empty when it's said as written.
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub value_said: String,
 }
 
 /// B4 (phone) and C4 (iPad).
@@ -643,6 +647,7 @@ fn paid_after(confirmations: u32, merged: bool) -> SetupStepper {
         minus: Press::new("−").enabled(confirmations > CONFIRMATION_STEPS[0]),
         plus: Press::new("+")
             .enabled(confirmations < CONFIRMATION_STEPS[CONFIRMATION_STEPS.len() - 1]),
+        value_said: String::new(),
     }
 }
 
@@ -654,6 +659,7 @@ pub fn step_stepper(label: &str, value: String, at: u32, steps: &[u32]) -> Setup
         detail: None,
         minus: Press::new("−").enabled(steps.first().is_some_and(|s| at > *s)),
         plus: Press::new("+").enabled(steps.last().is_some_and(|s| at < *s)),
+        value_said: String::new(),
     }
 }
 
@@ -664,6 +670,7 @@ fn expiry(minutes: u32) -> SetupStepper {
         detail: None,
         minus: Press::new("−").enabled(minutes > EXPIRY_STEPS[0]),
         plus: Press::new("+").enabled(minutes < EXPIRY_STEPS[EXPIRY_STEPS.len() - 1]),
+        value_said: String::new(),
     }
 }
 
@@ -857,6 +864,7 @@ pub fn this_till_step(t: &ThisTillSetup) -> ThisTillStep {
             detail: Some(format!("Account {n} in your wallet")),
             minus: Press::new("−").enabled(n > 1),
             plus: Press::new("+"),
+            value_said: String::new(),
         }),
         node: t.node.as_ref().map(|url| NodeRow {
             label: if t.light { PROOF_NODE } else { "Node" }.into(),

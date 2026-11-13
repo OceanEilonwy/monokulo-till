@@ -186,6 +186,7 @@ pub fn wallet_section(w: &WalletSettingsInput) -> WalletSection {
             detail: Some(format!("In your wallet: account {}", w.till_number)),
             minus: Press::new("−").enabled(w.till_number > 1 && !w.busy),
             plus: Press::new("+").enabled(!w.busy),
+            value_said: String::new(),
         }),
         account: (!numbered)
             .then(|| Fact::new("In your wallet", format!("Account {}", w.till_number))),
@@ -211,11 +212,13 @@ pub fn wallet_section(w: &WalletSettingsInput) -> WalletSection {
             choices,
             self_signed: light.then(|| self_signed_choice(w.light_self_signed, !w.busy)),
         }),
+        // Shortened to fit beside its stepper (owner, 2026-11-13).
         paid_after: SetupStepper {
             detail: Some(confirmations_time(w.confirmations)),
+            value_said: format!("{} confirmations", w.confirmations),
             ..step_stepper(
                 "Paid after",
-                format!("{} confirmations", w.confirmations),
+                format!("{} conf.", w.confirmations),
                 w.confirmations,
                 &crate::wallet_setup::CONFIRMATION_STEPS,
             )
@@ -293,7 +296,8 @@ mod tests {
         let number = view.till_number.unwrap();
         assert_eq!(number.detail.as_deref(), Some("In your wallet: account 2"));
         assert!(view.account.is_none() && view.fob.is_none() && view.lookahead.is_none());
-        assert_eq!(view.paid_after.value, "10 confirmations");
+        assert_eq!(view.paid_after.value, "10 conf.");
+        assert_eq!(view.paid_after.value_said, "10 confirmations");
         assert!(!view.paid_after.minus.enabled);
         assert_eq!(view.prices.value, "Kraken · AUD");
         assert!(view.prices.providers[0].selected);

@@ -2,6 +2,7 @@ import CoreGraphics
 import CoreImage
 import CoreImage.CIFilterBuiltins
 import SwiftUI
+import UIKit
 
 /// A QR code's modules: `size` by `size`, row by row from the top, true
 /// for a dark module. No quiet zone; the view's card is that.
@@ -86,6 +87,28 @@ struct QRMatrix: Equatable, Sendable {
             )?.makeImage()
         }
     }
+
+    /// The whole code as a picture to send (Share): `side` pixels square
+    /// on white, each module a whole number of pixels with no smoothing,
+    /// centred with at least the four modules of white a scanner wants
+    /// round it.
+    func shareImage(side: Int = 1024, ink: UInt32 = 0x1A1917) -> CGImage? {
+        guard let code = image(ink: ink) else { return nil }
+        let module = max(1, side / (size + 8))
+        let drawn = module * size
+        let origin = (side - drawn) / 2
+        guard let context = CGContext(
+            data: nil, width: side, height: side, bitsPerComponent: 8,
+            bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+        ) else { return nil }
+        context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: side, height: side))
+        context.interpolationQuality = .none
+        context.setShouldAntialias(false)
+        context.draw(code, in: CGRect(x: origin, y: origin, width: drawn, height: drawn))
+        return context.makeImage()
+    }
 }
 
 /// A payment code on its white card (the design's QR part): ink on white
@@ -155,8 +178,24 @@ enum QRImages {
         return image
     }
 
+    nonisolated(unsafe) private static let shared: NSCache<NSString, Box> = {
+        let cache = NSCache<NSString, Box>()
+        cache.countLimit = 2
+        return cache
+    }()
+
+    /// The code for [text] as the 1024 px picture Share sends, made once:
+    /// the sale's body runs once a second.
+    static func shareImage(_ text: String) -> UIImage? {
+        if let kept = shared.object(forKey: text as NSString) { return UIImage(cgImage: kept.image) }
+        guard let image = QRMatrix(text: text)?.shareImage() else { return nil }
+        shared.setObject(Box(image), forKey: text as NSString)
+        return UIImage(cgImage: image)
+    }
+
     /// Lets every kept image go (a memory warning).
     static func empty() {
         cache.removeAllObjects()
+        shared.removeAllObjects()
     }
 }

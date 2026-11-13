@@ -30,6 +30,16 @@ struct TillScreen: View {
     @State private var under: Route = .shift
     /// The last sale shown while it was live: its Paid is the one moment.
     @State private var lastLive: String?
+    /// The one stack's path (a phone or a narrow window), kept from the
+    /// engine's screen as it changes, so Charge can put the sale under the
+    /// keypad's cover without a push before the cover goes.
+    @State private var path: [Route] = []
+    /// The keypad's cover on a phone: up with the engine's keypad, and kept
+    /// up a moment after Charge while the sale goes in under it.
+    @State private var keypadCover = false
+    /// Counts the keypad's openings, so a late dismissal for one opening
+    /// never takes down the next.
+    @State private var keypadOpening = 0
 
     var body: some View {
         GeometryReader { box in
@@ -68,8 +78,9 @@ struct TillScreen: View {
         }
         .onChange(of: core.closeSheet != nil, initial: true) { _, up in closeUp = up }
         .onChange(of: core.refundSheet != nil, initial: true) { _, up in refundUp = up }
-        .onChange(of: route, initial: true) { _, now in
+        .onChange(of: route, initial: true) { old, now in
             if now != .settings { under = now }
+            follow(from: old, to: now)
         }
         .onChange(of: liveSale, initial: true) { _, live in
             if let live { lastLive = live }
@@ -154,7 +165,7 @@ struct TillScreen: View {
     /// The shift at the root at every width, a sale and its order pushed
     /// over it.
     private var stack: some View {
-        NavigationStack(path: stackPath) {
+        NavigationStack(path: narrowPath) {
             shiftScreen(sidebar: false)
                 .navigationDestination(for: Route.self) { destination in
                     page(destination, newSale: false)
@@ -210,12 +221,62 @@ struct TillScreen: View {
     }
 
     /// The keypad over the list, up while the engine shows it, on a phone
-    /// or a narrow window. Only Close (the engine's Back) takes it down.
+    /// or a narrow window. Only Close (the engine's Back) takes it down, or
+    /// Charge once its sale is underneath.
     private var keypadUp: Binding<Bool> {
         Binding(
-            get: { route == .keypad },
+            get: { keypadCover },
             set: { _ in }
         )
+    }
+
+    /// The one stack's path, kept in step with the engine; a swipe or Back
+    /// that pops it tells the engine as many Backs.
+    private var narrowPath: Binding<[Route]> {
+        Binding(
+            get: { path },
+            set: { popped in
+                path = popped
+                guard route != .settings else { return }
+                for _ in 0..<TillScreen.backs(from: route, toDepth: popped.count) {
+                    core.send(.back)
+                }
+            }
+        )
+    }
+
+    /// The stack and the keypad's cover after the engine's screen goes from
+    /// `old` to `now`. Charge (the keypad to its sale) goes straight to the
+    /// sale: the sale is set under the cover with no push, and the cover
+    /// comes down over it a moment later, so the list never shows between.
+    private func follow(from old: Route, to now: Route) {
+        if now == .keypad {
+            keypadOpening += 1
+            keypadCover = true
+        }
+        // Under Settings, the stack stays as it was opened from.
+        let next = now == .settings ? path : TillScreen.stackPath(now)
+        let charged = old == .keypad && keypadCover && !next.isEmpty
+        if next != path {
+            if charged {
+                var still = Transaction()
+                still.disablesAnimations = true
+                withTransaction(still) { path = next }
+            } else {
+                path = next
+            }
+        }
+        guard old == .keypad, now != .keypad else { return }
+        if charged {
+            let opening = keypadOpening
+            Task { @MainActor in
+                // A frame or two for the stack to lay the sale out under the cover.
+                try? await Task.sleep(for: .milliseconds(60))
+                if keypadOpening == opening { keypadCover = false }
+            }
+        } else {
+            keypadCover = false
+        }
     }
 
     /// The stack's path, from the engine's screen; a swipe or Back that
