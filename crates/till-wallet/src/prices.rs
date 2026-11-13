@@ -148,20 +148,42 @@ pub struct CurrencyChoice {
     /// "AUD · Kraken, CoinGecko", or for XMR "No price is ever looked up".
     pub detail: String,
     pub sign: String,
-    pub group: Option<&'static str>,
+    /// "This device", "Every currency", or searching "3 of 45".
+    pub group: Option<String>,
 }
 
+/// What the keypad calls XMR's row, which fob-price calls "Monero (XMR)".
+const NO_CURRENCY: &str = "None (XMR only)";
+
 /// The keypad's currencies (fob-price's `currency_list`), `phone` being
-/// the device's own currency, when known.
-pub fn currency_choices(phone: Option<&str>) -> Vec<CurrencyChoice> {
+/// the device's own currency, when known. A `query` keeps only those it
+/// matches by name, code or symbol, whatever the case or accents, as Fob's
+/// own search does ("aud", "australian", "dollar", "zloty"). Searching, the
+/// device's row is left out, as it's among the rest, and XMR's row stays
+/// when the query matches its name here ("none") or Fob's ("monero",
+/// "xmr").
+pub fn currency_choices(phone: Option<&str>, query: &str) -> Vec<CurrencyChoice> {
+    use fob_monero::fiat::currencies::fold;
     use fob_price::{CurrencyHeading, CurrencyLine};
-    let list = fob_price::currency_list(None, phone, "");
+    let mut list = fob_price::currency_list(None, phone, query);
+    let folded = fold(query.trim());
+    let has_xmr = list
+        .groups
+        .iter()
+        .any(|g| matches!(g.heading, CurrencyHeading::Monero));
+    if !has_xmr && !folded.is_empty() && fold(NO_CURRENCY).contains(&folded) {
+        // XMR's row, as a blank query lists it first.
+        let mut all = fob_price::currency_list(None, None, "");
+        all.groups.truncate(1);
+        list.groups.splice(0..0, all.groups);
+    }
     let mut rows = Vec::new();
     for group in list.groups {
         let heading = match group.heading {
             CurrencyHeading::Monero => None,
-            CurrencyHeading::ThisDevice => Some("This device"),
-            CurrencyHeading::All { .. } | CurrencyHeading::Found { .. } => Some("Every currency"),
+            CurrencyHeading::ThisDevice => Some("This device".to_owned()),
+            CurrencyHeading::All { .. } => Some("Every currency".to_owned()),
+            CurrencyHeading::Found { count, of } => Some(format!("{count} of {of}")),
         };
         for (i, row) in group.rows.into_iter().enumerate() {
             let (code, name, detail) = match (row.code, row.line) {
@@ -171,7 +193,7 @@ pub fn currency_choices(phone: Option<&str>) -> Vec<CurrencyChoice> {
                 }
                 (code, _) => (
                     code.unwrap_or_else(|| "XMR".into()),
-                    "None (XMR only)".into(),
+                    NO_CURRENCY.into(),
                     "No price is ever looked up".into(),
                 ),
             };
@@ -180,7 +202,7 @@ pub fn currency_choices(phone: Option<&str>) -> Vec<CurrencyChoice> {
                 name,
                 detail,
                 sign: row.sign,
-                group: if i == 0 { heading } else { None },
+                group: if i == 0 { heading.clone() } else { None },
             });
         }
     }
@@ -501,13 +523,59 @@ pub(crate) mod tests {
 
     #[test]
     fn the_keypads_currencies_are_xmr_then_this_devices_then_every_one() {
-        let rows = currency_choices(Some("AUD"));
+        let rows = currency_choices(Some("AUD"), "");
         assert_eq!(rows[0].code, "XMR");
         assert_eq!(rows[0].name, "None (XMR only)");
         assert_eq!(rows[1].code, "AUD");
-        assert_eq!(rows[1].group, Some("This device"));
+        assert_eq!(rows[1].group.as_deref(), Some("This device"));
         assert_eq!(rows[1].detail, "AUD · Kraken, CoinGecko");
-        assert_eq!(rows[2].group, Some("Every currency"));
+        assert_eq!(rows[2].group.as_deref(), Some("Every currency"));
         assert_eq!(rows.len(), 2 + 45);
+        assert_eq!(
+            currency_choices(Some("AUD"), "   "),
+            rows,
+            "blank is no search"
+        );
+    }
+
+    /// The keypad's currency search: by code, name or a word of it,
+    /// whatever the case or accents; the device's row isn't repeated, and
+    /// XMR's row stays for what names it.
+    #[test]
+    fn a_search_keeps_the_currencies_it_matches() {
+        let codes = |query: &str| -> Vec<String> {
+            currency_choices(Some("AUD"), query)
+                .into_iter()
+                .map(|r| r.code)
+                .collect()
+        };
+        assert_eq!(codes("aud"), ["AUD", "SAR"], "Saudi riyal has it too");
+        assert_eq!(codes("  AUSTRALIAN "), ["AUD"]);
+        assert_eq!(codes("Austrálian"), ["AUD"], "accents off");
+        assert_eq!(codes("zloty"), ["PLN"]);
+        let dollars = codes("dollar");
+        assert!(dollars.len() > 3, "{dollars:?}");
+        assert!(!dollars.contains(&"XMR".to_owned()));
+        assert!(dollars.contains(&"USD".to_owned()));
+        assert_eq!(
+            dollars.iter().filter(|c| *c == "AUD").count(),
+            1,
+            "the device's row isn't repeated"
+        );
+        assert_eq!(codes("none"), ["XMR"]);
+        assert_eq!(codes("XMR"), ["XMR"]);
+        assert_eq!(codes("monero"), ["XMR"]);
+        assert_eq!(codes("qqq"), Vec::<String>::new());
+
+        let rows = currency_choices(Some("AUD"), "dollar");
+        assert_eq!(
+            rows[0].group,
+            Some(format!("{} of 45", rows.len())),
+            "the matches say how many of all"
+        );
+        assert!(rows[1..].iter().all(|r| r.group.is_none()));
+        let none = currency_choices(None, "none");
+        assert_eq!(none[0].name, "None (XMR only)");
+        assert_eq!(none[0].group, None);
     }
 }

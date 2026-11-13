@@ -822,6 +822,11 @@ pub enum Action {
     ChooseKeypadCurrency {
         code: String,
     },
+    /// The search over the keypad's currencies as typed so far (core.md
+    /// 255): the list keeps what it matches.
+    SearchKeypadCurrency {
+        query: String,
+    },
     /// A key on the keypad, or on a hardware keyboard (digits, Backspace,
     /// Escape for Clear).
     KeypadPress {
@@ -938,6 +943,7 @@ impl Action {
             Action::ChoosePriceProvider { .. } => "ChoosePriceProvider",
             Action::Refresh => "Refresh",
             Action::ChooseKeypadCurrency { .. } => "ChooseKeypadCurrency",
+            Action::SearchKeypadCurrency { .. } => "SearchKeypadCurrency",
             Action::KeypadPress { .. } => "KeypadPress",
             Action::KeypadReference { .. } => "KeypadReference",
             Action::Charge => "Charge",

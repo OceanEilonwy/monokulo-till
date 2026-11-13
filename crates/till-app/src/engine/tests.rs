@@ -3203,6 +3203,40 @@ fn choosing_the_keypad_on_a_wallet_asks_for_its_currency_then_prices() {
         !currency.next.unwrap().enabled,
         "Continue waits for a currency"
     );
+    assert_eq!(currency.currency_search.unwrap().query, "");
+    // Core.md 255: the search narrows the list, and says when nothing
+    // matches while the stage stays.
+    engine.send(Action::SearchKeypadCurrency {
+        query: "Austrálian".into(),
+    });
+    let found = page_where(&rx, |page| match page {
+        OnboardingPage::PointOfSale { view } if view.currencies.len() == 1 => Some(view.clone()),
+        _ => None,
+    });
+    assert_eq!(found.currencies[0].code, "AUD");
+    assert_eq!(found.currency_search.unwrap().query, "Austrálian");
+    engine.send(Action::SearchKeypadCurrency {
+        query: "qqq".into(),
+    });
+    let nothing = page_where(&rx, |page| match page {
+        OnboardingPage::PointOfSale { view } if view.currencies.is_empty() => Some(view.clone()),
+        _ => None,
+    });
+    assert_eq!(
+        nothing.stage,
+        Some(till_screens::onboarding::PosStage::Currency)
+    );
+    assert_eq!(
+        nothing.currency_search.unwrap().empty.as_deref(),
+        Some("No currency matches “qqq”")
+    );
+    engine.send(Action::SearchKeypadCurrency {
+        query: String::new(),
+    });
+    page_where(&rx, |page| match page {
+        OnboardingPage::PointOfSale { view } if view.currencies.len() > 45 => Some(()),
+        _ => None,
+    });
     engine.send(Action::ChooseKeypadCurrency { code: "AUD".into() });
     wait_for(&rx, |_| {
         (kept_wallet(&platform).price_currency.as_deref() == Some("AUD")).then_some(())

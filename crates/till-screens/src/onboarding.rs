@@ -77,11 +77,16 @@ pub struct PosSetup {
     /// nothing, so "Set up later" isn't offered.
     pub this_till_only: bool,
     /// Till's keypad: the currencies to choose from, on the shop's own
-    /// wallet (docs/view-key-mode.md §7); empty with Monokulo, whose store
-    /// has its own.
+    /// wallet (docs/view-key-mode.md §7), those `currency_query` matches;
+    /// empty with Monokulo, whose store has its own.
     pub currencies: Vec<CurrencyRow>,
     /// The keypad's currency chosen so far: its code, "XMR" for none.
     pub keypad_currency: Option<String>,
+    /// Till's keypad on the shop's own wallet: its currency is the till's
+    /// to choose, even while a search finds none.
+    pub picks_currency: bool,
+    /// The currency search as typed (core.md 255).
+    pub currency_query: String,
 }
 
 /// One of the keypad's currencies to choose (fob-price's list): "None (XMR
@@ -599,6 +604,23 @@ pub struct PosStep {
     /// from Settings), the chosen one ticked.
     #[cfg_attr(feature = "uniffi", uniffi(default = []))]
     pub currencies: Vec<CurrencyRow>,
+    /// Over the currencies, wherever they're shown: the search field.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub currency_search: Option<CurrencySearch>,
+}
+
+/// The keypad's currency search (core.md 255): the field over the list,
+/// which sends `Action::SearchKeypadCurrency` as it's typed in, and what
+/// shows instead of the list when nothing matches.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct CurrencySearch {
+    /// What's typed so far.
+    pub query: String,
+    /// "Search currencies".
+    pub placeholder: String,
+    /// "No currency matches “qqq”", when nothing does.
+    pub empty: Option<String>,
 }
 
 /// The chosen point of sale's card: its sign-in, its location or merchant,
@@ -1251,7 +1273,7 @@ fn stage(s: &PosSetup) -> Option<PosStage> {
     } else if s.chosen == Some(PointOfSale::Till) {
         // No sign-in and no test sale: the keypad's currency, where it's
         // the till's to choose.
-        if s.confirmed && !s.currencies.is_empty() {
+        if s.confirmed && s.picks_currency {
             Some(PosStage::Currency)
         } else {
             Some(PosStage::Choose)
@@ -1333,6 +1355,7 @@ fn pos_step(s: &PosSetup, device: Device) -> PosStep {
             .then(|| connected_line(s))
             .flatten(),
         currencies: Vec::new(),
+        currency_search: None,
     }
 }
 
@@ -1341,7 +1364,9 @@ fn pos_step(s: &PosSetup, device: Device) -> PosStep {
 /// currencies together, and Done.
 fn keypad_step(s: &PosSetup, device: Device) -> PosStep {
     let stage = stage(s);
-    let chosen_currency = s.keypad_currency.is_some() || s.currencies.is_empty();
+    let chosen_currency = s.keypad_currency.is_some() || !s.picks_currency;
+    let shows_currencies = s.picks_currency && stage != Some(PosStage::Choose);
+    let query = s.currency_query.trim();
     let next = match stage {
         Some(PosStage::Choose) => Press::new("Continue with Till").enabled(!s.busy),
         Some(_) => Press::new("Continue").enabled(chosen_currency && !s.busy),
@@ -1357,11 +1382,17 @@ fn keypad_step(s: &PosSetup, device: Device) -> PosStep {
         skip_footnote: None,
         status: None,
         connected: None,
-        currencies: if stage == Some(PosStage::Choose) {
-            Vec::new()
-        } else {
+        currencies: if shows_currencies {
             s.currencies.clone()
+        } else {
+            Vec::new()
         },
+        currency_search: shows_currencies.then(|| CurrencySearch {
+            query: s.currency_query.clone(),
+            placeholder: "Search currencies".into(),
+            empty: (s.currencies.is_empty() && !query.is_empty())
+                .then(|| format!("No currency matches “{query}”")),
+        }),
     }
 }
 
@@ -2375,6 +2406,94 @@ mod tests {
                 .as_deref(),
             Some("Step 1 of 6"),
             "Android keeps its words"
+        );
+    }
+
+    /// Core.md 255: the keypad's currencies have a search over them,
+    /// shown wherever they are; the stage stays while a search finds
+    /// nothing, which says so instead of the list.
+    #[test]
+    fn the_keypads_currencies_have_a_search_and_say_when_nothing_matches() {
+        let row = |code: &str, group: Option<&str>| CurrencyRow {
+            code: code.into(),
+            name: code.into(),
+            detail: String::new(),
+            sign: String::new(),
+            selected: false,
+            group: group.map(str::to_owned),
+        };
+        let keypad = |currencies: Vec<CurrencyRow>, query: &str| PosSetup {
+            chosen: Some(PointOfSale::Till),
+            setup: true,
+            confirmed: true,
+            this_till_only: true,
+            picks_currency: true,
+            currencies,
+            currency_query: query.into(),
+            ..PosSetup::default()
+        };
+
+        let all = pos_step_of(
+            keypad(vec![row("XMR", None), row("AUD", Some("This device"))], ""),
+            Device::Ipad,
+        );
+        assert_eq!(all.stage, Some(PosStage::Currency));
+        assert_eq!(all.currencies.len(), 2);
+        assert_eq!(
+            all.currency_search,
+            Some(CurrencySearch {
+                query: String::new(),
+                placeholder: "Search currencies".into(),
+                empty: None,
+            })
+        );
+
+        let found = pos_step_of(
+            keypad(vec![row("AUD", Some("1 of 45"))], "aud"),
+            Device::Ipad,
+        );
+        assert_eq!(found.currency_search.unwrap().empty, None);
+
+        let none = pos_step_of(keypad(Vec::new(), " qqq "), Device::Android);
+        assert_eq!(none.stage, Some(PosStage::Currency), "still choosing");
+        assert!(none.currencies.is_empty());
+        assert_eq!(
+            none.currency_search.unwrap().empty.as_deref(),
+            Some("No currency matches “qqq”")
+        );
+        assert_eq!(none.next, Some(Press::new("Continue").enabled(false)));
+
+        let settings = pos_step_of(
+            PosSetup {
+                setup: false,
+                ..keypad(vec![row("XMR", None)], "")
+            },
+            Device::Ipad,
+        );
+        assert!(settings.currency_search.is_some(), "Settings has it too");
+
+        let choose = pos_step_of(
+            PosSetup {
+                confirmed: false,
+                ..keypad(vec![row("XMR", None)], "")
+            },
+            Device::Ipad,
+        );
+        assert_eq!(choose.currency_search, None, "the choice alone first");
+        let monokulo = pos_step_of(
+            PosSetup {
+                picks_currency: false,
+                currencies: Vec::new(),
+                ..keypad(Vec::new(), "")
+            },
+            Device::Ipad,
+        );
+        assert_eq!(monokulo.stage, Some(PosStage::Choose));
+        assert_eq!(monokulo.currency_search, None, "the store has its own");
+        assert!(
+            pos_step_of(square_connected(), Device::Ipad)
+                .currency_search
+                .is_none()
         );
     }
 

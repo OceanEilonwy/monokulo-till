@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -130,7 +131,8 @@ class ScreenshotTest {
             }
             TillTheme(dark) {
                 CompositionLocalProvider(LocalMotion provides Motion.Still, LocalPointOfSale provides PosMark.SQUARE) {
-                    Box(Modifier.fillMaxSize().background(mk.ground)) { shot.content() }
+                    // Keyed by name, so a field's remembered text starts afresh with each shot.
+                    Box(Modifier.fillMaxSize().background(mk.ground)) { key(shot.name) { shot.content() } }
                 }
             }
         }
@@ -260,6 +262,7 @@ class ScreenshotTest {
         // Till's keypad as the point of sale (docs/view-key-mode.md §7).
         setup("pos-keypad-choose", PreviewStep.POS_KEYPAD_CHOOSE),
         setup("pos-keypad-currency", PreviewStep.POS_KEYPAD_CURRENCY),
+        setup("pos-keypad-currency-search", PreviewStep.POS_KEYPAD_CURRENCY_SEARCH),
         Shot("pos-keypad") { KeypadScreen(keypad("USD", "1250", "Sam", aside = true)) {} },
         Shot("pos-keypad-empty") { KeypadScreen(keypad("USD", "", "", aside = false)) {} },
         Shot("pos-keypad-xmr") { KeypadScreen(keypad("XMR", "0.05", "", aside = false)) {} },

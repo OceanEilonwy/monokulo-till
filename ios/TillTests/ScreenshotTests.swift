@@ -264,6 +264,7 @@ enum Screenshots {
         shots += [
             Shot(name: "pos-keypad-choose", updates: step(.posKeypadChoose, .pointOfSale)),
             Shot(name: "pos-keypad-currency", updates: step(.posKeypadCurrency, .pointOfSale)),
+            Shot(name: "pos-keypad-currency-search", updates: step(.posKeypadCurrencySearch, .pointOfSale)),
             Shot(name: "pos-keypad", updates: [.screen(screen: .keypad), keypad("USD", "1250", "Sam", aside: true)]),
             Shot(name: "pos-keypad-empty", updates: [.screen(screen: .keypad), keypad("USD", "", "", aside: false)]),
             Shot(name: "pos-keypad-xmr", updates: [.screen(screen: .keypad), keypad("XMR", "0.05", "", aside: false)]),

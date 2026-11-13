@@ -324,7 +324,7 @@ struct PointOfSalePage: View {
                 }
             case .some(.currency):
                 PageTop(heading: view.heading, lead: view.lead)
-                CurrencyCard(rows: step.currencies, send: send)
+                CurrencyCard(rows: step.currencies, search: step.currencySearch, send: send)
                     .padding(.top, 20)
             case .some(.testSale):
                 if let card = step.card {
@@ -352,9 +352,9 @@ struct PointOfSalePage: View {
                     PosAccountSection(card: card, send: send)
                     PosTillSteps(card: card, testRow: true, send: send)
                 }
-                if !step.currencies.isEmpty {
+                if !step.currencies.isEmpty || step.currencySearch != nil {
                     SectionLabel(text: "Currency")
-                    CurrencyCard(rows: step.currencies, send: send)
+                    CurrencyCard(rows: step.currencies, search: step.currencySearch, send: send)
                 }
             }
         } bottom: {
@@ -436,13 +436,31 @@ struct PosChoiceTiles: View {
 
 /// Till's keypad's currencies (docs/view-key-mode.md §7), as Fob lists
 /// them: None (XMR only), this device's, then every one, each with its
-/// sign in a circle and who prices it, ticked when chosen.
+/// sign in a circle and who prices it, ticked when chosen. The search field
+/// over them narrows the list in the engine (core.md 255), which says when
+/// nothing matches.
 struct CurrencyCard: View {
     let rows: [CurrencyRow]
+    let search: CurrencySearch?
     let send: Send
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if let search {
+                CurrencySearchField(search: search, send: send)
+                    .padding(.horizontal, 16)
+                    // A group with no heading (XMR's) would sit on it.
+                    .padding(.bottom, rows.first.map { $0.group == nil } ?? false ? 16 : 0)
+                if let empty = search.empty {
+                    Text(empty)
+                        .font(.subheadline)
+                        .foregroundStyle(Palette.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 28)
+                }
+            }
             ForEach(groups, id: \.offset) { _, group in
                 if let heading = group.first?.group {
                     SectionLabel(text: heading)
@@ -470,6 +488,50 @@ struct CurrencyCard: View {
             }
         }
         return Array(groups.enumerated()).map { (offset: $0.offset, element: $0.element) }
+    }
+}
+
+/// The search over the keypad's currencies, in a setup field's box: each
+/// change goes to the engine, which narrows the list; the clear button
+/// empties it.
+struct CurrencySearchField: View {
+    let search: CurrencySearch
+    let send: Send
+
+    @State private var text: String
+
+    init(search: CurrencySearch, send: @escaping Send) {
+        self.search = search
+        self.send = send
+        _text = State(initialValue: search.query)
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(Palette.secondary)
+                .accessibilityHidden(true)
+            TextField(search.placeholder, text: $text)
+                .textFieldStyle(.plain)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .accessibilityLabel(search.placeholder)
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(Palette.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear")
+            }
+        }
+        .fieldBox(problem: false)
+        .onChange(of: text) { _, typed in
+            if typed != search.query { send(.searchKeypadCurrency(query: typed)) }
+        }
     }
 }
 
