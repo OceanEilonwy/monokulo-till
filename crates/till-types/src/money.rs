@@ -72,7 +72,8 @@ impl CurrencyCode {
     /// How many digits an amount in the currency is counted in: ISO 4217's
     /// ([`iso_digits`](Self::iso_digits)), else 2, as Java's `Currency`
     /// answered for a code it didn't know. Every amount the till counts in
-    /// minor units, and every receipt orf-codec encodes, uses this.
+    /// minor units uses this, and every receipt orf-codec encodes the same
+    /// (from its own copy of the table, which a test here checks).
     pub fn minor_digits(&self) -> u32 {
         self.iso_digits().unwrap_or(2)
     }
@@ -438,6 +439,27 @@ mod tests {
         ] {
             assert_eq!(code(text).iso_digits(), iso, "{text}");
             assert_eq!(code(text).minor_digits(), minor, "{text}");
+        }
+    }
+
+    /// orf-codec, in its own repository since docs/view-key-mode.md §3.1,
+    /// keeps a copy of this table to encode a receipt's amounts in: the two
+    /// must give every code the same digits, or a receipt's amounts would
+    /// be refused or rounded differently from the sale's.
+    #[test]
+    fn orf_codec_counts_every_code_in_the_same_digits() {
+        let others = ["XMR", "BTC", "ABC", "usd", " eur "];
+        for text in [ZERO, THREE, FOUR, TWO].concat().into_iter().chain(others) {
+            assert_eq!(
+                orf_codec::currency::iso_digits(text),
+                code(text).iso_digits(),
+                "{text}"
+            );
+            assert_eq!(
+                orf_codec::currency::minor_digits(text),
+                code(text).minor_digits(),
+                "{text}"
+            );
         }
     }
 

@@ -39,9 +39,11 @@ zeroize.workspace = true
 uniffi = { workspace = true, optional = true }
 
 [dev-dependencies]
-# Fob's side of Connect to Fob, and wallets made for the tests.
+# Fob's side of Connect to Fob, and wallets and requests made for the
+# tests.
 fob-codes.workspace = true
 fob-keys.workspace = true
+fob-wallet.workspace = true
 tempfile = "3.27.0"
 tokio = { workspace = true, features = ["test-util"] }
 wiremock = "0.6.5"

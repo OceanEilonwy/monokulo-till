@@ -38,6 +38,9 @@ struct State {
 /// [`FakeBackend::emit`].
 pub struct FakeBackend {
     sharing: Sharing,
+    /// Its payments offer New code, which makes the next payment, as the
+    /// device's own wallet's do ([`FakeBackend::with_new_codes`]).
+    new_codes: bool,
     state: Mutex<State>,
 }
 
@@ -47,7 +50,19 @@ impl FakeBackend {
     pub fn new(sharing: Sharing) -> FakeBackend {
         FakeBackend {
             sharing,
+            new_codes: false,
             state: Mutex::default(),
+        }
+    }
+
+    /// The same backend, its payments offering New code as the device's
+    /// own wallet's do (core.md decision 241): each carries a `renew`, and
+    /// renewing one makes the next payment, at another address with
+    /// another id, once per payment replaced.
+    pub fn with_new_codes(self) -> FakeBackend {
+        FakeBackend {
+            new_codes: true,
+            ..self
         }
     }
 
@@ -166,7 +181,7 @@ impl PaymentBackend for FakeBackend {
             currency: Some(req.amount.currency.to_string()),
             receipt: req.reference,
             device_name: None,
-            renew: None,
+            renew: self.new_codes.then(|| format!("fake:{n}")),
         };
         state.keys.insert(req.key, payment.reference.clone());
         state
@@ -183,6 +198,39 @@ impl PaymentBackend for FakeBackend {
             .iter()
             .filter_map(|r| state.payments.get(r).cloned())
             .collect())
+    }
+
+    /// The next payment for the one `renew` names, made with its key and
+    /// the replaced one's reference, so asking again gives the same one.
+    async fn renew(
+        &self,
+        renew: &str,
+        _expires_at: till_types::UnixSeconds,
+        amount: &till_types::Money,
+    ) -> Result<Payment, BackendError> {
+        if !self.new_codes {
+            return Err(BackendError::Unsupported("make a new code for a sale"));
+        }
+        self.failure()?;
+        let key = {
+            let state = self.state();
+            let replaced = PaymentRef::new(renew);
+            let Some(key) = state
+                .keys
+                .iter()
+                .find(|(_, r)| **r == replaced)
+                .map(|(k, _)| k.clone())
+            else {
+                return Err(BackendError::Other("No such payment.".into()));
+            };
+            format!("{key}#{renew}")
+        };
+        self.create(PaymentRequest {
+            key,
+            amount: *amount,
+            reference: None,
+        })
+        .await
     }
 
     /// Opens a stream that says it's ready at once, then carries what the

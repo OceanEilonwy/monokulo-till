@@ -9,7 +9,7 @@ use std::time::Duration;
 use monokulo_client::FixedClock;
 use till_screens::onboarding::OnboardingPage;
 use till_screens::shift::ShiftFilter;
-use till_screens::wallet_setup::PaymentsMode;
+use till_screens::wallet_setup::{CheckMark, PaymentsMode};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -2158,16 +2158,14 @@ fn a_wallet_typed_by_hand_is_checked_made_and_kept_as_the_tills_link() {
     screen(&rx, Screen::Welcome);
     engine.send(Action::Next);
     screen(&rx, Screen::PaymentsMode);
-    // Continue waits for a choice; the light server isn't one yet.
-    engine.send(Action::ChoosePaymentsMode {
-        mode: PaymentsMode::LightServer,
-    });
+    // Continue waits for a choice.
     engine.send(Action::Next);
     let mode = page_where(&rx, |page| match page {
         OnboardingPage::PaymentsMode { view } => Some(view.clone()),
         _ => None,
     });
     assert!(!mode.next.enabled);
+    engine.peek(|s| assert_eq!(s.screen, Screen::PaymentsMode));
     engine.send(Action::ChoosePaymentsMode {
         mode: PaymentsMode::Wallet,
     });
@@ -2247,6 +2245,162 @@ fn a_wallet_typed_by_hand_is_checked_made_and_kept_as_the_tills_link() {
         _ => None,
     });
     assert!(pos.skip.is_none(), "{:?}", pos.skip);
+}
+
+/// A stagenet light wallet server on 127.0.0.1 that answers `/get_version`
+/// as monokulo-lws does (and anything else with an empty wallet): its
+/// address.
+fn light_server_stub() -> String {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            let mut request = Vec::new();
+            let mut buf = [0; 4096];
+            while let Ok(n) = stream.read(&mut buf) {
+                if n == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buf[..n]);
+                let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") else {
+                    continue;
+                };
+                let head = String::from_utf8_lossy(&request[..end]).to_ascii_lowercase();
+                let len = head
+                    .lines()
+                    .find_map(|l| l.strip_prefix("content-length:"))
+                    .and_then(|v| v.trim().parse::<usize>().ok())
+                    .unwrap_or(0);
+                if request.len() >= end + 4 + len {
+                    break;
+                }
+            }
+            let text = String::from_utf8_lossy(&request);
+            let body = if text.starts_with("POST /get_version") {
+                r#"{"server_type":"monokulo-lws","monero_version_full":"","blockchain_height":2250000,"api":2,"max_subaddresses":10000,"network":"stage","testnet":true}"#
+            } else if text.starts_with("POST /login") {
+                r#"{"new_address":true,"start_height":2249990}"#
+            } else if text.starts_with("POST /get_address_txs") {
+                r#"{"total_received":"0","scanned_height":2249999,"scanned_block_height":2249999,"start_height":2249990,"transaction_height":2249999,"blockchain_height":2250000,"transactions":[]}"#
+            } else {
+                r#"{"new_subaddrs":[]}"#
+            };
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+        }
+    });
+    url
+}
+
+/// docs/view-key-mode.md §5.7, §11.1: the light wallet server's address is
+/// checked before the wallet, the wallet's network is taken from it, This
+/// till's node checks its proofs, and the link keeps the server.
+#[test]
+fn a_light_wallet_server_is_checked_then_kept_with_the_wallet() {
+    let platform = Arc::new(FakePlatform::default());
+    let mut config = config(None);
+    // A release build starts on mainnet: the server's network wins.
+    config.debug = false;
+    let (engine, rx, _) = start(config, platform.clone());
+    screen(&rx, Screen::Welcome);
+    engine.send(Action::Next);
+    engine.send(Action::ChoosePaymentsMode {
+        mode: PaymentsMode::LightServer,
+    });
+    engine.send(Action::Next);
+    screen(&rx, Screen::LightServer);
+    let empty = page_where(&rx, |page| match page {
+        OnboardingPage::LightServer { view } => Some(view.clone()),
+        _ => None,
+    });
+    assert!(!empty.next.enabled, "nothing typed");
+    assert!(empty.footnote.contains("sees every payment"));
+
+    // Plain http to another machine fails its check and stays.
+    engine.send(Action::EditLightServer {
+        url: "http://192.0.2.1:8443".into(),
+        self_signed: false,
+    });
+    engine.send(Action::Next);
+    let refused = page_where(&rx, |page| match page {
+        OnboardingPage::LightServer { view }
+            if view.checks.iter().any(|c| c.mark == CheckMark::Failed) =>
+        {
+            Some(view.clone())
+        }
+        _ => None,
+    });
+    assert!(refused.checks[0].text.starts_with("Needs https"));
+    engine.peek(|s| assert_eq!(s.screen, Screen::LightServer));
+
+    let server = light_server_stub();
+    engine.send(Action::EditLightServer {
+        url: server.clone(),
+        self_signed: false,
+    });
+    engine.send(Action::Next);
+    screen(&rx, Screen::WalletEntry);
+    // Back and on again: not checked twice.
+    engine.send(Action::Back);
+    screen(&rx, Screen::LightServer);
+    let checked = page_where(&rx, |page| match page {
+        OnboardingPage::LightServer { view } => Some(view.clone()),
+        _ => None,
+    });
+    assert_eq!(checked.checks.len(), 3);
+    assert!(checked.checks.iter().all(|c| c.mark == CheckMark::Passed));
+    assert_eq!(checked.checks[1].text, "Stagenet");
+    engine.send(Action::Next);
+    screen(&rx, Screen::WalletEntry);
+
+    engine.send(Action::ChooseWalletWay {
+        way: till_screens::wallet_setup::WalletWay::Keys,
+    });
+    screen(&rx, Screen::WalletKeys);
+    let typing = page_where(&rx, |page| match page {
+        OnboardingPage::WalletKeys { view } => Some(view.clone()),
+        _ => None,
+    });
+    assert!(
+        typing.networks[1].selected,
+        "the server's network: stagenet"
+    );
+    let keys = fob_keys::Keys::generate(till_wallet::Network::Stagenet).keys;
+    engine.send(Action::EditWalletKeys {
+        network: till_screens::wallet_setup::WalletNetwork::Stagenet,
+        address: keys.primary_address(),
+        view_key: keys.view_key_hex().to_string(),
+    });
+    page_where(&rx, |page| match page {
+        OnboardingPage::WalletKeys { view } if view.next.enabled => Some(()),
+        _ => None,
+    });
+    engine.send(Action::Next);
+    screen(&rx, Screen::ThisTill);
+    let this_till = page_where(&rx, |page| match page {
+        OnboardingPage::ThisTill { view } => Some(view.clone()),
+        _ => None,
+    });
+    assert_eq!(this_till.node.unwrap().label, "Node for proofs");
+    engine.poke(|s| s.finish_wallet());
+    screen(&rx, Screen::PointOfSale);
+    let saved = platform.get("connection").expect("the link kept");
+    let Some(till_payments::Link::Wallet(wallet)) = till_payments::Link::restore(&saved) else {
+        panic!("a wallet link: {saved}");
+    };
+    assert_eq!(wallet.light_server.as_deref(), Some(server.as_str()));
+    assert!(!wallet.light_self_signed);
+    assert_eq!(wallet.network, "stagenet");
+    assert_eq!(
+        wallet.node.as_deref(),
+        Some(till_wallet::setup::default_node(till_wallet::Network::Stagenet).as_str()),
+        "the node for proofs"
+    );
 }
 
 /// Connect to Fob by two codes (C1 to C4): the answer opens only with the
@@ -2404,6 +2558,14 @@ fn a_till_on_its_own_wallet_has_no_foreground_service_and_no_bell() {
 /// A till set up on its own wallet (made in `data_dir`), at Square's Front
 /// Counter: what Settings and its changes are tried on.
 fn wallet_till(data_dir: &str) -> (Arc<FakePlatform>, till_payments::WalletLink) {
+    wallet_till_with(data_dir, till_wallet::WalletSetup::new(2))
+}
+
+/// [`wallet_till`], set up as `setup` says.
+fn wallet_till_with(
+    data_dir: &str,
+    setup: till_wallet::WalletSetup,
+) -> (Arc<FakePlatform>, till_payments::WalletLink) {
     let keys = fob_keys::Keys::generate(till_wallet::Network::Stagenet).keys;
     let view = till_wallet::keys::keys_from_typed(
         till_wallet::Network::Stagenet,
@@ -2416,7 +2578,7 @@ fn wallet_till(data_dir: &str) -> (Arc<FakePlatform>, till_payments::WalletLink)
         .block_on(till_wallet::make_wallet(
             std::path::Path::new(data_dir),
             &view,
-            &till_wallet::WalletSetup::new(2),
+            &setup,
         ))
         .unwrap();
     let link = made.link.clone();
@@ -2483,6 +2645,59 @@ fn wallet_settings_show_the_wallet_and_change_its_link() {
     assert_eq!(kept.price_provider.as_deref(), Some("CoinGecko"));
 }
 
+/// Decision 245: on a light wallet server, Settings shows the server in
+/// the node's row, checks it as it opens, and Change takes a new server
+/// (checked by the wallet first), never a node.
+#[test]
+fn light_server_settings_show_and_change_the_server() {
+    let config = config(None);
+    let first = light_server_stub();
+    let (platform, link) = wallet_till_with(
+        &config.data_dir,
+        till_wallet::WalletSetup {
+            light_server: Some(first.clone()),
+            ..till_wallet::WalletSetup::new(2)
+        },
+    );
+    assert_eq!(link.light_server.as_deref(), Some(first.as_str()));
+    let (engine, rx, _) = start(config, platform.clone());
+    screen(&rx, Screen::Till);
+    engine.send(Action::OpenSettings);
+    let section = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view
+            .wallet
+            .clone()
+            .filter(|w| w.node.as_ref().is_some_and(|n| n.checks.len() == 3)),
+        _ => None,
+    });
+    assert_eq!(section.mode.value, "Your light wallet server");
+    let row = section.node.unwrap();
+    assert_eq!(row.label, "Light wallet server");
+    assert_eq!(row.url, first);
+    assert!(
+        row.checks.iter().all(|c| c.mark == CheckMark::Passed),
+        "{:?}",
+        row.checks
+    );
+    assert!(
+        section
+            .facts
+            .iter()
+            .any(|f| f.label == "Proofs checked with")
+    );
+
+    let second = light_server_stub();
+    engine.send(Action::SetNode {
+        url: second.clone(),
+    });
+    wait_for(&rx, |_| {
+        (kept_wallet(&platform).light_server.as_deref() == Some(second.as_str())).then_some(())
+    });
+    let kept = kept_wallet(&platform);
+    assert_eq!(kept.node, link.node, "the node for proofs stays");
+    assert_eq!(kept.file_key, link.file_key, "the same wallet");
+}
+
 /// Disconnect forgets the wallet's link and deletes its file.
 #[test]
 fn disconnecting_a_wallet_deletes_its_file() {
@@ -2498,6 +2713,129 @@ fn disconnecting_a_wallet_deletes_its_file() {
     screen(&rx, Screen::Welcome);
     assert!(platform.get("connection").is_none());
     assert!(!file.exists(), "the wallet file is gone");
+}
+
+/// Decision 241: a wallet payment whose code ran out unpaid offers New
+/// code, as a Monokulo one does; while its code is up, it doesn't.
+#[test]
+fn a_wallet_payment_whose_code_ran_out_offers_new_code() {
+    let config = config(None);
+    let (platform, _) = wallet_till(&config.data_dir);
+    let (engine, rx, _) = start(config, platform);
+    screen(&rx, Screen::Till);
+    // A keyed request in this till's account, as the wallet backend says
+    // it stands while its code is up and once it ran out.
+    let request = fob_wallet::KeyedRequest {
+        id: 1,
+        key: "sq:pay_w".into(),
+        account: 2,
+        minor: 1,
+        address: "7Sub".into(),
+        base: 84_000_000_000,
+        tag: 123_456,
+        atomic: 84_000_123_456,
+        created: 1_761_149_220,
+        expires_at: 1_761_150_000,
+        height: 100,
+        cancelled: None,
+        note: Some("bP9m".into()),
+    };
+    let at = |now: u64| till_wallet::backend::payment_of(&request, &[], 10, now as i64, None);
+    let (live, ran_out) = (at(request.expires_at - 60), at(request.expires_at + 60));
+    assert!(live.renew.is_some(), "a wallet payment offers New code");
+    let order_id = live.order_id.as_str().to_owned();
+    let made = order_id.clone();
+    let observed = |p: &till_payments::Payment| {
+        till_ledger::Fact::OrderObserved(till_ledger::OrderObserved {
+            order_id: till_ledger::OrderId::new(p.order_id.as_str()),
+            phase: p.phase,
+            confirmations: Some(p.confirmations),
+            is_final: p.is_final,
+            received: Some(p.received),
+            overpaid: p.overpaid,
+            quote: None,
+            renew: p.renew.clone(),
+        })
+    };
+    let (seen_live, seen_ran_out) = (observed(&live), observed(&ran_out));
+    let renew = live.renew.clone();
+    engine.poke(move |s| {
+        let books = s.parts.as_ref().unwrap().side.books();
+        books.record(till_ledger::Fact::PosPaymentSeen(
+            till_ledger::PaymentSeen {
+                pos: monokulo_client::PointOfSale::Square,
+                payment: till_ledger::PaymentId::new("pay_w"),
+                amount: till_types::Money::new(1388, till_types::CurrencyCode::USD),
+                tender: till_ledger::Tender::Monero,
+                status: "COMPLETED".into(),
+                device_id: None,
+                device_name: None,
+                receipt_number: Some("bP9m".into()),
+                order_ref: None,
+                title: None,
+                created_at: "2026-10-22T16:07:00Z".parse().unwrap(),
+                updated_at: till_types::UnixMillis(1_761_149_220_000),
+            },
+        ));
+        books.record(till_ledger::Fact::OrderCreated(till_ledger::OrderCreated {
+            sale: till_ledger::SaleKey::pos(monokulo_client::PointOfSale::Square, "pay_w"),
+            order_id: till_ledger::OrderId::new(made.as_str()),
+            url: Some(made.clone()),
+            payment_uri: "monero:7Sub?tx_amount=0.084123456".into(),
+            address: "7Sub".into(),
+            xmr: "0.084123456".into(),
+            price: till_types::Price::new("13.88", "USD"),
+            reference: Some("bP9m".into()),
+            expires_at: till_types::UnixSeconds(1_761_150_000),
+            confirmations_required: Some(10),
+            device_name: None,
+            renew,
+            price_used: None,
+            follows: None,
+        }));
+        books.record(seen_live);
+    });
+    let actions = |rx: &Receiver<Heard>, line: &str| {
+        wait_for(rx, |heard| match heard {
+            Heard::Update(Update::Sale {
+                order_id: o, page, ..
+            }) if o.as_str() == order_id && page.line.starts_with(line) => {
+                Some(page.buttons.iter().map(|b| b.action).collect::<Vec<_>>())
+            }
+            _ => None,
+        })
+    };
+    engine.send(Action::OpenSale {
+        order_id: order_id.as_str().into(),
+    });
+    let live = actions(&rx, "");
+    assert!(
+        !live.contains(&till_screens::sale_page::PageAction::NewCode),
+        "{live:?}"
+    );
+    engine.poke(move |s| {
+        let books = s.parts.as_ref().unwrap().side.books();
+        books.record(seen_ran_out);
+    });
+    let ended = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Sale {
+            order_id: o, page, ..
+        }) if o.as_str() == order_id
+            && page
+                .buttons
+                .iter()
+                .any(|b| b.action == till_screens::sale_page::PageAction::NewCode) =>
+        {
+            Some(page.clone())
+        }
+        _ => None,
+    });
+    let new_code = ended
+        .buttons
+        .iter()
+        .find(|b| b.action == till_screens::sale_page::PageAction::NewCode)
+        .unwrap();
+    assert_eq!(new_code.press.label, "New code");
 }
 
 /// Connect to Fob's request outlives the process: a till started again
@@ -2597,4 +2935,25 @@ fn a_wallet_till_picks_its_price_provider_between_the_point_of_sale_and_alerts()
     screen(&rx, Screen::Prices);
     engine.send(Action::Back);
     screen(&rx, Screen::PointOfSale);
+}
+
+/// Prices runs on a till through the shop's light wallet server too: it's
+/// the same wallet, so the same step comes between the point of sale and
+/// alerts.
+#[test]
+fn a_light_server_till_is_asked_where_prices_come_from_too() {
+    let config = config(None);
+    let (platform, mut link) = wallet_till(&config.data_dir);
+    link.light_server = Some("https://lws.example.com".into());
+    platform.set("connection", &till_payments::Link::Wallet(link).save());
+    platform.remove("setup.done");
+    platform.set("pos.kind", "square");
+    platform.set(
+        "square.location",
+        r#"{"id":"L1","name":"Front counter","country":"US","currency":"USD"}"#,
+    );
+    let (engine, rx, _) = start(config, platform.clone());
+    screen(&rx, Screen::Alerts);
+    engine.send(Action::Back);
+    screen(&rx, Screen::Prices);
 }

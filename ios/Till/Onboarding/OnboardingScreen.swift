@@ -101,6 +101,8 @@ struct OnboardingScreen: View {
             ThisTillPage(step: view, view: onboarding, send: send)
         case .prices(let view):
             PricesPage(step: view, view: onboarding, send: send)
+        case .lightServer(let view):
+            LightServerPage(step: view, view: onboarding, send: send)
         }
     }
 }

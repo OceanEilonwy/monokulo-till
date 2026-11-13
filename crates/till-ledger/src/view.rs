@@ -195,8 +195,11 @@ pub fn view(
     rung_at: UnixMillis,
 ) -> SaleView {
     let payment = shared.pos.payment.as_ref();
-    let deciding = shared.order.as_ref();
-    let order = deciding.map(|a| &a.order);
+    // The order whose phase the sale shows, and the latest, whose code it
+    // shows: one order but after New code on a wallet payment, when a late
+    // payment to the earlier one leads (core.md decision 241).
+    let deciding = shared.leading();
+    let order = shared.order.as_ref().map(|a| &a.order);
     let cash = payment.is_some_and(|p| p.tender == Tender::Cash);
     let other_counter = match &settings.device {
         None => false,
@@ -339,7 +342,7 @@ pub fn view(
         refunded_at: secs(refunded_at),
         refund_pending_at: secs(marks.refund.and_then(|r| r.pending_at)),
         confirmations: deciding.and_then(|a| a.observed.confirmations),
-        confirmations_required: order.and_then(|o| o.confirmations_required),
+        confirmations_required: deciding.and_then(|a| a.order.confirmations_required),
         offered,
         for_its_counter,
         kept_as_cash_at: secs(marks.kept_as_cash),

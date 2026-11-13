@@ -17,7 +17,7 @@ use till_payments::{
     BackendError, BackendEvent, BackendInfo, OrderId, Payment, PaymentBackend, PaymentRef,
     PaymentRequest, Sharing, WalletLink,
 };
-use till_types::{PriceUsed, UnixSeconds};
+use till_types::{Money, PriceUsed, UnixSeconds};
 use tokio::sync::Notify;
 
 use crate::keys::Network;
@@ -33,6 +33,15 @@ pub const WALLET_FILE: &str = "wallet.db";
 pub const FOCUSED: Duration = Duration::from_secs(2);
 pub const OPEN: Duration = Duration::from_secs(10);
 pub const IDLE: Duration = Duration::from_secs(60);
+
+/// The app left the foreground, and the wallet stopped looking with it
+/// (§10): gives back the memory the GPU kept between scans, tens of MB, so
+/// a phone in the background holds none of it. The next scan, back in
+/// front, makes it again. A scan still finishing keeps its memory, and
+/// nothing is lost if the GPU was never used (core.md decision 243).
+pub fn rest_gpu() {
+    fob_wallet::scanning::rest();
+}
 
 /// Where a wallet file is, in `data_dir`.
 pub fn wallet_path(data_dir: &Path) -> PathBuf {
@@ -63,6 +72,11 @@ pub fn network_of(link: &WalletLink) -> Network {
         _ => Network::Mainnet,
     }
 }
+
+/// Settings' warning while the shop's light wallet server hasn't taken
+/// this till's wallet (monokulo-lws with `--create approve`).
+pub const LIGHT_WAITING: &str =
+    "Your light wallet server hasn't approved this till yet. Payments show once it does.";
 
 /// The device's own wallet, as a payment backend.
 #[derive(Clone)]
@@ -202,6 +216,10 @@ impl WalletBackend {
         inner
             .wallet
             .listen(Arc::new(Listener(Arc::downgrade(&inner))));
+        // The wallet is new at setup, with nothing before it to find: a
+        // light server is never asked to scan from block 0 for it
+        // (decision 244).
+        inner.wallet.set_light_import(false);
         WalletBackend { inner }
     }
 
@@ -247,6 +265,15 @@ impl WalletBackend {
                 "Another till may be using till number {till_number}."
             ));
         }
+        if self
+            .inner
+            .wallet
+            .status()
+            .light
+            .is_some_and(|l| l.waiting_approval)
+        {
+            warnings.push(LIGHT_WAITING.to_owned());
+        }
         let odd = unexpected.iter().filter(|u| !u.foreign_tag).count();
         if odd > 0 {
             warnings.push(if odd == 1 {
@@ -284,9 +311,25 @@ pub(crate) async fn apply(wallet: &Wallet, link: &WalletLink) -> Result<(), Back
             .map_err(fob)?;
     }
     match (&link.light_server, &link.node) {
-        (Some(server), _) => {
-            if wallet.light_server().await.map(|s| s.url) != Some(server.clone()) {
-                wallet.set_light_server(server, false).await.map_err(fob)?;
+        (Some(server), node) => {
+            // The node a light server's proofs are checked with: the link's,
+            // else Fob's default for the network (§5.7, §9).
+            if let Some(node) = node
+                && wallet.node().await.url != fob_wallet::node::normalize(node)
+            {
+                wallet.set_node(node, false).await.map_err(fob)?;
+            }
+            let chosen = wallet.light_server().await;
+            if chosen.as_ref().map(|s| (s.url.as_str(), s.self_signed))
+                != Some((
+                    fob_wallet::light::normalize(server).as_str(),
+                    link.light_self_signed,
+                ))
+            {
+                wallet
+                    .set_light_server(server, link.light_self_signed)
+                    .await
+                    .map_err(fob)?;
             }
             wallet.use_light_wallet(true).await.map_err(fob)?;
         }
@@ -328,6 +371,44 @@ impl Inner {
         payment_of(request, incoming, self.settled(), self.now(), price)
     }
 
+    /// The request made with `key`, or a new one for `amount` at the
+    /// current price, expiring after the link's minutes (§5.3).
+    async fn request(
+        &self,
+        key: String,
+        amount: &Money,
+        note: Option<String>,
+    ) -> Result<Payment, BackendError> {
+        if let Some(made) = self.wallet.keyed_request_by_key(&key).await {
+            let incoming = self.wallet.request_payments(made.id).await.map_err(fob)?;
+            return Ok(self.payment(&made, &incoming));
+        }
+        let converted = self
+            .prices
+            .convert(amount)
+            .await
+            .map_err(BackendError::Other)?;
+        let expires_at =
+            self.now().max(0) as u64 + u64::from(lock(&self.link).expiry_minutes.max(1)) * 60;
+        let made = self
+            .wallet
+            .request_payment(Ask {
+                key,
+                atomic: converted.atomic,
+                expires_at,
+                note,
+            })
+            .await
+            .map_err(fob)?;
+        if let Some(price) = converted.price {
+            lock(&self.priced).insert(made.id, price);
+        }
+        let payment = self.payment(&made, &[]);
+        lock(&self.told).insert(made.id, payment.clone());
+        self.wake.notify_one();
+        Ok(payment)
+    }
+
     async fn read(&self, id: u64) -> Option<Payment> {
         let request = self.wallet.keyed_request(id).await?;
         let incoming = self.wallet.request_payments(id).await.ok()?;
@@ -363,8 +444,15 @@ impl Inner {
 
     /// One turn of the stream: the newest block asked for, a catch-up when
     /// there's a new one, else a look at the pool while payments are open;
-    /// then every watched payment that changed.
+    /// then every watched payment that changed. Through a light wallet
+    /// server, a poll of the server, then the same.
     async fn turn(&self, look_at_pool: bool) -> Result<Vec<Payment>, BackendError> {
+        // Through a light wallet server, one poll answers for the newest
+        // blocks and the pool together, at the same pace (§5.7).
+        if self.wallet.light_mode().await {
+            self.wallet.look_at_pool().await.map_err(fob)?;
+            return Ok(self.changes().await);
+        }
         let before = self.wallet.status().tip;
         self.wallet.refresh_tip().await;
         let tip = self.wallet.status().tip;
@@ -474,7 +562,7 @@ pub fn payment_of(
     let reference = reference_of(request);
     Payment {
         reference: PaymentRef::new(reference.as_str()),
-        order_id: OrderId::new(reference),
+        order_id: OrderId::new(reference.as_str()),
         address: request.address.clone(),
         xmr_piconero: request.atomic,
         expires_at: UnixSeconds(request.expires_at as i64),
@@ -490,7 +578,41 @@ pub fn payment_of(
         currency: None,
         receipt: request.note.clone(),
         device_name: None,
-        renew: None,
+        // New code makes the sale's next request (core.md decision 241).
+        renew: Some(reference),
+    }
+}
+
+/// The key of the request New code makes in place of `request`: the
+/// sale's key with the replaced request's id, so asking again (a retry)
+/// gives the same one, and each request is replaced at most once.
+pub fn next_key(request: &KeyedRequest) -> String {
+    let sale = request.key.split('#').next().unwrap_or(&request.key);
+    format!("{sale}#{}", request.id)
+}
+
+/// Why `request` can't have a new code at `now`, in the cashier's words,
+/// as Monokulo refuses a renewal (its order-renewal decision 1): a payment
+/// reached it (seen, part paid or reversed: a new price over money that
+/// arrived would hide it), it was called off, its code hasn't run out, or
+/// it ended so long ago that its address may be another sale's.
+pub fn renewal_refused(
+    request: &KeyedRequest,
+    incoming: &[Incoming],
+    now: u64,
+) -> Option<&'static str> {
+    if !incoming.is_empty() {
+        Some(
+            "A payment reached this sale's code, so it can't have a new one. Ring the sale up again.",
+        )
+    } else if request.cancelled.is_some() {
+        Some("This sale's code was called off, so it can't have a new one. Ring the sale up again.")
+    } else if now < request.expires_at {
+        Some("This sale's code hasn't run out yet.")
+    } else if now > request.releases() {
+        Some("This sale's code ran out too long ago for a new one. Ring the sale up again.")
+    } else {
+        None
     }
 }
 
@@ -515,35 +637,45 @@ impl PaymentBackend for WalletBackend {
     }
 
     async fn create(&self, req: PaymentRequest) -> Result<Payment, BackendError> {
+        self.inner
+            .request(req.key, &req.amount, req.reference)
+            .await
+    }
+
+    /// New code (core.md decision 241): a keyed request can't be re-priced
+    /// in place, so the sale's next request is made, at the current price,
+    /// on an address from the pool (never the replaced one's, which its
+    /// late window still holds), with its own tag. The replaced request
+    /// stays watched: a late payment to it is still its own, and the
+    /// ledger counts it toward the sale. Its key is [`next_key`], so a
+    /// retry gives the same request; refused as Monokulo refuses a
+    /// renewal ([`renewal_refused`]), and when the code the till shows
+    /// isn't the request's.
+    async fn renew(
+        &self,
+        renew: &str,
+        expires_at: UnixSeconds,
+        amount: &Money,
+    ) -> Result<Payment, BackendError> {
         let inner = &self.inner;
-        if let Some(made) = inner.wallet.keyed_request_by_key(&req.key).await {
+        let missing = || BackendError::Other("That payment isn't in this till's wallet.".into());
+        let id = request_id(renew).ok_or_else(missing)?;
+        let replaced = inner.wallet.keyed_request(id).await.ok_or_else(missing)?;
+        let key = next_key(&replaced);
+        if let Some(made) = inner.wallet.keyed_request_by_key(&key).await {
             let incoming = inner.wallet.request_payments(made.id).await.map_err(fob)?;
             return Ok(inner.payment(&made, &incoming));
         }
-        let converted = inner
-            .prices
-            .convert(&req.amount)
-            .await
-            .map_err(BackendError::Other)?;
-        let expires_at =
-            inner.now().max(0) as u64 + u64::from(lock(&inner.link).expiry_minutes.max(1)) * 60;
-        let made = inner
-            .wallet
-            .request_payment(Ask {
-                key: req.key,
-                atomic: converted.atomic,
-                expires_at,
-                note: req.reference,
-            })
-            .await
-            .map_err(fob)?;
-        if let Some(price) = converted.price {
-            lock(&inner.priced).insert(made.id, price);
+        if replaced.expires_at as i64 != expires_at.0 {
+            return Err(BackendError::Refused(
+                "This sale's code changed. Look at the sale again.".into(),
+            ));
         }
-        let payment = inner.payment(&made, &[]);
-        lock(&inner.told).insert(made.id, payment.clone());
-        inner.wake.notify_one();
-        Ok(payment)
+        let incoming = inner.wallet.request_payments(id).await.map_err(fob)?;
+        if let Some(why) = renewal_refused(&replaced, &incoming, inner.now().max(0) as u64) {
+            return Err(BackendError::Refused(why.into()));
+        }
+        inner.request(key, amount, replaced.note.clone()).await
     }
 
     /// Catches up first (§5.5), then answers from what the wallet knows. A
@@ -861,6 +993,212 @@ mod tests {
         );
     }
 
+    /// What a stand-in light wallet server was asked.
+    #[derive(Default)]
+    struct Asked {
+        logins: AtomicI64,
+        polls: AtomicI64,
+        imports: AtomicI64,
+        upserts: Mutex<Vec<serde_json::Value>>,
+        /// `/login` answers 403 until it's approved.
+        approved: std::sync::atomic::AtomicBool,
+    }
+
+    /// A stagenet light wallet server on 127.0.0.1 with nothing for the
+    /// wallet, as monokulo-lws answers; its address.
+    async fn light_server(asked: Arc<Asked>) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    return;
+                };
+                let asked = asked.clone();
+                tokio::spawn(async move {
+                    let mut request = vec![];
+                    let mut buf = [0; 4096];
+                    let (head, body) = loop {
+                        let Ok(n) = stream.read(&mut buf).await else {
+                            return;
+                        };
+                        if n == 0 {
+                            return;
+                        }
+                        request.extend_from_slice(&buf[..n]);
+                        let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") else {
+                            continue;
+                        };
+                        let head = String::from_utf8_lossy(&request[..end]).to_ascii_lowercase();
+                        let len = head
+                            .lines()
+                            .find_map(|l| l.strip_prefix("content-length:"))
+                            .and_then(|v| v.trim().parse::<usize>().ok())
+                            .unwrap_or(0);
+                        if request.len() >= end + 4 + len {
+                            break (
+                                head,
+                                String::from_utf8_lossy(&request[end + 4..]).into_owned(),
+                            );
+                        }
+                    };
+                    let route = head.split_whitespace().nth(1).unwrap_or("/").to_owned();
+                    let (status, answer) = match route.as_str() {
+                        "/get_version" => (200, r#"{"server_type":"monokulo-lws","monero_version_full":"","blockchain_height":2250000,"api":2,"max_subaddresses":10000,"network":"stage","testnet":true}"#.to_owned()),
+                        "/login" => {
+                            asked.logins.fetch_add(1, Ordering::SeqCst);
+                            if asked.approved.load(Ordering::SeqCst) {
+                                (200, r#"{"new_address":true,"start_height":2249990}"#.to_owned())
+                            } else {
+                                (403, "{}".to_owned())
+                            }
+                        }
+                        "/upsert_subaddrs" => {
+                            lock(&asked.upserts).push(serde_json::from_str(&body).unwrap());
+                            (200, r#"{"new_subaddrs":[]}"#.to_owned())
+                        }
+                        "/import_wallet_request" => {
+                            asked.imports.fetch_add(1, Ordering::SeqCst);
+                            (200, r#"{"import_fee":"0","status":"Accepted","new_request":true,"request_fulfilled":false}"#.to_owned())
+                        }
+                        "/get_address_txs" => {
+                            asked.polls.fetch_add(1, Ordering::SeqCst);
+                            (200, r#"{"total_received":"0","scanned_height":2249999,"scanned_block_height":2249999,"start_height":2249990,"transaction_height":2249999,"blockchain_height":2250000,"transactions":[]}"#.to_owned())
+                        }
+                        _ => (404, String::new()),
+                    };
+                    let response = format!(
+                        "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{answer}",
+                        answer.len()
+                    );
+                    let _ = stream.write_all(response.as_bytes()).await;
+                    let _ = stream.shutdown().await;
+                });
+            }
+        });
+        url
+    }
+
+    /// A wallet made as setup makes one for till 3 through `server`.
+    async fn light_backend(dir: &Path, server: &str) -> (WalletBackend, WalletLink) {
+        let keys = fob_keys::Keys::generate(Network::Stagenet).keys;
+        let view = crate::keys::keys_from_typed(
+            Network::Stagenet,
+            &keys.primary_address(),
+            &keys.view_key_hex(),
+        )
+        .unwrap();
+        let setup = WalletSetup {
+            light_server: Some(server.to_owned()),
+            // Set up before the server's start: no import is asked anyway.
+            restore_height: Some(2_249_000),
+            ..WalletSetup::new(3)
+        };
+        let Made { link, .. } = make_wallet(dir, &view, &setup).await.unwrap();
+        let clock = Arc::new(TestClock(AtomicI64::new(1_000)));
+        let backend = WalletBackend::open_with(dir, &link, clock, Arc::new(FixedSource::new()))
+            .await
+            .unwrap();
+        (backend, link)
+    }
+
+    /// Through the shop's light wallet server (§5.7): the server is told of
+    /// the till's account as payments take its addresses, each refresh and
+    /// each turn is one poll of the server, nothing is asked of a node,
+    /// and no import is asked for.
+    #[tokio::test]
+    async fn through_a_light_server_the_till_tells_it_its_account_and_polls_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let asked = Arc::new(Asked::default());
+        asked.approved.store(true, Ordering::SeqCst);
+        let server = light_server(asked.clone()).await;
+        let (backend, link) = light_backend(dir.path(), &server).await;
+        assert_eq!(link.light_server.as_deref(), Some(server.as_str()));
+        assert_eq!(
+            link.node, None,
+            "proofs are checked with Fob's default node"
+        );
+        assert!(!link.light_self_signed);
+        assert!(backend.inner.wallet.light_mode().await);
+        let info = backend.describe().await.unwrap();
+        assert_eq!(
+            info.name,
+            format!("Your wallet, through {}", host_of(&server))
+        );
+        assert_eq!(info.sharing, Sharing::ThisTill);
+
+        let made = backend
+            .create(PaymentRequest {
+                key: "kp:1".into(),
+                amount: Money::new(2450, CurrencyCode::USD),
+                reference: None,
+            })
+            .await
+            .unwrap();
+        let minor: u64 = made
+            .reference
+            .as_str()
+            .split(':')
+            .nth(2)
+            .unwrap()
+            .parse()
+            .unwrap();
+        let refreshed = backend
+            .refresh(std::slice::from_ref(&made.reference))
+            .await
+            .unwrap();
+        assert_eq!(refreshed[0].phase, SalePhase::Waiting);
+        assert_eq!(asked.logins.load(Ordering::SeqCst), 1);
+        assert_eq!(asked.polls.load(Ordering::SeqCst), 1, "one poll a refresh");
+        assert_eq!(
+            asked.imports.load(Ordering::SeqCst),
+            0,
+            "nothing before setup is asked for"
+        );
+        let upserts = lock(&asked.upserts).clone();
+        let three = upserts[0]["subaddrs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["key"] == 3)
+            .cloned()
+            .expect("told of account 3");
+        assert!(three["value"][0][1].as_u64().unwrap() >= minor, "{three}");
+
+        // A turn of the stream, as while a code is on screen.
+        backend.focus(Some(&made.reference));
+        let mut events = backend.events();
+        assert!(matches!(events.next().await, Some(Ok(BackendEvent::Ready))));
+        let turn = tokio::time::timeout(Duration::from_secs(10), async {
+            while asked.polls.load(Ordering::SeqCst) < 2 {
+                tokio::select! {
+                    _ = events.next() => {}
+                    _ = tokio::time::sleep(Duration::from_millis(50)) => {}
+                }
+            }
+        })
+        .await;
+        assert!(turn.is_ok(), "a turn polls the server");
+        assert_eq!(lock(&asked.upserts).len(), 1, "told once");
+        assert!(backend.warnings().await.is_empty());
+    }
+
+    /// A server that hasn't approved the till's wallet yet: Settings says so.
+    #[tokio::test]
+    async fn a_light_server_that_hasnt_approved_the_till_is_warned_of() {
+        let dir = tempfile::tempdir().unwrap();
+        let asked = Arc::new(Asked::default());
+        let server = light_server(asked.clone()).await;
+        let (backend, _) = light_backend(dir.path(), &server).await;
+        let _ = backend.refresh(&[]).await;
+        assert_eq!(asked.polls.load(Ordering::SeqCst), 0);
+        assert_eq!(backend.warnings().await, [LIGHT_WAITING]);
+        asked.approved.store(true, Ordering::SeqCst);
+        backend.refresh(&[]).await.unwrap();
+        assert!(backend.warnings().await.is_empty());
+    }
+
     #[tokio::test]
     async fn the_stream_says_ready_then_a_code_that_ran_out() {
         let dir = tempfile::tempdir().unwrap();
@@ -883,5 +1221,143 @@ mod tests {
 
         let mut events = backend.events();
         assert!(matches!(events.next().await, Some(Ok(BackendEvent::Ready))));
+    }
+
+    /// New code (core.md decision 241): once the code ran out unpaid, the
+    /// sale's next request, at the current price, on another address of the
+    /// pool with its own tag and id; asked again, the same one. The request
+    /// replaced is still watched through its late window.
+    #[tokio::test]
+    async fn new_code_makes_the_sales_next_request_and_keeps_watching_the_last() {
+        let dir = tempfile::tempdir().unwrap();
+        let (backend, clock, source) = backend(dir.path()).await;
+        let price = Money::new(2450, CurrencyCode::USD);
+        let made = backend
+            .create(PaymentRequest {
+                key: "sq:o3".into(),
+                amount: price,
+                reference: Some("#42".into()),
+            })
+            .await
+            .unwrap();
+        let renew = made
+            .renew
+            .clone()
+            .expect("a wallet payment offers New code");
+        assert_eq!(renew, made.reference.as_str());
+
+        // Not while its code is up.
+        let early = backend.renew(&renew, made.expires_at, &price).await;
+        assert_eq!(
+            early.unwrap_err().to_string(),
+            "This sale's code hasn't run out yet."
+        );
+
+        clock.0.store(1_000 + 31 * 60, Ordering::SeqCst);
+        // Only the code the till shows.
+        let stale = backend
+            .renew(&renew, UnixSeconds(made.expires_at.0 - 60), &price)
+            .await;
+        assert!(stale.is_err());
+
+        let next = backend
+            .renew(&renew, made.expires_at, &price)
+            .await
+            .unwrap();
+        assert_ne!(next.order_id, made.order_id);
+        assert_ne!(next.address, made.address, "the last one's address is held");
+        assert_eq!(next.phase, SalePhase::Waiting);
+        assert_eq!(next.expires_at, UnixSeconds(1_000 + 31 * 60 + 30 * 60));
+        assert_eq!(next.receipt.as_deref(), Some("#42"));
+        assert_ne!(next.xmr_piconero % 1_000_000, made.xmr_piconero % 1_000_000);
+        assert_eq!(next.xmr_piconero / 1_000_000, 153_125, "priced again");
+        assert_eq!(source.asked.load(Ordering::SeqCst), 2);
+        assert_eq!(next.renew.as_deref(), Some(next.reference.as_str()));
+
+        // A retry, or New code asked twice: the same request.
+        let again = backend
+            .renew(&renew, made.expires_at, &price)
+            .await
+            .unwrap();
+        assert_eq!(again.reference, next.reference);
+        assert_eq!(source.asked.load(Ordering::SeqCst), 2);
+        let first = request_id(made.reference.as_str()).unwrap();
+        let second = request_id(next.reference.as_str()).unwrap();
+        assert_eq!(
+            backend
+                .inner
+                .wallet
+                .keyed_request(second)
+                .await
+                .unwrap()
+                .key,
+            "sq:o3#".to_owned() + &first.to_string()
+        );
+
+        // Both are watched: the replaced one, expired, until its late
+        // window ends.
+        let watched: Vec<u64> = backend.inner.watched().await.iter().map(|r| r.id).collect();
+        assert!(
+            watched.contains(&first) && watched.contains(&second),
+            "{watched:?}"
+        );
+        let old = backend.inner.read(first).await.unwrap();
+        assert_eq!((old.phase, old.is_final), (SalePhase::Expired, false));
+
+        // The next code can be replaced in its turn.
+        clock.0.store(1_000 + 62 * 60, Ordering::SeqCst);
+        let third = backend
+            .renew(next.renew.as_deref().unwrap(), next.expires_at, &price)
+            .await
+            .unwrap();
+        assert_ne!(third.order_id, next.order_id);
+        let third_id = request_id(third.reference.as_str()).unwrap();
+        assert_eq!(
+            backend
+                .inner
+                .wallet
+                .keyed_request(third_id)
+                .await
+                .unwrap()
+                .key,
+            format!("sq:o3#{second}")
+        );
+    }
+
+    /// New code is refused, in the cashier's words, as Monokulo refuses a
+    /// renewal: once a payment reached the code (seen, part paid or spent
+    /// twice), when it was called off, before it runs out, and once its
+    /// late window is over.
+    #[test]
+    fn new_code_is_refused_as_monokulo_refuses_a_renewal() {
+        let r = request(153_125_123_456, 2_800);
+        assert_eq!(renewal_refused(&r, &[], 2_900), None);
+        assert_eq!(renewal_refused(&r, &[], 2_800), None);
+        let part = paid(1_000, None, 0);
+        assert!(
+            renewal_refused(&r, &[part], 2_900)
+                .unwrap()
+                .starts_with("A payment reached")
+        );
+        let mut reversed = paid(r.atomic, None, 0);
+        reversed.double_spent = true;
+        assert!(renewal_refused(&r, &[reversed], 2_900).is_some());
+        assert_eq!(
+            renewal_refused(&r, &[], 2_799),
+            Some("This sale's code hasn't run out yet.")
+        );
+        assert!(
+            renewal_refused(&r, &[], 2_800 + fob_wallet::wallet::LATE_WINDOW + 1)
+                .unwrap()
+                .contains("too long ago")
+        );
+        let mut called_off = r.clone();
+        called_off.cancelled = Some(2_000);
+        assert!(renewal_refused(&called_off, &[], 2_900).is_some());
+        assert_eq!(next_key(&r), "sq:o1#7");
+        let mut next = r.clone();
+        next.key = next_key(&r);
+        next.id = 9;
+        assert_eq!(next_key(&next), "sq:o1#9", "always the sale's key");
     }
 }

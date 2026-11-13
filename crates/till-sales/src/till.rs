@@ -497,14 +497,15 @@ impl Till {
             return Ok(());
         }
         let order = self.create_order(sale).await?;
-        self.created(&key, &order, sale);
+        self.created(&key, &order, sale, None);
         Ok(())
     }
 
     /// Records the order made for `key`, and what it said of itself
     /// (another till may have made it already, and the store's events may
-    /// have moved it on, or renewed it).
-    fn created(&self, key: &SaleKey, order: &Payment, sale: &FoundSale) {
+    /// have moved it on, or renewed it). `follows`: the sale's order it
+    /// follows, when New code made it (a wallet payment).
+    fn created(&self, key: &SaleKey, order: &Payment, sale: &FoundSale, follows: Option<OrderId>) {
         self.record(Fact::OrderCreated(OrderCreated {
             sale: key.clone(),
             order_id: OrderId::new(order.order_id.as_str()),
@@ -528,6 +529,7 @@ impl Till {
             device_name: None,
             renew: order.renew.clone(),
             price_used: order.price.clone(),
+            follows,
         }));
         self.on_payment(order);
     }
@@ -681,6 +683,7 @@ impl Till {
             device_name: o.device_name.clone(),
             renew: o.renew.clone(),
             price_used: o.price_used.clone(),
+            follows: o.follows.clone(),
         }));
     }
 
@@ -873,7 +876,7 @@ impl Till {
         action: Action,
     ) -> Result<OrderId, String> {
         let order = self.acted(key, action, self.create_order(found)).await?;
-        self.created(key, &order, found);
+        self.created(key, &order, found, None);
         Ok(order.order_id)
     }
 
@@ -895,8 +898,10 @@ impl Till {
     /// same order and address with a new price and expiry, through the
     /// order's `renew-order` form, for the code the sale shows (so two
     /// tills asking at once get one renewal). Only when the order offers
-    /// the form: never a second order instead. The order's id (unchanged),
-    /// or what went wrong.
+    /// the form: never a second order instead. The device's own wallet
+    /// makes the sale's next order instead, recorded as following the one
+    /// whose code ran out (decision 241). The id of the order the sale now
+    /// shows (Monokulo's unchanged), or what went wrong.
     pub async fn new_code(&self, order_id: &OrderId) -> Result<OrderId, String> {
         let Some((key, sale)) = self.sale(order_id) else {
             return Err("That sale isn't on the till any more.".into());
@@ -909,17 +914,30 @@ impl Till {
             .row(&key)
             .and_then(|row| row.shared.order)
             .map(|o| o.order);
-        let Some((renew, expires_at)) = order.and_then(|o| Some((o.renew?, o.expires_at))) else {
+        let Some((renew, expires_at, was)) =
+            order.and_then(|o| Some((o.renew?, o.expires_at, o.order_id)))
+        else {
             return Err(CANT_RENEW.into());
+        };
+        let Some(amount) = sale.found.as_ref().map(|f| f.amount) else {
+            return Err("That sale can't have a new code.".into());
         };
         let renewing = async {
             self.backend
-                .renew(&renew, expires_at)
+                .renew(&renew, expires_at, &amount)
                 .await
                 .map_err(|e| renewal_problem(&e))
         };
         let order = self.acted(&key, Action::NewCode, renewing).await?;
-        self.on_payment(&order);
+        match sale.found.as_ref() {
+            // A wallet's New code is the sale's next order, at another
+            // address (core.md decision 241): it follows the one whose code
+            // ran out, which stays the sale's and is still watched.
+            Some(found) if order.order_id.as_str() != was.as_str() => {
+                self.created(&key, &order, found, Some(was));
+            }
+            _ => self.on_payment(&order),
+        }
         Ok(order.order_id)
     }
 
@@ -1169,6 +1187,7 @@ fn event_order(event: &Payment) -> OrderCreated {
             .filter(|name| !name.trim().is_empty()),
         renew: event.renew.clone(),
         price_used: event.price.clone(),
+        follows: None,
     }
 }
 

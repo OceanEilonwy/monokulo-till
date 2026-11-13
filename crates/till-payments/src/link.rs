@@ -38,9 +38,15 @@ pub struct WalletLink {
     /// The Monero node it reads the chain from, when it uses one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub node: Option<String>,
-    /// The light wallet server it asks, when it uses one.
+    /// The light wallet server it asks, when it uses one. Its node (above),
+    /// when there is one, is the node its proofs are checked with
+    /// (docs/view-key-mode.md §5.7).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub light_server: Option<String>,
+    /// The light wallet server's own (self-signed) certificate is accepted:
+    /// held from the first answer to the key it answered with.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub light_self_signed: bool,
     /// Paid at this many confirmations: Fob's Settled Confirmations, 10 to
     /// 720 (docs/view-key-mode.md §5.6). Till's own setting, never Fob's.
     #[serde(default = "default_confirmations")]
@@ -91,6 +97,10 @@ fn default_expiry() -> u32 {
     DEFAULT_EXPIRY_MINUTES
 }
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 impl WalletLink {
     /// A link with Till's defaults for everything but the network, the
     /// till's number and the file's key.
@@ -101,6 +111,7 @@ impl WalletLink {
             file_key,
             node: None,
             light_server: None,
+            light_self_signed: false,
             settled_confirmations: DEFAULT_CONFIRMATIONS,
             expiry_minutes: DEFAULT_EXPIRY_MINUTES,
             price_provider: None,
@@ -219,6 +230,29 @@ mod tests {
         assert_eq!(Link::restore(&saved), Some(link.clone()));
         assert_eq!(link.monokulo(), None);
         assert!(!format!("{link:?}").contains("k_1"), "the key never prints");
+    }
+
+    #[test]
+    fn a_light_server_link_keeps_its_server_and_certificate_and_reads_without_them() {
+        let link = Link::Wallet(WalletLink {
+            node: Some("https://node.example:18089".into()),
+            light_server: Some("https://lws.example:8443".into()),
+            light_self_signed: true,
+            ..WalletLink::new("stagenet", 3, Secret::from("k_1"))
+        });
+        let saved = link.save();
+        assert!(
+            saved.contains(r#""light_server":"https://lws.example:8443","light_self_signed":true"#)
+        );
+        assert_eq!(Link::restore(&saved), Some(link));
+        // A light server link kept before the certificate setting.
+        let Some(Link::Wallet(older)) = Link::restore(
+            r#"{"wallet":{"network":"stagenet","till_number":1,"file_key":"k_1","light_server":"https://lws.example"}}"#,
+        ) else {
+            panic!("a wallet link");
+        };
+        assert!(!older.light_self_signed);
+        assert_eq!(older.light_server.as_deref(), Some("https://lws.example"));
     }
 
     #[test]

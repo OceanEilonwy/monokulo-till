@@ -26,6 +26,10 @@ pub struct WalletSettingsInput {
     pub address: String,
     pub network: WalletNetwork,
     pub node: Option<String>,
+    /// Through the shop's light wallet server: its address. The row shows
+    /// it in the node's place, and `node` is the one its proofs are
+    /// checked with.
+    pub light_server: Option<String>,
     pub till_number: u32,
     /// Connected through Fob: its wallet's name and the account's label.
     pub fob: Option<(String, String)>,
@@ -107,6 +111,9 @@ pub struct WalletSection {
     pub disconnect_confirm: String,
 }
 
+/// The row of a till on the shop's light wallet server.
+pub const LIGHT_SERVER_LABEL: &str = "Light wallet server";
+
 /// Under the wallet's Disconnect.
 pub const DISCONNECT_FOOTNOTE: &str = "Till forgets the wallet's keys and deletes its copy of the wallet from this device. Your money stays in your wallet.";
 /// The question's detail: a view key can't be taken back.
@@ -130,6 +137,11 @@ pub fn wallet_section(w: &WalletSettingsInput) -> WalletSection {
         facts.push(Fact::new("Wallet address", address_short(&w.address)).mono());
     }
     facts.push(Fact::new("Network", w.network.name()));
+    if w.light_server.is_some()
+        && let Some(node) = &w.node
+    {
+        facts.push(Fact::new("Proofs checked with", node_address(node)));
+    }
     let numbered = w.fob.is_none();
     let prices = crate::prices::PricesInput {
         currency: w.currency.clone().unwrap_or_default(),
@@ -141,9 +153,23 @@ pub fn wallet_section(w: &WalletSettingsInput) -> WalletSection {
         busy: w.busy,
         problem: None,
     };
+    let light = w.light_server.is_some();
+    // The row: the light wallet server in the node's place, with no
+    // default servers to offer.
+    let row = match &w.light_server {
+        Some(server) => Some((LIGHT_SERVER_LABEL, server, Vec::new())),
+        None => w.node.as_ref().map(|n| ("Node", n, w.node_choices.clone())),
+    };
     WalletSection {
         title: "Payments".into(),
-        mode: Fact::new("How Till sees payments", "Your own wallet"),
+        mode: Fact::new(
+            "How Till sees payments",
+            if light {
+                "Your light wallet server"
+            } else {
+                "Your own wallet"
+            },
+        ),
         fob: w
             .fob
             .as_ref()
@@ -165,8 +191,8 @@ pub fn wallet_section(w: &WalletSettingsInput) -> WalletSection {
                 w.till_number
             )
         }),
-        node: w.node.as_ref().map(|url| NodeRow {
-            label: "Node".into(),
+        node: row.map(|(label, url, choices)| NodeRow {
+            label: label.into(),
             value: node_address(url),
             url: url.clone(),
             change: Press::new("Change").enabled(!w.busy),
@@ -178,7 +204,7 @@ pub fn wallet_section(w: &WalletSettingsInput) -> WalletSection {
                     mark: *mark,
                 })
                 .collect(),
-            choices: w.node_choices.clone(),
+            choices,
         }),
         paid_after: SetupStepper {
             detail: Some(confirmations_time(w.confirmations)),
@@ -207,7 +233,12 @@ pub fn wallet_section(w: &WalletSettingsInput) -> WalletSection {
             footnote: crate::prices::PRIVACY.into(),
         },
         warnings: w.warnings.clone(),
-        footnote: "Till hears payments while it's open on screen.".into(),
+        footnote: if light {
+            "Till hears payments while it's open on screen. Your light wallet server sees every payment to this till."
+        } else {
+            "Till hears payments while it's open on screen."
+        }
+        .into(),
         problem: w.problem.clone(),
         disconnect: Press::new("Disconnect this wallet").enabled(!w.busy),
         disconnect_footnote: DISCONNECT_FOOTNOTE.into(),
@@ -226,6 +257,7 @@ mod tests {
             address: "4A8xSAMPLEADDRESS000000000000000000009fQ2".into(),
             network: WalletNetwork::Mainnet,
             node: Some("https://node.example.com:18089".into()),
+            light_server: None,
             till_number: 2,
             fob: None,
             confirmations: 10,
@@ -255,6 +287,29 @@ mod tests {
         assert!(view.prices.providers[0].selected);
         assert_eq!(view.prices.asking.as_deref(), Some("Asking each provider…"));
         assert_eq!(view.node.unwrap().value, "node.example.com:18089");
+    }
+
+    #[test]
+    fn through_a_light_server_the_row_is_the_servers_and_proofs_name_the_node() {
+        let view = wallet_section(&WalletSettingsInput {
+            light_server: Some("https://lws.example.com:8443".into()),
+            node_choices: vec!["https://node.example.com:18089".into()],
+            ..input()
+        });
+        assert_eq!(view.mode.value, "Your light wallet server");
+        let row = view.node.unwrap();
+        assert_eq!(
+            (row.label.as_str(), row.value.as_str()),
+            ("Light wallet server", "lws.example.com:8443")
+        );
+        assert!(row.choices.is_empty(), "no default servers");
+        let proofs = view
+            .facts
+            .iter()
+            .find(|f| f.label == "Proofs checked with")
+            .unwrap();
+        assert_eq!(proofs.value, "node.example.com:18089");
+        assert!(view.footnote.contains("sees every payment"));
     }
 
     #[test]

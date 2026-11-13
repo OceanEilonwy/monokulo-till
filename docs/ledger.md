@@ -3,7 +3,9 @@
 Status: accepted 2026-11-09 (revised after review the same night), for
 implementation on `ipad-redesign` before it merges to main. Revised
 2026-11-10: New code renews the sale's one Monokulo order instead of making
-a second (decisions 167 to 174 in `docs/decisions/core.md`). It replaces the
+a second (decisions 167 to 174 in `docs/decisions/core.md`). Revised
+2026-11-13: on the device's own wallet, New code makes the sale's next
+order, and a sale keeps every order it had (decision 241). It replaces the
 till's in-memory sale list, the kept shift JSON and the alert record with one
 encrypted journal of facts and projections derived from it, shared by the app
 and the iOS Notification Service Extension.
@@ -75,11 +77,15 @@ pub struct DeviceId(String);
 
 - `OrderKey` is `"sq:" + 40 hex of SHA-256(payment)` (`Till::idempotency_key`).
   **One POS payment is one Monokulo order**: New code renews that order (§7),
-  it never makes a second.
+  it never makes a second. On the device's own wallet, whose requests
+  can't be re-priced, New code makes the sale's next order, which names
+  the one it `follows` (decision 241).
 - The link from an order to its sale is the `order_id` that create-order
   returns, recorded in `orders(order_id → sale_key)` (the table's `attempt`
   column is kept, always 1). Monokulo events
-  and reads carry no idempotency key, so nothing else links them.
+  and reads carry no idempotency key, so nothing else links them. A wallet
+  sale's every order stays linked, so a late payment to a replaced one
+  still finds the sale.
 - On a till signed in to a POS, a Monokulo event for an order not (yet) in
   `orders` is kept in `pending_events` and applied when its `OrderCreated`
   arrives (any till may create the order, §7, and gets the same `order_id`).
@@ -131,9 +137,11 @@ Shared facts (what the sources said):
 - `PosRefundSeen { refund_id, amount_minor, status }` (Square: listed by
   `/v2/refunds`; Clover: not in its API, see §7)
 - `OrderCreated { order_id, url, payment_uri, address, xmr, amount,
-  currency, reference, expires_at, confirmations_required, renew }`
-  (`renew`: the order's `renew-order` form target, when Monokulo offers it;
-  a body written before 2026-11-10 may carry an `attempt`, ignored, §5)
+  currency, reference, expires_at, confirmations_required, renew, follows }`
+  (`renew`: the order's `renew-order` form target, when Monokulo offers it,
+  or the wallet's own reference; `follows`: the order a wallet's New code
+  replaced, absent otherwise so other bodies hash as before; a body
+  written before 2026-11-10 may carry an `attempt`, ignored, §5)
 - `OrderObserved { order_id, phase, confirmations, is_final, received,
   quote: { expires_at, piconero }, renew }` (from an event, a read, or a
   renewal's answer; the merge orders them, §5; `quote` is the price and
@@ -186,8 +194,9 @@ Three independent parts, combined only when a view is built:
 ```rust
 pub struct SharedSale {
     pub pos: PosFacts,                  // latest payment + order read
-    pub order: Option<SaleOrder>,       // the sale's one Monokulo order
+    pub order: Option<SaleOrder>,       // its latest order (Monokulo: its one)
     pub refund: Option<PosRefund>,      // the POS's refund, if any
+    pub earlier: Vec<SaleOrder>,        // its other orders, oldest first
 }
 pub struct SaleOrder {
     pub order: OrderFacts,              // create-order's answer, latest quote
@@ -224,9 +233,18 @@ pub struct LocalMarks {
   (Seen, Confirming, Partial, Paid, DoubleSpend) count whatever the quote:
   Monokulo judges a payment at the old price against the new one, as
   partial or overpaid, and that shows.
-- **Two orders for one sale** can only come from journals written by the
-  2026-11-10 build's New code (decision 173): the order with the later
-  expiry stands, and the other's observations aren't applied.
+- **A wallet sale's orders** (decision 241): New code on the device's own
+  wallet makes the sale's next order, whose `OrderCreated` names the one it
+  `follows`. The sale keeps every order; the latest (one no other follows)
+  is the code it shows, and the earlier stay watched. The sale's phase is
+  its leading order's: a paid one (the latest first), then the latest when
+  money reached it or was reversed, then an earlier one money reached (a
+  late payment to the old code), else the latest. So a late payment to a
+  replaced order pays the sale, and an earlier code's ending never ends the
+  next.
+- **Two orders for one sale with no `follows`** can only come from journals
+  written by the 2026-11-10 build's New code (decision 173): the order with
+  the later expiry stands, and the other, kept, never leads.
 
 **Merging the POS**: a later `updated_at` wins for the payment; the order
 read replaces the previous one; a refund is recorded beside the order,
@@ -289,6 +307,7 @@ deliver claimed effects; on success: alerts.state='posted' + AlertPosted
 | Make the order (cash, cash-as-Monero on) | only a till set to the sale's device (or to every device) | create-order | `OrderCreated` |
 | Take it in Monero (cash offered) | any till, by the cashier | create-order | `OrderCreated` |
 | New code (expired, unpaid) | any till, by the cashier, when the order offers `renew-order` | Monokulo renew-order on the same order | `OrderObserved` with the new quote |
+| New code (wallet: expired, unpaid) | this till, by the cashier | the wallet's next keyed request | `OrderCreated` that `follows` the order replaced |
 | Refund (Square) | the till the cashier uses | Square refund, idempotent (decision 21) | `PosRefundSeen` |
 | Refund (Clover) | — | done in Clover's app (decision 130) | `Mark RefundPending` → confirmed by the cashier |
 | Close / Reopen / Paid in cash / Keep as cash | this till | local only | `Mark` |
@@ -307,6 +326,16 @@ deliver claimed effects; on success: alerts.state='posted' + AlertPosted
   expiry) or a read, like any other change. A Monokulo whose orders carry no
   `renew-order` form can't renew: New code isn't offered there, and no
   second order is ever made instead.
+- **New code on the device's own wallet** (decision 241) is offered where it
+  is for Monokulo. A keyed request can't be re-priced, so the wallet makes
+  the sale's next request: the current price, another address from the
+  pool (the replaced one's is held through its late window), its own tag,
+  keyed by the sale's key and the replaced request's id, so a retry gives
+  the same one. It refuses as Monokulo does (a payment reached the code,
+  it was called off, it hasn't run out, or its late window is over), in the
+  cashier's words. The till records the new order as following the old
+  one; the wallet keeps watching the old request, and a late payment to it
+  pays the sale (§5).
 - **Closing stays local.** Monokulo doesn't let an app cancel an order (only
   the store's POS can), so other tills converge when the code expires. A
   shared close needs a Monokulo endpoint (follow-up).
@@ -432,7 +461,11 @@ delivers effects.
 8. New code: the renewed order is the same order with a new quote, waiting
    again, whatever order the facts arrive in; an ending of the old quote
    never ends the new one; a Paid against either shows Paid; a sale whose
-   order offers no `renew-order` doesn't offer New code.
+   order offers no `renew-order` doesn't offer New code. On the wallet, the
+   sale's next order follows the last: the sale shows the next code and is
+   waiting again; a late payment to the earlier order pays it; with the
+   facts in any order, after a rebuild and after compaction, the sale is
+   the same; a ledger from before rebuilds and takes a next order.
 9. Settings never change `shared`; a cash sale gets an order only from a till
    set to its device.
 10. Migration imports sales, marks and posted alerts once, with two openers.
@@ -447,7 +480,8 @@ Recorded in `docs/decisions/core.md` as implemented:
 - Receipts, items and names on every till signed in to the POS (supersedes
   the receipt clause of 113).
 - New code (reverses android.md 43), renewing the sale's one order since
-  2026-11-10 (167 to 174).
+  2026-11-10 (167 to 174); on the device's own wallet, the sale's next
+  order, the sale keeping every order (241).
 - Closes, paid in cash and keep as cash stay local until Monokulo lets apps
   cancel.
 - Cash orders only from a till set to the sale's device.

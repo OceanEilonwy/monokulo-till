@@ -1,9 +1,9 @@
 //! How Till is paid (docs/view-key-mode.md §4, core.md decision 238): one
 //! trait, [`PaymentBackend`], in front of whatever makes and watches the
-//! till's payments. Today that is a store's own Monokulo
-//! ([`MonokuloBackend`]); the device's own wallet, through a node or the
-//! shop's light wallet server, comes next. [`FakeBackend`] stands in for
-//! either in tests.
+//! till's payments: a store's own Monokulo ([`MonokuloBackend`]), or the
+//! device's own wallet, through a node or the shop's light wallet server
+//! (till-wallet's `WalletBackend`). [`FakeBackend`] stands in for any of
+//! them in tests.
 //!
 //! The till and the engine (till-sales, till-app) hold an
 //! `Arc<dyn PaymentBackend>` and never a backend's internals. What a
@@ -58,13 +58,22 @@ pub trait PaymentBackend: Send + Sync {
     async fn refresh(&self, refs: &[PaymentRef]) -> Result<Vec<Payment>, BackendError>;
 
     /// A new code for a payment whose code ran out unpaid (New code,
-    /// core.md decisions 167 to 172): the same payment and address with a
-    /// new price and expiry. `renew` is the payment's [`Payment::renew`],
-    /// `expires_at` the expiry of the code being replaced, so two tills
-    /// asking at once get one renewal. A backend that gives no `renew`
-    /// never has this asked of it; by default it refuses.
-    async fn renew(&self, renew: &str, expires_at: UnixSeconds) -> Result<Payment, BackendError> {
-        let _ = (renew, expires_at);
+    /// core.md decisions 167 to 172, 241). `renew` is the payment's
+    /// [`Payment::renew`], `expires_at` the expiry of the code being
+    /// replaced, so two tills asking at once, or a retry, get one new code;
+    /// `amount` the sale's price, for a backend that converts it again.
+    /// Monokulo renews the same payment, at the same address, with a new
+    /// price and expiry; the device's own wallet makes the sale's next
+    /// payment, at another address, and keeps watching the one replaced. A
+    /// backend that gives no `renew` never has this asked of it; by
+    /// default it refuses.
+    async fn renew(
+        &self,
+        renew: &str,
+        expires_at: UnixSeconds,
+        amount: &Money,
+    ) -> Result<Payment, BackendError> {
+        let _ = (renew, expires_at, amount);
         Err(BackendError::Unsupported("make a new code for a sale"))
     }
 

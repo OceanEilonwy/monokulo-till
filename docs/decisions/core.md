@@ -1919,8 +1919,8 @@ still strings across the till, the ledger, the screens and the bridge.
      made when it can't be had; XMR passes through), rounds it to a
      millionth of an XMR so the wallet's amount tag has the digits below to
      itself, and makes a keyed request with the payment's idempotency key:
-     the same key gives the same payment, so New code and a retried charge
-     never make a second one. The payment's reference and order id are
+     the same key gives the same payment, so a retried charge never makes
+     a second one (New code makes the sale's next on purpose, 241). The payment's reference and order id are
      `w:<account>:<index>:<tag>:<request id>`. Where it stands is mokulo's
      `derive_status` and `covering`, lifted with their 29 cases, over the
      payments toward the request that weren't double spent, with Settled
@@ -2045,7 +2045,9 @@ still strings across the till, the ledger, the screens and the bridge.
      (decisions 167 to 172) keeps one order and one address with a new
      quote. Making New code work for the wallet needs the ledger to take a
      sale's next order, so the backend still gives no `renew` and the
-     till never offers New code for a wallet payment.
+     till never offers New code for a wallet payment. Replaced by 241:
+     the ledger takes a sale's next order, and New code works for the
+     wallet.
 237. **Till follows Monokulo's order stream, and an order's counts are plain
      numbers.** (Owner, 2026-11-12.) Monokulo's sale events (`mk:events`)
      carried no confirmations, threshold or amount received, so `Payment`
@@ -2146,9 +2148,150 @@ still strings across the till, the ledger, the screens and the bridge.
      page ("Get it for Android", `Effect::OpenUrl` on V2) opens in the
      browser, not as a sign-in.
 
+## View-key mode, round 2: New code for wallet payments (2026-11-13)
+
+241. **New code on a wallet payment makes the sale's next order, and the
+     sale keeps every order it had.** (Owner, 2026-11-13; replaces 236.)
+     A keyed request can't be re-priced in place, so the wallet's
+     `renew` makes another: at the current price, on an address from the
+     pool (never the replaced one's, which its late window still holds),
+     with its own tag, keyed by the sale's key and the replaced request's
+     id (`sq:…#<id>`), so a retry or a second tap gives the same request
+     and each request is replaced once. Every wallet payment carries a
+     `renew` (its own reference), so New code is offered exactly where it
+     is for Monokulo (`TillSale::may_new_code`, unchanged). The wallet
+     refuses as Monokulo refuses a renewal (Monokulo's order-renewal
+     decision 1), in the cashier's words: a payment reached the code
+     (seen, part paid or spent twice: a new price over money that arrived
+     would hide it), it was called off, its code hasn't run out, its late
+     window is over, or the till's code isn't the request's. So a code
+     underpaid then expired gets no new one, as with Monokulo; the spec's
+     "New code for the rest" (§5.3) isn't built. `PaymentBackend::renew`
+     gains the sale's price, which Monokulo ignores and the wallet
+     converts again, and `BackendError::Refused` carries words shown as
+     they are.
+     The till records the answer, when its id isn't the order's, as
+     `OrderCreated` with `follows`: the order it replaces, left out of
+     every other body so those bodies and their hashes are unchanged.
+     `SharedSale` gains `earlier`, the sale's other orders, oldest first;
+     `order` stays the latest (one no other follows, of two the later
+     code), whose code, id, address and expiry the sale shows. Every order
+     stays linked to the sale (`orders`), so the wallet's stream, which
+     watches every request through its late window, still reaches the
+     earlier one. The sale's phase is `SharedSale::leading`: a paid order
+     (the latest first), then the latest when money reached it or was
+     reversed, then an earlier one money reached (the customer paid the old
+     code late), else the latest; so a late payment to the replaced
+     request pays the sale and shows in the history, and the earlier
+     code's ending never ends the next. Only an earlier order a later one
+     follows can lead: a second order with no `follows` is still an older
+     build's (173), kept but never leading, so a Monokulo sale is as
+     before. The join keeps every order and places them by which it has,
+     so it stays commutative, and replay, compaction (a snapshot links
+     every order) and rebuilds give the same state. The projections'
+     version goes to 4, so a ledger from before rebuilds from its journal;
+     the schema doesn't change (the `orders` table already maps any number
+     of orders to a sale), so the build before, put back, still opens the
+     database and rebuilds it its way.
+
+242. **The receipt module is its own repository, monokulo-orf, at the
+     commit Fob pins.** (docs/view-key-mode.md §3.1.) `crates/orf-codec`,
+     `crates/orf-codec-ffi` and `tools/receipt-qr` moved, with their
+     history (`git filter-repo`), to OceanEilonwy/monokulo-orf, GPL-3.0-only
+     as here. Till takes `orf-codec` and `orf-codec-ffi` by git and rev in
+     `[workspace.dependencies]`, so the crates that read them
+     (`monokulo-client`, `till-pos`, `till-sales`, `till-ledger`,
+     `till-screens`, and `till-ffi`, which still re-exports orf-codec-ffi's
+     scaffolding) are unchanged, and so are the apps: the Kotlin package
+     stays `uniffi.orf_codec_ffi` and iOS's Swift file `orf_codec_ffi.swift`,
+     generated from till-ffi's library as before. The rev is the one Fob's
+     `fob-codes` and `fob-wallet` pin, and Till pins a Fob commit that uses
+     it: two revs would be two `orf-codec` crates in one build, and a
+     receipt from one wouldn't be the other's. CI fails if there are two
+     (`cargo tree -i orf-codec` can't pick one). Moving the rev means a Fob commit first, then both pins
+     here together. The codec read a currency's digits from `till-types` by
+     path (decision 209); out of this repository it can't, and depending
+     on Till from a library Till depends on would go round in a circle, so
+     orf-codec keeps its own copy of the ISO 4217 table
+     (`orf_codec::currency`), and a till-types test checks that the two
+     give every code the same digits. till-types stays the table every
+     crate here reads. monokulo-orf's CI runs what this repository's ran
+     for those crates (format, tests, Clippy, the bindings generated from a
+     library that re-exports the scaffolding as till-ffi does) and also
+     compiles the Kotlin bindings against JNA and the Swift ones with
+     swiftc. For work on the codec, a `[patch]` entry for monokulo-orf's
+     URL pointing at a local checkout, never committed.
+
+243. **The shop's own wallet scans on the GPU, on iPad and iPhone through
+     Metal, and only in the foreground.** (docs/view-key-mode.md §3.4,
+     §5.4, §10.) Fob's scanner now has a Metal backend on Apple's platforms
+     (monokulo-8ar's `metal` feature, turned on by `fob-scanner` for Apple
+     targets: Fob decision 425), so Till's iOS build links Metal and
+     Foundation (TillCore's `Package.swift`) beside the frameworks it
+     already did. Till sets no policy of its own: fob-wallet uses the GPU
+     once it has passed its startup vectors and this wallet's own check, and
+     scans on the cores until then or if it can't. The first scan starts the
+     GPU, so nothing runs for it before the wallet looks. The GPU is used
+     only in the foreground because the scans are: the runner polls the
+     wallet's stream only while the app is in front (decision 231), and
+     there's no background work in this mode. A scan that iOS stops as the
+     app leaves goes to the cores, and the GPU isn't given up for it. As the
+     app goes behind, the engine also has the GPU give back the buffers it
+     keeps between scans (`till_wallet::backend::rest_gpu`), tens of MB a
+     phone in the background shouldn't hold. Till's scans are small (§5.4):
+     it must work well on the cores alone, and the GPU only makes them
+     cheaper. How fast an iPad is at it needs the owner to run 8aR's
+     `gpu_check` and `scan_speed` on one.
+
+244. **A light wallet server is the same wallet backend, polled at the
+     same pace.** (docs/view-key-mode.md §5.7.) `WalletBackend` sets
+     fob-wallet's backend to `Light { url, self_signed }` when the link
+     names a server (`WalletLink::light_server`, and the new
+     `light_self_signed`, both left out of the JSON when unset, so every
+     link kept before reads as it did). The server holds the view key and
+     scans; Till tells it of its account's pool as it hands addresses out
+     (fob-wallet's `upsert_subaddrs` at each poll, account n's indexes up
+     to the pool and its margin). Each turn of the stream is one poll of
+     the server (`look_at_pool`), whose answer holds the newest blocks and
+     the pool together, so the node is never asked for the tip; refresh is
+     one poll too (Fob decision 427). The pace (§5.5), Sharing::ThisTill,
+     the status function and Settled Confirmations don't change. The
+     link's node, when set, is the node the server's proofs are checked
+     with; without one Fob's default for the network checks them. The
+     wallet never asks the server to import (scan from block 0): it's new
+     at setup, with nothing before it to find (`set_light_import(false)`
+     each time it's opened). A server that hasn't approved the till's
+     wallet yet (monokulo-lws `--create approve`) shows in Settings'
+     warnings: "Your light wallet server hasn't approved this till yet.
+     Payments show once it does."
+245. **The light wallet server is set up before the wallet, and its network
+     is the wallet's.** (§11.1.) V1's "Your light wallet server" leads to
+     its own page: the server's address, "Accept its own certificate" (a
+     switch, fob-wallet's `self_signed`, held to the key it first answers
+     with), the checks, and the spec's warning that the server sees every
+     payment. Continue checks the server as Fob's Test does
+     (`/get_version`, nothing of the wallet's sent): it answers (in how
+     long), its network, that it watches subaddresses, and, accepting its
+     own certificate, the start of its key to compare; it goes on to V2
+     only when every line passes, and doesn't check again while the
+     address is what was checked. The network the server says becomes the
+     wallet's (D2's network starts on it), so a release build set up on a
+     stagenet server needs no change of network. V2 and the ways in are
+     the wallet's; D4 shows the till number and "Node for proofs" with the
+     node's checks, and says the node checks the server's proofs. Connect
+     to Fob in this mode keeps the server typed even when Fob shared its
+     own: it was chosen, and checked, first. Settings shows "Your light
+     wallet server" as the way, the server in the node's row (Change takes
+     a new address, checked by the wallet before it's kept, with no
+     default servers to offer), "Proofs checked with" the node, and a
+     footnote that the server sees every payment. The certificate setting
+     can't be changed in Settings. Open question 3 (moving between a node
+     and a light server without setting up again) is not in this round, as
+     the owner chose: Disconnect and set up again.
+
 ## View-key mode: prices (2026-11-13)
 
-241. **Setup asks where prices come from, after the point of sale.**
+246. **Setup asks where prices come from, after the point of sale.**
      (Owner, 2026-11-12, docs/view-key-mode.md §8, §11.1.) A till on the
      shop's own wallet whose point of sale has a fiat currency some
      fob-price provider prices goes from the point of sale (or C4's
@@ -2172,7 +2315,7 @@ still strings across the till, the ledger, the screens and the bridge.
      priced by the provider picked by default (Fob's, else the first).
      The rail and the iPhone bar count Prices (board VkRail) between Point
      of sale and Alerts.
-242. **The price is kept fresh in the foreground, and the code says where
+247. **The price is kept fresh in the foreground, and the code says where
      it came from.** (docs/view-key-mode.md §8.) The wallet's event
      stream, which runs only while Till is in the foreground (decision
      231), asks for the link's currency's price after a turn whenever the

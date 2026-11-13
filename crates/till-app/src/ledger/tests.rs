@@ -124,6 +124,7 @@ fn order(payment: &str, order: &str) -> Fact {
         device_name: None,
         renew: None,
         price_used: None,
+        follows: None,
     })
 }
 

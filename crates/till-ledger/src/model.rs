@@ -11,6 +11,11 @@
 //! the same order, a new quote (price and expiry, decision 169). An ending
 //! belongs to the quote it was seen under; a payment to the order
 //! (decision 170).
+//!
+//! A wallet payment can't be renewed in place: New code makes the sale's
+//! next order, one that names the order it follows (decision 241). The
+//! sale keeps every order it had, the latest as its code and the earlier
+//! still watched, and a payment to any of them shows.
 
 use std::collections::BTreeMap;
 
@@ -29,10 +34,18 @@ use crate::{UnixMillis, UnixSeconds};
 #[serde(from = "SharedSaleWire")]
 pub struct SharedSale {
     pub pos: PosFacts,
-    /// The sale's one Monokulo order, once it has one.
+    /// The sale's order, once it has one: its latest, whose code it shows.
     pub order: Option<SaleOrder>,
     /// The POS's refund, if any: beside the order, never instead of it.
     pub refund: Option<PosRefund>,
+    /// The sale's other orders, oldest first: those New code on a wallet
+    /// payment replaced (core.md decision 241), each followed by a later
+    /// one and still watched, since a late payment to one still pays the
+    /// sale; and a second order an older build made for a Monokulo sale
+    /// (decision 173), which follows nothing and never leads. Empty for
+    /// every other Monokulo sale, which keeps one order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub earlier: Vec<SaleOrder>,
 }
 
 /// A [`SharedSale`] as read: as this build writes it, or with the
@@ -48,6 +61,8 @@ struct SharedSaleWire {
     refund: Option<PosRefund>,
     #[serde(default)]
     attempts: Vec<SaleOrder>,
+    #[serde(default)]
+    earlier: Vec<SaleOrder>,
 }
 
 impl From<SharedSaleWire> for SharedSale {
@@ -61,11 +76,16 @@ impl From<SharedSaleWire> for SharedSale {
                     .max_by(|a, b| a.order.stands_over(&b.order))
             })
         });
-        SharedSale {
+        let mut sale = SharedSale {
             pos: wire.pos,
             order: order.map(SaleOrder::settled),
             refund: wire.refund,
+            earlier: wire.earlier.into_iter().map(SaleOrder::settled).collect(),
+        };
+        if !sale.earlier.is_empty() {
+            sale.arrange();
         }
+        sale
     }
 }
 
@@ -118,6 +138,11 @@ pub struct OrderFacts {
     /// (decision 238); `None` for a Monokulo order.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub price_used: Option<till_types::PriceUsed>,
+    /// The sale's order this one follows: New code made it, for a wallet
+    /// payment (decision 241). `None` for a sale's first order and for
+    /// every Monokulo order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub follows: Option<OrderId>,
 }
 
 impl From<&OrderCreated> for OrderFacts {
@@ -136,6 +161,7 @@ impl From<&OrderCreated> for OrderFacts {
             renew: o.renew.clone(),
             first_expires_at: o.expires_at,
             price_used: o.price_used.clone(),
+            follows: o.follows.clone(),
         }
     }
 }
@@ -205,6 +231,7 @@ impl OrderFacts {
         self.device_name = max_opt(self.device_name.take(), other.device_name.clone());
         self.renew = max_opt(self.renew.take(), other.renew.clone());
         self.price_used = max_opt(self.price_used.take(), other.price_used.clone());
+        self.follows = max_opt(self.follows.take(), other.follows.clone());
         self.reference = max_opt(self.reference.take(), other.reference.clone());
         larger(&mut self.address, &other.address);
         // One order's two accounts carry one price; a known one beats an
@@ -586,27 +613,70 @@ impl SharedSale {
         self.take_order(&SaleOrder::new(OrderFacts::from(o)));
     }
 
-    /// Joins `order`: the same order joins in; another (only a build before
-    /// core.md decision 167 made two for one sale) stands only if it's the
-    /// later code, and replaces this one with what's known of it.
-    fn take_order(&mut self, order: &SaleOrder) {
-        match &mut self.order {
-            None => self.order = Some(order.clone()),
-            Some(mine) if mine.order.order_id == order.order.order_id => mine.join(order),
-            Some(mine) => {
-                if order.order.stands_over(&mine.order).is_gt() {
-                    *mine = order.clone();
-                }
-            }
-        }
+    /// Every order the sale has: its earlier ones, then its latest.
+    pub fn orders(&self) -> impl Iterator<Item = &SaleOrder> {
+        self.earlier.iter().chain(self.order.as_ref())
     }
 
-    /// Joins an observation of the sale's order; one of another order (one
-    /// an older build's New code replaced) changes nothing.
+    fn orders_mut(&mut self) -> impl Iterator<Item = &mut SaleOrder> {
+        self.earlier.iter_mut().chain(self.order.as_mut())
+    }
+
+    /// Whether one of the sale's orders follows `order`: New code replaced
+    /// it (decision 241).
+    fn followed(&self, order: &OrderId) -> bool {
+        self.orders()
+            .any(|o| o.order.follows.as_ref() == Some(order))
+    }
+
+    /// Joins `order`: the same order joins in, and another is kept beside
+    /// it, the latest put in its place ([`Self::arrange`]).
+    fn take_order(&mut self, order: &SaleOrder) {
+        let known = self
+            .orders_mut()
+            .find(|o| o.order.order_id == order.order.order_id)
+            .map(|mine| mine.join(order))
+            .is_some();
+        if known {
+            if self.earlier.is_empty() {
+                return;
+            }
+        } else if self.order.is_none() {
+            self.order = Some(order.clone());
+            return;
+        } else {
+            self.earlier.push(order.clone());
+        }
+        self.arrange();
+    }
+
+    /// Puts the sale's orders in their places, a function of which orders
+    /// it has whatever order they came in: the latest is one no other
+    /// follows (of two such, the later code), and the others are kept,
+    /// oldest first. An earlier order no other follows is a second order
+    /// an older build made (decision 173): kept, but it never leads
+    /// ([`Self::leading`]), so the later code stands alone, as before.
+    fn arrange(&mut self) {
+        let mut all: Vec<SaleOrder> = self.earlier.drain(..).chain(self.order.take()).collect();
+        let followed = |id: &OrderId| all.iter().any(|o| o.order.follows.as_ref() == Some(id));
+        let Some(latest) = (0..all.len()).max_by(|&a, &b| {
+            let (a, b) = (&all[a], &all[b]);
+            (!followed(&a.order.order_id))
+                .cmp(&!followed(&b.order.order_id))
+                .then(a.order.stands_over(&b.order))
+        }) else {
+            return;
+        };
+        let latest = all.remove(latest);
+        all.sort_by(|a, b| a.order.stands_over(&b.order));
+        self.order = Some(latest);
+        self.earlier = all;
+    }
+
+    /// Joins an observation of one of the sale's orders; one of another
+    /// order (one an older build's New code replaced) changes nothing.
     pub fn observe(&mut self, o: &OrderObserved) {
-        if let Some(mine) = &mut self.order
-            && mine.order.order_id == o.order_id
-        {
+        if let Some(mine) = self.orders_mut().find(|m| m.order.order_id == o.order_id) {
             mine.observe(o);
         }
     }
@@ -616,13 +686,10 @@ impl SharedSale {
     /// observations only, since this sale's own create-order answer stands
     /// for the order.
     pub fn take_observations(&mut self, other: &SharedSale, order: &OrderId) {
-        let Some(mine) = &mut self.order else {
+        let Some(theirs) = other.orders().find(|o| o.order.order_id == *order) else {
             return;
         };
-        if mine.order.order_id != *order {
-            return;
-        }
-        if let Some(theirs) = other.order.as_ref().filter(|o| o.order.order_id == *order) {
+        if let Some(mine) = self.orders_mut().find(|o| o.order.order_id == *order) {
             mine.observed.join(&theirs.observed);
             mine.settle();
         }
@@ -645,14 +712,53 @@ impl SharedSale {
                 self.refund = Some(r.clone());
             }
         }
-        if let Some(o) = &other.order {
+        for o in other.orders() {
             self.take_order(o);
         }
     }
 
-    /// The phase the sale shows, from its order.
+    /// The order whose phase the sale shows: its latest, unless money
+    /// reached an earlier one that the latest hasn't (decision 241). A paid
+    /// order first (the latest before an earlier one); then the latest,
+    /// when a payment reached it or was reversed; then an earlier one a
+    /// payment reached (seen, confirming or part paid: the customer paid
+    /// its code late); else the latest, as a Monokulo sale's one order
+    /// always is. Only an earlier order a later one follows counts: one that
+    /// follows nothing was an older build's second order (decision 173).
+    pub fn leading(&self) -> Option<&SaleOrder> {
+        let latest = self.order.as_ref()?;
+        if latest.payment.is_paid() {
+            return Some(latest);
+        }
+        let replaced: Vec<&SaleOrder> = self
+            .earlier
+            .iter()
+            .rev()
+            .filter(|o| self.followed(&o.order.order_id))
+            .collect();
+        if let Some(paid) = replaced.iter().find(|o| o.payment.is_paid()) {
+            return Some(paid);
+        }
+        let reached = |p: PaymentPhase| {
+            matches!(
+                p,
+                PaymentPhase::Seen | PaymentPhase::Confirming { .. } | PaymentPhase::Partial { .. }
+            )
+        };
+        if reached(latest.payment) || latest.payment == PaymentPhase::DoubleSpend {
+            return Some(latest);
+        }
+        Some(
+            replaced
+                .into_iter()
+                .find(|o| reached(o.payment))
+                .unwrap_or(latest),
+        )
+    }
+
+    /// The phase the sale shows, from its orders ([`Self::leading`]).
     pub fn phase(&self) -> Option<PaymentPhase> {
-        self.order.as_ref().map(|o| o.payment)
+        self.leading().map(|o| o.payment)
     }
 
     /// When it was rung up, Unix ms, from the POS's payment.
@@ -671,7 +777,7 @@ impl SharedSale {
         {
             return true;
         }
-        match &self.order {
+        match self.leading() {
             Some(o) => match o.payment {
                 PaymentPhase::Paid { .. } => true,
                 PaymentPhase::Expired | PaymentPhase::Cancelled | PaymentPhase::DoubleSpend => {
@@ -1046,6 +1152,7 @@ mod tests {
             device_name: None,
             renew: None,
             price_used: None,
+            follows: None,
         }
     }
 

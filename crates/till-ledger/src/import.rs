@@ -191,6 +191,7 @@ pub(crate) fn facts_of_shift(json: &str) -> Result<Vec<ImportedSale>, LedgerErro
                     },
                     renew: None,
                     price_used: None,
+                    follows: None,
                 }),
                 rung,
             ));

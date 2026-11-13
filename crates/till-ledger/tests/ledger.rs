@@ -92,6 +92,7 @@ fn created(id: &str, order: &str) -> Fact {
         device_name: None,
         renew: Some(format!("https://shop.example/api/v1/orders/{order}")),
         price_used: None,
+        follows: None,
     })
 }
 
@@ -201,7 +202,41 @@ fn pool() -> Vec<Fact> {
             }
         }
     }
+    // A wallet sale whose New code made its next order (core.md decision
+    // 241), after the facts above so their places in the pool stay put.
+    facts.push(payment("p3", "front", Tender::Monero, 1));
+    facts.push(wallet_created("p3", "w1", None, FIRST_EXPIRY));
+    facts.push(wallet_created("p3", "w2", Some("w1"), FIRST_EXPIRY + 1_200));
+    for order in ["w1", "w2"] {
+        for phase in SalePhase::ALL {
+            for is_final in [false, true] {
+                facts.push(observed(order, phase, is_final));
+            }
+        }
+    }
     facts
+}
+
+/// An order the device's own wallet made for sale `id`, running out at
+/// `expires_at`, following the sale's order `follows` when New code made
+/// it: at its own address, with its own id.
+fn wallet_created(id: &str, order: &str, follows: Option<&str>, expires_at: i64) -> Fact {
+    Fact::OrderCreated(OrderCreated {
+        sale: sale(id),
+        order_id: order.into(),
+        url: Some(order.into()),
+        payment_uri: format!("monero:7{order}?tx_amount=0.15"),
+        address: format!("7{order}"),
+        xmr: "0.15".into(),
+        price: till_types::Price::new("24.50", "USD"),
+        reference: Some(format!("#{id}")),
+        expires_at: UnixSeconds(expires_at),
+        confirmations_required: Some(10),
+        device_name: None,
+        renew: Some(order.into()),
+        price_used: None,
+        follows: follows.map(Into::into),
+    })
 }
 
 fn shared_of(ledger: &Ledger) -> Vec<(String, String)> {
@@ -273,7 +308,7 @@ proptest! {
     /// differ. §15.2: the incremental projections equal a full replay.
     #[test]
     fn permutations_with_duplicates_merge_alike(
-        picks in prop::collection::vec(0usize..64, 1..40),
+        picks in prop::collection::vec(0usize..96, 1..40),
         shuffle in Just(()).prop_perturb(|_, mut rng| rng.random::<u64>()),
     ) {
         let (one, other, mut a) = merged_both_ways(&picks, shuffle);
@@ -780,6 +815,169 @@ fn a_clock_lapse_belongs_to_the_quote_it_lapsed() {
     })
     .unwrap();
     assert!(l.sale(&sale("p1")).unwrap().unwrap().clock_lapsed);
+}
+
+/// New code on a wallet payment (core.md decision 241): the sale's next
+/// order, at another address, follows the one whose code ran out. The
+/// sale shows the next order's code and is waiting again; the earlier
+/// order stays the sale's, and a late payment to it pays the sale, which
+/// keeps showing the next order's code and id.
+#[test]
+fn new_code_on_a_wallet_payment_takes_the_sales_next_order() {
+    let fx = Fixture::new();
+    let mut l = fx.open(Process::App);
+    let next = FIRST_EXPIRY + 1_200;
+    l.record(payment("p1", "front", Tender::Monero, 1)).unwrap();
+    l.record(wallet_created("p1", "w1", None, FIRST_EXPIRY))
+        .unwrap();
+    l.record(observed("w1", SalePhase::Expired, false)).unwrap();
+    let v = l.sale(&sale("p1")).unwrap().unwrap();
+    assert!(v.renewable && !v.live);
+
+    let r = l
+        .record(wallet_created("p1", "w2", Some("w1"), next))
+        .unwrap();
+    assert!(r.effects.is_empty(), "the cashier asked for it: no alert");
+    let v = l.sale(&sale("p1")).unwrap().unwrap();
+    assert_eq!(
+        (v.order_id.as_str(), v.payment, v.live, v.expires_at),
+        ("w2", Some(PaymentPhase::Waiting), true, UnixSeconds(next))
+    );
+    assert_eq!(
+        (v.address.as_str(), v.code.uri.as_str()),
+        ("7w2", "monero:7w2?tx_amount=0.15")
+    );
+    assert!(v.renewable, "the next code can run out and be replaced too");
+    assert_eq!(l.order(&"w1".into()).unwrap(), Some(sale("p1")));
+    assert_eq!(l.order(&"w2".into()).unwrap(), Some(sale("p1")));
+    let row = l.row(&sale("p1")).unwrap().unwrap();
+    assert_eq!(row.shared.earlier.len(), 1);
+    assert_eq!(row.shared.earlier[0].order.order_id.as_str(), "w1");
+
+    // Asked again (a retry): the same fact, nothing new.
+    assert!(
+        !l.record(wallet_created("p1", "w2", Some("w1"), next))
+            .unwrap()
+            .changed
+    );
+    // The earlier order's ending, heard again, ends nothing.
+    l.record(observed("w1", SalePhase::Expired, false)).unwrap();
+    assert_eq!(phase(&l, "p1"), Some(PaymentPhase::Waiting));
+
+    // The customer paid the old code late: seen, then paid, on the
+    // earlier order, alerted once as paid.
+    l.record(observed("w1", SalePhase::Seen, false)).unwrap();
+    assert_eq!(phase(&l, "p1"), Some(PaymentPhase::Seen));
+    let r = l.record(observed("w1", SalePhase::Paid, true)).unwrap();
+    let v = l.sale(&sale("p1")).unwrap().unwrap();
+    assert_eq!((v.phase, v.order_id.as_str()), (SalePhase::Paid, "w2"));
+    assert!(v.settled && !v.live);
+    assert_eq!(
+        r.effects.iter().map(|e| e.kind).collect::<Vec<_>>(),
+        [AlertKind::Paid]
+    );
+    // The next order running out later doesn't take it back.
+    l.record(observed("w2", SalePhase::Expired, false)).unwrap();
+    assert_eq!(
+        phase(&l, "p1"),
+        Some(PaymentPhase::Paid { overpaid: false })
+    );
+    let shift = l.sales().unwrap();
+    assert_eq!(shift.len(), 1, "one sale in the history, paid");
+    assert_eq!(shift[0].phase, SalePhase::Paid);
+}
+
+/// The next order's own payment counts as the sale's, and money on it
+/// leads over an earlier order's ending; with the facts in any order, the
+/// sale is the same, and a rebuild from the journal, or after compaction,
+/// gives the same projections.
+#[test]
+fn a_wallet_sales_orders_merge_alike_and_rebuild_from_the_journal() {
+    let next = FIRST_EXPIRY + 1_200;
+    let facts = [
+        payment("p1", "front", Tender::Monero, 1),
+        wallet_created("p1", "w1", None, FIRST_EXPIRY),
+        observed("w1", SalePhase::Expired, false),
+        wallet_created("p1", "w2", Some("w1"), next),
+        wallet_created("p1", "w3", Some("w2"), next + 1_200),
+        observed("w2", SalePhase::Expired, false),
+        observed("w3", SalePhase::Confirming, false),
+    ];
+    let fx = Fixture::new();
+    let mut a = fx.open_as("a.db", Process::App);
+    let mut b = fx.open_as("b.db", Process::App);
+    feed(&mut a, &facts, &fx.clock);
+    let mut reversed = facts.to_vec();
+    reversed.reverse();
+    feed(&mut b, &reversed, &fx.clock);
+    assert_eq!(shared_of(&a), shared_of(&b));
+    let v = a.sale(&sale("p1")).unwrap().unwrap();
+    assert_eq!(
+        (v.order_id.as_str(), v.payment),
+        ("w3", Some(PaymentPhase::Confirming { n: 3 }))
+    );
+    let row = a.row(&sale("p1")).unwrap().unwrap();
+    let earlier: Vec<&str> = row
+        .shared
+        .earlier
+        .iter()
+        .map(|o| o.order.order_id.as_str())
+        .collect();
+    assert_eq!(earlier, ["w1", "w2"], "oldest first");
+
+    let before = a.dump_projections().unwrap();
+    a.rebuild().unwrap();
+    assert_eq!(before, a.dump_projections().unwrap());
+
+    // Paid, a week on: compacted into a snapshot that keeps every order,
+    // and a late fact on the first still finds the sale.
+    a.record(observed("w3", SalePhase::Paid, true)).unwrap();
+    fx.clock.advance(8 * 24 * 60 * 60 * 1000);
+    a.compact(true).unwrap();
+    let kinds: Vec<String> = a
+        .journal()
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.sale_key.as_deref() == Some("sq:p1"))
+        .map(|r| r.kind)
+        .collect();
+    assert_eq!(kinds, ["Snapshot"]);
+    let compacted = a.dump_projections().unwrap();
+    a.rebuild().unwrap();
+    assert_eq!(compacted, a.dump_projections().unwrap());
+    assert_eq!(a.order(&"w1".into()).unwrap(), Some(sale("p1")));
+    assert_eq!(a.row(&sale("p1")).unwrap().unwrap().shared.earlier.len(), 2);
+}
+
+/// A Monokulo sale is untouched: its order never follows another, so a
+/// second order for it is still an older build's, and the later code
+/// stands alone (decision 173), in whichever order they came.
+#[test]
+fn a_second_order_that_follows_nothing_still_stands_alone() {
+    for later_first in [false, true] {
+        let fx = Fixture::new();
+        let mut l = fx.open(Process::App);
+        l.record(payment("p1", "front", Tender::Monero, 1)).unwrap();
+        let one = created("p1", "o1");
+        let Fact::OrderCreated(two) = created("p1", "o2") else {
+            unreachable!("an order")
+        };
+        let two = Fact::OrderCreated(OrderCreated {
+            expires_at: UnixSeconds(FIRST_EXPIRY + 1_200),
+            ..two
+        });
+        let both = if later_first { [two, one] } else { [one, two] };
+        for fact in both {
+            l.record(fact).unwrap();
+        }
+        l.record(observed("o1", SalePhase::Paid, true)).unwrap();
+        let v = l.sale(&sale("p1")).unwrap().unwrap();
+        assert_eq!(
+            (v.order_id.as_str(), v.payment),
+            ("o2", Some(PaymentPhase::Waiting)),
+            "later first: {later_first}"
+        );
+    }
 }
 
 /// §15.9: settings never change `shared`; a cash sale gets an order only

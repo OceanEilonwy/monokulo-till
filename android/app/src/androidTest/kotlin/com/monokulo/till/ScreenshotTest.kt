@@ -44,6 +44,7 @@ import com.monokulo.till.ui.FobConnectedScreen
 import com.monokulo.till.ui.FobRequestScreen
 import com.monokulo.till.ui.PaymentsModeScreen
 import com.monokulo.till.ui.StepperActions
+import com.monokulo.till.ui.LightServerScreen
 import com.monokulo.till.ui.ThisTillActions
 import com.monokulo.till.ui.ThisTillScreen
 import com.monokulo.till.ui.PricesScreen
@@ -229,6 +230,9 @@ class ScreenshotTest {
         setup("vk-keys-error", PreviewStep.VK_KEYS_ERROR),
         setup("vk-seed", PreviewStep.VK_SEED),
         setup("vk-this-till", PreviewStep.VK_THIS_TILL),
+        setup("vk-light-mode", PreviewStep.VK_LIGHT_MODE),
+        setup("vk-light-server", PreviewStep.VK_LIGHT_SERVER),
+        setup("vk-light-this-till", PreviewStep.VK_LIGHT_THIS_TILL),
         setup("vk-prices-step", PreviewStep.VK_PRICES),
         setup("vk-prices-fob", PreviewStep.VK_PRICES_FOB),
         Shot("vk-prices-code") { SaleScreen(pricedFace, noActions, null) },
@@ -247,6 +251,7 @@ class ScreenshotTest {
         settingsShot("settings"),
         Shot("vk-settings") { SettingsScreen(previewSettingsOf(PreviewSettings.VK_SETTINGS, Device.ANDROID, now), settingsActions) },
         Shot("vk-settings-warning") { SettingsScreen(previewSettingsOf(PreviewSettings.VK_SETTINGS_WARNING, Device.ANDROID, now), settingsActions) },
+        Shot("vk-light-settings") { SettingsScreen(previewSettingsOf(PreviewSettings.VK_LIGHT_SETTINGS, Device.ANDROID, now), settingsActions) },
     )
 
     private fun landscapeShots() = listOf(
@@ -290,6 +295,7 @@ class ScreenshotTest {
             is OnboardingPage.WalletCode -> WalletCodeScreen(page.view, view.heading, view.lead, step, onScan = {}, onPaste = {}, onBack = {})
             is OnboardingPage.WalletKeys -> WalletKeysScreen(page.view, view.heading, view.lead, step, onEdit = { _, _, _ -> }, onNext = {}, onBack = {})
             is OnboardingPage.WalletSeed -> WalletSeedScreen(page.view, view.heading, view.lead, step, onLength = {}, onScanInstead = {}, onEnter = {}, onBack = {})
+            is OnboardingPage.LightServer -> LightServerScreen(page.view, view.heading, view.lead, step, onEdit = { _, _ -> }, onNext = {}, onBack = {})
             is OnboardingPage.ThisTill -> ThisTillScreen(
                 page.view, view.heading, view.lead, step, ThisTillActions(steppers, onNumber = {}, onNode = {}, onNext = {}, onBack = {}),
             )
