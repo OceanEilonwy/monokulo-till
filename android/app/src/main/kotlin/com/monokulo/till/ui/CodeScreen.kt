@@ -92,6 +92,7 @@ fun CodeScreen(sale: SaleFace, onBack: () -> Unit) {
                         Text(code.amount, style = display(30, -0.5), color = ink)
                         // The engine writes the time left and draws it again each second (docs/decisions/core.md 37).
                         Text(code.under, fontSize = 15.sp, color = muted, style = LocalTextStyle.current.merge(tabular))
+                        code.priceLine?.let { Text(it, fontSize = 13.sp, color = muted, maxLines = 1) }
                     }
                     Box(
                         Modifier.size(48.dp).clip(CircleShape).background(LightTokens.inset).clickable(role = Role.Button, onClick = onBack),

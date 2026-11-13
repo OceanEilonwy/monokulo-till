@@ -145,6 +145,14 @@ enum Screenshots {
                 .screen(screen: screen),
             ]
         }
+        // A sale the till's own wallet priced: its code names the provider
+        // and the price's time (docs/view-key-mode.md §8).
+        var priced = sales[0]
+        priced.priceProvider = "Kraken"
+        priced.priceAt = now - 60
+        let pricedPreview = preview([priced], ipad: ipad)
+        let pricedShift = previewShift(preview: pricedPreview, platform: platform).map { Update.shift(view: $0) }
+        let pricedSale = previewSale(preview: pricedPreview, orderId: "w1", platform: platform)
         let close = previewClose(preview: full, orderId: "w1", platform: platform)
             .map { Update.closeSheet(orderId: "w1", view: $0) }
         let settingsUp = till(.settings, shift, settings, .wakeUps(view: wakeUps))
@@ -205,6 +213,9 @@ enum Screenshots {
             Shot(name: "vk-keys-error", updates: step(.vkKeysError, .walletKeys)),
             Shot(name: "vk-seed", updates: step(.vkSeed, .walletSeed)),
             Shot(name: "vk-this-till", updates: step(.vkThisTill, .thisTill)),
+            Shot(name: "vk-prices-step", updates: step(.vkPrices, .prices)),
+            Shot(name: "vk-prices-fob", updates: step(.vkPricesFob, .prices)),
+            Shot(name: "vk-prices-code", updates: till(.sale(orderId: "w1"), pricedShift, pricedSale)),
             Shot(name: "vk-settings", screen: walletSettings(.vkSettings)),
             Shot(name: "vk-settings-warning", screen: walletSettings(.vkSettingsWarning)),
             Shot(name: "vk-light-mode", updates: step(.vkLightMode, .paymentsMode)),

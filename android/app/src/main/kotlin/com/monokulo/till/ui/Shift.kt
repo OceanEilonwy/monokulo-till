@@ -53,6 +53,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -60,6 +61,7 @@ import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.ripple
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.FloatState
@@ -169,6 +171,7 @@ import kotlinx.coroutines.launch
  * comes back to it. [close] is the swiped row's sheet, drawn here while the
  * shift is the screen the stage goes to.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ShiftScreen(
     view: ShiftView,
@@ -229,6 +232,9 @@ fun ShiftScreen(
             // The shift's own words, its chrome as much as its rows, fade through a row's grow and shrink at their own
             // size, so they are never read together with the sale's (decision 221).
             val chrome = Modifier.words(through = ShiftThrough)
+            // Pull to refresh: the open payments read again, and on the shop's own wallet the chain and the price
+            // (docs/view-key-mode.md §8). The engine says nothing back to wait on, so the spinner goes as it's let go.
+            PullToRefreshBox(isRefreshing = false, onRefresh = { actions.send(Action.Refresh) }, modifier = Modifier.widthIn(max = 640.dp).fillMaxSize()) {
             LazyColumn(Modifier.widthIn(max = 640.dp).fillMaxSize(), state = list) {
                 // The items above the rows, from the one list a Back's place counts them by too (rowIndex).
                 for (key in head) item(key = key) {
@@ -313,6 +319,7 @@ fun ShiftScreen(
                     }
                 }
                 if (items.isNotEmpty()) item(key = "end") { Spacer(Modifier.height(24.dp)) }
+            }
             }
         }
     }

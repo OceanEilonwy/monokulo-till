@@ -386,6 +386,9 @@ pub enum Screen {
     WalletSeed,
     /// D4: this till's number, node, confirmations and expiry.
     ThisTill,
+    /// After the point of sale, on the shop's own wallet with a fiat
+    /// currency: where prices come from (docs/view-key-mode.md §8).
+    Prices,
     /// The shop's light wallet server, checked before the wallet
     /// (docs/view-key-mode.md §5.7, §11.1).
     LightServer,
@@ -788,10 +791,16 @@ pub enum Action {
         url: String,
         self_signed: bool,
     },
-    /// Settings' price source, one of its choices' labels ("CoinGecko").
+    /// The price source on Prices or in Settings: one of its providers'
+    /// names ("CoinGecko").
     ChoosePriceProvider {
         name: String,
     },
+    /// Pull to refresh on the shift: the open payments read again, the
+    /// point of sale looked at now, and (on the shop's own wallet) the
+    /// chain caught up and the price asked for unless it's under a minute
+    /// old (docs/view-key-mode.md §8).
+    Refresh,
 }
 
 impl Action {
@@ -892,6 +901,7 @@ impl Action {
             Action::SetNode { .. } => "SetNode",
             Action::EditLightServer { .. } => "EditLightServer",
             Action::ChoosePriceProvider { .. } => "ChoosePriceProvider",
+            Action::Refresh => "Refresh",
         }
     }
 }

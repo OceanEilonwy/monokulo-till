@@ -256,12 +256,7 @@ private fun WalletSettings(w: WalletSection, a: SettingsActions) {
     Footnote(w.footnote)
 
     SectionLabel(w.prices.label)
-    Group(
-        Modifier.selectableGroup(),
-        rows = w.prices.choices.map { choice ->
-            { ChoiceRow(choice.label, choice.selected, { if (choice.enabled) a.send(Action.ChoosePriceProvider(choice.label)) }, choice.detail) }
-        },
-    )
+    ProviderGroup(w.prices.providers, w.prices.asking, "") { a.send(Action.ChoosePriceProvider(it)) }
     Footnote(w.prices.footnote)
 }
 

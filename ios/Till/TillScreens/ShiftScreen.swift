@@ -134,6 +134,9 @@ struct ShiftScreen: View {
             }
         }
         .listStyle(.insetGrouped)
+        // Pull to refresh: the open payments read again, and on the shop's
+        // own wallet the chain and the price (docs/view-key-mode.md §8).
+        .refreshable { send(.refresh) }
         // The board's tight gaps: the filter sits just under the summary,
         // with no empty band between them (decision 31).
         .listSectionSpacing(.compact)
@@ -688,6 +691,7 @@ struct EmptyTill: View {
                 .padding(24)
                 .frame(maxWidth: .infinity, minHeight: box.size.height)
             }
+            .refreshable { send(.refresh) }
         }
         .foregroundStyle(Palette.ink)
         .background(Palette.ground)

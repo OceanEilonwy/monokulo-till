@@ -47,6 +47,7 @@ import com.monokulo.till.ui.StepperActions
 import com.monokulo.till.ui.LightServerScreen
 import com.monokulo.till.ui.ThisTillActions
 import com.monokulo.till.ui.ThisTillScreen
+import com.monokulo.till.ui.PricesScreen
 import com.monokulo.till.ui.WalletCodeScreen
 import com.monokulo.till.ui.WalletEntryScreen
 import com.monokulo.till.ui.WalletKeysScreen
@@ -189,6 +190,12 @@ class ScreenshotTest {
     private val offline: ShiftView by lazy { requireNotNull(previewShift(preview(sales, live = false, problem = "Couldn't reach the store."), TestPlatform)) }
     private val settings: SettingsView by lazy { previewSettings(Device.ANDROID, now) }
 
+    /** A sale the till's own wallet priced: its code names the provider and the price's time (docs/view-key-mode.md §8). */
+    private val pricedFace by lazy {
+        val priced = preview(listOf(sales[0].copy(priceProvider = "Kraken", priceAt = now - 60)))
+        SaleFace.of(previewSale(priced, "w1", TestPlatform) as Update.Sale)
+    }
+
     private fun face(orderId: String) = SaleFace.of(previewSale(full, orderId, TestPlatform) as Update.Sale)
     private fun close(orderId: String): CloseView? = previewClose(full, orderId, TestPlatform)
     private fun step(step: PreviewStep): OnboardingView = previewOnboarding(step, Device.ANDROID, TestPlatform)
@@ -226,6 +233,9 @@ class ScreenshotTest {
         setup("vk-light-mode", PreviewStep.VK_LIGHT_MODE),
         setup("vk-light-server", PreviewStep.VK_LIGHT_SERVER),
         setup("vk-light-this-till", PreviewStep.VK_LIGHT_THIS_TILL),
+        setup("vk-prices-step", PreviewStep.VK_PRICES),
+        setup("vk-prices-fob", PreviewStep.VK_PRICES_FOB),
+        Shot("vk-prices-code") { SaleScreen(pricedFace, noActions, null) },
         shiftShot("till-empty") { empty },
         shiftShot("till-shift") { shift },
         shiftShot("till-shift-offline") { offline },
@@ -289,6 +299,7 @@ class ScreenshotTest {
             is OnboardingPage.ThisTill -> ThisTillScreen(
                 page.view, view.heading, view.lead, step, ThisTillActions(steppers, onNumber = {}, onNode = {}, onNext = {}, onBack = {}),
             )
+            is OnboardingPage.Prices -> PricesScreen(page.view, view.heading, view.lead, step, onChoose = {}, onNext = {}, onBack = {})
         }
     }
 

@@ -21,7 +21,7 @@ enum Route: Hashable {
         switch screen {
         case .welcome, .scan, .confirm, .connected, .pointOfSale, .locations, .counter, .alerts, .float,
              .showSales, .ready, .paymentsMode, .walletEntry, .fobRequest, .fobConnected, .walletCode,
-             .walletKeys, .walletSeed, .thisTill, .lightServer:
+             .walletKeys, .walletSeed, .thisTill, .prices, .lightServer:
             return .onboarding
         case .till:
             return .shift

@@ -95,11 +95,12 @@ fn setup_step(screen: &Screen) -> Option<u8> {
         Screen::PointOfSale => 7,
         Screen::Locations => 8,
         Screen::Counter => 9,
-        Screen::Alerts => 10,
-        Screen::Float => 11,
-        Screen::ShowSales => 12,
-        Screen::Ready => 13,
-        Screen::Till => 14,
+        Screen::Prices => 10,
+        Screen::Alerts => 11,
+        Screen::Float => 12,
+        Screen::ShowSales => 13,
+        Screen::Ready => 14,
+        Screen::Till => 15,
         _ => return None,
     })
 }

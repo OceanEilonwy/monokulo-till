@@ -154,6 +154,9 @@ pub enum Step {
     /// (docs/view-key-mode.md §11.1): V1, V2, Connect to Fob, the wallet
     /// entered by hand, and This till.
     Wallet(WalletStep),
+    /// Prices, after the point of sale, for a till on the shop's own
+    /// wallet with a fiat currency (docs/view-key-mode.md §8, §11.1).
+    Prices(crate::prices::PricesInput),
     /// Step 6: what's set up. `location` is the location or merchant.
     Ready {
         store: String,
@@ -280,6 +283,7 @@ enum Phase {
     Wallet,
     ThisTill,
     PointOfSale,
+    Prices,
     Alerts,
     ShowSales,
     Ready,
@@ -297,13 +301,14 @@ impl Phase {
     ];
 
     /// The rail's names for a till on the shop's own wallet (board
-    /// VkRail), but Prices, which isn't a step of its own yet.
-    const WALLET_RAIL: [(Phase, &'static str); 7] = [
+    /// VkRail, with Alerts).
+    const WALLET_RAIL: [(Phase, &'static str); 8] = [
         (Phase::Welcome, "Welcome"),
         (Phase::Payments, "How Till sees payments"),
         (Phase::Wallet, "Your wallet"),
         (Phase::ThisTill, "This till"),
         (Phase::PointOfSale, "Point of sale"),
+        (Phase::Prices, "Prices"),
         (Phase::Alerts, "Alerts"),
         (Phase::Ready, "Ready"),
     ];
@@ -322,6 +327,7 @@ impl Phase {
             Phase::Wallet,
             Phase::ThisTill,
             Phase::PointOfSale,
+            Phase::Prices,
             Phase::Alerts,
             Phase::Ready,
         ];
@@ -521,6 +527,10 @@ pub enum OnboardingPage {
     /// D4: this till's number, node, confirmations and expiry.
     ThisTill {
         view: ThisTillStep,
+    },
+    /// Prices: the provider, with Fob's checks (docs/view-key-mode.md §8).
+    Prices {
+        view: crate::prices::PricesStep,
     },
     /// The shop's light wallet server: its address, checked.
     LightServer {
@@ -787,6 +797,13 @@ pub fn onboarding(
                 view: show_sales_step(*chosen, currency, pos, money),
             },
         ),
+        Step::Prices(prices) => (
+            Some(4),
+            false,
+            OnboardingPage::Prices {
+                view: crate::prices::prices_step(prices),
+            },
+        ),
         Step::Wallet(step) => {
             let number = if matches!(step, WalletStep::ThisTill(_)) {
                 3
@@ -840,6 +857,7 @@ fn phase(step: &Step) -> Option<Phase> {
         Step::Scan { .. } | Step::Confirm { .. } | Step::Connected { .. } => Phase::Store,
         Step::PointOfSale(setup) if !setup.setup => return None,
         Step::PointOfSale(_) | Step::Locations { .. } | Step::Counter(_) => Phase::PointOfSale,
+        Step::Prices(_) => Phase::Prices,
         Step::Alerts { .. } => Phase::Alerts,
         Step::Float { .. } => return None,
         Step::ShowSales { .. } => Phase::ShowSales,
@@ -1048,6 +1066,10 @@ fn words(page: &OnboardingPage, device: Device) -> Words {
         OnboardingPage::ThisTill { view } => said(
             "This till",
             wallet_setup::this_till_lead(view.number.is_some()),
+        ),
+        OnboardingPage::Prices { .. } => said(
+            "Where should prices come from?",
+            "Till turns each sale's price into XMR at the price one of these gives.",
         ),
         OnboardingPage::LightServer { .. } => said(
             wallet_setup::LIGHT_SERVER_HEADING,

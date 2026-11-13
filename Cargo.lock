@@ -3270,6 +3270,7 @@ dependencies = [
  "async-trait",
  "fob-codes",
  "fob-keys",
+ "fob-monero",
  "fob-price",
  "fob-wallet",
  "futures-util",

@@ -61,6 +61,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading as headingRole
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
@@ -70,6 +71,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withLink
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.max
@@ -88,6 +90,8 @@ import uniffi.till_screens.ModeChoice
 import uniffi.till_screens.ModeStep
 import uniffi.till_screens.NodeRow
 import uniffi.till_screens.PaymentsMode
+import uniffi.till_screens.PricesStep
+import uniffi.till_screens.ProviderRow
 import uniffi.till_screens.Press
 import uniffi.till_screens.SetupStepper
 import uniffi.till_screens.ThisTillStep
@@ -765,4 +769,68 @@ internal fun NodeDialog(node: NodeRow, onDone: (String?) -> Unit) {
         dismissButton = { LinkButton("Cancel", { onDone(null) }, color = mk.ink) },
         containerColor = mk.ground,
     )
+}
+
+/**
+ * Prices (docs/view-key-mode.md §8), as Fob's Price from asks it: Fob's intro with the currency in bold, each
+ * provider of the currency with what it says XMR is worth (or why it gave nothing, in red, not pickable), and what
+ * a request gives away. No canvas board draws it: setup's other stages' look.
+ */
+@Composable
+fun PricesScreen(view: PricesStep, heading: String, lead: String, stepLabel: String?, onChoose: (String) -> Unit, onNext: () -> Unit, onBack: () -> Unit) = Page(
+    top = { BackBar(onBack) },
+    bottom = { Foot(view.next, onNext, stepLabel) },
+) {
+    Head(heading, lead)
+    Text(
+        buildAnnotatedString {
+            append(view.introBefore)
+            withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = mk.ink)) { append(view.introBold) }
+            append(view.introAfter)
+        },
+        color = mk.muted, fontSize = 15.sp, lineHeight = 21.sp, modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp),
+    )
+    SectionLabel(view.section)
+    ProviderGroup(view.providers, view.asking, view.summary, onChoose)
+    view.fromFob?.let { Footnote(it) }
+    Footnote(view.footnote)
+    Notice(view.problem, Modifier.padding(16.dp))
+    Spacer(Modifier.height(16.dp))
+}
+
+/** Each provider on its own line in a card, "Asking each provider…" over them while they're asked: Prices' and Settings'. */
+@Composable
+internal fun ProviderGroup(rows: List<ProviderRow>, asking: String?, summary: String, onChoose: (String) -> Unit) = Group(
+    Modifier.selectableGroup().semantics { if (summary.isNotEmpty()) stateDescription = summary },
+    rows = listOfNotNull<@Composable () -> Unit>(
+        asking?.let { words ->
+            {
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    LoadingMark(18.dp, label = words)
+                    Text(words, color = mk.muted, fontSize = 15.sp)
+                }
+            }
+        },
+    ) + rows.map { row -> { ProviderLine(row) { onChoose(row.name) } } },
+)
+
+/** One provider, as Fob draws it: its name, its price (or why there's none, in red) at the end, and a tick on the one in use. */
+@Composable
+private fun ProviderLine(row: ProviderRow, onClick: () -> Unit) = Row(
+    Modifier.fillMaxWidth().heightIn(min = 52.dp)
+        .selectable(selected = row.selected, enabled = row.enabled, role = Role.RadioButton, onClick = onClick)
+        .clearAndSetSemantics { contentDescription = row.label }
+        .padding(horizontal = 16.dp, vertical = 8.dp),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(12.dp),
+) {
+    Text(row.name, fontSize = 17.sp, color = if (row.enabled || row.selected) mk.ink else mk.muted, modifier = Modifier.weight(1f))
+    row.value?.let { Text(it, fontSize = 15.sp, color = if (row.failed) mk.danger else mk.muted, textAlign = TextAlign.End) }
+    Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
+        if (row.selected) Icon(MkIcons.Tick, contentDescription = null, tint = mk.ink, modifier = Modifier.size(20.dp))
+    }
 }

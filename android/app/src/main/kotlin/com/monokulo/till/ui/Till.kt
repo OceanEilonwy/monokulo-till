@@ -416,6 +416,8 @@ private fun Amount(sale: SaleFace, actions: TillActions, start: Boolean = false)
             .clickable(onClickLabel = "Copy the XMR amount") { actions.send(Action.CopyAmount(sale.orderId)) }
             .padding(horizontal = 6.dp, vertical = 2.dp),
     )
+    // Where the till's own wallet got the rate, and when (docs/view-key-mode.md §8).
+    sale.view.priceLine?.let { Text(it, fontSize = 13.sp, color = mk.muted, textAlign = align, maxLines = 1) }
 }
 
 /**

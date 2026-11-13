@@ -70,6 +70,7 @@ import com.monokulo.till.ui.StepperActions
 import com.monokulo.till.ui.LightServerScreen
 import com.monokulo.till.ui.ThisTillActions
 import com.monokulo.till.ui.ThisTillScreen
+import com.monokulo.till.ui.PricesScreen
 import com.monokulo.till.ui.WalletCodeScreen
 import com.monokulo.till.ui.WalletEntryScreen
 import com.monokulo.till.ui.WalletKeysScreen
@@ -381,6 +382,10 @@ class MainActivity : ComponentActivity() {
                     onBack = { send(Action.Back) },
                 ),
             )
+            is OnboardingPage.Prices -> PricesScreen(
+                page.view, view.heading, view.lead, step,
+                onChoose = { send(Action.ChoosePriceProvider(it)) }, onNext = { send(Action.Next) }, onBack = { send(Action.Back) },
+            )
         }
     }
 
@@ -539,5 +544,6 @@ private fun OnboardingPage.isFor(screen: Screen): Boolean = when (this) {
     is OnboardingPage.WalletKeys -> screen == Screen.WalletKeys
     is OnboardingPage.WalletSeed -> screen == Screen.WalletSeed
     is OnboardingPage.ThisTill -> screen == Screen.ThisTill
+    is OnboardingPage.Prices -> screen == Screen.Prices
     is OnboardingPage.LightServer -> screen == Screen.LightServer
 }

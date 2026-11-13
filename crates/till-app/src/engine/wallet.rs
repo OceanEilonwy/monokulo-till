@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 use till_payments::{FobWallet, WalletLink};
 use till_screens::onboarding::Step;
+use till_screens::prices::{PricesInput, ProviderCheck};
 use till_screens::wallet_settings::WalletSettingsInput;
 use till_screens::wallet_setup::{
     AddressIssue, CONFIRMATION_STEPS, CheckMark, EXPIRY_STEPS, FobConnectedSetup, KeysSetup,
@@ -30,7 +31,7 @@ use zeroize::Zeroizing;
 use till_sales::RunnerSide;
 
 use super::{State, apply};
-use crate::store::keys;
+use crate::store::{Model, keys};
 use crate::{Effect, Screen};
 
 /// Where "Don't have Fob? Get it for Android" goes: Fob's releases.
@@ -64,6 +65,11 @@ pub(crate) struct WalletForm {
     checking: u64,
     confirmations: u32,
     expiry_minutes: u32,
+    /// The price providers' answers on Prices and Settings (fob-price's
+    /// check); `None` while they're asked.
+    price_checks: Option<Vec<ProviderCheck>>,
+    /// Bumped with each check of the providers.
+    price_checking: u64,
     /// The light wallet server as typed, and whether its own certificate
     /// is accepted.
     light_url: String,
@@ -102,6 +108,8 @@ impl WalletForm {
             checking: 0,
             confirmations: till_payments::DEFAULT_CONFIRMATIONS,
             expiry_minutes: till_payments::DEFAULT_EXPIRY_MINUTES,
+            price_checks: None,
+            price_checking: 0,
             light_url: String::new(),
             light_self_signed: false,
             light_checks: Vec::new(),
@@ -656,18 +664,117 @@ impl State {
         self.go(Screen::PointOfSale);
     }
 
+    /// Whether setup asks where prices come from: on the shop's own
+    /// wallet, with a fiat currency some provider prices (§8, §11.1). Fob's
+    /// choice, when it shared one, is picked, but the step still shows.
+    pub(super) fn prices_due(&self) -> bool {
+        let Some(p) = &self.parts else { return false };
+        let model = p.side.model();
+        model.wallet.is_some()
+            && model.connection.is_none()
+            && price_currency(&model)
+                .is_some_and(|c| !till_wallet::prices::provider_names(Some(&c)).is_empty())
+    }
+
+    /// After the point of sale: Prices when due, else alerts.
+    pub(super) fn after_pos(&mut self) {
+        if self.prices_due() {
+            self.go(Screen::Prices);
+            self.check_prices();
+        } else {
+            self.go(Screen::Alerts);
+        }
+    }
+
+    /// Prices' Continue: the currency and provider kept in the wallet's
+    /// link, so the wallet keeps that price fresh, then alerts.
+    pub(super) fn prices_next(&mut self) {
+        let Some(model) = self.model() else { return };
+        let Some(currency) = price_currency(&model) else {
+            return self.go(Screen::Alerts);
+        };
+        let provider = model.wallet.as_ref().map(|link| {
+            till_wallet::prices::provider_name(link.price_provider.as_deref(), Some(&currency))
+        });
+        self.change_wallet_then(
+            move |link| {
+                link.price_currency = Some(currency);
+                link.price_provider = provider;
+            },
+            |s| s.go(Screen::Alerts),
+        );
+    }
+
+    /// Each provider of the currency asked for its price now, as Fob's
+    /// Price from does as it opens: on Prices, and as Settings opens.
+    pub(super) fn check_prices(&mut self) {
+        let Some(model) = self.model() else { return };
+        let Some(link) = model.wallet.as_ref() else {
+            return;
+        };
+        let Some(currency) = price_currency(&model) else {
+            return;
+        };
+        let chosen =
+            till_wallet::prices::provider_name(link.price_provider.as_deref(), Some(&currency));
+        let form = self.form();
+        form.price_checks = None;
+        form.price_checking += 1;
+        let token = form.price_checking;
+        self.task(async move {
+            let answers = till_wallet::prices::check_providers(&currency, &chosen).await;
+            apply(move |s| {
+                if s.wallet.price_checking == token {
+                    s.wallet.price_checks = Some(
+                        answers
+                            .into_iter()
+                            .map(|a| ProviderCheck {
+                                name: a.name,
+                                rate: a.rate,
+                                failure: a.failure.map(str::to_owned),
+                            })
+                            .collect(),
+                    );
+                }
+            })
+        });
+    }
+
+    /// What Prices shows.
+    pub(super) fn prices_step(&self, model: &Model) -> Option<Step> {
+        let link = model.wallet.as_ref()?;
+        let currency = price_currency(model)?;
+        let plural = till_screens::prices::plural_or_code(
+            &till_wallet::prices::currency_plural(&currency),
+            &currency,
+        );
+        Some(Step::Prices(PricesInput {
+            provider: till_wallet::prices::provider_name(
+                link.price_provider.as_deref(),
+                Some(&currency),
+            ),
+            providers: till_wallet::prices::provider_names(Some(&currency)),
+            plural,
+            currency,
+            checks: self.wallet.price_checks.clone(),
+            from_fob: link.fob.as_ref().is_some_and(|f| f.prices_from_fob),
+            busy: self.busy,
+            problem: self.problem.clone(),
+        }))
+    }
+
     /// Settings is up on a till linked to its own wallet: the steppers and
     /// the node change the wallet's link, not setup's form.
     fn in_wallet_settings(&self) -> bool {
         self.screen == Screen::Settings && self.parts.as_ref().is_some_and(|p| p.side.wallet_mode())
     }
 
-    /// Settings' price source.
+    /// The price source, on Prices or in Settings.
     pub(super) fn choose_price_provider(&mut self, name: String) {
-        if !self.in_wallet_settings() {
+        if !self.in_wallet_settings() && self.screen != Screen::Prices {
             return;
         }
-        let currency = self.settings_currency();
+        let currency = self.model().as_ref().and_then(price_currency);
         if !till_wallet::prices::provider_names(currency.as_deref()).contains(&name) {
             return;
         }
@@ -682,20 +789,20 @@ impl State {
         });
     }
 
-    /// The currency prices are for: the point of sale's, else Fob's.
-    fn settings_currency(&self) -> Option<String> {
-        let model = self.parts.as_ref()?.side.model();
-        model
-            .location
-            .as_ref()
-            .map(|l| l.currency.clone())
-            .or_else(|| model.wallet.as_ref()?.price_currency.clone())
-    }
-
     /// Changes the wallet's link as `change` says: the wallet is set up
     /// that way first (a new node checked by it), then the link kept.
     /// Refused, nothing changes and Settings says why.
     fn change_wallet(&mut self, change: impl FnOnce(&mut WalletLink)) {
+        self.change_wallet_then(change, |_| {});
+    }
+
+    /// [`State::change_wallet`], then `then` once the link is kept (or at
+    /// once, when nothing changed).
+    fn change_wallet_then(
+        &mut self,
+        change: impl FnOnce(&mut WalletLink),
+        then: impl FnOnce(&mut State) + Send + 'static,
+    ) {
         let Some(p) = &self.parts else { return };
         let Some(old) = p.side.model().wallet else {
             return;
@@ -703,7 +810,7 @@ impl State {
         let mut link = old.clone();
         change(&mut link);
         if link == old {
-            return;
+            return then(self);
         }
         let Some(backend) = p.side.wallet_backend(&old) else {
             self.problem = Some("Couldn't open the wallet to change it.".into());
@@ -714,7 +821,9 @@ impl State {
             match backend.update(link.clone()).await {
                 Ok(()) => apply(move |s| {
                     side.rekey_wallet(&link);
-                    s.keep(|m| m.wallet = Some(link));
+                    if s.keep(|m| m.wallet = Some(link)) {
+                        then(s);
+                    }
                     if let Some(p) = &s.parts {
                         p.live.read(p.side.backend().as_ref());
                     }
@@ -727,11 +836,13 @@ impl State {
         });
     }
 
-    /// Settings' node checked, as Settings opens.
+    /// Settings' node checked, and the price providers asked, as Settings
+    /// opens.
     pub(super) fn check_wallet_node(&mut self) {
         if !self.in_wallet_settings() {
             return;
         }
+        self.check_prices();
         let Some(link) = self.parts.as_ref().and_then(|p| p.side.model().wallet) else {
             return;
         };
@@ -765,11 +876,7 @@ impl State {
             .filter(|a| !a.is_empty())
             .or_else(|| p.side.wallet_backend(link).map(|b| b.address()))
             .unwrap_or_default();
-        let currency = model
-            .location
-            .as_ref()
-            .map(|l| l.currency.clone())
-            .or(link.price_currency.clone());
+        let currency = price_currency(model);
         let provider =
             till_wallet::prices::provider_name(link.price_provider.as_deref(), currency.as_deref());
         let network = till_wallet::backend::network_of(link);
@@ -794,6 +901,7 @@ impl State {
             checks: self.wallet.checks.clone(),
             node_choices: setup::default_nodes(network),
             providers: till_wallet::prices::provider_names(currency.as_deref()),
+            price_checks: self.wallet.price_checks.clone(),
             provider,
             currency,
             warnings: now.backend.map(|b| b.warnings).unwrap_or_default(),
@@ -929,4 +1037,20 @@ impl State {
         };
         Some(Step::Wallet(step))
     }
+}
+
+/// The currency a till on its own wallet prices sales in: its point of
+/// sale's (the Square location's, the Clover merchant's), else the one Fob
+/// shared.
+pub(super) fn price_currency(model: &Model) -> Option<String> {
+    use monokulo_client::PointOfSale;
+    let pos = match model.point_of_sale {
+        Some(PointOfSale::Square) => model.location.as_ref().map(|l| l.currency.clone()),
+        Some(PointOfSale::Clover) => model
+            .clover_merchant
+            .as_ref()
+            .map(|m| m.currency.to_string()),
+        None => None,
+    };
+    pos.or_else(|| model.wallet.as_ref()?.price_currency.clone())
 }

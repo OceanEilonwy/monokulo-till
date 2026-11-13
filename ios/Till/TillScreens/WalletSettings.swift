@@ -114,32 +114,22 @@ struct WalletSettings: View {
         }
     }
 
-    /// Prices from, as the system's menu of the price sources, ticked.
+    /// Prices from, then each provider of the currency with what it says
+    /// XMR is worth, as setup's Prices draws them, ticked on the one in use.
+    @ViewBuilder
     private var pricesRow: some View {
-        Menu {
-            ForEach(Array(wallet.prices.choices.enumerated()), id: \.offset) { _, choice in
-                Button {
-                    send(.choosePriceProvider(name: choice.label))
-                } label: {
-                    if choice.selected {
-                        Label(choice.label, systemImage: "checkmark")
-                    } else {
-                        Text(choice.label)
-                    }
-                }
-                .disabled(!choice.enabled)
+        LabeledContent(wallet.prices.label, value: wallet.prices.value)
+        if let asking = wallet.prices.asking {
+            HStack(spacing: 12) {
+                ProgressView()
+                Text(asking)
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.secondary)
             }
-        } label: {
-            LabeledContent(wallet.prices.label) {
-                HStack(spacing: 4) {
-                    Text(wallet.prices.value)
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.footnote.weight(.semibold))
-                        .accessibilityHidden(true)
-                }
-                .foregroundStyle(Palette.secondary)
-            }
-            .foregroundStyle(Palette.ink)
+            .accessibilityElement(children: .combine)
+        }
+        ForEach(Array(wallet.prices.providers.enumerated()), id: \.offset) { _, row in
+            ProviderLine(row: row) { send(.choosePriceProvider(name: row.name)) }
         }
     }
 }

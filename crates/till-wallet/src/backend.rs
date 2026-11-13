@@ -351,6 +351,13 @@ impl Inner {
         self.clock.now().0
     }
 
+    /// Asks for the link's currency's price unless it's under `max_age`
+    /// seconds old.
+    async fn keep_price_fresh(&self, max_age: u64) -> Result<(), String> {
+        let currency = lock(&self.link).price_currency.clone();
+        self.prices.keep_fresh(currency.as_deref(), max_age).await
+    }
+
     fn settled(&self) -> u32 {
         lock(&self.link).settled_confirmations.clamp(
             fob_wallet::manual::SETTLED_MIN,
@@ -676,7 +683,12 @@ impl PaymentBackend for WalletBackend {
     /// expiry is the clock's: the stream says the node failed.
     async fn refresh(&self, refs: &[PaymentRef]) -> Result<Vec<Payment>, BackendError> {
         let inner = &self.inner;
-        let caught_up = inner.wallet.catch_up().await;
+        // As the stream opens and on pull to refresh: the price too, unless
+        // it's under a minute old (§8).
+        let (caught_up, _) = tokio::join!(
+            inner.wallet.catch_up(),
+            inner.keep_price_fresh(crate::prices::PULL_REFRESH)
+        );
         let mut payments = Vec::new();
         for reference in refs {
             if let Some(id) = request_id(reference.as_str())
@@ -737,6 +749,10 @@ impl PaymentBackend for WalletBackend {
                         .extend(changed.into_iter().map(|p| Ok(BackendEvent::Changed(p)))),
                     Err(e) => state.queue.push_back(Err(e)),
                 }
+                // The price too, every 5 minutes while Till is open (§8): the
+                // stream runs only then. A failure waits for the code that
+                // needs it, which asks again and says so.
+                let _ = state.inner.keep_price_fresh(crate::prices::REFRESH).await;
             }
         })
         .boxed()
@@ -895,6 +911,35 @@ mod tests {
             .await
             .unwrap();
         (backend, clock, source)
+    }
+
+    #[tokio::test]
+    async fn the_links_currency_is_kept_fresh_and_without_one_nothing_is_asked() {
+        let dir = tempfile::tempdir().unwrap();
+        let (backend, clock, source) = backend(dir.path()).await;
+        backend.inner.keep_price_fresh(0).await.unwrap();
+        assert_eq!(source.asked.load(Ordering::SeqCst), 0, "no currency yet");
+        lock(&backend.inner.link).price_currency = Some("USD".into());
+        backend
+            .inner
+            .keep_price_fresh(crate::prices::REFRESH)
+            .await
+            .unwrap();
+        backend
+            .inner
+            .keep_price_fresh(crate::prices::REFRESH)
+            .await
+            .unwrap();
+        assert_eq!(source.asked.load(Ordering::SeqCst), 1);
+        clock
+            .0
+            .fetch_add(crate::prices::REFRESH as i64, Ordering::SeqCst);
+        backend
+            .inner
+            .keep_price_fresh(crate::prices::REFRESH)
+            .await
+            .unwrap();
+        assert_eq!(source.asked.load(Ordering::SeqCst), 2, "five minutes on");
     }
 
     #[tokio::test]

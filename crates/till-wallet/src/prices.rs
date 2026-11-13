@@ -15,6 +15,14 @@ use till_types::{Money, Price, PriceUsed, UnixSeconds};
 /// The oldest price a code is made from, in seconds: fob-price's `AGED`.
 pub const AGED: u64 = fob_price::AGED;
 
+/// How often the price is asked for again while Till is in the foreground,
+/// in seconds: fob-price's `REFRESH`, 5 minutes.
+pub const REFRESH: u64 = fob_price::REFRESH;
+
+/// The soonest pull to refresh asks again, in seconds: fob-price's
+/// `PULL_REFRESH`.
+pub const PULL_REFRESH: u64 = fob_price::PULL_REFRESH;
+
 /// Piconero in one XMR.
 const ATOMIC_PER_XMR: u128 = 1_000_000_000_000;
 /// Millionths: how a provider's price is counted.
@@ -75,6 +83,58 @@ pub fn provider_names(currency: Option<&str>) -> Vec<String> {
 /// The name of the provider [`provider_for`] picks.
 pub fn provider_name(name: Option<&str>, currency: Option<&str>) -> String {
     provider_for(name, currency).name().to_owned()
+}
+
+/// One provider's answer as the Prices page opens (fob-price's `check`):
+/// what it says XMR is worth in the currency, written as Fob writes it
+/// ("A$845.10"), or why it gave none, in Fob's words.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProviderAnswer {
+    pub name: String,
+    pub rate: Option<String>,
+    pub failure: Option<&'static str>,
+}
+
+/// Asks each provider that prices `currency` for XMR's price now, all at
+/// once, over the web, each given fob-price's `CHECK_TIMEOUT`: the lines of
+/// Fob's Price from, in fob-price's order. Only the currency pair is asked
+/// for.
+pub async fn check_providers(currency: &str, chosen: &str) -> Vec<ProviderAnswer> {
+    let providers = fob_price::providers_for(currency);
+    let currency = fob_monero::fiat::currency(currency);
+    fob_price::check(
+        providers,
+        &currency,
+        Transport::Web,
+        chosen,
+        fob_price::CHECK_TIMEOUT,
+    )
+    .await
+    .into_iter()
+    .map(|c| ProviderAnswer {
+        name: c.name.to_owned(),
+        rate: c.rate,
+        failure: c.failure.map(failure_words),
+    })
+    .collect()
+}
+
+/// Why a provider gave no price, in fob-words' words.
+pub fn failure_words(failure: fob_price::Failure) -> &'static str {
+    use fob_price::Failure;
+    match failure {
+        Failure::NotAnswering => "Not answering",
+        Failure::Busy => "Busy, try again soon",
+        Failure::BadAnswer => "Answered without a price",
+        Failure::TorNotYet => "Tor isn't built yet",
+        Failure::NotOverTor => "Doesn't answer over Tor",
+    }
+}
+
+/// "Australian dollars", as Fob names `code` in "Prices in …"; empty for
+/// a currency Fob doesn't know.
+pub fn currency_plural(code: &str) -> String {
+    fob_monero::fiat::currency(code).plural.to_owned()
 }
 
 /// The prices asked for so far, by currency, each with when it was given.
@@ -145,6 +205,40 @@ impl Prices {
             .unwrap_or_else(|e| e.into_inner())
             .insert(currency.to_owned(), (rate, now));
         Ok((rate, now))
+    }
+
+    /// Asks for XMR's price in `currency` now unless the one known is under
+    /// `max_age` seconds old: the 5-minute refresh while Till is open
+    /// ([`REFRESH`]), and pull to refresh ([`PULL_REFRESH`]). No currency
+    /// (XMR only) asks nothing. A failure is kept for the code that needs
+    /// the price, which asks again and says so.
+    pub async fn keep_fresh(&self, currency: Option<&str>, max_age: u64) -> Result<(), String> {
+        let Some(code) = currency.filter(|c| *c != "XMR") else {
+            return Ok(());
+        };
+        if !self.source().prices(code) {
+            return Ok(());
+        }
+        let now = self.clock.now().0;
+        let known = self
+            .known
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(code)
+            .copied();
+        if known.is_some_and(|(_, at)| now.saturating_sub(at) < max_age as i64) {
+            return Ok(());
+        }
+        let source = self.source();
+        let rate = source.current(code).await?;
+        if rate == 0 {
+            return Err(format!("{} gave no price", source.name()));
+        }
+        self.known
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(code.to_owned(), (rate, now));
+        Ok(())
     }
 
     /// `amount` in piconero, rounded to a millionth of an XMR so the
@@ -314,5 +408,38 @@ pub(crate) mod tests {
         );
         assert_eq!(provider_for(None, Some("USD")), Provider::Kraken);
         assert_eq!(provider_for(Some("Nobody"), None), Provider::Kraken);
+    }
+
+    #[tokio::test]
+    async fn the_price_is_kept_fresh_every_five_minutes_and_xmr_asks_nothing() {
+        let source = Arc::new(FixedSource::new());
+        let clock = Arc::new(TestClock(AtomicI64::new(1_000)));
+        let prices = Prices::new(source.clone(), clock.clone());
+        prices.keep_fresh(Some("USD"), REFRESH).await.unwrap();
+        assert_eq!(source.asked.load(Ordering::SeqCst), 1);
+        clock.0.store(1_000 + REFRESH as i64 - 1, Ordering::SeqCst);
+        prices.keep_fresh(Some("USD"), REFRESH).await.unwrap();
+        assert_eq!(
+            source.asked.load(Ordering::SeqCst),
+            1,
+            "under 5 minutes old"
+        );
+        prices.keep_fresh(Some("USD"), PULL_REFRESH).await.unwrap();
+        assert_eq!(
+            source.asked.load(Ordering::SeqCst),
+            2,
+            "pulled: a minute is enough"
+        );
+        prices.convert(&usd(100)).await.unwrap();
+        assert_eq!(source.asked.load(Ordering::SeqCst), 2, "the code uses it");
+        prices.keep_fresh(None, REFRESH).await.unwrap();
+        prices.keep_fresh(Some("XMR"), 0).await.unwrap();
+        assert_eq!(source.asked.load(Ordering::SeqCst), 2, "XMR asks nothing");
+    }
+
+    #[test]
+    fn a_currency_is_named_as_fob_names_it() {
+        assert_eq!(currency_plural("AUD"), "Australian dollars");
+        assert_eq!(currency_plural("XYZ"), "");
     }
 }

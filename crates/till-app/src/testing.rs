@@ -35,6 +35,10 @@ impl FakePlatform {
             .insert(key.to_owned(), value.as_bytes().to_vec());
     }
 
+    pub fn remove(&self, key: &str) {
+        self.secrets.lock().unwrap().remove(key);
+    }
+
     pub fn get(&self, key: &str) -> Option<String> {
         self.secrets
             .lock()
