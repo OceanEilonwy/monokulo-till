@@ -445,7 +445,7 @@ mod tests {
         );
         assert_eq!(
             subtitle(&sale(None), &receipt, square, la(0)),
-            "Monero sale · 4:07 PM",
+            "Sale · 4:07 PM",
             "no Square reference, no Square receipt"
         );
         assert_eq!(

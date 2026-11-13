@@ -15,7 +15,7 @@ use crate::decimal::Decimal;
 use crate::pos_text;
 use crate::time::{DeviceClock, time};
 
-/// "Sale #1042" from the POS's receipt number, or "Monero sale" when the
+/// "Sale #1042" from the POS's receipt number, or "Sale" when the
 /// POS gave none.
 pub fn title(sale: &TillSale) -> String {
     let reference = sale.reference.as_deref().unwrap_or("").trim();
@@ -28,7 +28,7 @@ pub fn title(sale: &TillSale) -> String {
     if keypad && !reference.is_empty() {
         reference.into()
     } else if reference.is_empty() {
-        "Monero sale".into()
+        "Sale".into()
     } else if reference.starts_with('#') {
         format!("Sale {reference}")
     } else {
@@ -424,8 +424,8 @@ mod tests {
     fn a_sale_is_named_by_the_poss_receipt_number_else_as_a_monero_sale() {
         assert_eq!(title(&of(Some("#1042"))), "Sale #1042");
         assert_eq!(title(&of(Some("bP9m"))), "Sale #bP9m");
-        assert_eq!(title(&of(None)), "Monero sale");
-        assert_eq!(title(&of(Some(" "))), "Monero sale");
+        assert_eq!(title(&of(None)), "Sale");
+        assert_eq!(title(&of(Some(" "))), "Sale");
     }
 
     #[test]
@@ -459,7 +459,7 @@ mod tests {
             customer_name: Some("Ana".into()),
             ..of(None)
         };
-        assert_eq!(heading_line(&ana, "This till"), "Monero sale · This till");
+        assert_eq!(heading_line(&ana, "This till"), "Sale · This till");
     }
 
     #[test]
