@@ -23,7 +23,7 @@ pub mod setup;
 pub mod status;
 
 pub use backend::{WALLET_FILE, WalletBackend, wallet_path};
-pub use connect::{AnswerProblem, FobRequest, Granted, Pattern};
+pub use connect::{AnswerProblem, FobRequest, Granted, Pattern, SharedNode};
 pub use keys::{Network, ViewKeys};
 pub use setup::{
     CheckState, LightCheck, Made, NodeCheck, WalletSetup, check_light_server, make_wallet,

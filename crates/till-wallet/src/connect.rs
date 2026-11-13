@@ -15,6 +15,10 @@ pub const APP: &str = "Till";
 /// key is wiped when this goes: keep it only until the answer is opened.
 pub struct FobRequest {
     asker: Asker,
+    /// The light wallet server setup was going through when the request
+    /// was made, kept and restored with it: after a restart, setup goes on
+    /// through the same server.
+    pub light_server: Option<SharedNode>,
 }
 
 /// The pattern both screens show: 5×5 cells, `true` drawn in `ink` on
@@ -82,7 +86,10 @@ impl FobRequest {
             prices: true,
         };
         Asker::new(APP, &clip(name), &clip(device), network, want, callback)
-            .map(|asker| FobRequest { asker })
+            .map(|asker| FobRequest {
+                asker,
+                light_server: None,
+            })
             .map_err(|e| e.to_string())
     }
 
@@ -109,7 +116,10 @@ impl FobRequest {
             want,
             None,
         )
-        .map(|asker| FobRequest { asker })
+        .map(|asker| FobRequest {
+            asker,
+            light_server: None,
+        })
         .map_err(|e| e.to_string())
     }
 
@@ -120,17 +130,24 @@ impl FobRequest {
         let request = self.asker.request();
         let secret = self.asker.secret();
         let hex = |bytes: &[u8]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
-        let kept = serde_json::json!({
+        let mut kept = serde_json::json!({
             "secret": hex(&secret[..]),
             "state": hex(&request.state),
             "name": request.name,
             "device": request.device,
             "network": request.network.name(),
         });
+        if let Some(server) = &self.light_server {
+            kept["light_server"] = serde_json::json!({
+                "url": server.url,
+                "self_signed": server.self_signed,
+            });
+        }
         Zeroizing::new(kept.to_string())
     }
 
     /// The request [`FobRequest::keep`] kept, or `None` for anything else.
+    /// One kept before requests carried a light wallet server has none.
     pub fn restore(kept: &str) -> Option<FobRequest> {
         let value: serde_json::Value = serde_json::from_str(kept).ok()?;
         let bytes = |key: &str| -> Option<Zeroizing<Vec<u8>>> {
@@ -158,7 +175,19 @@ impl FobRequest {
                 .unwrap_or("")
                 .to_owned()
         };
-        FobRequest::with_key(&secret, state, &text("name"), &text("device"), network).ok()
+        let light_server = value.get("light_server").and_then(|server| {
+            Some(SharedNode {
+                url: server.get("url")?.as_str()?.to_owned(),
+                self_signed: server
+                    .get("self_signed")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
+            })
+        });
+        let mut request =
+            FobRequest::with_key(&secret, state, &text("name"), &text("device"), network).ok()?;
+        request.light_server = light_server;
+        Some(request)
     }
 
     /// The request as a link, and what its QR code holds.
@@ -306,6 +335,18 @@ mod tests {
         assert_eq!(restored.uri(), request.uri());
         assert_eq!(restored.open(&answer).unwrap().account, 3);
         assert!(FobRequest::restore("{}").is_none());
+        assert_eq!(restored.light_server, None);
+
+        // With the light wallet server setup was going through.
+        let mut through = FobRequest::restore(&request.keep()).unwrap();
+        let server = SharedNode {
+            url: "https://lws.example.com".into(),
+            self_signed: true,
+        };
+        through.light_server = Some(server.clone());
+        let restored = FobRequest::restore(&through.keep()).unwrap();
+        assert_eq!(restored.light_server, Some(server));
+        assert_eq!(restored.open(&answer).unwrap().account, 3);
 
         let other = FobRequest::new("Corner Café", "Front iPad", Network::Stagenet, None).unwrap();
         assert_eq!(

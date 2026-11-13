@@ -24,7 +24,7 @@ use till_screens::wallet_setup::{
 use till_wallet::keys::{AddressProblem, CodeProblem, SeedProblem, ViewKeyProblem};
 use till_wallet::setup::{self, CheckState};
 use till_wallet::{
-    AnswerProblem, FobRequest, Granted, Network, ViewKeys, WalletBackend, WalletSetup,
+    AnswerProblem, FobRequest, Granted, Network, SharedNode, ViewKeys, WalletBackend, WalletSetup,
 };
 use zeroize::Zeroizing;
 
@@ -313,7 +313,12 @@ impl State {
     pub(super) fn connect_fob(&mut self) {
         let network = self.wallet.network();
         match FobRequest::new("", &self.config.device_name, network, None) {
-            Ok(request) => {
+            Ok(mut request) => {
+                // Kept with the request, so a restart goes on through it.
+                request.light_server = self.wallet.light().then(|| SharedNode {
+                    url: self.wallet.light_url.trim().to_owned(),
+                    self_signed: self.wallet.light_self_signed,
+                });
                 self.keep_fob_request(Some(&request));
                 let form = self.form();
                 form.request = Some(Arc::new(request));
@@ -976,8 +981,18 @@ impl State {
             return false;
         };
         let form = self.form();
-        form.mode = Some(PaymentsMode::Wallet);
         form.network = wallet_network(request.network());
+        // Through the light wallet server typed (and checked) before the
+        // request, as if there had been no restart (core.md decision 254).
+        match &request.light_server {
+            Some(server) => {
+                form.mode = Some(PaymentsMode::LightServer);
+                form.light_url = server.url.clone();
+                form.light_self_signed = server.self_signed;
+                form.light_passed = Some((server.url.clone(), server.self_signed));
+            }
+            None => form.mode = Some(PaymentsMode::Wallet),
+        }
         form.request = Some(Arc::new(request));
         true
     }
