@@ -903,16 +903,6 @@ impl State {
                     p.live.read(p.side.backend().as_ref());
                 }
             }
-            Action::SetBaseUrl { pos, url } => {
-                if self.config.debug {
-                    let url = Some(url).filter(|u| !u.is_empty());
-                    self.keep(|m| match pos {
-                        crate::Pos::Square => m.square_base_url = url,
-                        crate::Pos::Clover => m.clover_base_url = url,
-                        crate::Pos::Till => {}
-                    });
-                }
-            }
             Action::SetBubble { on } => {
                 self.keep(|m| m.bubble_on = on);
             }
@@ -2294,15 +2284,6 @@ impl State {
             Some(PointOfSale::Clover) => p.side.clover_config(None).tender_label,
             _ => p.side.square_config(None).tender_name,
         };
-        let mut base_urls = std::collections::BTreeMap::new();
-        for (pos, url) in [
-            (PointOfSale::Square, &model.square_base_url),
-            (PointOfSale::Clover, &model.clover_base_url),
-        ] {
-            if let Some(url) = url {
-                base_urls.insert(pos.wire(), url.clone());
-            }
-        }
         SettingsInput {
             connection: model.connection.clone(),
             store: State::store_now(p),
@@ -2322,8 +2303,6 @@ impl State {
             alerts: self.alerts_allowed,
             bubble_wanted: model.bubble_on,
             bubble_allowed: self.bubble_allowed,
-            debug: self.config.debug,
-            base_urls,
             // Orbot's probe stays on the platform (decision 10).
             tor_running: self.tor_running,
             wake_ups: self.wake_ups_input(p),

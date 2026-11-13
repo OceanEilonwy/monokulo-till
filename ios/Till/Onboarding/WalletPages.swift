@@ -527,7 +527,7 @@ struct StepperRow: View {
         .frame(minHeight: inList ? 44 : 60)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(stepper.label)
-        .accessibilityValue([stepper.value, stepper.detail].compactMap { $0 }.joined(separator: ", "))
+        .accessibilityValue([stepper.valueSaid.isEmpty ? stepper.value : stepper.valueSaid, stepper.detail].compactMap { $0 }.joined(separator: ", "))
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment: if stepper.plus.enabled { step(true) }

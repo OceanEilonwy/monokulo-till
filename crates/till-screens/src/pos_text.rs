@@ -317,12 +317,6 @@ pub fn bubble_footnote(pos: Option<PointOfSale>) -> String {
     )
 }
 
-/// The debug build's field for a stand-in on the developer's machine
-/// (acceptance T6.5).
-pub fn stand_in(pos: PointOfSale) -> String {
-    format!("Stand-in {} address", pos.display_name())
-}
-
 /// The Wake-ups status card's pace row.
 pub fn checking(pos: Option<PointOfSale>) -> String {
     format!("Checking {}", name(pos))
@@ -553,10 +547,6 @@ mod tests {
         );
         assert_eq!(each(sign_out), ["Sign out of Square", "Sign out of Clover"]);
         assert_eq!(each(|p| place_row(Some(p))), ["Location", "Merchant"]);
-        assert_eq!(
-            each(stand_in),
-            ["Stand-in Square address", "Stand-in Clover address"]
-        );
         assert_eq!(
             signed_in_footnote(CLOVER),
             "Sales paid with this payment type at this merchant show up in Till."

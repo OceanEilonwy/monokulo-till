@@ -1,6 +1,6 @@
 //! Settings (boards PhoneSettings and PadSettings; Android's
 //! `ui/Settings.kt`): the store, Tor, the point of sale, the shift, alerts,
-//! the bubble, Wake-ups and the debug build's stand-ins.
+//! the bubble and Wake-ups.
 //!
 //! Where the platforms differ: Android has the shift's switch, the bubble,
 //! Tor and Wake-ups in place; iOS has no bubble and no Tor, opens Wake-ups
@@ -9,8 +9,6 @@
 //! The section headings, the switches' labels, "Disconnect this device"
 //! and the footnotes no state chooses (the wallet's, Disconnect's, the
 //! Dynamic Island's) stay in the platform's screen.
-
-use std::collections::BTreeMap;
 
 use monokulo_client::{AppConnection, Connection, PointOfSale, Store, tor};
 use till_bell::WakeUpChoice;
@@ -107,10 +105,6 @@ pub struct SettingsInput {
     /// Android: the bubble wanted, and allowed by Android.
     pub bubble_wanted: bool,
     pub bubble_allowed: bool,
-    /// A debug build, with the stand-ins' addresses by point of sale
-    /// (acceptance T6.5).
-    pub debug: bool,
-    pub base_urls: BTreeMap<&'static str, String>,
     /// Orbot's proxy answers; `None` while that's being checked.
     pub tor_running: Option<bool>,
     pub wake_ups: WakeUpsInput,
@@ -327,8 +321,6 @@ pub struct SettingsView {
     pub wake_ups: WakeUpsPlace,
     /// iPhone.
     pub island: Option<IslandSection>,
-    /// Debug builds: a stand-in's address for each point of sale.
-    pub stand_ins: Vec<StandIn>,
     /// Signed in to Square or Clover: which device's sales alert, and
     /// whether other counters' show in the list (C5; Clover's since core.md
     /// decision 142).
@@ -346,7 +338,7 @@ pub struct SettingsView {
     pub show_sales: Option<ShowSalesSection>,
     /// The page's and its sections' titles, and Disconnect's words (core.md
     /// decision 130): "Settings", "Store", "Point of sale", "Notifications",
-    /// "Wake-ups", "Developer (debug builds)".
+    /// "Wake-ups".
     #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
     pub title: String,
     #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
@@ -361,8 +353,6 @@ pub struct SettingsView {
     pub notifications: bool,
     #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
     pub wake_ups_title: String,
-    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
-    pub developer_title: String,
     /// "Disconnect this device".
     #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
     pub disconnect: String,
@@ -633,16 +623,6 @@ impl IslandSection {
     }
 }
 
-/// A debug build's stand-in for a point of sale.
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-pub struct StandIn {
-    pub point_of_sale: PosMark,
-    /// "Stand-in Square address".
-    pub label: String,
-    pub value: String,
-}
-
 /// Settings on `device`.
 pub fn settings(input: &SettingsInput, device: Device, clock: DeviceClock) -> SettingsView {
     let pos = input.pos.chosen;
@@ -697,18 +677,6 @@ pub fn settings(input: &SettingsInput, device: Device, clock: DeviceClock) -> Se
         },
         island: (device == Device::Iphone && !keypad)
             .then(|| IslandSection::new(input.live_activity, input.code_in_island)),
-        stand_ins: if input.debug {
-            PointOfSale::ALL
-                .into_iter()
-                .map(|p| StandIn {
-                    point_of_sale: mark(p),
-                    label: pos_text::stand_in(p),
-                    value: input.base_urls.get(p.wire()).cloned().unwrap_or_default(),
-                })
-                .collect()
-        } else {
-            Vec::new()
-        },
         // The keypad has no devices to tell apart.
         counters: pos.filter(|p| input.pos.connected() && *p != PointOfSale::Till).map(|pos| {
             let place = match pos {
@@ -731,7 +699,6 @@ pub fn settings(input: &SettingsInput, device: Device, clock: DeviceClock) -> Se
         alerts_title: "Notifications".into(),
         notifications: !keypad,
         wake_ups_title: "Wake-ups".into(),
-        developer_title: "Developer (debug builds)".into(),
         disconnect: "Disconnect this device".into(),
         disconnect_footnote: DISCONNECT_FOOTNOTE.into(),
         disconnect_ask: "Disconnect this device?".into(),
@@ -959,6 +926,7 @@ fn wake_ups_row(w: &WakeUpsInput, device: Device) -> Fact {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
 
     #[test]
     fn show_sales_is_kept_as_its_wire_word_and_reads_the_old_names_back() {
@@ -1042,8 +1010,6 @@ mod tests {
             alerts: false,
             bubble_wanted: true,
             bubble_allowed: true,
-            debug: false,
-            base_urls: BTreeMap::new(),
             tor_running: None,
             wake_ups: WakeUpsInput {
                 choice: WakeUpChoice::MonokuloBell,
@@ -1359,7 +1325,6 @@ mod tests {
             }
         );
         assert_eq!(view.island, None);
-        assert_eq!(view.stand_ins, []);
 
         let alerts_on = settings(
             &SettingsInput {
@@ -1533,36 +1498,6 @@ mod tests {
         assert_eq!(
             tor(onion, None, Some(false)).unwrap().footnote,
             "Orbot isn't running, so Till can't reach the store. Open Orbot."
-        );
-    }
-
-    #[test]
-    fn a_debug_build_has_a_stand_in_for_each_point_of_sale() {
-        let mut base_urls = BTreeMap::new();
-        base_urls.insert("clover", "http://10.0.2.2:8090".to_owned());
-        let view = settings(
-            &SettingsInput {
-                debug: true,
-                base_urls,
-                ..input()
-            },
-            Device::Android,
-            CLOCK,
-        );
-        assert_eq!(
-            view.stand_ins,
-            [
-                StandIn {
-                    point_of_sale: PosMark::Square,
-                    label: "Stand-in Square address".into(),
-                    value: String::new()
-                },
-                StandIn {
-                    point_of_sale: PosMark::Clover,
-                    label: "Stand-in Clover address".into(),
-                    value: "http://10.0.2.2:8090".into()
-                },
-            ]
         );
     }
 

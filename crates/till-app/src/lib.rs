@@ -602,11 +602,6 @@ pub enum Action {
     OpenPointOfSale,
     /// Read the store again (step 3's "Try again").
     ReadStore,
-    /// Debug builds: a stand-in point of sale's address (acceptance T6.5).
-    SetBaseUrl {
-        pos: Pos,
-        url: String,
-    },
     SetBubble {
         on: bool,
     },
@@ -898,7 +893,6 @@ impl Action {
             Action::OpenSettings => "OpenSettings",
             Action::OpenPointOfSale => "OpenPointOfSale",
             Action::ReadStore => "ReadStore",
-            Action::SetBaseUrl { .. } => "SetBaseUrl",
             Action::SetBubble { .. } => "SetBubble",
             Action::SetTor { .. } => "SetTor",
             Action::SetLiveActivity { .. } => "SetLiveActivity",

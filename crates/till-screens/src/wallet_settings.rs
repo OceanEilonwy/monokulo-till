@@ -110,7 +110,7 @@ pub struct WalletSection {
     /// "Till hears payments while it's open on screen."
     pub footnote: String,
     pub problem: Option<String>,
-    /// "Disconnect this wallet", and the question before it.
+    /// "Erase this till", and the question before it (owner, 2026-11-13).
     pub disconnect: Press,
     pub disconnect_footnote: String,
     pub disconnect_ask: String,
@@ -136,7 +136,7 @@ pub const CHANGE_WAITING: &str = "A sale is waiting for payment. Another wallet 
 pub const LIGHT_SERVER_LABEL: &str = "Light wallet server";
 
 /// Under the wallet's Disconnect.
-pub const DISCONNECT_FOOTNOTE: &str = "Till forgets the wallet's keys and deletes its copy of the wallet from this device. Your money stays in your wallet.";
+pub const DISCONNECT_FOOTNOTE: &str = "Till deletes its copy of the wallet and its keys, the point of sale's sign-in and this shift's sales from this device, and setup starts again. Your money stays in your wallet.";
 /// The question's detail: a view key can't be taken back.
 pub const DISCONNECT_DETAIL: &str = "Payments already made aren't affected. Anyone who has the view key can still see payments: to stop that, move the money to a new wallet.";
 
@@ -270,11 +270,11 @@ pub fn wallet_section(w: &WalletSettingsInput) -> WalletSection {
         }
         .into(),
         problem: w.problem.clone(),
-        disconnect: Press::new("Disconnect this wallet").enabled(!w.busy),
+        disconnect: Press::new("Erase this till").enabled(!w.busy),
         disconnect_footnote: DISCONNECT_FOOTNOTE.into(),
-        disconnect_ask: "Disconnect this wallet?".into(),
+        disconnect_ask: "Erase this till?".into(),
         disconnect_ask_detail: DISCONNECT_DETAIL.into(),
-        disconnect_confirm: "Disconnect".into(),
+        disconnect_confirm: "Erase".into(),
         change: Some(Press::new("Change the wallet").enabled(!w.busy && !w.live_sales)),
         change_footnote: if w.live_sales {
             CHANGE_WAITING

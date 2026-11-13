@@ -188,17 +188,6 @@ fun SettingsScreen(s: SettingsView, a: SettingsActions) = Page(
     // A till on its own wallet hears payments only while it's open: no Bell to wake it.
     if (s.wallet == null) (s.wakeUps as? WakeUpsPlace.Inline)?.let { WakeUpsSection(it.view, a) }
 
-    if (s.standIns.isNotEmpty()) {
-        SectionLabel("Developer (debug builds)")
-        Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            for (standIn in s.standIns) {
-                var base by remember(standIn.pointOfSale) { mutableStateOf(standIn.value) }
-                OutlinedTextField(base, { base = it }, label = { Text(standIn.label) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlineButton("Use it", { a.send(Action.SetBaseUrl(standIn.pointOfSale.pos(), base)) }, Modifier.fillMaxWidth())
-            }
-        }
-    }
-
     Spacer(Modifier.height(22.dp))
     val wallet = s.wallet
     if (wallet != null) {
@@ -237,8 +226,13 @@ private fun WalletSettings(w: WalletSection, a: SettingsActions) {
                 }
             }
             w.account?.let { account -> add { FactRow(account.label, account.value, valueColor = valueColor(account)) } }
+            // Change the wallet, here with what it changes (docs/decisions/core.md 261): off while a sale waits.
+            w.change?.let { change ->
+                add { ActionRow(change.label, { if (change.enabled) a.send(Action.ChangeWallet) }, if (change.enabled) mk.link else mk.muted) }
+            }
         },
     )
+    if (w.change != null) Footnote(w.changeFootnote)
     w.tillNumber?.let { number ->
         Spacer(Modifier.height(16.dp))
         Group(rows = listOf({ StepperRow(number) { up -> a.send(Action.StepTillNumber(up)) } }))
@@ -283,15 +277,10 @@ private fun WarningLine(text: String) = Row(
     Text(text, color = mk.warn, fontSize = 13.sp, lineHeight = 18.sp)
 }
 
-/** Disconnect this wallet, asked first: a view key can't be taken back. */
+/** Erase this till, asked first: a view key can't be taken back. */
 @Composable
 private fun WalletDisconnect(w: WalletSection, a: SettingsActions) {
     var asking by remember { mutableStateOf(false) }
-    // Change the wallet, as the point of sale changes (docs/decisions/core.md 261): off while a sale waits.
-    w.change?.let { change ->
-        Group(rows = listOf({ ActionRow(change.label, { if (change.enabled) a.send(Action.ChangeWallet) }, if (change.enabled) mk.link else mk.muted) }))
-        Footnote(w.changeFootnote)
-    }
     Group(rows = listOf({ ActionRow(w.disconnect.label, { if (w.disconnect.enabled) asking = true }, mk.danger) }))
     Footnote(w.disconnectFootnote)
     if (asking) {

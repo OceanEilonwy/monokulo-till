@@ -441,8 +441,6 @@ fn monokulo_settings_input(device: Device) -> SettingsInput {
         alerts: true,
         bubble_wanted: false,
         bubble_allowed: false,
-        debug: false,
-        base_urls: BTreeMap::new(),
         tor_running: None,
         wake_ups: wake_ups_input(),
         live_activity: true,
@@ -507,8 +505,6 @@ pub fn preview_settings_of(look: PreviewSettings, device: Device, now: i64) -> S
         alerts: true,
         bubble_wanted: false,
         bubble_allowed: false,
-        debug: false,
-        base_urls: BTreeMap::new(),
         tor_running: None,
         wake_ups: WakeUpsInput {
             choice: WakeUpChoice::TimerOnly,
@@ -762,7 +758,7 @@ mod tests {
             "Corner Café · Till (Corner Café)"
         );
         assert!(wallet.till_number.is_none() && wallet.warnings.is_empty());
-        assert_eq!(view.disconnect, "Disconnect this wallet");
+        assert_eq!(view.disconnect, "Erase this till");
         let warned =
             preview_settings_of(PreviewSettings::VkSettingsWarning, Device::Android, 1_000)
                 .wallet

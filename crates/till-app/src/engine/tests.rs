@@ -2630,7 +2630,7 @@ fn wallet_settings_show_the_wallet_and_change_its_link() {
         section.till_number.unwrap().detail.as_deref(),
         Some("In your wallet: account 2")
     );
-    assert_eq!(section.disconnect.label, "Disconnect this wallet");
+    assert_eq!(section.disconnect.label, "Erase this till");
     engine.send(Action::StepTillNumber { up: true });
     wait_for(&rx, |_| {
         (kept_wallet(&platform).till_number == 3).then_some(())

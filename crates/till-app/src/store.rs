@@ -87,8 +87,6 @@ pub mod keys {
     /// `BellRegistration`'s JSON.
     pub const WAKE_UPS_REGISTRATION: &str = "wakeups.registration";
     /// Debug builds' stand-ins: an address, never blank.
-    pub const DEBUG_SQUARE_BASE: &str = "debug.square.base";
-    pub const DEBUG_CLOVER_BASE: &str = "debug.clover.base";
     /// `CloverMerchant`'s JSON.
     pub const CLOVER_MERCHANT: &str = "clover.merchant";
     /// The shift's sales, `till_sales::shift_json`; absent when none.
@@ -374,11 +372,6 @@ impl Store {
         )
     }
 
-    /// A blank address is kept as nothing.
-    fn put_address(&self, key: &str, url: Option<&str>) -> Result<(), SecretError> {
-        self.put(key, url.filter(|url| !url.trim().is_empty()))
-    }
-
     pub fn tokens(&self, pos: PointOfSale) -> Result<Option<PosTokens>, SecretError> {
         self.read(keys::tokens(pos))
     }
@@ -466,8 +459,6 @@ impl Store {
             wake_up_choice: self.wake_up_choice()?,
             own_bell: self.read(keys::WAKE_UPS_OWN)?,
             registration: self.read(keys::WAKE_UPS_REGISTRATION)?,
-            square_base_url: self.get(keys::DEBUG_SQUARE_BASE)?,
-            clover_base_url: self.get(keys::DEBUG_CLOVER_BASE)?,
             clover_merchant: self.read(keys::CLOVER_MERCHANT)?,
             live_activity: self.switch(keys::LIVE_ACTIVITY)?,
             code_in_island: self.flag(keys::CODE_IN_ISLAND)?,
@@ -538,12 +529,6 @@ impl Store {
         if old.registration != new.registration {
             self.write(keys::WAKE_UPS_REGISTRATION, new.registration.as_ref())?;
         }
-        if old.square_base_url != new.square_base_url {
-            self.put_address(keys::DEBUG_SQUARE_BASE, new.square_base_url.as_deref())?;
-        }
-        if old.clover_base_url != new.clover_base_url {
-            self.put_address(keys::DEBUG_CLOVER_BASE, new.clover_base_url.as_deref())?;
-        }
         if old.clover_merchant != new.clover_merchant {
             self.write(keys::CLOVER_MERCHANT, new.clover_merchant.as_ref())?;
         }
@@ -588,8 +573,6 @@ impl Store {
             bubble_on: model.bubble_on,
             bubble_left: model.bubble_left,
             bubble_y: model.bubble_y,
-            square_base_url: model.square_base_url.clone(),
-            clover_base_url: model.clover_base_url.clone(),
             live_activity: model.live_activity,
             code_in_island: model.code_in_island,
             show_others: model.show_others,
@@ -650,9 +633,6 @@ pub struct Model {
     pub wake_up_choice: WakeUpChoice,
     pub own_bell: Option<BellAddress>,
     pub registration: Option<BellRegistration>,
-    /// Debug builds' stand-ins.
-    pub square_base_url: Option<String>,
-    pub clover_base_url: Option<String>,
     /// The Clover merchant this till is at (decision 127).
     pub clover_merchant: Option<CloverMerchant>,
     /// iPhone's Settings › Dynamic Island: the Live Activity each shift (on
@@ -701,8 +681,6 @@ impl Default for Model {
             wake_up_choice: WakeUpChoice::TimerOnly,
             own_bell: None,
             registration: None,
-            square_base_url: None,
-            clover_base_url: None,
             clover_merchant: None,
             live_activity: true,
             code_in_island: false,

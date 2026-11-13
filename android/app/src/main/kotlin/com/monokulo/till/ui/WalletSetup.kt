@@ -366,7 +366,9 @@ internal fun StepperRow(s: SetupStepper, onStep: (up: Boolean) -> Unit) = Row(
         if (inside) {
             Text(
                 s.value, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, style = tabular, textAlign = TextAlign.Center,
-                maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 28.dp).clearAndSetSemantics {},
+                maxLines = 1, softWrap = false,
+                // Said in full where the value is shortened ("10 conf.": "10 confirmations").
+                modifier = Modifier.widthIn(min = 28.dp).clearAndSetSemantics { contentDescription = s.valueSaid.ifEmpty { s.value } },
             )
         }
         StepButton(s.plus, "${s.label}: more") { onStep(true) }

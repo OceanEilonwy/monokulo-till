@@ -41,8 +41,19 @@ struct WalletSettings: View {
             if let lookahead = wallet.lookahead {
                 WarningLine(text: lookahead)
             }
+            // Change the wallet, here with what it changes (core.md
+            // decision 261): off while a sale waits for payment.
+            if let change = wallet.change {
+                Button(change.label) { send(.changeWallet) }
+                    .foregroundStyle(change.enabled ? Palette.link : Palette.secondary)
+                    .disabled(!change.enabled)
+            }
         } header: {
             Text(wallet.title)
+        } footer: {
+            if wallet.change != nil {
+                Text(wallet.changeFootnote)
+            }
         }
         if let node = wallet.node {
             Section {

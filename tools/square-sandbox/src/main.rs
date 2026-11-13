@@ -21,6 +21,13 @@
 //! code to scan, and shows the same code on the page at 127.0.0.1. The
 //! link's key is swapped for a cookie on first use, so it isn't needed
 //! again in that browser.
+//!
+//! Reached over the internet through a router's port forwarding,
+//! `SQUARE_SANDBOX_HOST=home.example.com` (with `:port` when the outside
+//! port differs) is the name the link uses and the only one answered at
+//! the network address. It's plain http: the key crosses the internet
+//! unencrypted, which is only acceptable because the sandbox moves no
+//! real money.
 
 mod pages;
 mod square;
@@ -458,9 +465,20 @@ async fn main() {
     let network = match listen {
         Some(ip) => {
             let listener = bind(ip).await;
-            let host = match ip {
-                std::net::IpAddr::V6(v6) => format!("[{v6}]:{port}"),
-                v4 => format!("{v4}:{port}"),
+            // `SQUARE_SANDBOX_HOST` names it as the internet reaches it
+            // (a router forwarding the port to this address): only that
+            // name is answered then, with the same key.
+            let host = match std::env::var("SQUARE_SANDBOX_HOST")
+                .ok()
+                .map(|h| h.trim().to_owned())
+                .filter(|h| !h.is_empty())
+            {
+                Some(name) if name.contains(':') => name,
+                Some(name) => format!("{name}:{port}"),
+                None => match ip {
+                    std::net::IpAddr::V6(v6) => format!("[{v6}]:{port}"),
+                    v4 => format!("{v4}:{port}"),
+                },
             };
             let network = Network {
                 host,
