@@ -3033,6 +3033,7 @@ dependencies = [
  "base64 0.22.1",
  "fob-codes",
  "fob-keys",
+ "fob-wallet",
  "futures-util",
  "monokulo-client",
  "reqwest",

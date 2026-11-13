@@ -29,12 +29,12 @@ jobs:
       - name: Format
         run: cargo fmt --all --check
       # The Rust core (docs/ios-plan.md §2). orf-codec and receipt-qr are
-      # tested in their own repository, monokulo-orf (core.md decision 241).
+      # tested in their own repository, monokulo-orf (core.md decision 242).
       - name: Test
         run: cargo test --locked --workspace
       # One orf-codec in the build: Till's pin and the one Fob's crates take
       # must be the same commit of monokulo-orf, or a receipt from one isn't
-      # the other's (core.md decision 241). With two, `cargo tree -i` can't
+      # the other's (core.md decision 242). With two, `cargo tree -i` can't
       # say which one it means and fails.
       - name: One orf-codec
         run: |

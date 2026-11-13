@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use futures_util::stream::BoxStream;
 use futures_util::{StreamExt, future};
 use monokulo_client::{Connection, MonokuloApi, Order, StreamEvent};
-use till_types::UnixSeconds;
+use till_types::{Money, UnixSeconds};
 
 use crate::{
     BackendError, BackendEvent, BackendInfo, MonokuloStore, Payment, PaymentBackend, PaymentRef,
@@ -117,7 +117,14 @@ impl PaymentBackend for MonokuloBackend {
         }
     }
 
-    async fn renew(&self, renew: &str, expires_at: UnixSeconds) -> Result<Payment, BackendError> {
+    /// The order renewed in place: Monokulo re-prices it itself, so the
+    /// sale's price isn't sent.
+    async fn renew(
+        &self,
+        renew: &str,
+        expires_at: UnixSeconds,
+        _amount: &Money,
+    ) -> Result<Payment, BackendError> {
         let order = self
             .api
             .renew_order(&self.connection, renew, expires_at.0)

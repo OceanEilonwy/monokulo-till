@@ -17,7 +17,7 @@ use till_payments::{
     BackendError, BackendEvent, BackendInfo, OrderId, Payment, PaymentBackend, PaymentRef,
     PaymentRequest, Sharing, WalletLink,
 };
-use till_types::{PriceUsed, UnixSeconds};
+use till_types::{Money, PriceUsed, UnixSeconds};
 use tokio::sync::Notify;
 
 use crate::keys::Network;
@@ -321,6 +321,44 @@ impl Inner {
         payment_of(request, incoming, self.settled(), self.now(), price)
     }
 
+    /// The request made with `key`, or a new one for `amount` at the
+    /// current price, expiring after the link's minutes (§5.3).
+    async fn request(
+        &self,
+        key: String,
+        amount: &Money,
+        note: Option<String>,
+    ) -> Result<Payment, BackendError> {
+        if let Some(made) = self.wallet.keyed_request_by_key(&key).await {
+            let incoming = self.wallet.request_payments(made.id).await.map_err(fob)?;
+            return Ok(self.payment(&made, &incoming));
+        }
+        let converted = self
+            .prices
+            .convert(amount)
+            .await
+            .map_err(BackendError::Other)?;
+        let expires_at =
+            self.now().max(0) as u64 + u64::from(lock(&self.link).expiry_minutes.max(1)) * 60;
+        let made = self
+            .wallet
+            .request_payment(Ask {
+                key,
+                atomic: converted.atomic,
+                expires_at,
+                note,
+            })
+            .await
+            .map_err(fob)?;
+        if let Some(price) = converted.price {
+            lock(&self.priced).insert(made.id, price);
+        }
+        let payment = self.payment(&made, &[]);
+        lock(&self.told).insert(made.id, payment.clone());
+        self.wake.notify_one();
+        Ok(payment)
+    }
+
     async fn read(&self, id: u64) -> Option<Payment> {
         let request = self.wallet.keyed_request(id).await?;
         let incoming = self.wallet.request_payments(id).await.ok()?;
@@ -467,7 +505,7 @@ pub fn payment_of(
     let reference = reference_of(request);
     Payment {
         reference: PaymentRef::new(reference.as_str()),
-        order_id: OrderId::new(reference),
+        order_id: OrderId::new(reference.as_str()),
         address: request.address.clone(),
         xmr_piconero: request.atomic,
         expires_at: UnixSeconds(request.expires_at as i64),
@@ -483,7 +521,41 @@ pub fn payment_of(
         currency: None,
         receipt: request.note.clone(),
         device_name: None,
-        renew: None,
+        // New code makes the sale's next request (core.md decision 241).
+        renew: Some(reference),
+    }
+}
+
+/// The key of the request New code makes in place of `request`: the
+/// sale's key with the replaced request's id, so asking again (a retry)
+/// gives the same one, and each request is replaced at most once.
+pub fn next_key(request: &KeyedRequest) -> String {
+    let sale = request.key.split('#').next().unwrap_or(&request.key);
+    format!("{sale}#{}", request.id)
+}
+
+/// Why `request` can't have a new code at `now`, in the cashier's words,
+/// as Monokulo refuses a renewal (its order-renewal decision 1): a payment
+/// reached it (seen, part paid or reversed: a new price over money that
+/// arrived would hide it), it was called off, its code hasn't run out, or
+/// it ended so long ago that its address may be another sale's.
+pub fn renewal_refused(
+    request: &KeyedRequest,
+    incoming: &[Incoming],
+    now: u64,
+) -> Option<&'static str> {
+    if !incoming.is_empty() {
+        Some(
+            "A payment reached this sale's code, so it can't have a new one. Ring the sale up again.",
+        )
+    } else if request.cancelled.is_some() {
+        Some("This sale's code was called off, so it can't have a new one. Ring the sale up again.")
+    } else if now < request.expires_at {
+        Some("This sale's code hasn't run out yet.")
+    } else if now > request.releases() {
+        Some("This sale's code ran out too long ago for a new one. Ring the sale up again.")
+    } else {
+        None
     }
 }
 
@@ -508,35 +580,45 @@ impl PaymentBackend for WalletBackend {
     }
 
     async fn create(&self, req: PaymentRequest) -> Result<Payment, BackendError> {
+        self.inner
+            .request(req.key, &req.amount, req.reference)
+            .await
+    }
+
+    /// New code (core.md decision 241): a keyed request can't be re-priced
+    /// in place, so the sale's next request is made, at the current price,
+    /// on an address from the pool (never the replaced one's, which its
+    /// late window still holds), with its own tag. The replaced request
+    /// stays watched: a late payment to it is still its own, and the
+    /// ledger counts it toward the sale. Its key is [`next_key`], so a
+    /// retry gives the same request; refused as Monokulo refuses a
+    /// renewal ([`renewal_refused`]), and when the code the till shows
+    /// isn't the request's.
+    async fn renew(
+        &self,
+        renew: &str,
+        expires_at: UnixSeconds,
+        amount: &Money,
+    ) -> Result<Payment, BackendError> {
         let inner = &self.inner;
-        if let Some(made) = inner.wallet.keyed_request_by_key(&req.key).await {
+        let missing = || BackendError::Other("That payment isn't in this till's wallet.".into());
+        let id = request_id(renew).ok_or_else(missing)?;
+        let replaced = inner.wallet.keyed_request(id).await.ok_or_else(missing)?;
+        let key = next_key(&replaced);
+        if let Some(made) = inner.wallet.keyed_request_by_key(&key).await {
             let incoming = inner.wallet.request_payments(made.id).await.map_err(fob)?;
             return Ok(inner.payment(&made, &incoming));
         }
-        let converted = inner
-            .prices
-            .convert(&req.amount)
-            .await
-            .map_err(BackendError::Other)?;
-        let expires_at =
-            inner.now().max(0) as u64 + u64::from(lock(&inner.link).expiry_minutes.max(1)) * 60;
-        let made = inner
-            .wallet
-            .request_payment(Ask {
-                key: req.key,
-                atomic: converted.atomic,
-                expires_at,
-                note: req.reference,
-            })
-            .await
-            .map_err(fob)?;
-        if let Some(price) = converted.price {
-            lock(&inner.priced).insert(made.id, price);
+        if replaced.expires_at as i64 != expires_at.0 {
+            return Err(BackendError::Refused(
+                "This sale's code changed. Look at the sale again.".into(),
+            ));
         }
-        let payment = inner.payment(&made, &[]);
-        lock(&inner.told).insert(made.id, payment.clone());
-        inner.wake.notify_one();
-        Ok(payment)
+        let incoming = inner.wallet.request_payments(id).await.map_err(fob)?;
+        if let Some(why) = renewal_refused(&replaced, &incoming, inner.now().max(0) as u64) {
+            return Err(BackendError::Refused(why.into()));
+        }
+        inner.request(key, amount, replaced.note.clone()).await
     }
 
     /// Catches up first (§5.5), then answers from what the wallet knows. A
@@ -838,5 +920,143 @@ mod tests {
 
         let mut events = backend.events();
         assert!(matches!(events.next().await, Some(Ok(BackendEvent::Ready))));
+    }
+
+    /// New code (core.md decision 241): once the code ran out unpaid, the
+    /// sale's next request, at the current price, on another address of the
+    /// pool with its own tag and id; asked again, the same one. The request
+    /// replaced is still watched through its late window.
+    #[tokio::test]
+    async fn new_code_makes_the_sales_next_request_and_keeps_watching_the_last() {
+        let dir = tempfile::tempdir().unwrap();
+        let (backend, clock, source) = backend(dir.path()).await;
+        let price = Money::new(2450, CurrencyCode::USD);
+        let made = backend
+            .create(PaymentRequest {
+                key: "sq:o3".into(),
+                amount: price,
+                reference: Some("#42".into()),
+            })
+            .await
+            .unwrap();
+        let renew = made
+            .renew
+            .clone()
+            .expect("a wallet payment offers New code");
+        assert_eq!(renew, made.reference.as_str());
+
+        // Not while its code is up.
+        let early = backend.renew(&renew, made.expires_at, &price).await;
+        assert_eq!(
+            early.unwrap_err().to_string(),
+            "This sale's code hasn't run out yet."
+        );
+
+        clock.0.store(1_000 + 31 * 60, Ordering::SeqCst);
+        // Only the code the till shows.
+        let stale = backend
+            .renew(&renew, UnixSeconds(made.expires_at.0 - 60), &price)
+            .await;
+        assert!(stale.is_err());
+
+        let next = backend
+            .renew(&renew, made.expires_at, &price)
+            .await
+            .unwrap();
+        assert_ne!(next.order_id, made.order_id);
+        assert_ne!(next.address, made.address, "the last one's address is held");
+        assert_eq!(next.phase, SalePhase::Waiting);
+        assert_eq!(next.expires_at, UnixSeconds(1_000 + 31 * 60 + 30 * 60));
+        assert_eq!(next.receipt.as_deref(), Some("#42"));
+        assert_ne!(next.xmr_piconero % 1_000_000, made.xmr_piconero % 1_000_000);
+        assert_eq!(next.xmr_piconero / 1_000_000, 153_125, "priced again");
+        assert_eq!(source.asked.load(Ordering::SeqCst), 2);
+        assert_eq!(next.renew.as_deref(), Some(next.reference.as_str()));
+
+        // A retry, or New code asked twice: the same request.
+        let again = backend
+            .renew(&renew, made.expires_at, &price)
+            .await
+            .unwrap();
+        assert_eq!(again.reference, next.reference);
+        assert_eq!(source.asked.load(Ordering::SeqCst), 2);
+        let first = request_id(made.reference.as_str()).unwrap();
+        let second = request_id(next.reference.as_str()).unwrap();
+        assert_eq!(
+            backend
+                .inner
+                .wallet
+                .keyed_request(second)
+                .await
+                .unwrap()
+                .key,
+            "sq:o3#".to_owned() + &first.to_string()
+        );
+
+        // Both are watched: the replaced one, expired, until its late
+        // window ends.
+        let watched: Vec<u64> = backend.inner.watched().await.iter().map(|r| r.id).collect();
+        assert!(
+            watched.contains(&first) && watched.contains(&second),
+            "{watched:?}"
+        );
+        let old = backend.inner.read(first).await.unwrap();
+        assert_eq!((old.phase, old.is_final), (SalePhase::Expired, false));
+
+        // The next code can be replaced in its turn.
+        clock.0.store(1_000 + 62 * 60, Ordering::SeqCst);
+        let third = backend
+            .renew(next.renew.as_deref().unwrap(), next.expires_at, &price)
+            .await
+            .unwrap();
+        assert_ne!(third.order_id, next.order_id);
+        let third_id = request_id(third.reference.as_str()).unwrap();
+        assert_eq!(
+            backend
+                .inner
+                .wallet
+                .keyed_request(third_id)
+                .await
+                .unwrap()
+                .key,
+            format!("sq:o3#{second}")
+        );
+    }
+
+    /// New code is refused, in the cashier's words, as Monokulo refuses a
+    /// renewal: once a payment reached the code (seen, part paid or spent
+    /// twice), when it was called off, before it runs out, and once its
+    /// late window is over.
+    #[test]
+    fn new_code_is_refused_as_monokulo_refuses_a_renewal() {
+        let r = request(153_125_123_456, 2_800);
+        assert_eq!(renewal_refused(&r, &[], 2_900), None);
+        assert_eq!(renewal_refused(&r, &[], 2_800), None);
+        let part = paid(1_000, None, 0);
+        assert!(
+            renewal_refused(&r, &[part], 2_900)
+                .unwrap()
+                .starts_with("A payment reached")
+        );
+        let mut reversed = paid(r.atomic, None, 0);
+        reversed.double_spent = true;
+        assert!(renewal_refused(&r, &[reversed], 2_900).is_some());
+        assert_eq!(
+            renewal_refused(&r, &[], 2_799),
+            Some("This sale's code hasn't run out yet.")
+        );
+        assert!(
+            renewal_refused(&r, &[], 2_800 + fob_wallet::wallet::LATE_WINDOW + 1)
+                .unwrap()
+                .contains("too long ago")
+        );
+        let mut called_off = r.clone();
+        called_off.cancelled = Some(2_000);
+        assert!(renewal_refused(&called_off, &[], 2_900).is_some());
+        assert_eq!(next_key(&r), "sq:o1#7");
+        let mut next = r.clone();
+        next.key = next_key(&r);
+        next.id = 9;
+        assert_eq!(next_key(&next), "sq:o1#9", "always the sale's key");
     }
 }

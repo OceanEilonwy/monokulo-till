@@ -638,6 +638,7 @@ mod tests {
             device_name: None,
             renew: None,
             price_used: None,
+            follows: None,
         }));
         let side = Arc::new(Side {
             backend,
