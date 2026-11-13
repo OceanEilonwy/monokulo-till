@@ -2418,3 +2418,18 @@ still strings across the till, the ledger, the screens and the bridge.
      (`Side::payments_mode`: a wallet link with a light server is
      LightServer), and the previews' `TillPreview::payments`, Monokulo when
      not said, draws the screenshot `vk-sale-expired`.
+
+## View-key mode: follow-ups (2026-11-13)
+
+254. **A Connect to Fob request made through a light wallet server keeps
+     the server with it.** C1's request is kept as a secret so Fob's answer
+     still opens after a restart; it used to come back as a node till,
+     losing the server's address and certificate setting typed before it.
+     `FobRequest` now carries the light wallet server setup was going
+     through (`light_server`, a `SharedNode`), kept beside the one-time
+     key and restored with it; a request kept before this has none and
+     comes back as a node till, as it did. Restored, setup is back in light
+     server mode with the address and setting as typed, and as checked (the
+     check passed before the request could be made), so Fob's answer goes
+     on to This till and the light server's link as if there had been no
+     restart.

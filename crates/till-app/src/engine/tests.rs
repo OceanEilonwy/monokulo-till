@@ -2904,6 +2904,80 @@ fn a_fob_request_is_kept_across_a_restart() {
     );
 }
 
+/// A Connect to Fob request made through a light wallet server keeps the
+/// server with it: after a restart, Fob's answer goes on to a light server
+/// till with the address and certificate setting typed before (core.md
+/// decision 254).
+#[test]
+fn a_fob_request_through_a_light_server_keeps_the_server_across_a_restart() {
+    let platform = Arc::new(FakePlatform::default());
+    let config = config(None);
+    let (engine, rx, _) = start(config.clone(), platform.clone());
+    screen(&rx, Screen::Welcome);
+    engine.send(Action::Next);
+    engine.send(Action::ChoosePaymentsMode {
+        mode: PaymentsMode::LightServer,
+    });
+    engine.send(Action::Next);
+    screen(&rx, Screen::LightServer);
+    let server = light_server_stub();
+    engine.send(Action::EditLightServer {
+        url: server.clone(),
+        self_signed: true,
+    });
+    engine.send(Action::Next);
+    screen(&rx, Screen::WalletEntry);
+    engine.send(Action::ConnectFob);
+    let first = page_where(&rx, |page| match page {
+        OnboardingPage::FobRequest { view } => Some(view.qr.clone()),
+        _ => None,
+    });
+    drop(engine);
+
+    let (engine, rx, _) = start(config, platform.clone());
+    screen(&rx, Screen::FobRequest);
+    let again = page_where(&rx, |page| match page {
+        OnboardingPage::FobRequest { view } => Some(view.qr.clone()),
+        _ => None,
+    });
+    assert_eq!(again, first);
+    engine.peek(|s| assert_eq!(s.wallet.mode, Some(PaymentsMode::LightServer)));
+    let asked = fob_codes::connect::Request::parse(&again).unwrap();
+    let keys = fob_keys::Keys::generate(till_wallet::Network::Stagenet).keys;
+    let grant = fob_codes::connect::Grant {
+        address: keys.primary_address(),
+        view_key: keys.view_key_hex().to_string(),
+        network: "stagenet".into(),
+        account: 1,
+        label: "Till".into(),
+        restore_height: 2_250_000,
+        wallet_id: "w1".into(),
+        wallet_name: "Corner Café".into(),
+        node: None,
+        light: None,
+        prices: None,
+    };
+    engine.send(Action::FobAnswer {
+        text: fob_codes::connect::seal(&asked, &grant).unwrap(),
+    });
+    screen(&rx, Screen::FobConnected);
+    engine.send(Action::Next);
+    screen(&rx, Screen::ThisTill);
+    let this_till = page_where(&rx, |page| match page {
+        OnboardingPage::ThisTill { view } => Some(view.clone()),
+        _ => None,
+    });
+    assert_eq!(this_till.node.unwrap().label, "Node for proofs");
+    engine.poke(|s| s.finish_wallet());
+    screen(&rx, Screen::PointOfSale);
+    let saved = platform.get("connection").expect("the link kept");
+    let Some(till_payments::Link::Wallet(wallet)) = till_payments::Link::restore(&saved) else {
+        panic!("a wallet link: {saved}");
+    };
+    assert_eq!(wallet.light_server.as_deref(), Some(server.as_str()));
+    assert!(wallet.light_self_signed);
+}
+
 /// Prices (docs/view-key-mode.md §8): a till on its own wallet at a Square
 /// location in dollars is asked where prices come from between the point
 /// of sale and alerts; the provider picked and the location's currency are
