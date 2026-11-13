@@ -487,6 +487,7 @@ impl State {
             Ok(parts) => {
                 self.load_problem = None;
                 self.parts = Some(parts);
+                self.restore_charge();
                 self.begin();
             }
             Err(problem) => {

@@ -81,6 +81,25 @@ pub fn press(typed: &str, key: KeypadKey, currency: CurrencyCode) -> String {
     }
 }
 
+/// What [`press`] would have typed for `amount`, so [`amount`] reads it
+/// back: a failed charge restored after a restart. In XMR without its
+/// trailing zeros ("0.5").
+pub fn typed(amount: Money) -> String {
+    let minor = amount.minor.max(0).to_string();
+    if !xmr(amount.currency) {
+        return minor;
+    }
+    let digits = amount.currency.minor_digits() as usize;
+    let minor = format!("{minor:0>width$}", width = digits + 1);
+    let (whole, after) = minor.split_at(minor.len() - digits);
+    let after = after.trim_end_matches('0');
+    if after.is_empty() {
+        whole.to_owned()
+    } else {
+        format!("{whole}.{after}")
+    }
+}
+
 /// What's typed as money; `None` at zero.
 pub fn amount(typed: &str, currency: CurrencyCode) -> Option<Money> {
     let minor = if xmr(currency) {
@@ -282,6 +301,20 @@ mod tests {
 
     fn d(digit: u8) -> KeypadKey {
         KeypadKey::Digit { digit }
+    }
+
+    #[test]
+    fn an_amount_types_back_as_the_keys_typed_it() {
+        let xmr = CurrencyCode::new("XMR").unwrap();
+        for (money, text) in [
+            (Money::new(125, usd()), "125"),
+            (Money::new(500_000_000_000, xmr), "0.5"),
+            (Money::new(12_000_000_000_000, xmr), "12"),
+            (Money::new(1, xmr), "0.000000000001"),
+        ] {
+            assert_eq!(super::typed(money), text);
+            assert_eq!(amount(text, money.currency), Some(money));
+        }
     }
 
     #[test]

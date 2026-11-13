@@ -125,6 +125,12 @@ pub mod keys {
     /// own wallet: an ISO 4217 code, or `XMR` for none; absent until
     /// chosen, and with Monokulo, whose store has its own.
     pub const KEYPAD_CURRENCY: &str = "keypad.currency";
+    /// The keypad's charge that failed, while it waits to be tried again
+    /// with its idempotency key (`till_pos::keypad::PendingCharge`'s JSON,
+    /// core.md decision 256): absent otherwise. Not part of the model, and
+    /// never a sale: forgotten once the payment is made, or the keypad is
+    /// cleared or changed.
+    pub const KEYPAD_CHARGE: &str = "keypad.charge";
     /// What Clover calls the merchant's devices (core.md decision 142): a
     /// JSON object of names by device id; absent until read.
     pub const CLOVER_DEVICES: &str = "clover.devices";
@@ -604,6 +610,7 @@ impl Store {
             self.set_tender_id(merchant.id.as_str(), None)?;
         }
         self.set_shift_sales(&[])?;
+        self.put(keys::KEYPAD_CHARGE, None)?;
         Ok(forgotten)
     }
 }
@@ -976,6 +983,40 @@ impl TenderStore for Tenders {
             "keep the tender id".into(),
             self.store
                 .set_tender_id(merchant_id.as_str(), tender_id.map(CloverTenderId::as_str)),
+        );
+    }
+}
+
+/// The keypad's failed charge ([`keys::KEYPAD_CHARGE`]). One that can't be
+/// read is logged and taken as none: a retry then makes a new key, as it
+/// did before the charge was kept.
+pub struct ChargeKept {
+    store: Store,
+    log: Log,
+}
+
+impl ChargeKept {
+    pub fn new(store: Store, log: Log) -> ChargeKept {
+        ChargeKept { store, log }
+    }
+}
+
+impl till_pos::keypad::ChargeStore for ChargeKept {
+    fn load(&self) -> Option<till_pos::keypad::PendingCharge> {
+        logged(
+            &self.log,
+            "read the keypad's charge".into(),
+            self.store.read(keys::KEYPAD_CHARGE),
+        )
+        .ok()
+        .flatten()
+    }
+
+    fn save(&self, charge: Option<&till_pos::keypad::PendingCharge>) {
+        let _ = logged(
+            &self.log,
+            "keep the keypad's charge".into(),
+            self.store.write(keys::KEYPAD_CHARGE, charge),
         );
     }
 }

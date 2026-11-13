@@ -2468,3 +2468,28 @@ still strings across the till, the ledger, the screens and the bridge.
      (`Action::SearchKeypadCurrency`, at most 40 characters, not kept) and
      the matching in till-wallet, so both platforms only draw the field: a
      setup field's box with a magnifier and a clear button.
+
+256. **A keypad charge that failed is kept through a restart, in the
+     settings store.** The first request may have reached the backend and
+     made the payment before it failed (a timeout after the server answered),
+     so a retry must keep the sale's idempotency key even after the app is
+     closed. `KeypadSource` keeps its one failed charge
+     (`PendingCharge`: the `FoundSale`, whose `kp-` id the key is made
+     from, with its amount, currency, reference and time, and when it was
+     last tried) through a `ChargeStore`, which the app writes as JSON under
+     `keypad.charge` beside the other small values (`fob.request` is the
+     same kind: a request waiting for its answer). Not the ledger: its facts
+     are sales and what happened to them, read by the extension and the
+     sales list, and a charge must not be a sale until its payment exists
+     (decision 250). On start the keypad types it again (amount and
+     reference) and Charge reuses its key; it's forgotten once the payment
+     is made, when the keypad is cleared (C or Escape), when the amount or
+     reference changes, and with the store (`forget_all`). It's kept for
+     as long as the payment it may have made lasts, from its last try: the
+     wallet link's code expiry on the shop's own wallet; with Monokulo,
+     whose store's expiry the till learns only from an order, two hours,
+     the longest a till's own code lasts. After that a payment made by a
+     lost request has expired unpaid, so a new key makes no second payment,
+     while a stale amount isn't left on the keypad. One in another currency
+     than the keypad's now is given up. The error the keypad showed isn't
+     kept: after a restart the amount is simply ready to charge.

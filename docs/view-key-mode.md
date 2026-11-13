@@ -770,7 +770,8 @@ does what Monokulo's web POS does, without a browser.
   shows the code.
 - A Charge retried with the same amount and reference reuses its
   idempotency key, so a failed request tried again never makes a second
-  payment.
+  payment. The failed charge is kept through a restart (core.md decision
+  256): the keypad shows it again, ready to retry with the same key.
 - Big keys, sized for a counter iPad and a phone held in one hand, following
   `docs/design.md`'s controls.
 

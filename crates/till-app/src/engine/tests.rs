@@ -3165,6 +3165,86 @@ fn a_keypad_till_charges_from_its_keypad_and_puts_the_sale_aside() {
     screen(&rx, Screen::Keypad);
 }
 
+/// A keypad charge that failed survives a restart (core.md decision 256):
+/// the keypad shows its amount and reference again, and Charge makes it
+/// with the same sale id, so the same idempotency key, and forgets it once
+/// made. Clearing the keypad forgets it too.
+#[test]
+fn a_failed_keypad_charge_comes_back_after_a_restart_with_its_key() {
+    use till_screens::keypad::KeypadKey;
+    let config = config(None);
+    let (platform, _) = wallet_till(&config.data_dir);
+    platform.set("pos.kind", "till");
+    platform.set("keypad.currency", "XMR");
+    // What a failed Charge kept before the app was closed.
+    let kept = till_pos::keypad::PendingCharge {
+        sale: till_pos::KeypadSource::new().charge(
+            till_types::Money::new(
+                1_500_000_000_000,
+                till_types::CurrencyCode::new("XMR").unwrap(),
+            ),
+            Some("Sam"),
+            till_pos::Rfc3339Instant::from_second(NOW - 60),
+        ),
+        tried_at: till_pos::Rfc3339Instant::from_second(NOW - 60),
+    };
+    platform.set("keypad.charge", &serde_json::to_string(&kept).unwrap());
+    let (engine, rx, _) = start(config.clone(), platform.clone());
+    screen(&rx, Screen::Keypad);
+    let restored = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Keypad { view: Some(view) }) if view.amount == "1.5 XMR" => {
+            Some(view.clone())
+        }
+        _ => None,
+    });
+    assert_eq!(restored.reference, "Sam");
+    assert!(restored.charge.enabled, "ready to try again");
+    engine.send(Action::Charge);
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Screen {
+            screen: Screen::Sale { .. },
+        }) => Some(()),
+        _ => None,
+    });
+    let ids: Vec<String> = engine.peek(|s| {
+        let till = s.parts.as_ref().unwrap().runner.state().till;
+        till.sales
+            .into_iter()
+            .filter_map(|t| t.found.map(|f| f.id))
+            .collect()
+    });
+    assert_eq!(
+        ids,
+        std::slice::from_ref(&kept.sale.id),
+        "the same sale, the same key"
+    );
+    assert!(
+        platform.get("keypad.charge").is_none(),
+        "forgotten once made"
+    );
+    drop(engine);
+
+    // Cleared on the keypad: forgotten, and not typed again on a restart.
+    platform.set("keypad.charge", &serde_json::to_string(&kept).unwrap());
+    let (engine, rx, _) = start(config.clone(), platform.clone());
+    screen(&rx, Screen::Keypad);
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Keypad { view: Some(view) }) if view.amount == "1.5 XMR" => Some(()),
+        _ => None,
+    });
+    engine.send(Action::KeypadPress {
+        key: KeypadKey::Clear,
+    });
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Keypad { view: Some(view) }) if view.amount == "0 XMR" => Some(()),
+        _ => None,
+    });
+    assert!(
+        platform.get("keypad.charge").is_none(),
+        "forgotten when cleared"
+    );
+}
+
 /// Setup with Till's keypad on the shop's own wallet: the keypad's currency
 /// is chosen on step 4, the wallet prices it, and Prices comes next; XMR
 /// only goes straight on to alerts.
