@@ -800,6 +800,13 @@ pub enum Action {
         url: String,
         self_signed: bool,
     },
+    /// Settings on a light wallet server: Change's address, or the "Accept
+    /// its own certificate" switch, with the other as it stands. The wallet
+    /// checks the server before the link keeps it (core.md decision 253).
+    SetLightServer {
+        url: String,
+        self_signed: bool,
+    },
     /// The price source on Prices or in Settings: one of its providers'
     /// names ("CoinGecko").
     ChoosePriceProvider {
@@ -927,6 +934,7 @@ impl Action {
             Action::StepCodeExpiry { .. } => "StepCodeExpiry",
             Action::SetNode { .. } => "SetNode",
             Action::EditLightServer { .. } => "EditLightServer",
+            Action::SetLightServer { .. } => "SetLightServer",
             Action::ChoosePriceProvider { .. } => "ChoosePriceProvider",
             Action::Refresh => "Refresh",
             Action::ChooseKeypadCurrency { .. } => "ChooseKeypadCurrency",

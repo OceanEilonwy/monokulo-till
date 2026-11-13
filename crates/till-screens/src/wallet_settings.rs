@@ -12,7 +12,7 @@
 use crate::view::{Fact, Press};
 use crate::wallet_setup::{
     CheckMark, NodeCheckRow, NodeRow, SetupStepper, WalletNetwork, confirmations_time, expiry_text,
-    node_address, step_stepper,
+    node_address, self_signed_choice, step_stepper,
 };
 
 /// The accounts a wallet looks at past the last one used (wallet2, Feather
@@ -30,6 +30,8 @@ pub struct WalletSettingsInput {
     /// it in the node's place, and `node` is the one its proofs are
     /// checked with.
     pub light_server: Option<String>,
+    /// Whether the light wallet server's own certificate is accepted.
+    pub light_self_signed: bool,
     pub till_number: u32,
     /// Connected through Fob: its wallet's name and the account's label.
     pub fob: Option<(String, String)>,
@@ -207,6 +209,7 @@ pub fn wallet_section(w: &WalletSettingsInput) -> WalletSection {
                 })
                 .collect(),
             choices,
+            self_signed: light.then(|| self_signed_choice(w.light_self_signed, !w.busy)),
         }),
         paid_after: SetupStepper {
             detail: Some(confirmations_time(w.confirmations)),
@@ -265,6 +268,7 @@ mod tests {
             network: WalletNetwork::Mainnet,
             node: Some("https://node.example.com:18089".into()),
             light_server: None,
+            light_self_signed: false,
             till_number: 2,
             fob: None,
             confirmations: 10,
@@ -311,6 +315,9 @@ mod tests {
             ("Light wallet server", "lws.example.com:8443")
         );
         assert!(row.choices.is_empty(), "no default servers");
+        let switch = row.self_signed.unwrap();
+        assert_eq!(switch.label, "Accept its own certificate", "setup's words");
+        assert!(!switch.selected && switch.enabled);
         let proofs = view
             .facts
             .iter()
@@ -318,6 +325,20 @@ mod tests {
             .unwrap();
         assert_eq!(proofs.value, "node.example.com:18089");
         assert!(view.footnote.contains("sees every payment"));
+    }
+
+    #[test]
+    fn the_light_servers_certificate_switch_shows_the_link_and_waits_while_busy() {
+        let light = WalletSettingsInput {
+            light_server: Some("https://lws.example.com:8443".into()),
+            light_self_signed: true,
+            busy: true,
+            ..input()
+        };
+        let switch = wallet_section(&light).node.unwrap().self_signed.unwrap();
+        assert!(switch.selected && !switch.enabled);
+        let node = wallet_section(&input()).node.unwrap();
+        assert!(node.self_signed.is_none(), "a node has no switch");
     }
 
     #[test]

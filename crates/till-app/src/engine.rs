@@ -1050,6 +1050,7 @@ impl State {
             Action::EditLightServer { url, self_signed } => {
                 self.edit_light_server(url, self_signed)
             }
+            Action::SetLightServer { url, self_signed } => self.set_light_server(url, self_signed),
             Action::ChoosePriceProvider { name } => self.choose_price_provider(name),
             Action::Refresh => self.pull(),
             Action::ChooseKeypadCurrency { code } => self.choose_keypad_currency(code),

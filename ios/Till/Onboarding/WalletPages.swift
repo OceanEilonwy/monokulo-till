@@ -1045,21 +1045,13 @@ struct LightServerPage: View {
                         .onChange(of: url) { edit(selfSigned: step.selfSigned.selected) }
                 }
                 Card {
-                    Toggle(isOn: Binding(
-                        get: { step.selfSigned.selected },
-                        set: { edit(selfSigned: $0) }
-                    )) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(step.selfSigned.label)
-                            if let detail = step.selfSigned.detail {
-                                Text(detail)
-                                    .font(.footnote)
-                                    .foregroundStyle(Palette.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
-                    }
-                    .disabled(!step.selfSigned.enabled)
+                    SelfSignedToggle(
+                        choice: step.selfSigned,
+                        isOn: Binding(
+                            get: { step.selfSigned.selected },
+                            set: { edit(selfSigned: $0) }
+                        )
+                    )
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
                 }
@@ -1125,7 +1117,7 @@ struct ThisTillPage: View {
         }
         .sheet(isPresented: $changingNode) {
             if let node = step.node {
-                NodeSheet(node: node) { url in
+                NodeSheet(node: node) { url, _ in
                     changingNode = false
                     send(.setNode(url: url))
                 }
@@ -1227,12 +1219,15 @@ struct NodeCheck: View {
     }
 }
 
-/// D4's Change: Fob's default nodes, or one typed.
+/// D4's Change: Fob's default nodes, or one typed. In Settings on a light
+/// wallet server, the address typed and "Accept its own certificate":
+/// `use` is told the switch's setting, `nil` for a node.
 struct NodeSheet: View {
     let node: NodeRow
-    let use: @MainActor (String) -> Void
+    let use: @MainActor (_ url: String, _ selfSigned: Bool?) -> Void
 
     @State private var typed = ""
+    @State private var selfSigned: Bool?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -1242,7 +1237,7 @@ struct NodeSheet: View {
                     Section {
                         ForEach(node.choices, id: \.self) { url in
                             Button {
-                                use(url)
+                                use(url, nil)
                             } label: {
                                 HStack {
                                     Text(url)
@@ -1266,6 +1261,17 @@ struct NodeSheet: View {
                         .keyboardType(.URL)
                         .onSubmit { useTyped() }
                 }
+                if let choice = node.selfSigned {
+                    Section {
+                        SelfSignedToggle(
+                            choice: choice,
+                            isOn: Binding(
+                                get: { selfSigned ?? choice.selected },
+                                set: { selfSigned = $0 }
+                            )
+                        )
+                    }
+                }
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
@@ -1287,7 +1293,29 @@ struct NodeSheet: View {
     private func useTyped() {
         let url = typed.trimmingCharacters(in: .whitespaces)
         guard !url.isEmpty else { return }
-        use(url)
+        use(url, node.selfSigned.map { selfSigned ?? $0.selected })
+    }
+}
+
+/// "Accept its own certificate" and what it means, as setup words it: a
+/// row of Settings' light server card and of its Change.
+struct SelfSignedToggle: View {
+    let choice: Choice
+    let isOn: Binding<Bool>
+
+    var body: some View {
+        Toggle(isOn: isOn) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(choice.label)
+                if let detail = choice.detail {
+                    Text(detail)
+                        .font(.footnote)
+                        .foregroundStyle(Palette.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .disabled(!choice.enabled)
     }
 }
 
