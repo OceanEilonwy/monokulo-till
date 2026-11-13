@@ -14,8 +14,10 @@ pub const SCHEMA_VERSION: i64 = 1;
 /// differs, every projection is rebuilt by replaying the journal (§13).
 /// 2: a sale kept from Monokulo alone is folded into the point-of-sale
 /// sale whose order it is. 3: one order per sale, renewed by New code,
-/// with endings per quote (core.md decisions 167 to 173).
-pub const PROJECTION_VERSION: i64 = 3;
+/// with endings per quote (core.md decisions 167 to 173). 4: a sale keeps
+/// every order it had, New code on a wallet payment making its next
+/// (decision 241).
+pub const PROJECTION_VERSION: i64 = 4;
 
 /// The database's file name in the engine's data directory.
 pub const FILE_NAME: &str = "till.db";

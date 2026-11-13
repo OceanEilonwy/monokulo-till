@@ -11,6 +11,11 @@ pub enum BackendError {
     /// The backend can't do what was asked: "make a new code for a sale".
     #[error("This till's payments can't {0}.")]
     Unsupported(&'static str),
+    /// The backend won't do what was asked, and says why in words for the
+    /// cashier: the device's own wallet refusing a new code for a sale a
+    /// payment reached.
+    #[error("{0}")]
+    Refused(String),
     /// Anything else, in the backend's own words.
     #[error("{0}")]
     Other(String),
@@ -42,7 +47,7 @@ impl BackendError {
     pub fn answered(&self) -> bool {
         match self {
             BackendError::Monokulo(e) => e.answered(),
-            BackendError::Unsupported(_) => true,
+            BackendError::Unsupported(_) | BackendError::Refused(_) => true,
             BackendError::Other(_) => false,
         }
     }
