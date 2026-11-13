@@ -1037,6 +1037,9 @@ impl State {
             Action::StepPaidAfter { up } => self.step_paid_after(up),
             Action::StepCodeExpiry { up } => self.step_code_expiry(up),
             Action::SetNode { url } => self.set_node(url),
+            Action::EditLightServer { url, self_signed } => {
+                self.edit_light_server(url, self_signed)
+            }
             Action::ChoosePriceProvider { name } => self.choose_price_provider(name),
             Action::PaidInCash { order_id } => {
                 if let Some(p) = &self.parts {
@@ -1408,7 +1411,8 @@ impl State {
             }
             Screen::Settings => self.close_settings(),
             Screen::PaymentsMode => self.go(Screen::Welcome),
-            Screen::Scan | Screen::WalletEntry => self.go(Screen::PaymentsMode),
+            Screen::Scan | Screen::LightServer => self.go(Screen::PaymentsMode),
+            Screen::WalletEntry => self.wallet_entry_back(),
             Screen::FobRequest
             | Screen::FobConnected
             | Screen::WalletCode
@@ -1458,6 +1462,7 @@ impl State {
         match self.screen {
             Screen::Welcome => self.go(Screen::PaymentsMode),
             Screen::PaymentsMode => self.payments_mode_next(),
+            Screen::LightServer => self.light_server_next(),
             Screen::WalletKeys => self.wallet_keys_next(),
             Screen::FobConnected => self.fob_connected_next(),
             Screen::ThisTill => self.finish_wallet(),
@@ -2419,7 +2424,13 @@ impl State {
             step,
             pos: model.point_of_sale,
             wallet: p.side.wallet_mode()
-                || self.wallet.mode == Some(till_screens::wallet_setup::PaymentsMode::Wallet),
+                || matches!(
+                    self.wallet.mode,
+                    Some(
+                        till_screens::wallet_setup::PaymentsMode::Wallet
+                            | till_screens::wallet_setup::PaymentsMode::LightServer
+                    )
+                ),
         })
     }
 

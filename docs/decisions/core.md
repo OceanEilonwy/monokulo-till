@@ -2242,3 +2242,49 @@ still strings across the till, the ledger, the screens and the bridge.
      it must work well on the cores alone, and the GPU only makes them
      cheaper. How fast an iPad is at it needs the owner to run 8aR's
      `gpu_check` and `scan_speed` on one.
+
+244. **A light wallet server is the same wallet backend, polled at the
+     same pace.** (docs/view-key-mode.md §5.7.) `WalletBackend` sets
+     fob-wallet's backend to `Light { url, self_signed }` when the link
+     names a server (`WalletLink::light_server`, and the new
+     `light_self_signed`, both left out of the JSON when unset, so every
+     link kept before reads as it did). The server holds the view key and
+     scans; Till tells it of its account's pool as it hands addresses out
+     (fob-wallet's `upsert_subaddrs` at each poll, account n's indexes up
+     to the pool and its margin). Each turn of the stream is one poll of
+     the server (`look_at_pool`), whose answer holds the newest blocks and
+     the pool together, so the node is never asked for the tip; refresh is
+     one poll too (Fob decision 427). The pace (§5.5), Sharing::ThisTill,
+     the status function and Settled Confirmations don't change. The
+     link's node, when set, is the node the server's proofs are checked
+     with; without one Fob's default for the network checks them. The
+     wallet never asks the server to import (scan from block 0): it's new
+     at setup, with nothing before it to find (`set_light_import(false)`
+     each time it's opened). A server that hasn't approved the till's
+     wallet yet (monokulo-lws `--create approve`) shows in Settings'
+     warnings: "Your light wallet server hasn't approved this till yet.
+     Payments show once it does."
+245. **The light wallet server is set up before the wallet, and its network
+     is the wallet's.** (§11.1.) V1's "Your light wallet server" leads to
+     its own page: the server's address, "Accept its own certificate" (a
+     switch, fob-wallet's `self_signed`, held to the key it first answers
+     with), the checks, and the spec's warning that the server sees every
+     payment. Continue checks the server as Fob's Test does
+     (`/get_version`, nothing of the wallet's sent): it answers (in how
+     long), its network, that it watches subaddresses, and, accepting its
+     own certificate, the start of its key to compare; it goes on to V2
+     only when every line passes, and doesn't check again while the
+     address is what was checked. The network the server says becomes the
+     wallet's (D2's network starts on it), so a release build set up on a
+     stagenet server needs no change of network. V2 and the ways in are
+     the wallet's; D4 shows the till number and "Node for proofs" with the
+     node's checks, and says the node checks the server's proofs. Connect
+     to Fob in this mode keeps the server typed even when Fob shared its
+     own: it was chosen, and checked, first. Settings shows "Your light
+     wallet server" as the way, the server in the node's row (Change takes
+     a new address, checked by the wallet before it's kept, with no
+     default servers to offer), "Proofs checked with" the node, and a
+     footnote that the server sees every payment. The certificate setting
+     can't be changed in Settings. Open question 3 (moving between a node
+     and a light server without setting up again) is not in this round, as
+     the owner chose: Disconnect and set up again.
