@@ -507,6 +507,8 @@ pub fn preview_settings_of(look: PreviewSettings, device: Device, now: i64) -> S
             network: WalletNetwork::Mainnet,
             node: Some("https://node.example.com:18089".into()),
             light_server: light.then(|| LIGHT_SERVER.into()),
+            // A server the shop runs, with its own certificate.
+            light_self_signed: light,
             till_number: match look {
                 PreviewSettings::VkSettingsWarning => 51,
                 PreviewSettings::VkLightSettings => 2,
@@ -521,6 +523,7 @@ pub fn preview_settings_of(look: PreviewSettings, device: Device, now: i64) -> S
                     ("Answers in 0.2 s".into(), CheckMark::Passed),
                     ("Mainnet".into(), CheckMark::Passed),
                     ("Watches subaddresses".into(), CheckMark::Passed),
+                    ("Key 3f9a c41e 07b2 d58c…".into(), CheckMark::Passed),
                 ]
             } else {
                 vec![
@@ -724,7 +727,11 @@ mod tests {
             .wallet
             .unwrap();
         assert_eq!(settings.mode.value, "Your light wallet server");
-        assert_eq!(settings.node.unwrap().label, "Light wallet server");
+        let row = settings.node.unwrap();
+        assert_eq!(row.label, "Light wallet server");
+        let switch = row.self_signed.unwrap();
+        assert_eq!(switch.label, "Accept its own certificate");
+        assert!(switch.selected);
         assert_eq!(settings.till_number.unwrap().value, "2");
     }
 

@@ -693,18 +693,18 @@ fun ThisTillScreen(view: ThisTillStep, heading: String, lead: String, stepLabel:
         Head(heading, lead)
         Spacer(Modifier.height(16.dp))
         view.number?.let { n -> Group(rows = listOf({ StepperRow(n, a.onNumber) })); Spacer(Modifier.height(18.dp)) }
-        view.node?.let { node -> NodeCard(node) { changing = true }; Spacer(Modifier.height(18.dp)) }
+        view.node?.let { node -> NodeCard(node, onChange = { changing = true }); Spacer(Modifier.height(18.dp)) }
         Group(rows = listOf({ StepperRow(view.paidAfter, a.steps.onPaidAfter) }, { StepperRow(view.expiry, a.steps.onExpiry) }))
         Notice(view.problem, Modifier.padding(16.dp))
         Spacer(Modifier.height(16.dp))
     }
     val node = view.node
-    if (changing && node != null) NodeDialog(node, onDone = { url -> changing = false; url?.let(a.onNode) })
+    if (changing && node != null) NodeDialog(node, onDone = { url, _ -> changing = false; url?.let(a.onNode) })
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun NodeCard(node: NodeRow, onChange: () -> Unit) = Group(
+internal fun NodeCard(node: NodeRow, onChange: () -> Unit, onSelfSigned: (Boolean) -> Unit = {}) = Group(
     rows = listOfNotNull(
         {
             // The address on one line, cut short at its start rather than broken, with Change after it.
@@ -720,6 +720,10 @@ internal fun NodeCard(node: NodeRow, onChange: () -> Unit) = Group(
                 )
                 LinkButton(node.change.label, onChange, enabled = node.change.enabled, size = 17)
             }
+        },
+        // In Settings on a light wallet server: setup's "Accept its own certificate".
+        node.selfSigned?.let { choice ->
+            { SwitchRow(choice.label, choice.selected, onSelfSigned, enabled = choice.enabled, detail = choice.detail) }
         },
         node.checks.takeIf { it.isNotEmpty() }?.let { checks ->
             {
@@ -746,10 +750,11 @@ internal fun NodeCard(node: NodeRow, onChange: () -> Unit) = Group(
 
 /** D4's Change: the node's address typed, or one of Fob's defaults. */
 @Composable
-internal fun NodeDialog(node: NodeRow, onDone: (String?) -> Unit) {
+internal fun NodeDialog(node: NodeRow, onDone: (url: String?, selfSigned: Boolean?) -> Unit) {
     var url by remember { mutableStateOf(node.url) }
+    var selfSigned by remember { mutableStateOf(node.selfSigned?.selected) }
     AlertDialog(
-        onDismissRequest = { onDone(null) },
+        onDismissRequest = { onDone(null, null) },
         title = { Text(node.label) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -760,13 +765,19 @@ internal fun NodeDialog(node: NodeRow, onDone: (String?) -> Unit) {
                 node.choices.forEach { choice ->
                     Text(
                         choice, fontSize = 15.sp, color = mk.link,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).clickable { onDone(choice) }.padding(vertical = 10.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).clickable { onDone(choice, selfSigned) }.padding(vertical = 10.dp),
+                    )
+                }
+                node.selfSigned?.let { choice ->
+                    SwitchRow(
+                        choice.label, selfSigned ?: choice.selected, { selfSigned = it },
+                        enabled = choice.enabled, detail = choice.detail,
                     )
                 }
             }
         },
-        confirmButton = { LinkButton(node.change.label, { onDone(url.trim().ifEmpty { null }) }) },
-        dismissButton = { LinkButton("Cancel", { onDone(null) }, color = mk.ink) },
+        confirmButton = { LinkButton(node.change.label, { onDone(url.trim().ifEmpty { null }, selfSigned) }) },
+        dismissButton = { LinkButton("Cancel", { onDone(null, null) }, color = mk.ink) },
         containerColor = mk.ground,
     )
 }

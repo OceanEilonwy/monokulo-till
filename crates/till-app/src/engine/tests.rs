@@ -2711,6 +2711,90 @@ fn light_server_settings_show_and_change_the_server() {
     assert_eq!(kept.file_key, link.file_key, "the same wallet");
 }
 
+/// Decision 253: Settings' "Accept its own certificate" switch changes the
+/// light wallet server's setting once the wallet's check of it passes, and
+/// the lines under the row are checked again; a server that fails the
+/// check changes nothing.
+#[test]
+fn light_server_settings_switch_its_certificate_after_checking_it() {
+    let config = config(None);
+    let first = light_server_stub();
+    let (platform, link) = wallet_till_with(
+        &config.data_dir,
+        till_wallet::WalletSetup {
+            light_server: Some(first.clone()),
+            ..till_wallet::WalletSetup::new(2)
+        },
+    );
+    assert!(!link.light_self_signed);
+    let (engine, rx, _) = start(config, platform.clone());
+    screen(&rx, Screen::Till);
+    engine.send(Action::OpenSettings);
+    let row = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view
+            .wallet
+            .clone()
+            .and_then(|w| w.node)
+            .filter(|n| n.checks.len() == 3),
+        _ => None,
+    });
+    let switch = row.self_signed.expect("the certificate switch");
+    assert_eq!(switch.label, "Accept its own certificate");
+    assert!(!switch.selected && switch.enabled);
+
+    engine.send(Action::SetLightServer {
+        url: first.clone(),
+        self_signed: true,
+    });
+    // Checked again as the switch changes.
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view
+            .wallet
+            .as_ref()
+            .and_then(|w| w.node.as_ref())
+            .filter(|n| n.checks.iter().any(|c| c.mark == CheckMark::Checking))
+            .map(|_| ()),
+        _ => None,
+    });
+    let row = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => {
+            view.wallet.clone().and_then(|w| w.node).filter(|n| {
+                n.self_signed.as_ref().is_some_and(|s| s.selected)
+                    && n.checks.len() == 3
+                    && n.checks.iter().all(|c| c.mark == CheckMark::Passed)
+            })
+        }
+        _ => None,
+    });
+    assert_eq!(row.url, first);
+    let kept = kept_wallet(&platform);
+    assert!(kept.light_self_signed);
+    assert_eq!(kept.light_server.as_deref(), Some(first.as_str()));
+    assert_eq!(kept.file_key, link.file_key, "the same wallet");
+
+    // A server that doesn't answer is refused: the link stays as it was.
+    let dead = {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port())
+    };
+    engine.send(Action::SetLightServer {
+        url: dead,
+        self_signed: false,
+    });
+    let section = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => {
+            view.wallet.clone().filter(|w| w.problem.is_some())
+        }
+        _ => None,
+    });
+    let row = section.node.unwrap();
+    assert_eq!(row.url, first);
+    assert!(row.self_signed.unwrap().selected);
+    let kept = kept_wallet(&platform);
+    assert_eq!(kept.light_server.as_deref(), Some(first.as_str()));
+    assert!(kept.light_self_signed);
+}
+
 /// Disconnect forgets the wallet's link and deletes its file.
 #[test]
 fn disconnecting_a_wallet_deletes_its_file() {

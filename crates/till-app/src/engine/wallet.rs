@@ -505,16 +505,8 @@ impl State {
         if self.in_wallet_settings() {
             // Through a light wallet server, the row is the server's: a new
             // one is checked and taken (Q3: never a switch to a node).
-            let light = self
-                .parts
-                .as_ref()
-                .and_then(|p| p.side.model().wallet)
-                .and_then(|l| l.light_server.is_some().then_some(l.light_self_signed));
-            if let Some(self_signed) = light {
-                let server = url.clone();
-                self.change_wallet(move |link| link.light_server = Some(server));
-                self.run_light_check(url, self_signed, false);
-                return;
+            if let Some(self_signed) = self.light_self_signed() {
+                return self.set_light_server(url, self_signed);
             }
             let node = url.clone();
             self.change_wallet(move |link| {
@@ -528,6 +520,35 @@ impl State {
             self.form().node = Some(url.clone());
         }
         self.run_node_check(url);
+    }
+
+    /// Whether the light wallet server's own certificate is accepted, on a
+    /// till through one.
+    fn light_self_signed(&self) -> Option<bool> {
+        self.parts
+            .as_ref()
+            .and_then(|p| p.side.model().wallet)
+            .and_then(|l| l.light_server.is_some().then_some(l.light_self_signed))
+    }
+
+    /// Settings' light wallet server: its address and whether its own
+    /// certificate is accepted (core.md decision 253). The wallet checks
+    /// the server first, and the link keeps it only if that passes
+    /// (`change_wallet`); the lines under the row are checked again too.
+    /// A new address or setting gets a new trusted key: fob-wallet's
+    /// `set_light_server` pins the one its check saw, or none without the
+    /// switch.
+    pub(super) fn set_light_server(&mut self, url: String, self_signed: bool) {
+        let url = url.trim().to_owned();
+        if url.is_empty() || !self.in_wallet_settings() || self.light_self_signed().is_none() {
+            return;
+        }
+        let server = url.clone();
+        self.change_wallet(move |link| {
+            link.light_server = Some(server);
+            link.light_self_signed = self_signed;
+        });
+        self.run_light_check(url, self_signed, false);
     }
 
     /// The node at `url` checked as Fob checks one, its lines shown as
@@ -912,6 +933,7 @@ impl State {
                     .then(|| setup::default_node(network))
             }),
             light_server: link.light_server.clone(),
+            light_self_signed: link.light_self_signed,
             till_number: link.till_number,
             fob: link
                 .fob
