@@ -16,6 +16,7 @@ use till_screens::pos_text;
 use till_screens::sale::{self, SaleInput};
 use till_screens::sale_page::{self, SalePageInput};
 use till_screens::shift::{self, ShiftFilter, ShiftInput};
+use till_screens::wallet_setup::PaymentsMode;
 use till_screens::{CloseView, Device, DeviceClock, ShiftView};
 
 use crate::phases::Money;
@@ -70,6 +71,9 @@ pub struct TillPreview {
     pub refunding: bool,
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub refund_problem: Option<String>,
+    /// What tells the till of payments; Monokulo when not said.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub payments: Option<PaymentsMode>,
 }
 
 impl TillPreview {
@@ -183,6 +187,7 @@ pub fn preview_sale(
             refund_problem: preview.refund_problem.clone(),
             refunding: preview.refunding,
             taking: false,
+            by: preview.payments.unwrap_or(PaymentsMode::Monokulo),
         },
         clock,
         &money,
@@ -272,6 +277,7 @@ mod tests {
             folded: true,
             refunding: false,
             refund_problem: None,
+            payments: None,
         }
     }
 

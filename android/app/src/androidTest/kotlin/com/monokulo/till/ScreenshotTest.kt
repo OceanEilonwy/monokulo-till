@@ -79,6 +79,7 @@ import uniffi.till_screens.CloseView
 import uniffi.till_screens.Device
 import uniffi.till_screens.OnboardingPage
 import uniffi.till_screens.OnboardingView
+import uniffi.till_screens.PaymentsMode
 import uniffi.till_screens.PosMark
 import uniffi.till_screens.SettingsView
 import uniffi.till_screens.ShiftView
@@ -200,6 +201,11 @@ class ScreenshotTest {
         SaleFace.of(previewSale(priced, "w1", TestPlatform) as Update.Sale)
     }
 
+    /** A sale whose code ran out on a till on the shop's own wallet: Till, not Monokulo, watches for a late payment (core.md decision 252). */
+    private val walletExpiredFace by lazy {
+        SaleFace.of(previewSale(full.copy(payments = PaymentsMode.WALLET), "e1", TestPlatform) as Update.Sale)
+    }
+
     /** Sales charged on Till's keypad, two put aside for the next customer. */
     private val keypadSales = listOf(
         PreviewSale(orderId = "k1", phase = PreviewPhase.WAITING, amount = "8.40", reference = "Sam", expiresAt = now + 840, foundPos = Pos.TILL, createdAt = now - 60),
@@ -278,6 +284,7 @@ class ScreenshotTest {
         Shot("vk-settings") { SettingsScreen(previewSettingsOf(PreviewSettings.VK_SETTINGS, Device.ANDROID, now), settingsActions) },
         Shot("vk-settings-warning") { SettingsScreen(previewSettingsOf(PreviewSettings.VK_SETTINGS_WARNING, Device.ANDROID, now), settingsActions) },
         Shot("vk-light-settings") { SettingsScreen(previewSettingsOf(PreviewSettings.VK_LIGHT_SETTINGS, Device.ANDROID, now), settingsActions) },
+        Shot("vk-sale-expired") { SaleScreen(walletExpiredFace, noActions, null) },
     )
 
     private fun landscapeShots() = listOf(

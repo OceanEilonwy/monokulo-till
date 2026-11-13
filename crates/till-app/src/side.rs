@@ -19,6 +19,7 @@ use till_pos::clover::{
 use till_pos::square::{SquareApi, SquareAuth, SquareConfig, SquareSource};
 use till_pos::{PosEnvironment, SaleSource, TokenLock, TokenStore};
 use till_sales::{Books, LiveStore, PosSwitchSide, RunnerSide};
+use till_screens::wallet_setup::PaymentsMode;
 use till_types::Secret;
 use till_wallet::WalletBackend;
 
@@ -214,6 +215,22 @@ impl Side {
     pub fn wallet_mode(&self) -> bool {
         self.kept
             .with(|m| m.connection.is_none() && m.wallet.is_some())
+    }
+
+    /// What tells the till of payments: Monokulo unless it watches the
+    /// shop's own wallet, through a light wallet server when its link names
+    /// one.
+    pub fn payments_mode(&self) -> PaymentsMode {
+        self.kept.with(|m| match &m.wallet {
+            Some(wallet) if m.connection.is_none() => {
+                if wallet.light_server.is_some() {
+                    PaymentsMode::LightServer
+                } else {
+                    PaymentsMode::Wallet
+                }
+            }
+            _ => PaymentsMode::Monokulo,
+        })
     }
 
     /// The payment backend for `connection`, the store's Monokulo.
