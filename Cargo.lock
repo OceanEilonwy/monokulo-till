@@ -307,6 +307,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "block2"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cdeb9d870516001442e364c5220d3574d2da8dc765554b4a617230d33fa58ef5"
+dependencies = [
+ "objc2",
+]
+
+[[package]]
 name = "borsh"
 version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -645,6 +654,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "dispatch2"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e0e367e4e7da84520dedcac1901e4da967309406d1e51017ae1abfb97adbd38"
+dependencies = [
+ "bitflags",
+ "objc2",
+]
+
+[[package]]
 name = "displaydoc"
 version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -726,7 +745,7 @@ checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 [[package]]
 name = "fob-chain"
 version = "0.1.21"
-source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=6324569a43bc276fadf015a011f6a1aa90c2f308#6324569a43bc276fadf015a011f6a1aa90c2f308"
+source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=5668290d4fd91f113eba0268ba28c4153437bb2d#5668290d4fd91f113eba0268ba28c4153437bb2d"
 dependencies = [
  "fob-monero",
  "hex",
@@ -747,7 +766,7 @@ dependencies = [
 [[package]]
 name = "fob-codes"
 version = "0.1.21"
-source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=6324569a43bc276fadf015a011f6a1aa90c2f308#6324569a43bc276fadf015a011f6a1aa90c2f308"
+source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=5668290d4fd91f113eba0268ba28c4153437bb2d#5668290d4fd91f113eba0268ba28c4153437bb2d"
 dependencies = [
  "base64 0.22.1",
  "chacha20poly1305",
@@ -770,7 +789,7 @@ dependencies = [
 [[package]]
 name = "fob-keys"
 version = "0.1.21"
-source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=6324569a43bc276fadf015a011f6a1aa90c2f308#6324569a43bc276fadf015a011f6a1aa90c2f308"
+source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=5668290d4fd91f113eba0268ba28c4153437bb2d#5668290d4fd91f113eba0268ba28c4153437bb2d"
 dependencies = [
  "chacha20poly1305",
  "curve25519-dalek",
@@ -788,7 +807,7 @@ dependencies = [
 [[package]]
 name = "fob-monero"
 version = "0.1.21"
-source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=6324569a43bc276fadf015a011f6a1aa90c2f308#6324569a43bc276fadf015a011f6a1aa90c2f308"
+source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=5668290d4fd91f113eba0268ba28c4153437bb2d#5668290d4fd91f113eba0268ba28c4153437bb2d"
 dependencies = [
  "monero-wallet",
  "serde",
@@ -799,7 +818,7 @@ dependencies = [
 [[package]]
 name = "fob-price"
 version = "0.1.21"
-source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=6324569a43bc276fadf015a011f6a1aa90c2f308#6324569a43bc276fadf015a011f6a1aa90c2f308"
+source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=5668290d4fd91f113eba0268ba28c4153437bb2d#5668290d4fd91f113eba0268ba28c4153437bb2d"
 dependencies = [
  "fob-monero",
  "reqwest",
@@ -813,7 +832,7 @@ dependencies = [
 [[package]]
 name = "fob-scanner"
 version = "0.1.21"
-source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=6324569a43bc276fadf015a011f6a1aa90c2f308#6324569a43bc276fadf015a011f6a1aa90c2f308"
+source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=5668290d4fd91f113eba0268ba28c4153437bb2d#5668290d4fd91f113eba0268ba28c4153437bb2d"
 dependencies = [
  "curve25519-dalek",
  "hex",
@@ -824,7 +843,7 @@ dependencies = [
 [[package]]
 name = "fob-screens"
 version = "0.1.21"
-source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=6324569a43bc276fadf015a011f6a1aa90c2f308#6324569a43bc276fadf015a011f6a1aa90c2f308"
+source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=5668290d4fd91f113eba0268ba28c4153437bb2d#5668290d4fd91f113eba0268ba28c4153437bb2d"
 dependencies = [
  "fob-codes",
  "fob-monero",
@@ -836,7 +855,7 @@ dependencies = [
 [[package]]
 name = "fob-vault"
 version = "0.1.21"
-source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=6324569a43bc276fadf015a011f6a1aa90c2f308#6324569a43bc276fadf015a011f6a1aa90c2f308"
+source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=5668290d4fd91f113eba0268ba28c4153437bb2d#5668290d4fd91f113eba0268ba28c4153437bb2d"
 dependencies = [
  "argon2",
  "chacha20poly1305",
@@ -854,7 +873,7 @@ dependencies = [
 [[package]]
 name = "fob-wallet"
 version = "0.1.21"
-source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=6324569a43bc276fadf015a011f6a1aa90c2f308#6324569a43bc276fadf015a011f6a1aa90c2f308"
+source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=5668290d4fd91f113eba0268ba28c4153437bb2d#5668290d4fd91f113eba0268ba28c4153437bb2d"
 dependencies = [
  "chacha20poly1305",
  "curve25519-dalek",
@@ -885,7 +904,7 @@ dependencies = [
 [[package]]
 name = "fob-words"
 version = "0.1.21"
-source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=6324569a43bc276fadf015a011f6a1aa90c2f308#6324569a43bc276fadf015a011f6a1aa90c2f308"
+source = "git+https://github.com/OceanEilonwy/monokulo-fob?rev=5668290d4fd91f113eba0268ba28c4153437bb2d#5668290d4fd91f113eba0268ba28c4153437bb2d"
 dependencies = [
  "fob-chain",
  "fob-codes",
@@ -1920,13 +1939,16 @@ dependencies = [
 [[package]]
 name = "monokulo-8ar"
 version = "0.1.0"
-source = "git+https://github.com/OceanEilonwy/monokulo-8ar?rev=2f8db05#2f8db0573b388575952cf4d318542005ff55c3ab"
+source = "git+https://github.com/OceanEilonwy/monokulo-8ar?rev=0ef0965aaa83a96e39459eb13fade27bf06afa90#0ef0965aaa83a96e39459eb13fade27bf06afa90"
 dependencies = [
  "ash",
  "crypto-bigint",
  "curve25519-dalek",
  "libc",
  "monero-wallet",
+ "objc2",
+ "objc2-foundation",
+ "objc2-metal",
  "sha3",
  "zeroize",
 ]
@@ -1976,6 +1998,59 @@ checksum = "91df4bbde75afed763b708b7eee1e8e7651e02d97f6d5dd763e89367e957b23b"
 dependencies = [
  "hermit-abi",
  "libc",
+]
+
+[[package]]
+name = "objc2"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08849bbd4767dfae9457696856ae1c84fe4e0281bbe4a7abff2d0e06fb7981f8"
+dependencies = [
+ "objc2-encode",
+]
+
+[[package]]
+name = "objc2-core-foundation"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a180dd8642fa45cdb7dd721cd4c11b1cadd4929ce112ebd8b9f5803cc79d536"
+dependencies = [
+ "bitflags",
+ "dispatch2",
+ "objc2",
+]
+
+[[package]]
+name = "objc2-encode"
+version = "4.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef25abbcd74fb2609453eb695bd2f860d389e457f67dc17cafc8b8cbc89d0c33"
+
+[[package]]
+name = "objc2-foundation"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3e0adef53c21f888deb4fa59fc59f7eb17404926ee8a6f59f5df0fd7f9f3272"
+dependencies = [
+ "bitflags",
+ "block2",
+ "libc",
+ "objc2",
+ "objc2-core-foundation",
+]
+
+[[package]]
+name = "objc2-metal"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0125f776a10d00af4152d74616409f0d4a2053a6f57fa5b7d6aa2854ac04794"
+dependencies = [
+ "bitflags",
+ "block2",
+ "dispatch2",
+ "objc2",
+ "objc2-core-foundation",
+ "objc2-foundation",
 ]
 
 [[package]]
@@ -2968,7 +3043,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
