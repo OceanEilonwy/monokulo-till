@@ -2399,6 +2399,9 @@ still strings across the till, the ledger, the screens and the bridge.
      is an order made through the till's connection like any other, and
      shows in Monokulo's web POS list and Orders page as such: nothing
      marks it either way.
+
+## View-key mode: follow-ups (2026-11-13)
+
 252. **A sale's page says who watches for a late payment.** With Monokulo
      its words are unchanged: "Monokulo keeps watching for a late payment
      for a while", "Monokulo has stopped watching it.", "Cancelled in
@@ -2418,9 +2421,6 @@ still strings across the till, the ledger, the screens and the bridge.
      (`Side::payments_mode`: a wallet link with a light server is
      LightServer), and the previews' `TillPreview::payments`, Monokulo when
      not said, draws the screenshot `vk-sale-expired`.
-
-## View-key mode: follow-ups (2026-11-13)
-
 254. **A Connect to Fob request made through a light wallet server keeps
      the server with it.** C1's request is kept as a secret so Fob's answer
      still opens after a restart; it used to come back as a node till,
