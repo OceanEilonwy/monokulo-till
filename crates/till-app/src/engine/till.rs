@@ -83,22 +83,23 @@ fn setup_step(screen: &Screen) -> Option<u8> {
     Some(match screen {
         Screen::Welcome => 0,
         Screen::PaymentsMode => 1,
-        Screen::Scan | Screen::WalletEntry => 2,
+        Screen::LightServer => 2,
+        Screen::Scan | Screen::WalletEntry => 3,
         Screen::Confirm
         | Screen::FobRequest
         | Screen::WalletCode
         | Screen::WalletKeys
-        | Screen::WalletSeed => 3,
-        Screen::Connected | Screen::FobConnected => 4,
-        Screen::ThisTill => 5,
-        Screen::PointOfSale => 6,
-        Screen::Locations => 7,
-        Screen::Counter => 8,
-        Screen::Alerts => 9,
-        Screen::Float => 10,
-        Screen::ShowSales => 11,
-        Screen::Ready => 12,
-        Screen::Till => 13,
+        | Screen::WalletSeed => 4,
+        Screen::Connected | Screen::FobConnected => 5,
+        Screen::ThisTill => 6,
+        Screen::PointOfSale => 7,
+        Screen::Locations => 8,
+        Screen::Counter => 9,
+        Screen::Alerts => 10,
+        Screen::Float => 11,
+        Screen::ShowSales => 12,
+        Screen::Ready => 13,
+        Screen::Till => 14,
         _ => return None,
     })
 }

@@ -1,9 +1,9 @@
 //! Setting up a till that watches the shop's own wallet
 //! (docs/view-key-mode.md §11.1, core.md decision 232): how Till sees
-//! payments (V1), then the wallet, by Connect to Fob (C1, then B4 or C4)
-//! or entered by hand (D1, D2, D3), then This till (D4), after which the
-//! wallet file is made and the till goes on to the point of sale as a
-//! Monokulo till does.
+//! payments (V1), for a light wallet server its address (checked), then
+//! the wallet, by Connect to Fob (C1, then B4 or C4) or entered by hand
+//! (D1, D2, D3), then This till (D4), after which the wallet file is made
+//! and the till goes on to the point of sale as a Monokulo till does.
 //!
 //! What's typed is held here only until the wallet is made: the view key
 //! in a buffer wiped when it goes, seed words never at all (they're turned
@@ -17,7 +17,8 @@ use till_screens::onboarding::Step;
 use till_screens::wallet_settings::WalletSettingsInput;
 use till_screens::wallet_setup::{
     AddressIssue, CONFIRMATION_STEPS, CheckMark, EXPIRY_STEPS, FobConnectedSetup, KeysSetup,
-    PaymentsMode, ThisTillSetup, ViewKeyIssue, WalletNetwork, WalletStep, WalletWay, step,
+    LightServerSetup, PaymentsMode, ThisTillSetup, ViewKeyIssue, WalletNetwork, WalletStep,
+    WalletWay, step,
 };
 use till_wallet::keys::{AddressProblem, CodeProblem, SeedProblem, ViewKeyProblem};
 use till_wallet::setup::{self, CheckState};
@@ -63,6 +64,17 @@ pub(crate) struct WalletForm {
     checking: u64,
     confirmations: u32,
     expiry_minutes: u32,
+    /// The light wallet server as typed, and whether its own certificate
+    /// is accepted.
+    light_url: String,
+    light_self_signed: bool,
+    light_checks: Vec<(String, CheckMark)>,
+    /// The address and setting the checks passed for: Continue goes on
+    /// without checking again while they're what's typed.
+    light_passed: Option<(String, bool)>,
+    /// Bumped with each check of the server.
+    light_checking: u64,
+    light_busy: bool,
 }
 
 impl WalletForm {
@@ -90,11 +102,36 @@ impl WalletForm {
             checking: 0,
             confirmations: till_payments::DEFAULT_CONFIRMATIONS,
             expiry_minutes: till_payments::DEFAULT_EXPIRY_MINUTES,
+            light_url: String::new(),
+            light_self_signed: false,
+            light_checks: Vec::new(),
+            light_passed: None,
+            light_checking: 0,
+            light_busy: false,
         }
+    }
+
+    /// Set up through a light wallet server.
+    fn light(&self) -> bool {
+        self.mode == Some(PaymentsMode::LightServer)
     }
 
     fn network(&self) -> Network {
         network_of(self.network)
+    }
+
+    /// `setup` through the light wallet server typed, when that's the way
+    /// chosen. The server typed is used even when Fob shared its own: it
+    /// was chosen, and checked, first.
+    fn with_light_server(&self, setup: WalletSetup) -> WalletSetup {
+        if !self.light() {
+            return setup;
+        }
+        WalletSetup {
+            light_server: Some(self.light_url.trim().to_owned()),
+            light_self_signed: self.light_self_signed,
+            ..setup
+        }
     }
 }
 
@@ -109,6 +146,14 @@ fn wallet_network(network: Network) -> WalletNetwork {
     match network {
         Network::Mainnet => WalletNetwork::Mainnet,
         Network::Stagenet => WalletNetwork::Stagenet,
+    }
+}
+
+fn check_mark(state: CheckState) -> CheckMark {
+    match state {
+        CheckState::Checking => CheckMark::Checking,
+        CheckState::Passed => CheckMark::Passed,
+        CheckState::Failed => CheckMark::Failed,
     }
 }
 
@@ -148,11 +193,9 @@ impl State {
         &mut self.wallet
     }
 
-    /// V1's choice. The light wallet server isn't offered yet.
+    /// V1's choice.
     pub(super) fn choose_payments_mode(&mut self, mode: PaymentsMode) {
-        if mode != PaymentsMode::LightServer {
-            self.form().mode = Some(mode);
-        }
+        self.form().mode = Some(mode);
     }
 
     /// V1's Continue.
@@ -160,8 +203,102 @@ impl State {
         match self.wallet.mode {
             Some(PaymentsMode::Monokulo) => self.go(Screen::Scan),
             Some(PaymentsMode::Wallet) => self.go(Screen::WalletEntry),
-            _ => {}
+            Some(PaymentsMode::LightServer) => self.go(Screen::LightServer),
+            None => {}
         }
+    }
+
+    /// V2's Back: to the light wallet server's step when there is one.
+    pub(super) fn wallet_entry_back(&mut self) {
+        let to = if self.wallet.light() {
+            Screen::LightServer
+        } else {
+            Screen::PaymentsMode
+        };
+        self.go(to);
+    }
+
+    /// The light wallet server's address and certificate setting as typed.
+    pub(super) fn edit_light_server(&mut self, url: String, self_signed: bool) {
+        let form = self.form();
+        if form.light_url == url && form.light_self_signed == self_signed {
+            return;
+        }
+        form.light_url = url;
+        form.light_self_signed = self_signed;
+        form.problem = None;
+        // What was checked isn't what's typed now.
+        form.light_checks.clear();
+        form.light_passed = None;
+        form.light_checking += 1;
+        form.light_busy = false;
+    }
+
+    /// The light wallet server's Continue: the server checked (once for
+    /// what's typed), then on to the wallet when it passes. The wallet's
+    /// network becomes the server's (core.md decision 242).
+    pub(super) fn light_server_next(&mut self) {
+        let form = &self.wallet;
+        let typed = (form.light_url.trim().to_owned(), form.light_self_signed);
+        if typed.0.is_empty() || form.light_busy {
+            return;
+        }
+        if form.light_passed.as_ref() == Some(&typed) {
+            self.go(Screen::WalletEntry);
+            return;
+        }
+        self.run_light_check(typed.0, typed.1, true);
+    }
+
+    /// The light wallet server at `url` checked as Fob's Test checks one.
+    /// In setup the lines go under its field, and with `then` setup goes on
+    /// when it passes; in Settings they go under its row.
+    fn run_light_check(&mut self, url: String, self_signed: bool, then: bool) {
+        let network = self.wallet.network();
+        let settings = self.in_wallet_settings();
+        let form = self.form();
+        let checking = vec![("Checking the server…".to_owned(), CheckMark::Checking)];
+        let token = if settings {
+            form.checks = checking;
+            form.checking += 1;
+            form.checking
+        } else {
+            form.light_checks = checking;
+            form.light_busy = true;
+            form.light_checking += 1;
+            form.light_checking
+        };
+        self.task(async move {
+            let found = setup::check_light_server(network, &url, self_signed).await;
+            apply(move |s| {
+                let lines: Vec<(String, CheckMark)> = found
+                    .checks
+                    .iter()
+                    .map(|c| (c.text.clone(), check_mark(c.state)))
+                    .collect();
+                if settings {
+                    if s.wallet.checking == token {
+                        s.wallet.checks = lines;
+                    }
+                    return;
+                }
+                if s.wallet.light_checking != token {
+                    return;
+                }
+                let form = &mut s.wallet;
+                form.light_busy = false;
+                form.light_checks = lines;
+                if let Some(network) = found.network {
+                    form.network = wallet_network(network);
+                }
+                if found.passed() {
+                    form.light_passed = Some((url, self_signed));
+                    if then && s.screen == Screen::LightServer {
+                        s.go(Screen::WalletEntry);
+                    }
+                }
+            })
+        });
     }
 
     /// V2's "Connect to Fob": a new request, shown on C1.
@@ -353,10 +490,22 @@ impl State {
             return;
         }
         if self.in_wallet_settings() {
+            // Through a light wallet server, the row is the server's: a new
+            // one is checked and taken (Q3: never a switch to a node).
+            let light = self
+                .parts
+                .as_ref()
+                .and_then(|p| p.side.model().wallet)
+                .and_then(|l| l.light_server.is_some().then_some(l.light_self_signed));
+            if let Some(self_signed) = light {
+                let server = url.clone();
+                self.change_wallet(move |link| link.light_server = Some(server));
+                self.run_light_check(url, self_signed, false);
+                return;
+            }
             let node = url.clone();
             self.change_wallet(move |link| {
                 link.node = Some(node);
-                link.light_server = None;
                 if let Some(fob) = &mut link.fob {
                     fob.node_from_fob = false;
                 }
@@ -384,14 +533,7 @@ impl State {
                 }
                 s.wallet.checks = checks
                     .into_iter()
-                    .map(|c| {
-                        let mark = match c.state {
-                            CheckState::Checking => CheckMark::Checking,
-                            CheckState::Passed => CheckMark::Passed,
-                            CheckState::Failed => CheckMark::Failed,
-                        };
-                        (c.text, mark)
-                    })
+                    .map(|c| (c.text, check_mark(c.state)))
                     .collect();
             })
         });
@@ -447,6 +589,7 @@ impl State {
                     restore_height: Some(granted.restore_height),
                     ..WalletSetup::new(granted.account)
                 };
+                let setup = form.with_light_server(setup);
                 (granted.keys.clone(), setup)
             }
             None => {
@@ -459,7 +602,7 @@ impl State {
                     expiry_minutes: form.expiry_minutes,
                     ..WalletSetup::new(form.till_number)
                 };
-                (keys, setup)
+                (keys, form.with_light_server(setup))
             }
         };
         let data_dir = PathBuf::from(&self.config.data_dir);
@@ -592,11 +735,15 @@ impl State {
         let Some(link) = self.parts.as_ref().and_then(|p| p.side.model().wallet) else {
             return;
         };
+        let network = till_wallet::backend::network_of(&link);
+        self.wallet.network = wallet_network(network);
+        if let Some(server) = link.light_server.clone() {
+            self.run_light_check(server, link.light_self_signed, false);
+            return;
+        }
         let Some(node) = link.node.clone() else {
             return;
         };
-        let network = till_wallet::backend::network_of(&link);
-        self.wallet.network = wallet_network(network);
         self.run_node_check(node);
     }
 
@@ -629,7 +776,14 @@ impl State {
         Some(WalletSettingsInput {
             address,
             network: wallet_network(network),
-            node: link.node.clone().or(link.light_server.clone()),
+            // Through a light server, the node its proofs are checked with:
+            // the link's, else Fob's default for the network.
+            node: link.node.clone().or_else(|| {
+                link.light_server
+                    .is_some()
+                    .then(|| setup::default_node(network))
+            }),
+            light_server: link.light_server.clone(),
             till_number: link.till_number,
             fob: link
                 .fob
@@ -762,6 +916,14 @@ impl State {
                 expiry_minutes: form.expiry_minutes,
                 busy: self.busy,
                 problem: self.problem.clone(),
+                light: form.light(),
+            }),
+            Screen::LightServer => WalletStep::LightServer(LightServerSetup {
+                url: form.light_url.clone(),
+                self_signed: form.light_self_signed,
+                checks: form.light_checks.clone(),
+                busy: form.light_busy,
+                problem: form.problem.clone(),
             }),
             _ => return None,
         };

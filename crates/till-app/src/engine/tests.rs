@@ -9,7 +9,7 @@ use std::time::Duration;
 use monokulo_client::FixedClock;
 use till_screens::onboarding::OnboardingPage;
 use till_screens::shift::ShiftFilter;
-use till_screens::wallet_setup::PaymentsMode;
+use till_screens::wallet_setup::{CheckMark, PaymentsMode};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -2158,16 +2158,14 @@ fn a_wallet_typed_by_hand_is_checked_made_and_kept_as_the_tills_link() {
     screen(&rx, Screen::Welcome);
     engine.send(Action::Next);
     screen(&rx, Screen::PaymentsMode);
-    // Continue waits for a choice; the light server isn't one yet.
-    engine.send(Action::ChoosePaymentsMode {
-        mode: PaymentsMode::LightServer,
-    });
+    // Continue waits for a choice.
     engine.send(Action::Next);
     let mode = page_where(&rx, |page| match page {
         OnboardingPage::PaymentsMode { view } => Some(view.clone()),
         _ => None,
     });
     assert!(!mode.next.enabled);
+    engine.peek(|s| assert_eq!(s.screen, Screen::PaymentsMode));
     engine.send(Action::ChoosePaymentsMode {
         mode: PaymentsMode::Wallet,
     });
@@ -2247,6 +2245,162 @@ fn a_wallet_typed_by_hand_is_checked_made_and_kept_as_the_tills_link() {
         _ => None,
     });
     assert!(pos.skip.is_none(), "{:?}", pos.skip);
+}
+
+/// A stagenet light wallet server on 127.0.0.1 that answers `/get_version`
+/// as monokulo-lws does (and anything else with an empty wallet): its
+/// address.
+fn light_server_stub() -> String {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            let mut request = Vec::new();
+            let mut buf = [0; 4096];
+            while let Ok(n) = stream.read(&mut buf) {
+                if n == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buf[..n]);
+                let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") else {
+                    continue;
+                };
+                let head = String::from_utf8_lossy(&request[..end]).to_ascii_lowercase();
+                let len = head
+                    .lines()
+                    .find_map(|l| l.strip_prefix("content-length:"))
+                    .and_then(|v| v.trim().parse::<usize>().ok())
+                    .unwrap_or(0);
+                if request.len() >= end + 4 + len {
+                    break;
+                }
+            }
+            let text = String::from_utf8_lossy(&request);
+            let body = if text.starts_with("POST /get_version") {
+                r#"{"server_type":"monokulo-lws","monero_version_full":"","blockchain_height":2250000,"api":2,"max_subaddresses":10000,"network":"stage","testnet":true}"#
+            } else if text.starts_with("POST /login") {
+                r#"{"new_address":true,"start_height":2249990}"#
+            } else if text.starts_with("POST /get_address_txs") {
+                r#"{"total_received":"0","scanned_height":2249999,"scanned_block_height":2249999,"start_height":2249990,"transaction_height":2249999,"blockchain_height":2250000,"transactions":[]}"#
+            } else {
+                r#"{"new_subaddrs":[]}"#
+            };
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+        }
+    });
+    url
+}
+
+/// docs/view-key-mode.md §5.7, §11.1: the light wallet server's address is
+/// checked before the wallet, the wallet's network is taken from it, This
+/// till's node checks its proofs, and the link keeps the server.
+#[test]
+fn a_light_wallet_server_is_checked_then_kept_with_the_wallet() {
+    let platform = Arc::new(FakePlatform::default());
+    let mut config = config(None);
+    // A release build starts on mainnet: the server's network wins.
+    config.debug = false;
+    let (engine, rx, _) = start(config, platform.clone());
+    screen(&rx, Screen::Welcome);
+    engine.send(Action::Next);
+    engine.send(Action::ChoosePaymentsMode {
+        mode: PaymentsMode::LightServer,
+    });
+    engine.send(Action::Next);
+    screen(&rx, Screen::LightServer);
+    let empty = page_where(&rx, |page| match page {
+        OnboardingPage::LightServer { view } => Some(view.clone()),
+        _ => None,
+    });
+    assert!(!empty.next.enabled, "nothing typed");
+    assert!(empty.footnote.contains("sees every payment"));
+
+    // Plain http to another machine fails its check and stays.
+    engine.send(Action::EditLightServer {
+        url: "http://192.0.2.1:8443".into(),
+        self_signed: false,
+    });
+    engine.send(Action::Next);
+    let refused = page_where(&rx, |page| match page {
+        OnboardingPage::LightServer { view }
+            if view.checks.iter().any(|c| c.mark == CheckMark::Failed) =>
+        {
+            Some(view.clone())
+        }
+        _ => None,
+    });
+    assert!(refused.checks[0].text.starts_with("Needs https"));
+    engine.peek(|s| assert_eq!(s.screen, Screen::LightServer));
+
+    let server = light_server_stub();
+    engine.send(Action::EditLightServer {
+        url: server.clone(),
+        self_signed: false,
+    });
+    engine.send(Action::Next);
+    screen(&rx, Screen::WalletEntry);
+    // Back and on again: not checked twice.
+    engine.send(Action::Back);
+    screen(&rx, Screen::LightServer);
+    let checked = page_where(&rx, |page| match page {
+        OnboardingPage::LightServer { view } => Some(view.clone()),
+        _ => None,
+    });
+    assert_eq!(checked.checks.len(), 3);
+    assert!(checked.checks.iter().all(|c| c.mark == CheckMark::Passed));
+    assert_eq!(checked.checks[1].text, "Stagenet");
+    engine.send(Action::Next);
+    screen(&rx, Screen::WalletEntry);
+
+    engine.send(Action::ChooseWalletWay {
+        way: till_screens::wallet_setup::WalletWay::Keys,
+    });
+    screen(&rx, Screen::WalletKeys);
+    let typing = page_where(&rx, |page| match page {
+        OnboardingPage::WalletKeys { view } => Some(view.clone()),
+        _ => None,
+    });
+    assert!(
+        typing.networks[1].selected,
+        "the server's network: stagenet"
+    );
+    let keys = fob_keys::Keys::generate(till_wallet::Network::Stagenet).keys;
+    engine.send(Action::EditWalletKeys {
+        network: till_screens::wallet_setup::WalletNetwork::Stagenet,
+        address: keys.primary_address(),
+        view_key: keys.view_key_hex().to_string(),
+    });
+    page_where(&rx, |page| match page {
+        OnboardingPage::WalletKeys { view } if view.next.enabled => Some(()),
+        _ => None,
+    });
+    engine.send(Action::Next);
+    screen(&rx, Screen::ThisTill);
+    let this_till = page_where(&rx, |page| match page {
+        OnboardingPage::ThisTill { view } => Some(view.clone()),
+        _ => None,
+    });
+    assert_eq!(this_till.node.unwrap().label, "Node for proofs");
+    engine.poke(|s| s.finish_wallet());
+    screen(&rx, Screen::PointOfSale);
+    let saved = platform.get("connection").expect("the link kept");
+    let Some(till_payments::Link::Wallet(wallet)) = till_payments::Link::restore(&saved) else {
+        panic!("a wallet link: {saved}");
+    };
+    assert_eq!(wallet.light_server.as_deref(), Some(server.as_str()));
+    assert!(!wallet.light_self_signed);
+    assert_eq!(wallet.network, "stagenet");
+    assert_eq!(
+        wallet.node.as_deref(),
+        Some(till_wallet::setup::default_node(till_wallet::Network::Stagenet).as_str()),
+        "the node for proofs"
+    );
 }
 
 /// Connect to Fob by two codes (C1 to C4): the answer opens only with the

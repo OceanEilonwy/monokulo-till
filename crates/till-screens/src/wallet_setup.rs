@@ -111,6 +111,20 @@ pub enum WalletStep {
     Seed { words: u8, problem: Option<String> },
     /// D4.
     ThisTill(ThisTillSetup),
+    /// The shop's light wallet server, before the wallet (§11.1).
+    LightServer(LightServerSetup),
+}
+
+/// The light wallet server's address as typed, and its checks.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LightServerSetup {
+    pub url: String,
+    /// Its own certificate is accepted.
+    pub self_signed: bool,
+    pub checks: Vec<(String, CheckMark)>,
+    /// Being checked.
+    pub busy: bool,
+    pub problem: Option<String>,
 }
 
 /// What Fob handed over (B4, C4).
@@ -163,6 +177,9 @@ pub struct ThisTillSetup {
     pub expiry_minutes: u32,
     pub busy: bool,
     pub problem: Option<String>,
+    /// Through a light wallet server: the node is the one its proofs are
+    /// checked with.
+    pub light: bool,
 }
 
 /// V1.
@@ -382,6 +399,71 @@ pub struct ThisTillStep {
     pub problem: Option<String>,
 }
 
+/// The light wallet server's step (docs/view-key-mode.md §5.7, §11.1).
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct LightServerStep {
+    /// "Server address".
+    pub field_label: String,
+    /// The address as typed.
+    pub url: String,
+    /// In the empty field: "https://lws.example.com:8443".
+    pub placeholder: String,
+    /// "Accept its own certificate", a switch:
+    /// `Action::EditLightServer`'s `self_signed`.
+    pub self_signed: Choice,
+    /// The server's checks, once it's been checked.
+    pub checks: Vec<NodeCheckRow>,
+    /// What the server sees: every payment.
+    pub footnote: String,
+    pub back: Press,
+    /// "Continue": checks the server first, and goes on if it passes.
+    pub next: Press,
+    pub problem: Option<String>,
+}
+
+/// The light wallet server step's words.
+pub const LIGHT_SERVER_HEADING: &str = "Your light wallet server";
+pub const LIGHT_SERVER_LEAD: &str =
+    "Till asks your server about payments to this till while it's open on screen.";
+/// What the server sees (§5.7: the shop chooses that by running it, and
+/// the screen says so).
+pub const LIGHT_SERVER_SEES: &str = "Your server gets this wallet's view key, so it sees every payment to it: how much, and when. It can't spend. Use a server you run.";
+/// D4's node, through a light wallet server.
+pub const PROOF_NODE: &str = "Node for proofs";
+
+/// What the light wallet server step shows.
+pub fn light_server_step(l: &LightServerSetup) -> LightServerStep {
+    LightServerStep {
+        field_label: "Server address".into(),
+        url: l.url.clone(),
+        placeholder: "https://lws.example.com:8443".into(),
+        self_signed: Choice {
+            label: "Accept its own certificate".into(),
+            detail: Some(
+                "For a server with a self-signed certificate. Till then talks to it only while it answers with the same key."
+                    .into(),
+            ),
+            selected: l.self_signed,
+            enabled: !l.busy,
+        },
+        checks: l
+            .checks
+            .iter()
+            .map(|(text, mark)| NodeCheckRow {
+                text: text.clone(),
+                mark: *mark,
+            })
+            .collect(),
+        footnote: LIGHT_SERVER_SEES.into(),
+        back: Press::new("Back"),
+        next: Press::new("Continue")
+            .enabled(!l.busy && !l.url.trim().is_empty())
+            .busy(l.busy),
+        problem: l.problem.clone(),
+    }
+}
+
 /// Paid after's steps: Settled Confirmations, 10 to 720 (fob-screens'
 /// `SETTLED_MIN` and `SETTLED_MAX`).
 pub const CONFIRMATION_STEPS: [u32; 11] = [10, 15, 20, 30, 45, 60, 90, 120, 180, 360, 720];
@@ -423,13 +505,11 @@ pub fn mode_step(chosen: Option<PaymentsMode>) -> ModeStep {
                 "Till watches your wallet itself, through a Monero node. No server needed.",
                 true,
             ),
-            // The light wallet server's backend isn't built yet
-            // (docs/view-key-mode.md §5.7): shown, not chosen.
             choice(
                 PaymentsMode::LightServer,
                 "Your light wallet server",
                 "A light wallet server you run watches your wallet for Till.",
-                false,
+                true,
             ),
         ],
         footnote: "With your own wallet or light wallet server, Till hears payments while it's open on screen.".into(),
@@ -767,7 +847,7 @@ pub fn this_till_step(t: &ThisTillSetup) -> ThisTillStep {
             plus: Press::new("+"),
         }),
         node: t.node.as_ref().map(|url| NodeRow {
-            label: "Node".into(),
+            label: if t.light { PROOF_NODE } else { "Node" }.into(),
             value: node_address(url),
             url: url.clone(),
             change: Press::new("Change"),
@@ -801,6 +881,16 @@ pub fn this_till_lead(numbered: bool) -> &'static str {
     }
 }
 
+/// D4's lead through a light wallet server: the node only checks the
+/// server's proofs.
+pub fn this_till_light_lead(numbered: bool) -> &'static str {
+    if numbered {
+        "Give each till its own number. Its payments go to that account in your wallet. The node checks your server's proofs."
+    } else {
+        "Fob chose this till's account. Pick the node that checks your server's proofs."
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -829,10 +919,36 @@ mod tests {
             ["Monokulo", "Your own wallet", "Your light wallet server"]
         );
         assert!(!view.next.enabled);
-        assert!(!view.choices[2].enabled);
-        assert_eq!(view.choices[2].note.as_deref(), Some("Coming soon"));
+        assert!(view.choices.iter().all(|c| c.enabled && c.note.is_none()));
         let view = mode_step(Some(PaymentsMode::Wallet));
         assert!(view.next.enabled && view.choices[1].selected);
+        let view = mode_step(Some(PaymentsMode::LightServer));
+        assert!(view.next.enabled && view.choices[2].selected);
+    }
+
+    #[test]
+    fn the_light_server_step_says_the_server_sees_every_payment_and_waits_for_an_address() {
+        let mut l = LightServerSetup {
+            url: String::new(),
+            self_signed: false,
+            checks: vec![],
+            busy: false,
+            problem: None,
+        };
+        let view = light_server_step(&l);
+        assert_eq!(view.field_label, "Server address");
+        assert!(view.footnote.contains("sees every payment"));
+        assert!(!view.next.enabled, "nothing typed");
+        assert!(!view.self_signed.selected);
+        l.url = "lws.example.com:8443".into();
+        l.self_signed = true;
+        l.checks = vec![("Answers in 0.2 s".into(), CheckMark::Passed)];
+        let view = light_server_step(&l);
+        assert!(view.next.enabled && view.self_signed.selected);
+        assert_eq!(view.checks[0].text, "Answers in 0.2 s");
+        l.busy = true;
+        let view = light_server_step(&l);
+        assert!(!view.next.enabled && view.next.busy && !view.self_signed.enabled);
     }
 
     #[test]
@@ -971,6 +1087,7 @@ mod tests {
             expiry_minutes: 30,
             busy: false,
             problem: None,
+            light: false,
         };
         let view = this_till_step(&t);
         let number = view.number.unwrap();
@@ -986,5 +1103,7 @@ mod tests {
         let view = this_till_step(&t);
         assert!(view.number.is_none());
         assert!(!view.next.enabled);
+        t.light = true;
+        assert_eq!(this_till_step(&t).node.unwrap().label, "Node for proofs");
     }
 }
