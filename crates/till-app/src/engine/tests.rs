@@ -2558,6 +2558,14 @@ fn a_till_on_its_own_wallet_has_no_foreground_service_and_no_bell() {
 /// A till set up on its own wallet (made in `data_dir`), at Square's Front
 /// Counter: what Settings and its changes are tried on.
 fn wallet_till(data_dir: &str) -> (Arc<FakePlatform>, till_payments::WalletLink) {
+    wallet_till_with(data_dir, till_wallet::WalletSetup::new(2))
+}
+
+/// [`wallet_till`], set up as `setup` says.
+fn wallet_till_with(
+    data_dir: &str,
+    setup: till_wallet::WalletSetup,
+) -> (Arc<FakePlatform>, till_payments::WalletLink) {
     let keys = fob_keys::Keys::generate(till_wallet::Network::Stagenet).keys;
     let view = till_wallet::keys::keys_from_typed(
         till_wallet::Network::Stagenet,
@@ -2570,7 +2578,7 @@ fn wallet_till(data_dir: &str) -> (Arc<FakePlatform>, till_payments::WalletLink)
         .block_on(till_wallet::make_wallet(
             std::path::Path::new(data_dir),
             &view,
-            &till_wallet::WalletSetup::new(2),
+            &setup,
         ))
         .unwrap();
     let link = made.link.clone();
@@ -2635,6 +2643,59 @@ fn wallet_settings_show_the_wallet_and_change_its_link() {
     let kept = kept_wallet(&platform);
     assert_eq!(kept.file_key, link.file_key, "the same wallet");
     assert_eq!(kept.price_provider.as_deref(), Some("CoinGecko"));
+}
+
+/// Decision 242: on a light wallet server, Settings shows the server in
+/// the node's row, checks it as it opens, and Change takes a new server
+/// (checked by the wallet first), never a node.
+#[test]
+fn light_server_settings_show_and_change_the_server() {
+    let config = config(None);
+    let first = light_server_stub();
+    let (platform, link) = wallet_till_with(
+        &config.data_dir,
+        till_wallet::WalletSetup {
+            light_server: Some(first.clone()),
+            ..till_wallet::WalletSetup::new(2)
+        },
+    );
+    assert_eq!(link.light_server.as_deref(), Some(first.as_str()));
+    let (engine, rx, _) = start(config, platform.clone());
+    screen(&rx, Screen::Till);
+    engine.send(Action::OpenSettings);
+    let section = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view
+            .wallet
+            .clone()
+            .filter(|w| w.node.as_ref().is_some_and(|n| n.checks.len() == 3)),
+        _ => None,
+    });
+    assert_eq!(section.mode.value, "Your light wallet server");
+    let row = section.node.unwrap();
+    assert_eq!(row.label, "Light wallet server");
+    assert_eq!(row.url, first);
+    assert!(
+        row.checks.iter().all(|c| c.mark == CheckMark::Passed),
+        "{:?}",
+        row.checks
+    );
+    assert!(
+        section
+            .facts
+            .iter()
+            .any(|f| f.label == "Proofs checked with")
+    );
+
+    let second = light_server_stub();
+    engine.send(Action::SetNode {
+        url: second.clone(),
+    });
+    wait_for(&rx, |_| {
+        (kept_wallet(&platform).light_server.as_deref() == Some(second.as_str())).then_some(())
+    });
+    let kept = kept_wallet(&platform);
+    assert_eq!(kept.node, link.node, "the node for proofs stays");
+    assert_eq!(kept.file_key, link.file_key, "the same wallet");
 }
 
 /// Disconnect forgets the wallet's link and deletes its file.
