@@ -76,7 +76,7 @@ would cost thousands of lines here.
 
 | Crate | Holds | Ported from |
 | --- | --- | --- |
-| `orf-codec` | unchanged | — |
+| `orf-codec` | unchanged (since moved to its own repository, monokulo-orf: view-key-mode.md §3.1) | — |
 | `monokulo-client` | Monokulo HTTP API, connect codes, redeem handshake, proof of work, SSE stream, problem messages, Tor routing policy | `android/core` |
 | `till-pos` | `SaleSource` trait, PKCE, Square and Clover (auth, API, source, receipts), each behind a cargo feature | `android/sales` (POS parts) |
 | `till-sales` | `Till`, `TillSale`, `Standing`, `Shift` (wake-up loop), `TillRunner`, `LiveStore`, `PosSwitch` | `android/sales`, `android/app` |

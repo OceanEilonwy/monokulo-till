@@ -2193,3 +2193,52 @@ still strings across the till, the ledger, the screens and the bridge.
      the schema doesn't change (the `orders` table already maps any number
      of orders to a sale), so the build before, put back, still opens the
      database and rebuilds it its way.
+
+242. **The receipt module is its own repository, monokulo-orf, at the
+     commit Fob pins.** (docs/view-key-mode.md §3.1.) `crates/orf-codec`,
+     `crates/orf-codec-ffi` and `tools/receipt-qr` moved, with their
+     history (`git filter-repo`), to OceanEilonwy/monokulo-orf, GPL-3.0-only
+     as here. Till takes `orf-codec` and `orf-codec-ffi` by git and rev in
+     `[workspace.dependencies]`, so the crates that read them
+     (`monokulo-client`, `till-pos`, `till-sales`, `till-ledger`,
+     `till-screens`, and `till-ffi`, which still re-exports orf-codec-ffi's
+     scaffolding) are unchanged, and so are the apps: the Kotlin package
+     stays `uniffi.orf_codec_ffi` and iOS's Swift file `orf_codec_ffi.swift`,
+     generated from till-ffi's library as before. The rev is the one Fob's
+     `fob-codes` and `fob-wallet` pin, and Till pins a Fob commit that uses
+     it: two revs would be two `orf-codec` crates in one build, and a
+     receipt from one wouldn't be the other's. CI fails if there are two
+     (`cargo tree -i orf-codec` can't pick one). Moving the rev means a Fob commit first, then both pins
+     here together. The codec read a currency's digits from `till-types` by
+     path (decision 209); out of this repository it can't, and depending
+     on Till from a library Till depends on would go round in a circle, so
+     orf-codec keeps its own copy of the ISO 4217 table
+     (`orf_codec::currency`), and a till-types test checks that the two
+     give every code the same digits. till-types stays the table every
+     crate here reads. monokulo-orf's CI runs what this repository's ran
+     for those crates (format, tests, Clippy, the bindings generated from a
+     library that re-exports the scaffolding as till-ffi does) and also
+     compiles the Kotlin bindings against JNA and the Swift ones with
+     swiftc. For work on the codec, a `[patch]` entry for monokulo-orf's
+     URL pointing at a local checkout, never committed.
+
+243. **The shop's own wallet scans on the GPU, on iPad and iPhone through
+     Metal, and only in the foreground.** (docs/view-key-mode.md §3.4,
+     §5.4, §10.) Fob's scanner now has a Metal backend on Apple's platforms
+     (monokulo-8ar's `metal` feature, turned on by `fob-scanner` for Apple
+     targets: Fob decision 425), so Till's iOS build links Metal and
+     Foundation (TillCore's `Package.swift`) beside the frameworks it
+     already did. Till sets no policy of its own: fob-wallet uses the GPU
+     once it has passed its startup vectors and this wallet's own check, and
+     scans on the cores until then or if it can't. The first scan starts the
+     GPU, so nothing runs for it before the wallet looks. The GPU is used
+     only in the foreground because the scans are: the runner polls the
+     wallet's stream only while the app is in front (decision 231), and
+     there's no background work in this mode. A scan that iOS stops as the
+     app leaves goes to the cores, and the GPU isn't given up for it. As the
+     app goes behind, the engine also has the GPU give back the buffers it
+     keeps between scans (`till_wallet::backend::rest_gpu`), tens of MB a
+     phone in the background shouldn't hold. Till's scans are small (§5.4):
+     it must work well on the cores alone, and the GPU only makes them
+     cheaper. How fast an iPad is at it needs the owner to run 8aR's
+     `gpu_check` and `scan_speed` on one.

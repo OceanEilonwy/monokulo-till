@@ -731,10 +731,12 @@ impl State {
             Action::Backgrounded => {
                 self.visible = false;
                 self.heartbeat += 1;
-                // The shop's own wallet stops looking (decision 231).
+                // The shop's own wallet stops looking (decision 231), and
+                // the GPU it scanned on gives back its memory (243).
                 if let Some(p) = &self.parts {
                     p.runner.foreground(false);
                 }
+                till_wallet::backend::rest_gpu();
                 // Behind now: a payment is a notice, not the paid moment.
                 let now = self.now_ms();
                 self.record(Fact::Foreground { until: now });
