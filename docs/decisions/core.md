@@ -2145,3 +2145,30 @@ still strings across the till, the ledger, the screens and the bridge.
      docs/brand/fob-mark.svg kept as a vector in its own colours. Fob's
      page ("Get it for Android", `Effect::OpenUrl` on V2) opens in the
      browser, not as a sign-in.
+241. **The receipt module is its own repository, monokulo-orf, at the
+     commit Fob pins.** (docs/view-key-mode.md §3.1.) `crates/orf-codec`,
+     `crates/orf-codec-ffi` and `tools/receipt-qr` moved, with their
+     history (`git filter-repo`), to OceanEilonwy/monokulo-orf, GPL-3.0-only
+     as here. Till takes `orf-codec` and `orf-codec-ffi` by git and rev in
+     `[workspace.dependencies]`, so the crates that read them
+     (`monokulo-client`, `till-pos`, `till-sales`, `till-ledger`,
+     `till-screens`, and `till-ffi`, which still re-exports orf-codec-ffi's
+     scaffolding) are unchanged, and so are the apps: the Kotlin package
+     stays `uniffi.orf_codec_ffi` and iOS's Swift file `orf_codec_ffi.swift`,
+     generated from till-ffi's library as before. The rev is the one Fob's
+     `fob-codes` and `fob-wallet` pin, and Till pins a Fob commit that uses
+     it: two revs would be two `orf-codec` crates in one build, and a
+     receipt from one wouldn't be the other's. CI fails if there are two
+     (`cargo tree -i orf-codec` can't pick one). Moving the rev means a Fob commit first, then both pins
+     here together. The codec read a currency's digits from `till-types` by
+     path (decision 209); out of this repository it can't, and depending
+     on Till from a library Till depends on would go round in a circle, so
+     orf-codec keeps its own copy of the ISO 4217 table
+     (`orf_codec::currency`), and a till-types test checks that the two
+     give every code the same digits. till-types stays the table every
+     crate here reads. monokulo-orf's CI runs what this repository's ran
+     for those crates (format, tests, Clippy, the bindings generated from a
+     library that re-exports the scaffolding as till-ffi does) and also
+     compiles the Kotlin bindings against JNA and the Swift ones with
+     swiftc. For work on the codec, a `[patch]` entry for monokulo-orf's
+     URL pointing at a local checkout, never committed.
