@@ -527,7 +527,7 @@ struct StepperRow: View {
         .frame(minHeight: inList ? 44 : 60)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(stepper.label)
-        .accessibilityValue([stepper.value, stepper.detail].compactMap { $0 }.joined(separator: ", "))
+        .accessibilityValue([stepper.valueSaid.isEmpty ? stepper.value : stepper.valueSaid, stepper.detail].compactMap { $0 }.joined(separator: ", "))
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment: if stepper.plus.enabled { step(true) }
@@ -1117,11 +1117,17 @@ struct ThisTillPage: View {
         }
         .sheet(isPresented: $changingNode) {
             if let node = step.node {
-                NodeSheet(node: node) { url, _ in
-                    changingNode = false
-                    send(.setNode(url: url))
+                // Fob's Node screen, as in Settings.
+                if let chooser = node.chooser {
+                    NodeChooserSheet(chooser: chooser, send: send)
+                        .presentationDetents([.large])
+                } else {
+                    NodeSheet(node: node) { url, _ in
+                        changingNode = false
+                        send(.setNode(url: url))
+                    }
+                    .presentationDetents([.medium, .large])
                 }
-                .presentationDetents([.medium, .large])
             }
         }
     }

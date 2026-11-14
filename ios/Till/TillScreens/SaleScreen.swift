@@ -81,25 +81,14 @@ struct SaleScreen: View {
         }
     }
 
-    /// Copy address and Return to Square side by side, each on one line, then
-    /// a cash sale's Paid in cash.
+    /// Return to Square, then a cash sale's Paid in cash. No Copy address:
+    /// Share in the bar sends the code, and the whole sale fits on the
+    /// screen (owner, 2026-11-13).
     @ViewBuilder
     private var foot: some View {
         VStack(spacing: 8) {
-            HStack(spacing: 10) {
-                if view.showsCode {
-                    Button {
-                        send(.copyAddress(orderId: orderId))
-                    } label: {
-                        Label(view.copyAddress.label, systemImage: "doc.on.doc")
-                            .lineLimit(1)
-                    }
-                    .buttonStyle(.secondary)
-                    .disabled(!view.copyAddress.enabled)
-                }
-                if let returnToSquare, let back = view.backToPos {
-                    ReturnToSquareWide(label: back.press.label, action: returnToSquare)
-                }
+            if let returnToSquare, let back = view.backToPos {
+                ReturnToSquareWide(label: back.press.label, action: returnToSquare)
             }
             ForEach(Array(view.cash.enumerated()), id: \.offset) { _, button in
                 LinkPress(press: button.press) { send(CashButtons.action(button.action, orderId: orderId)) }
@@ -107,14 +96,32 @@ struct SaleScreen: View {
         }
     }
 
-    /// Share the `monero:` payment link (decision 17).
+    /// Share the whole code as a picture, with the `monero:` payment link
+    /// as its message (decisions 17 and 130); the link alone if the picture
+    /// can't be made. Only while the code shows.
+    @ViewBuilder
     private var shareLink: some View {
-        ShareLink(
-            item: SaleShare.uri(code: view.code, address: view.address),
-            subject: Text(view.amount),
-            preview: SharePreview(view.shareTitle)
-        ) {
-            Image(systemName: "square.and.arrow.up")
+        let uri = SaleShare.uri(code: view.code, address: view.address)
+        Group {
+            if let picture = QRImages.shareImage(view.code) {
+                let image = Image(uiImage: picture)
+                ShareLink(
+                    item: image,
+                    subject: Text(view.shareTitle),
+                    message: Text(uri),
+                    preview: SharePreview(view.shareTitle, image: image)
+                ) {
+                    Image(systemName: "square.and.arrow.up")
+                }
+            } else {
+                ShareLink(
+                    item: uri,
+                    subject: Text(view.shareTitle),
+                    preview: SharePreview(view.shareTitle)
+                ) {
+                    Image(systemName: "square.and.arrow.up")
+                }
+            }
         }
         .disabled(!view.copyAddress.enabled)
         .accessibilityLabel(view.share)

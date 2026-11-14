@@ -15,7 +15,25 @@ import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.animation.core.SeekableTransitionState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.Surface
+import androidx.compose.material3.VerticalDivider
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.dp
+import com.monokulo.till.ui.PrimaryButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -36,6 +54,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.monokulo.till.engine.CloseSheet
 import com.monokulo.till.engine.EngineStore
+import com.monokulo.till.notify.SaleNotifications
 import com.monokulo.till.engine.Nav
 import com.monokulo.till.engine.Work
 import com.monokulo.till.ui.AlertsScreen
@@ -179,19 +198,35 @@ class MainActivity : ComponentActivity() {
         @Suppress("UNUSED_VARIABLE") val tick = resumed.intValue
         val multiWindow = isInMultiWindowMode
         val actions = remember(multiWindow) { TillActions(::send, onBackToPos = if (multiWindow) null else ::backToPos) }
-        val stage = remember { SeekableTransitionState(first) }
+        // A keypad till on a wide window (the expanded width class) shows the sales and the keypad side by side
+        // (core.md decision 257): the shift, the keypad and a sale's screens are then all one place on the stage,
+        // Screen.Till, which draws the two panes and follows the engine's screen in the right one itself.
+        val wide = LocalConfiguration.current.screenWidthDp >= SPLIT_WIDTH_DP
+        val splitState = remember(flows, wide) { derivedStateOf { wide && flows.shift.value?.newSale != null } }
+        val stageScreen = remember(screenState, splitState) { derivedStateOf { screenState.value.onStage(splitState.value) } }
+        val stage = remember { SeekableTransitionState(first.onStage(splitState.value)) }
         // Android's back where the engine says it is the app's (decision 77; docs/decisions/core.md 98). From a sale's
         // screens and Settings the gesture previews the way back the engine names; nothing changes before it commits.
         val scrub = remember { BackScrub() }
         val backEnabled by remember { derivedStateOf { flows.nav.value.backEnabled } }
-        FollowScreen(stage, scrub, screenState, onLanded = { send(Action.Landed(it)) })
+        FollowScreen(stage, scrub, stageScreen)
+        // The one landing report (decision 269), for the engine's own screen: the stage at rest where that screen is
+        // drawn, once each time the screen changes, also between the panes of the wide layout, where the stage stays.
+        LaunchedEffect(stage, stageScreen) {
+            snapshotFlow {
+                val at = screenState.value
+                at.takeIf { stage.currentState == stage.targetState && stage.currentState == stageScreen.value }
+            }.collect { at -> at?.let { send(Action.Landed(it)) } }
+        }
         // A second Back while the shift is still arriving lands on the shift, never leaves the app (decision 260 c):
         // Back stays the stage's until it rests there. Read as a derived state, so the root recomposes as a change
         // starts and as it lands, never a frame.
         val arriving by remember { derivedStateOf { stage.currentState != stage.targetState } }
         StageBack(
             enabled = backEnabled || (screen == Screen.Till && arriving),
-            state = stage, scrub = scrub, current = { screenState.value }, target = { flows.nav.value.backTarget },
+            // Between the wide layout's panes there's nothing on the stage to preview: Back just goes.
+            state = stage, scrub = scrub, current = { stageScreen.value },
+            target = { flows.nav.value.backTarget?.onStage(splitState.value)?.takeIf { it != stageScreen.value } },
             onCommit = { send(Action.Back) },
         )
         // Where the shift's list was when a row was tapped: the shift is not composed while a sale is up, so a
@@ -202,8 +237,9 @@ class MainActivity : ComponentActivity() {
         CompositionLocalProvider(LocalPointOfSale provides pos, LocalReceiptFolds provides model.receiptFolds) {
             TillStage(stage, cameUpByItself = { flows.nav.value.byItself }, scrub, way = { flows.nav.value.way }) { s ->
                 when (s) {
-                    Screen.Till, is Screen.Sale, is Screen.Code, is Screen.Order -> TillScreens(s, flows, actions, shiftPlace)
-                    Screen.Keypad -> flows.keypad.value?.let { KeypadScreen(it, ::send) }
+                    Screen.Till -> if (splitState.value) SplitTill(flows, actions, shiftPlace) else TillScreens(s, flows, actions, shiftPlace)
+                    is Screen.Sale, is Screen.Code, is Screen.Order -> TillScreens(s, flows, actions, shiftPlace)
+                    Screen.Keypad -> flows.keypad.value?.let { KeypadScreen(it, send = ::send) }
                     else -> SetupScreens(s, flows)
                 }
             }
@@ -238,12 +274,69 @@ class MainActivity : ComponentActivity() {
         val target = flows.screen.value == s
         val close = flows.close.value.takeIf { target }
         val shift = flows.shift.value
+        // A sale charged on the keypad comes straight up in the keypad's place: the shift is never shown between them,
+        // even for the frame or two before the sale's own update is in. Read once, as the screen is first composed.
+        val stage = LocalStage.current
+        val charged = remember(id) { id != null && stage?.from() == Screen.Keypad }
         when {
+            face == null && charged -> Box(Modifier.fillMaxSize().background(mk.ground))
             // A sale not drawn (yet) shows the shift until it is.
             face == null -> if (shift != null) ShiftScreen(shift, actions, shiftPlace, close?.takeIf { s == Screen.Till })
             s is Screen.Code -> CodeScreen(face) { send(Action.Back) }
             s is Screen.Order -> OrderPage(face, onBack = { send(Action.Back) }, onShowCode = { send(Action.Back) })
             else -> SaleScreen(face, actions, close?.takeIf { it.orderId == id }?.view, flows.refund.value.takeIf { target })
+        }
+    }
+
+    /**
+     * A keypad till on a wide window (core.md decision 257): the shift's list on the left, Settings in its top row and
+     * no New sale of its own; on the right the keypad, with nothing to close, or the sale the engine has open, drawn by
+     * its own screen, with New sale under it. The sale stays in the list beside it.
+     */
+    @Composable
+    private fun SplitTill(flows: Flows, actions: TillActions, shiftPlace: ShiftPlace) {
+        val shift = flows.shift.value ?: return
+        // What the right pane shows, kept while the stage leaves for Settings, so it leaves with what it showed.
+        val shown = remember { arrayOf<Screen>(Screen.Till) }
+        flows.screen.value?.takeIf { it.onStage(true) == Screen.Till }?.let { shown[0] = it }
+        val screen = shown[0]
+        val id = screen.orderIdOrNull()
+        val kept = remember(id) { Kept() }
+        val face = id?.let { flows.sale.value?.takeIf { it.orderId == id }?.let { update -> kept.face(update) } ?: kept.last }
+        // The swiped row's sheet: the sale's own while it's open on the right, else the list's.
+        val close = flows.close.value.takeIf { flows.screen.value == screen }
+        val forSale = close != null && id != null && close.orderId == id
+        Row(Modifier.fillMaxSize().background(mk.ground)) {
+            Box(Modifier.width(SPLIT_LIST_WIDTH).fillMaxHeight().consumeWindowInsets(WindowInsets.safeDrawing.only(WindowInsetsSides.End))) {
+                ShiftScreen(shift, actions, shiftPlace, close.takeIf { !forSale }, newSale = false)
+            }
+            VerticalDivider(color = mk.divider)
+            Box(Modifier.weight(1f).fillMaxHeight().consumeWindowInsets(WindowInsets.safeDrawing.only(WindowInsetsSides.Start))) {
+                if (face == null) {
+                    flows.keypad.value?.let { KeypadScreen(it, closable = false, send = ::send) }
+                } else {
+                    // The sale's screen as it is full screen, off the stage: its surfaces stay in place.
+                    Column(Modifier.fillMaxSize()) {
+                        Box(Modifier.weight(1f).consumeWindowInsets(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))) {
+                            CompositionLocalProvider(LocalStage provides null) {
+                                when (screen) {
+                                    is Screen.Code -> CodeScreen(face) { send(Action.Back) }
+                                    is Screen.Order -> OrderPage(face, onBack = { send(Action.Back) }, onShowCode = { send(Action.Back) })
+                                    else -> SaleScreen(face, actions, close?.takeIf { forSale }?.view, flows.refund.value)
+                                }
+                            }
+                        }
+                        Surface(Modifier.fillMaxWidth(), color = mk.ground, contentColor = mk.ink) {
+                            PrimaryButton(
+                                shift.newSale?.label ?: "New sale", { send(Action.NewSale) },
+                                Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
+                                    .padding(16.dp).fillMaxWidth(),
+                                height = 56.dp,
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -387,6 +480,7 @@ class MainActivity : ComponentActivity() {
                     onNode = { send(Action.SetNode(it)) },
                     onNext = { send(Action.Next) },
                     onBack = { send(Action.Back) },
+                    send = { send(it) },
                 ),
             )
             is OnboardingPage.Prices -> PricesScreen(
@@ -424,6 +518,8 @@ class MainActivity : ComponentActivity() {
             is Effect.Haptic -> window.decorView.confirm()
             // TillService.follow copies, and posts the notifications, whether or not Till is on screen.
             is Effect.CopyText, is Effect.Notify, is Effect.ClearNotification -> Unit
+            // Erased or disconnected: here too, since the service may already have stopped (docs/decisions/core.md 264).
+            is Effect.ClearNotifications -> SaleNotifications(this).clearAll()
             // The overlay collapses its own panel; Till on screen has none up.
             is Effect.LowerPanel -> Unit
             // TillService.follow probes for Orbot whether or not this activity has started collecting yet.
@@ -529,6 +625,21 @@ class MainActivity : ComponentActivity() {
 /** The engine's [Work] as [WorkBar] shows it, read here alone so a change recomposes nothing else. */
 @Composable
 private fun WorkOverlay(work: State<Work>) = WorkBar(work.value.shownBusy, work.value.shownProblem)
+
+/** The expanded width class, from which a keypad till shows its sales and keypad side by side (core.md decision 257). */
+private const val SPLIT_WIDTH_DP = 840
+
+/** The wide layout's list column. */
+private val SPLIT_LIST_WIDTH = 440.dp
+
+/**
+ * Where [this] screen is drawn on the stage: with [split] (a keypad till on a wide window), the shift, the keypad and a
+ * sale's screens are all the two panes of [Screen.Till]; otherwise each screen is its own.
+ */
+private fun Screen.onStage(split: Boolean): Screen = when {
+    split && (this == Screen.Till || this == Screen.Keypad || this is Screen.Sale || this is Screen.Code || this is Screen.Order) -> Screen.Till
+    else -> this
+}
 
 /** Whether [page] is the step [screen] shows. */
 private fun OnboardingPage.isFor(screen: Screen): Boolean = when (this) {

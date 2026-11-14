@@ -271,14 +271,6 @@ impl Side {
         !matches!(self.tokens(pos).load(), Ok(None))
     }
 
-    /// A stand-in kept in a debug build, else the build's own.
-    fn base_url(&self, kept: Option<String>, built: &Option<String>) -> Option<String> {
-        match kept {
-            Some(kept) if self.config.debug => Some(kept),
-            _ => built.clone(),
-        }
-    }
-
     /// Square as the till signs in through it: a Bell's application once
     /// the till has signed in through one (decision 95), else the build's;
     /// `through` names another for one sign-in.
@@ -294,7 +286,8 @@ impl Side {
             setup.environment == crate::SquareEnvironment::Sandbox,
             &setup.redirect_uri,
         );
-        config.base_url = self.base_url(model.square_base_url, &setup.base_url);
+        // A stand-in the build names (tests, a local server), else Square's own.
+        config.base_url = setup.base_url.clone();
         config
     }
 
@@ -311,7 +304,7 @@ impl Side {
             &setup.redirect_uri,
         );
         config.user_agent = format!("Till/{}", self.config.app_version);
-        config.base_url = self.base_url(model.clover_base_url, &setup.base_url);
+        config.base_url = setup.base_url.clone();
         config
     }
 

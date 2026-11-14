@@ -2362,7 +2362,9 @@ still strings across the till, the ledger, the screens and the bridge.
      sales' moves map the shift's place to the keypad, and no sale rises
      out of a list at rest, since each comes from a Charge that opens it.
      The live sales show over the keys as "Put aside · n", each opening its
-     code, so a code is put aside for the next customer and stays live. On
+     code, so a code is put aside for the next customer and stays live.
+     (Replaced by decision 257: the list is home, New sale opens the
+     keypad, and there's no strip.) On
      iOS the keypad is the navigation stack's root and the list a page over
      it; on Android the stage shows `Screen.Keypad`.
 250. **Charge makes the payment first, then records the sale.** The keypad
@@ -2493,3 +2495,136 @@ still strings across the till, the ledger, the screens and the bridge.
      while a stale amount isn't left on the keypad. One in another currency
      than the keypad's now is given up. The error the keypad showed isn't
      kept: after a restart the amount is simply ready to charge.
+
+## View-key mode: the keypad, simpler (2026-11-13)
+
+257. **On a keypad till the list is home, and New sale opens the keypad.**
+     (Owner, 2026-11-13, proposal C on the canvas page "Till keypad ·
+     simpler"; replaces decision 249's keypad home and its "Put aside · n"
+     strip.) The strip repeated the list's Waiting for payment section,
+     which already holds every live code. Now a keypad till opens on the
+     shift's list (`Screen::Till`), as a Square or Clover till does, and
+     its `ShiftView::new_sale` ("New sale"; iOS a full-width button at the
+     bottom, Android an extended floating button) sends `Action::NewSale`
+     (which replaces `OpenSales`) to open `Screen::Keypad`. The keypad is
+     titled "New sale" with a Close (✕) that goes back to the list, and it
+     has no Settings or Sales of its own. Charge opens the sale's code, and
+     leaving it returns to the list, where the sale waits, live. On a wide
+     screen (iPad landscape, an Android tablet at the expanded width) the
+     list and keypad sit side by side: the keypad is on the right while the
+     list or keypad is the screen, and a sale's screens take its place
+     there, with New sale bringing the keypad back. The engine sends
+     `Update::Keypad` with `Update::Shift` on every keypad till, so the
+     platform needs nothing more to draw both. A failed charge kept through
+     a restart (decision 256) is typed on the keypad again, ready when New
+     sale opens it. A keypad till has no total for the shift: its
+     `ShiftHeader::show_total` is false (no takings, no paid count), its
+     summary is only "Since 9:02 AM", and New shift's confirmation drops
+     "The total starts again at zero".
+258. **The keypad's reference sits on top, and its keyboard's Done doesn't
+     charge.** (Owner, variant 1 of "Where Charge goes".) From the top:
+     the reference, the amount, the keys, then Charge, so the keys sit
+     between the field and Charge and a tap meant for the field can't
+     charge. The on-screen keyboard's Done (or Return while the field has
+     focus) only closes the keyboard and gives the keys focus back; Return
+     with the keys focused still charges (decision 250). On every screen
+     the keys keep the iPhone's shape, 113 × 84 pt: on a larger screen the
+     keypad column narrows (about 440–460 pt on an iPad) rather than the
+     keys stretching wide.
+259. **Till's dark theme is OLED black, as Fob's.** (Owner, 2026-11-13.)
+     Both platforms take Fob's `OledColors`: page #000000; cards #0C0B0A,
+     held by #2A2723 outlines; fills #181613; ink #F2EEE6; muted #B0A999;
+     orange text #FF8F45; paid #5CC88A. The accent stays #FF6600 with
+     #111111 on it. Android's dark ground was #1C1B19, and iOS's cards
+     were too, on a black ground.
+260. **A keypad till shows no notifications.** (Owner, 2026-11-13.) The
+     cashier makes every sale on the till, so nothing needs announcing.
+     On a keypad till the engine posts no new-sale alert and no paid,
+     unpaid or overpaid notice (`deliver`, and the background look's
+     alerts and ongoing face). Its `NotificationView` is empty, it has no
+     Live Activity and no bubble, and Android runs no foreground service,
+     which would need an ongoing notification (as on the shop's own
+     wallet, decision 231). With Monokulo the stream picks up again when
+     Till opens. Setup skips the Alerts step: after the point of sale, or
+     Prices, comes Ready, whose lead is "Start Till and tap New sale to
+     charge your first customer." and which has no Alerts or Bubble
+     check. The rail and progress bar leave Alerts out, and Back from
+     Ready goes to Prices or the point of sale. So neither platform asks
+     for notification permission. Settings hides its Notifications
+     section (`SettingsView::notifications`), the iOS alerts status, the
+     Dynamic Island section and iPad's How sales show up, and the empty
+     till's chips drop "Alerts on/off". An overpaid keypad sale is still
+     shown on its sale page.
+261. **The wallet changes from Settings, as the point of sale does.**
+     (Owner, 2026-11-13: "I can change the till system, but I cannot change
+     my wallet the same way".) A till on the shop's own wallet has
+     "Change the wallet" over Disconnect (`WalletSection::change`). It
+     sends `Action::ChangeWallet`, which opens setup's V2 with the form
+     filled in from the wallet in use: network, till number, node or
+     light server (taken as checked), confirmations and expiry. Back
+     returns to Settings. Linking another wallet keeps everything else,
+     not the `forget_all` a first wallet does: the point of sale and its
+     sign-in, the keypad currency, setup, the shift and the sales. It also
+     keeps the price currency, which is the point of sale's, with the new
+     wallet's provider when that one prices it. The old wallet lets go of
+     its file first (the runner stopped, the backend dropped); the new one
+     takes its place, a new runner starts, and Settings opens again. The
+     button is off while a sale waits for payment ("finish or close it
+     first"): the new wallet can't see payments to the old wallet's
+     addresses, so that sale would never turn paid. If making the new
+     wallet fails, the old wallet's file is already gone: setup shows
+     why on the step, and Continue tries again.
+262. **Settings: Change the wallet sits in Payments, Erase this till, no
+     stand-ins.** (Owner, 2026-11-13.) "Change the wallet" (decision 261)
+     is the last row of the Payments section, with its footnote, rather
+     than beside Disconnect. The wallet's Disconnect is now "Erase this
+     till" ("Erase this till?", "Erase"), and its footnote says what goes:
+     the copy of the wallet and its keys, the point of sale's sign-in and
+     this shift's sales, then setup starts again. Paid after reads "10
+     conf." and is said in full (`SetupStepper::value_said`). The debug
+     builds' Square and Clover stand-in address fields are gone
+     (`SettingsView::stand_ins`, `Action::SetBaseUrl`, the
+     `debug.square.base` and `debug.clover.base` keys), since nobody used
+     them; a build's own stand-in (tests, a local server) still comes
+     from its config. `tools/square-sandbox` takes `SQUARE_SANDBOX_HOST`
+     for a public name reached through a router's port forwarding.
+263. **Settings' node chooser is Fob's Node screen.** (Owner, 2026-11-13:
+     "Copy the node selection dialog from Fob wallet".) The node row's
+     Change opens Fob's design on both platforms, in Settings › Payments
+     and D4 (`NodeRow::chooser`, `till_screens::node_chooser`):
+     - the node in use, with its verdict and each check (Certificate,
+       Answers, Right network, Up to date, Sends blocks) streamed as it
+       finishes;
+     - "Change node": every other node (the network's defaults, then the
+       till's own), all checked at once, each with its dot, one line
+       ("120 ms · in sync · fastest"), Use only when every check passed,
+       and a bin on the till's own;
+     - "Add your own node", whose sheet checks an address before Use
+       ("Use it anyway" when only Up to date failed).
+     Actions: `CheckNodes`, `CheckNewNode`, `CloseNewNode`, `RemoveNode`,
+     with `SetNode` as Use. Fob's wording, "Fob" made "Till". till-app
+     calls fob-wallet's `node::check` and `check_all` directly (now a
+     normal dependency). The till's own nodes are kept by Till, under
+     `wallet.nodes`, since fob-wallet keeps its list inside the backend.
+     Not ported: self-signed nodes, which need a WalletLink setting
+     till-wallet doesn't have, and rechecking after a remove. A till on a
+     light wallet server keeps its server dialog.
+264. **Erasing or disconnecting the till clears its notifications.**
+     (Owner, 2026-11-13: an alert from before "Erase this till" still
+     opened a QR code after setting up again.) `forget_here` now sends
+     `Effect::ClearNotifications`. Android cancels every notification
+     but the ongoing one, from the activity too, since the service may
+     already have stopped. iOS removes every delivered and pending
+     notification. That alert's sale had been found again: a fresh
+     setup's first look at Square starts two minutes back (Square lists
+     a payment late), and the wallet names its order by the Square
+     sale's reference, so the re-found sale had the old alert's order id
+     and a new, payable code.
+265. **A till's first look at its point of sale doesn't reach back.**
+     (Owner, 2026-11-13.) The first look after setup starts the cursor
+     now, as before, but asks Square or Clover for nothing earlier.
+     Later looks still overlap by two minutes, for payments Square or
+     Clover list late. So a sale rung up before the till was set up (or
+     before it was erased and set up again) isn't found and shown as
+     new. The cost is a payment rung up during setup itself and listed
+     late, which is missed.

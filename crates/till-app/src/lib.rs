@@ -602,11 +602,6 @@ pub enum Action {
     OpenPointOfSale,
     /// Read the store again (step 3's "Try again").
     ReadStore,
-    /// Debug builds: a stand-in point of sale's address (acceptance T6.5).
-    SetBaseUrl {
-        pos: Pos,
-        url: String,
-    },
     SetBubble {
         on: bool,
     },
@@ -748,6 +743,9 @@ pub enum Action {
     /// C4's "Use another wallet": back to V2, what Fob handed over
     /// forgotten.
     UseAnotherWallet,
+    /// Settings' "Change the wallet": setup's wallet step, back to Settings
+    /// after (core.md decision 261).
+    ChangeWallet,
     /// D1's camera read a code.
     ScanWalletCode {
         text: String,
@@ -791,6 +789,21 @@ pub enum Action {
     /// D4's Change: the node's address, typed or one of `choices`. It's
     /// checked at once. In Settings on a light wallet server, the server's.
     SetNode {
+        url: String,
+    },
+    /// The node's Change opened, or its Check again (Fob's Node screen):
+    /// the node in use checked again, and every other node at once.
+    CheckNodes,
+    /// Add your own node's Check: the address typed, checked as Fob checks
+    /// a node; its Use is `SetNode`.
+    CheckNewNode {
+        url: String,
+    },
+    /// Add your own node closed: a node whose check passed is kept on the
+    /// list, as Fob keeps it.
+    CloseNewNode,
+    /// A node this till was given, taken off the list.
+    RemoveNode {
         url: String,
     },
     /// The light wallet server's address as typed, and whether its own
@@ -838,8 +851,8 @@ pub enum Action {
     },
     /// The keypad's Charge, or Return on a hardware keyboard.
     Charge,
-    /// The keypad's "Sales": the shift's list.
-    OpenSales,
+    /// The sales' New sale, on a keypad till: the keypad (core.md decision 257).
+    NewSale,
 }
 
 impl Action {
@@ -895,7 +908,6 @@ impl Action {
             Action::OpenSettings => "OpenSettings",
             Action::OpenPointOfSale => "OpenPointOfSale",
             Action::ReadStore => "ReadStore",
-            Action::SetBaseUrl { .. } => "SetBaseUrl",
             Action::SetBubble { .. } => "SetBubble",
             Action::SetTor { .. } => "SetTor",
             Action::SetLiveActivity { .. } => "SetLiveActivity",
@@ -929,6 +941,7 @@ impl Action {
             Action::ChooseWalletWay { .. } => "ChooseWalletWay",
             Action::FobAnswer { .. } => "FobAnswer",
             Action::UseAnotherWallet => "UseAnotherWallet",
+            Action::ChangeWallet => "ChangeWallet",
             Action::ScanWalletCode { .. } => "ScanWalletCode",
             Action::PasteWalletCode { .. } => "PasteWalletCode",
             Action::EditWalletKeys { .. } => "EditWalletKeys",
@@ -938,6 +951,10 @@ impl Action {
             Action::StepPaidAfter { .. } => "StepPaidAfter",
             Action::StepCodeExpiry { .. } => "StepCodeExpiry",
             Action::SetNode { .. } => "SetNode",
+            Action::CheckNodes => "CheckNodes",
+            Action::CheckNewNode { .. } => "CheckNewNode",
+            Action::CloseNewNode => "CloseNewNode",
+            Action::RemoveNode { .. } => "RemoveNode",
             Action::EditLightServer { .. } => "EditLightServer",
             Action::SetLightServer { .. } => "SetLightServer",
             Action::ChoosePriceProvider { .. } => "ChoosePriceProvider",
@@ -947,7 +964,7 @@ impl Action {
             Action::KeypadPress { .. } => "KeypadPress",
             Action::KeypadReference { .. } => "KeypadReference",
             Action::Charge => "Charge",
-            Action::OpenSales => "OpenSales",
+            Action::NewSale => "NewSale",
         }
     }
 }
@@ -1133,6 +1150,9 @@ pub enum Effect {
     ClearNotification {
         id: String,
     },
+    /// The till was erased or disconnected: every sale's notification goes,
+    /// so none opens a sale of the till that was (core.md decision 264).
+    ClearNotifications,
     Haptic {
         haptic: Haptic,
     },

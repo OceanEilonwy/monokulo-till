@@ -2,5 +2,5 @@
 <resources>
     <color name="paper">#FF1E1E1E</color>
     <!-- The window's ground before the first frame: the theme's ground role (ui/Theme.kt). -->
-    <color name="ground">#FF1C1B19</color>
+    <color name="ground">#FF000000</color>
 </resources>

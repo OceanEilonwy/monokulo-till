@@ -60,8 +60,6 @@ const KOTLIN: &[(&str, &str)] = &[
     ),
     ("wakeups.own", r#"{"url":"https://bell.example.org"}"#),
     ("wakeups.registration", REGISTRATION),
-    ("debug.square.base", "http://10.0.2.2:8081"),
-    ("debug.clover.base", "http://10.0.2.2:8082"),
     (
         "clover.merchant",
         r#"{"id":"MID1","name":"Lumen","currency":"EUR","timezone":"Europe/Paris","country":"FR"}"#,
@@ -135,14 +133,6 @@ fn every_key_stores_kt_writes_reads_into_the_model() {
             .point_of_sale
             .as_deref(),
         Some("clover")
-    );
-    assert_eq!(
-        model.square_base_url.as_deref(),
-        Some("http://10.0.2.2:8081")
-    );
-    assert_eq!(
-        model.clover_base_url.as_deref(),
-        Some("http://10.0.2.2:8082")
     );
     assert_eq!(model.clover_merchant.as_ref().unwrap().id.as_str(), "MID1");
     assert_eq!(model.place_name().as_deref(), Some("Lumen"));
@@ -272,7 +262,6 @@ fn defaults_are_kept_as_the_setters_keep_them() {
         setup_done: true,
         without_pos: true,
         wake_up_choice: WakeUpChoice::MonokuloBell,
-        square_base_url: Some("http://stand-in".into()),
         ..Model::default()
     };
     s.save(&Model::default(), &on).unwrap();
@@ -285,17 +274,11 @@ fn defaults_are_kept_as_the_setters_keep_them() {
         setup_done: false,
         without_pos: false,
         wake_up_choice: WakeUpChoice::TimerOnly,
-        square_base_url: Some("  ".into()),
         ..on.clone()
     };
     s.save(&on, &off).unwrap();
     assert_eq!(platform.get("shift.on").as_deref(), Some("false"));
-    for removed in [
-        "setup.done",
-        "pos.skipped",
-        "wakeups.choice",
-        "debug.square.base",
-    ] {
+    for removed in ["setup.done", "pos.skipped", "wakeups.choice"] {
         assert_eq!(platform.get(removed), None, "{removed}");
     }
     on.shift_on = true;
@@ -404,17 +387,7 @@ fn forgetting_everything_forgets_what_stores_kt_forgot() {
     let kept = Kept::load(store(&platform), quiet()).unwrap();
     kept.forget_all().unwrap();
     let left: Vec<String> = platform.all().into_keys().collect();
-    assert_eq!(
-        left,
-        [
-            "bubble.left",
-            "bubble.on",
-            "bubble.y",
-            "debug.clover.base",
-            "debug.square.base",
-            "shift.on"
-        ]
-    );
+    assert_eq!(left, ["bubble.left", "bubble.on", "bubble.y", "shift.on"]);
     let model = kept.model();
     assert!(!model.shift_on && !model.bubble_on, "the switches stay");
     assert_eq!(model.connection, None);

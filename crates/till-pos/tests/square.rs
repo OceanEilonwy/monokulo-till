@@ -209,6 +209,25 @@ async fn a_refused_refresh_means_signing_in_again() {
     assert_eq!(f.tokens.get(), None);
 }
 
+/// A till's first look starts its cursor now and asks for nothing earlier:
+/// a sale rung up before the till was set up isn't its to show (core.md
+/// decision 265). Later looks overlap by two minutes.
+#[tokio::test]
+async fn a_first_look_asks_for_nothing_before_now() {
+    let f = Fixture::start().await;
+    let cursor = MemoryCursor::since(None);
+    let source = f.source(cursor.clone());
+    f.stand.enqueue(json(r#"{"payments":[]}"#));
+    source.new_sales().await.unwrap();
+    let request = f.stand.take_request().await;
+    assert_eq!(
+        query(&request, "begin_time").as_deref(),
+        Some(NOW),
+        "no overlap on the first look"
+    );
+    assert_eq!(cursor.since_value().as_deref(), Some(NOW));
+}
+
 #[tokio::test]
 async fn only_completed_monero_tenders_are_sales_and_handled_ones_arent_given_again() {
     let f = Fixture::start().await;

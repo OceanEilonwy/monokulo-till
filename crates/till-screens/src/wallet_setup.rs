@@ -180,6 +180,8 @@ pub struct ThisTillSetup {
     /// Through a light wallet server: the node is the one its proofs are
     /// checked with.
     pub light: bool,
+    /// Change, as Fob's Node screen.
+    pub chooser: Box<crate::node_chooser::NodeChooserInput>,
 }
 
 /// V1.
@@ -267,12 +269,16 @@ pub struct FobRequestStep {
 pub struct SetupStepper {
     /// "Paid after".
     pub label: String,
-    /// "10 confirmations".
+    /// "10 confirmations"; Settings' shorter "10 conf.".
     pub value: String,
     /// "About 20 minutes".
     pub detail: Option<String>,
     pub minus: Press,
     pub plus: Press,
+    /// What a screen reader says for [`Self::value`] when it's shortened:
+    /// "10 confirmations" for "10 conf."; empty when it's said as written.
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub value_said: String,
 }
 
 /// B4 (phone) and C4 (iPad).
@@ -387,6 +393,11 @@ pub struct NodeRow {
     /// `Action::SetLightServer`'s `self_signed`. `None` for a node.
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub self_signed: Option<Choice>,
+    /// Change, as Fob's Node screen ([`crate::node_chooser`]): for a node,
+    /// in D4 and Settings. `None` on a light wallet server, whose Change
+    /// is the address and the switch, as above.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub chooser: Option<crate::node_chooser::NodeChooser>,
 }
 
 /// D4.
@@ -643,6 +654,7 @@ fn paid_after(confirmations: u32, merged: bool) -> SetupStepper {
         minus: Press::new("−").enabled(confirmations > CONFIRMATION_STEPS[0]),
         plus: Press::new("+")
             .enabled(confirmations < CONFIRMATION_STEPS[CONFIRMATION_STEPS.len() - 1]),
+        value_said: String::new(),
     }
 }
 
@@ -654,6 +666,7 @@ pub fn step_stepper(label: &str, value: String, at: u32, steps: &[u32]) -> Setup
         detail: None,
         minus: Press::new("−").enabled(steps.first().is_some_and(|s| at > *s)),
         plus: Press::new("+").enabled(steps.last().is_some_and(|s| at < *s)),
+        value_said: String::new(),
     }
 }
 
@@ -664,6 +677,7 @@ fn expiry(minutes: u32) -> SetupStepper {
         detail: None,
         minus: Press::new("−").enabled(minutes > EXPIRY_STEPS[0]),
         plus: Press::new("+").enabled(minutes < EXPIRY_STEPS[EXPIRY_STEPS.len() - 1]),
+        value_said: String::new(),
     }
 }
 
@@ -857,6 +871,7 @@ pub fn this_till_step(t: &ThisTillSetup) -> ThisTillStep {
             detail: Some(format!("Account {n} in your wallet")),
             minus: Press::new("−").enabled(n > 1),
             plus: Press::new("+"),
+            value_said: String::new(),
         }),
         node: t.node.as_ref().map(|url| NodeRow {
             label: if t.light { PROOF_NODE } else { "Node" }.into(),
@@ -873,6 +888,7 @@ pub fn this_till_step(t: &ThisTillSetup) -> ThisTillStep {
                 .collect(),
             choices: t.node_choices.clone(),
             self_signed: None,
+            chooser: Some(crate::node_chooser::node_chooser(&t.chooser)),
         }),
         paid_after: paid_after(t.confirmations, false),
         expiry: expiry(t.expiry_minutes),
@@ -1104,8 +1120,14 @@ mod tests {
             busy: false,
             problem: None,
             light: false,
+            chooser: Default::default(),
         };
         let view = this_till_step(&t);
+        let chooser = view.node.as_ref().unwrap().chooser.as_ref().unwrap();
+        assert_eq!(
+            chooser.title, "Node",
+            "D4's Change is Fob's Node screen too"
+        );
         let number = view.number.unwrap();
         assert_eq!(
             (number.value.as_str(), number.detail.as_deref()),

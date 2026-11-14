@@ -292,6 +292,9 @@ class Stage internal constructor(
     /** Whether this screen is the one the stage is going to. */
     fun arriving(): Boolean = transition.targetState == screen
 
+    /** The screen the stage is coming from while it changes; at rest, the one it rests on. */
+    fun from(): Screen = transition.currentState
+
     /**
      * The sale a change to this screen is leaving (a Back, or a paid page stepping back, onto the shift), null at
      * rest or from anything else. Read in composition, so it recomposes its reader twice a change, as the change

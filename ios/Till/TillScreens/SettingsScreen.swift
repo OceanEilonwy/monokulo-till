@@ -58,15 +58,6 @@ struct SettingsScreen: View {
                 if let store = view.store {
                     StoreSettings(store: store, title: view.storeTitle, send: send)
                 }
-                if !view.standIns.isEmpty {
-                    Section(view.developerTitle) {
-                        ForEach(Array(view.standIns.enumerated()), id: \.offset) { _, standIn in
-                            StandInField(standIn: standIn) { url in
-                                send(.setBaseUrl(pos: pos(standIn.pointOfSale), url: url))
-                            }
-                        }
-                    }
-                }
                 Section {
                     Button(view.disconnect, role: .destructive) { askDisconnect = true }
                         .foregroundStyle(Palette.danger)
@@ -447,28 +438,6 @@ struct PosSettings: View {
         default:
             EmptyView()
         }
-    }
-}
-
-/// A debug build's stand-in address for a point of sale.
-struct StandInField: View {
-    let standIn: StandIn
-    let use: @MainActor (String) -> Void
-
-    @State private var text = ""
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(standIn.label)
-                .font(.footnote)
-                .foregroundStyle(Palette.secondary)
-            TextField(standIn.label, text: $text)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .keyboardType(.URL)
-                .onSubmit { use(text) }
-        }
-        .onChange(of: standIn.value, initial: true) { _, value in text = value }
     }
 }
 

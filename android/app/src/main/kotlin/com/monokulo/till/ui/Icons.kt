@@ -25,6 +25,8 @@ object MkIcons {
         }.build()
 
     val Back = icon("back", 24f, "M20 12H5M11 5l-7 7 7 7" to 2.2f)
+    /** A keypad till's New sale. */
+    val Add = icon("add", 24f, "M12 5v14M5 12h14" to 2.4f)
     /** V2's ways to enter a wallet: a code in a frame, a key, and lines of words (the boards' VkWallet). */
     val WalletCode = icon(
         "wallet code", 24f,
@@ -53,6 +55,12 @@ object MkIcons {
         "M10.5 8h7a2.5 2.5 0 0 1 2.5 2.5v7a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 8 17.5v-7A2.5 2.5 0 0 1 10.5 8Z" to 2f,
         "M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" to 2f,
     )
+    /** Three joined dots: share, as Android's share sheet draws it. */
+    val Share = icon(
+        "share", 24f,
+        "M18 3a3 3 0 1 0 0.01 0Z M6 9a3 3 0 1 0 0.01 0Z M18 15a3 3 0 1 0 0.01 0Z" to 2f,
+        "M8.6 10.5l6.8-4 M8.6 13.5l6.8 4" to 2f,
+    )
     val Clock = icon("clock", 24f, "M12 3a9 9 0 1 0 0.01 0Z" to 2f, "M12 7v5.5l3.5 2" to 2f)
     val Bell = icon("bell", 24f, "M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15L6 16Z M10 20.5a2 2 0 0 0 4 0" to 1.8f)
     /** An X: the tinted button that opens the close sheet, and a sale closed on another till. */
@@ -80,4 +88,12 @@ object MkIcons {
     /** The keypad's delete key: a tag pointing left with a cross in it, as Monokulo's web POS draws it. */
     val Backspace = icon("delete", 24f, "M8.5 5h11a1.5 1.5 0 0 1 1.5 1.5v11a1.5 1.5 0 0 1-1.5 1.5h-11L3 12Z" to 2f, "M11.5 9.5l5 5M16.5 9.5l-5 5" to 2f)
     val Shrink = icon("shrink", 24f, "M4 10h6V4M20 14h-6v6M10 10L3 3M14 14l7 7" to 2.2f)
+
+    /** The node's Change, as Fob's Node screen draws it: Check again, Remove, and a check's running dots, dash and "!". */
+    val Refresh = icon("refresh", 24f, "M20 11a8 8 0 1 0-2.3 5.7 M20 4v7h-7" to 2f)
+    val Trash = icon("trash", 24f, "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" to 2f)
+    val Dots = icon("dots", 24f, "M6 12h.5 M12 12h.5 M18 12h.5" to 3f)
+    val Dash = icon("dash", 24f, "M8 12h8" to 3f)
+    val Alert = icon("alert", 24f, "M12 7v6 M12 17v.5" to 3f)
+    val Check = icon("check", 24f, "M5 12.5l4.5 4.5L19 7.5" to 3f)
 }

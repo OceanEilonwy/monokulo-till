@@ -34,6 +34,8 @@ use super::{State, apply};
 use crate::store::{Model, keys};
 use crate::{Effect, Screen};
 
+mod nodes;
+
 /// Where "Don't have Fob? Get it for Android" goes: Fob's releases.
 pub(crate) const FOB_URL: &str = "https://github.com/OceanEilonwy/monokulo-fob/releases";
 
@@ -81,6 +83,17 @@ pub(crate) struct WalletForm {
     /// Bumped with each check of the server.
     light_checking: u64,
     light_busy: bool,
+    /// The node in use's whole report, as Fob's Node screen shows it, and
+    /// the address it was checked at (under `checking`, with `checks`).
+    report: Option<(String, fob_wallet::node::Report)>,
+    /// The other nodes, each with its line once checked.
+    choices: Vec<(fob_wallet::node::Report, fob_wallet::node::Line)>,
+    choices_checking: u64,
+    /// Add your own node's address as typed, and its report.
+    new_node: Option<(String, fob_wallet::node::Report)>,
+    new_checking: u64,
+    /// Settings: the node the wallet is changing to, until it has.
+    changing: Option<String>,
 }
 
 impl WalletForm {
@@ -116,6 +129,12 @@ impl WalletForm {
             light_passed: None,
             light_checking: 0,
             light_busy: false,
+            report: None,
+            choices: Vec::new(),
+            choices_checking: 0,
+            new_node: None,
+            new_checking: 0,
+            changing: None,
         }
     }
 
@@ -216,8 +235,54 @@ impl State {
         }
     }
 
-    /// V2's Back: to the light wallet server's step when there is one.
+    /// A sale is waiting for payment: another wallet would never see it
+    /// paid.
+    fn has_live_sales(p: &super::Parts) -> bool {
+        p.runner.state().till.sales.iter().any(|sale| sale.live())
+    }
+
+    /// Settings' "Change the wallet" (core.md decision 261): setup's V2,
+    /// with the form filled in from the wallet in use (network, till
+    /// number, node or light server, confirmations, expiry), and back to
+    /// Settings once linked or on Back. Not while a sale waits for payment.
+    pub(super) fn change_to_another_wallet(&mut self) {
+        let Some(p) = &self.parts else { return };
+        if !self.setup_done() || !p.side.wallet_mode() || Self::has_live_sales(p) {
+            return;
+        }
+        let Some(link) = p.side.model().wallet else {
+            return;
+        };
+        let mut form = WalletForm::new(self.config.debug);
+        form.network = wallet_network(till_wallet::backend::network_of(&link));
+        form.till_number = link.till_number;
+        form.node = link.node.clone();
+        form.confirmations = link.settled_confirmations;
+        form.expiry_minutes = link.expiry_minutes;
+        match &link.light_server {
+            Some(url) => {
+                form.mode = Some(PaymentsMode::LightServer);
+                form.light_url = url.clone();
+                form.light_self_signed = link.light_self_signed;
+                form.light_passed = Some((url.clone(), link.light_self_signed));
+            }
+            None => form.mode = Some(PaymentsMode::Wallet),
+        }
+        self.wallet = form;
+        self.keep_fob_request(None);
+        self.changing_wallet = true;
+        self.go(Screen::WalletEntry);
+    }
+
+    /// V2's Back: to the light wallet server's step when there is one; to
+    /// Settings when the wallet is being changed from there.
     pub(super) fn wallet_entry_back(&mut self) {
+        if self.changing_wallet {
+            self.changing_wallet = false;
+            self.wallet = WalletForm::new(self.config.debug);
+            self.keep_fob_request(None);
+            return self.go(Screen::Settings);
+        }
         let to = if self.wallet.light() {
             Screen::LightServer
         } else {
@@ -496,7 +561,9 @@ impl State {
         form.expiry_minutes = step(&EXPIRY_STEPS, form.expiry_minutes, up);
     }
 
-    /// D4's node, checked now as Fob checks one.
+    /// D4's node, checked now as Fob checks one; in Settings, the wallet
+    /// changed to it ([`State::change_node`]). The node left and the one
+    /// chosen are kept on the list, as Fob keeps them.
     pub(super) fn set_node(&mut self, url: String) {
         let url = url.trim().to_owned();
         if url.is_empty() {
@@ -508,18 +575,16 @@ impl State {
             if let Some(self_signed) = self.light_self_signed() {
                 return self.set_light_server(url, self_signed);
             }
-            let node = url.clone();
-            self.change_wallet(move |link| {
-                link.node = Some(node);
-                if let Some(fob) = &mut link.fob {
-                    fob.node_from_fob = false;
-                }
-            });
+            return self.change_node(url);
         }
-        if !self.in_wallet_settings() {
-            self.form().node = Some(url.clone());
-        }
+        let left = self.form().node.replace(url.clone());
+        self.form().new_node = None;
+        self.keep_nodes([left, Some(url.clone())].into_iter().flatten());
         self.run_node_check(url);
+        // The list is checked again while it's up, as Fob's is.
+        if !self.wallet.choices.is_empty() {
+            self.check_other_nodes();
+        }
     }
 
     /// Whether the light wallet server's own certificate is accepted, on a
@@ -549,28 +614,6 @@ impl State {
             link.light_self_signed = self_signed;
         });
         self.run_light_check(url, self_signed, false);
-    }
-
-    /// The node at `url` checked as Fob checks one, its lines shown as
-    /// they come.
-    fn run_node_check(&mut self, url: String) {
-        let network = self.wallet.network();
-        let form = self.form();
-        form.checks = vec![("Checking the node…".into(), CheckMark::Checking)];
-        form.checking += 1;
-        let token = form.checking;
-        self.task(async move {
-            let checks = setup::check_node(network, &url).await;
-            apply(move |s| {
-                if s.wallet.checking != token {
-                    return;
-                }
-                s.wallet.checks = checks
-                    .into_iter()
-                    .map(|c| (c.text, check_mark(c.state)))
-                    .collect();
-            })
-        });
     }
 
     /// B4's and C4's Continue: D4 for the node when Fob shared none, else
@@ -639,6 +682,25 @@ impl State {
                 (keys, form.with_light_server(setup))
             }
         };
+        let mut wallet_setup = wallet_setup;
+        if self.changing_wallet {
+            // The till's prices are its point of sale's currency: kept,
+            // with the new wallet's provider when it prices that currency.
+            let old = p.side.model().wallet;
+            if let Some(currency) = old.as_ref().and_then(|l| l.price_currency.clone()) {
+                let provider = wallet_setup
+                    .price_provider
+                    .clone()
+                    .filter(|_| wallet_setup.price_currency.as_deref() == Some(currency.as_str()))
+                    .or(old.and_then(|l| l.price_provider));
+                wallet_setup.price_currency = Some(currency);
+                wallet_setup.price_provider = provider;
+            }
+            // The old wallet lets go of its file before the new one takes
+            // its place.
+            p.runner.stop();
+            p.side.forget_wallet();
+        }
         let data_dir = PathBuf::from(&self.config.data_dir);
         let wake_ups = p.wake_ups.clone();
         let clock = self.clock.clone();
@@ -665,10 +727,30 @@ impl State {
         let Some(p) = &self.parts else { return };
         let link = backend.link();
         let kept = p.side.kept.clone();
+        if self.changing_wallet {
+            // Changed from Settings (decision 261): only the wallet changes.
+            self.changing_wallet = false;
+            if let Err(e) = kept.update(|m| m.wallet = Some(link.clone())) {
+                self.problem = Some(format!("Couldn't keep the wallet: {e}"));
+                return;
+            }
+            p.side.adopt_wallet(backend);
+            p.live.forget();
+            p.live.read(p.side.backend().as_ref());
+            self.generation += 1;
+            self.left.clear();
+            self.wallet = WalletForm::new(self.config.debug);
+            self.keep_fob_request(None);
+            self.new_runner();
+            return self.go(Screen::Settings);
+        }
+        // The nodes D4's Change was given stay on the list.
+        let nodes = kept.model().custom_nodes;
         let kept_it = kept.forget_all().and_then(|()| {
             kept.update(|m| {
                 m.connection = None;
                 m.wallet = Some(link.clone());
+                m.custom_nodes = nodes;
             })
         });
         if let Err(e) = kept_it {
@@ -708,7 +790,17 @@ impl State {
             self.go(Screen::Prices);
             self.check_prices();
         } else {
-            self.go(Screen::Alerts);
+            self.go(self.alerts_step());
+        }
+    }
+
+    /// Setup's alerts step, or on a keypad till, which shows no
+    /// notifications, the end of setup (core.md decision 260).
+    pub(super) fn alerts_step(&self) -> Screen {
+        if self.on_keypad() {
+            Screen::Ready
+        } else {
+            Screen::Alerts
         }
     }
 
@@ -717,7 +809,7 @@ impl State {
     pub(super) fn prices_next(&mut self) {
         let Some(model) = self.model() else { return };
         let Some(currency) = price_currency(&model) else {
-            return self.go(Screen::Alerts);
+            return self.go(self.alerts_step());
         };
         let provider = model.wallet.as_ref().map(|link| {
             till_wallet::prices::provider_name(link.price_provider.as_deref(), Some(&currency))
@@ -727,7 +819,7 @@ impl State {
                 link.price_currency = Some(currency);
                 link.price_provider = provider;
             },
-            |s| s.go(Screen::Alerts),
+            |s| s.go(s.alerts_step()),
         );
     }
 
@@ -856,6 +948,7 @@ impl State {
         }
         let Some(backend) = p.side.wallet_backend(&old) else {
             self.problem = Some("Couldn't open the wallet to change it.".into());
+            self.wallet.changing = None;
             return;
         };
         let side = p.side.clone();
@@ -872,7 +965,13 @@ impl State {
                 }),
                 Err(e) => {
                     let said = e.say();
-                    apply(move |s| s.problem = Some(format!("Couldn't change that: {said}")))
+                    apply(move |s| {
+                        s.problem = Some(format!("Couldn't change that: {said}"));
+                        // Refused: the node before is the one in use, checked again.
+                        if s.wallet.changing.take().is_some() {
+                            s.recheck_node_in_use();
+                        }
+                    })
                 }
             }
         });
@@ -952,6 +1051,11 @@ impl State {
             warnings: now.backend.map(|b| b.warnings).unwrap_or_default(),
             busy: self.busy,
             problem: self.problem.clone(),
+            live_sales: Self::has_live_sales(p),
+            chooser: self.node_chooser_input(
+                link.node.as_deref().filter(|_| link.light_server.is_none()),
+                &model.custom_nodes,
+            ),
         })
     }
 
@@ -1080,6 +1184,10 @@ impl State {
                 busy: self.busy,
                 problem: self.problem.clone(),
                 light: form.light(),
+                chooser: Box::new(self.node_chooser_input(
+                    form.node.as_deref(),
+                    &self.model().map(|m| m.custom_nodes).unwrap_or_default(),
+                )),
             }),
             Screen::LightServer => WalletStep::LightServer(LightServerSetup {
                 url: form.light_url.clone(),

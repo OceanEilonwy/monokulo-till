@@ -1,6 +1,6 @@
 //! Settings (boards PhoneSettings and PadSettings; Android's
 //! `ui/Settings.kt`): the store, Tor, the point of sale, the shift, alerts,
-//! the bubble, Wake-ups and the debug build's stand-ins.
+//! the bubble and Wake-ups.
 //!
 //! Where the platforms differ: Android has the shift's switch, the bubble,
 //! Tor and Wake-ups in place; iOS has no bubble and no Tor, opens Wake-ups
@@ -9,8 +9,6 @@
 //! The section headings, the switches' labels, "Disconnect this device"
 //! and the footnotes no state chooses (the wallet's, Disconnect's, the
 //! Dynamic Island's) stay in the platform's screen.
-
-use std::collections::BTreeMap;
 
 use monokulo_client::{AppConnection, Connection, PointOfSale, Store, tor};
 use till_bell::WakeUpChoice;
@@ -107,10 +105,6 @@ pub struct SettingsInput {
     /// Android: the bubble wanted, and allowed by Android.
     pub bubble_wanted: bool,
     pub bubble_allowed: bool,
-    /// A debug build, with the stand-ins' addresses by point of sale
-    /// (acceptance T6.5).
-    pub debug: bool,
-    pub base_urls: BTreeMap<&'static str, String>,
     /// Orbot's proxy answers; `None` while that's being checked.
     pub tor_running: Option<bool>,
     pub wake_ups: WakeUpsInput,
@@ -327,8 +321,6 @@ pub struct SettingsView {
     pub wake_ups: WakeUpsPlace,
     /// iPhone.
     pub island: Option<IslandSection>,
-    /// Debug builds: a stand-in's address for each point of sale.
-    pub stand_ins: Vec<StandIn>,
     /// Signed in to Square or Clover: which device's sales alert, and
     /// whether other counters' show in the list (C5; Clover's since core.md
     /// decision 142).
@@ -346,7 +338,7 @@ pub struct SettingsView {
     pub show_sales: Option<ShowSalesSection>,
     /// The page's and its sections' titles, and Disconnect's words (core.md
     /// decision 130): "Settings", "Store", "Point of sale", "Notifications",
-    /// "Wake-ups", "Developer (debug builds)".
+    /// "Wake-ups".
     #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
     pub title: String,
     #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
@@ -355,10 +347,12 @@ pub struct SettingsView {
     pub pos_title: String,
     #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
     pub alerts_title: String,
+    /// Whether the Notifications section shows: not on a keypad till,
+    /// which shows no notifications (core.md decision 260).
+    #[cfg_attr(feature = "uniffi", uniffi(default = true))]
+    pub notifications: bool,
     #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
     pub wake_ups_title: String,
-    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
-    pub developer_title: String,
     /// "Disconnect this device".
     #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
     pub disconnect: String,
@@ -629,16 +623,6 @@ impl IslandSection {
     }
 }
 
-/// A debug build's stand-in for a point of sale.
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-pub struct StandIn {
-    pub point_of_sale: PosMark,
-    /// "Stand-in Square address".
-    pub label: String,
-    pub value: String,
-}
-
 /// Settings on `device`.
 pub fn settings(input: &SettingsInput, device: Device, clock: DeviceClock) -> SettingsView {
     let pos = input.pos.chosen;
@@ -646,6 +630,9 @@ pub fn settings(input: &SettingsInput, device: Device, clock: DeviceClock) -> Se
     // Square names the device that took each payment and has a cash
     // tender; Clover's payments are read by their Monero tender alone.
     let square_connected = pos == Some(PointOfSale::Square) && input.pos.connected();
+    // A keypad till shows no notifications, floats over nothing and has
+    // no Live Activity (core.md decision 260).
+    let keypad = pos == Some(PointOfSale::Till);
     let mut view = SettingsView {
         store: input
             .connection
@@ -669,7 +656,7 @@ pub fn settings(input: &SettingsInput, device: Device, clock: DeviceClock) -> Se
             on: input.alerts,
             footnote: alerts_footnote(input.alerts, device).into(),
         },
-        bubble: android.then(|| SwitchSection {
+        bubble: (android && !keypad).then(|| SwitchSection {
             on: input.bubble_wanted && input.bubble_allowed,
             footnote: if !input.bubble_allowed {
                 "Android hasn't allowed Till to display over other apps, so sales show in the notification only.".into()
@@ -688,20 +675,8 @@ pub fn settings(input: &SettingsInput, device: Device, clock: DeviceClock) -> Se
                 row: wake_ups_row(&input.wake_ups, device),
             }
         },
-        island: (device == Device::Iphone)
+        island: (device == Device::Iphone && !keypad)
             .then(|| IslandSection::new(input.live_activity, input.code_in_island)),
-        stand_ins: if input.debug {
-            PointOfSale::ALL
-                .into_iter()
-                .map(|p| StandIn {
-                    point_of_sale: mark(p),
-                    label: pos_text::stand_in(p),
-                    value: input.base_urls.get(p.wire()).cloned().unwrap_or_default(),
-                })
-                .collect()
-        } else {
-            Vec::new()
-        },
         // The keypad has no devices to tell apart.
         counters: pos.filter(|p| input.pos.connected() && *p != PointOfSale::Till).map(|pos| {
             let place = match pos {
@@ -711,8 +686,8 @@ pub fn settings(input: &SettingsInput, device: Device, clock: DeviceClock) -> Se
             counters_section(&input.choices, pos, place, device, clock)
         }),
         cash: square_connected.then(|| cash_section(&input.choices)),
-        alerts_status: device.is_ios().then(|| alerts_status(input.alerts)),
-        show_sales: (device == Device::Ipad).then(|| ShowSalesSection {
+        alerts_status: (device.is_ios() && !keypad).then(|| alerts_status(input.alerts)),
+        show_sales: (device == Device::Ipad && !keypad).then(|| ShowSalesSection {
             choices: show_sales_choices(input.choices.show_sales, pos),
             side_by_side: (input.choices.show_sales == ShowSales::SideBySide)
                 .then(|| SIDE_BY_SIDE_HOW.into()),
@@ -722,8 +697,8 @@ pub fn settings(input: &SettingsInput, device: Device, clock: DeviceClock) -> Se
         store_title: "Store".into(),
         pos_title: pos_text::POINT_OF_SALE.into(),
         alerts_title: "Notifications".into(),
+        notifications: !keypad,
         wake_ups_title: "Wake-ups".into(),
-        developer_title: "Developer (debug builds)".into(),
         disconnect: "Disconnect this device".into(),
         disconnect_footnote: DISCONNECT_FOOTNOTE.into(),
         disconnect_ask: "Disconnect this device?".into(),
@@ -951,6 +926,7 @@ fn wake_ups_row(w: &WakeUpsInput, device: Device) -> Fact {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
 
     #[test]
     fn show_sales_is_kept_as_its_wire_word_and_reads_the_old_names_back() {
@@ -1034,8 +1010,6 @@ mod tests {
             alerts: false,
             bubble_wanted: true,
             bubble_allowed: true,
-            debug: false,
-            base_urls: BTreeMap::new(),
             tor_running: None,
             wake_ups: WakeUpsInput {
                 choice: WakeUpChoice::MonokuloBell,
@@ -1351,7 +1325,6 @@ mod tests {
             }
         );
         assert_eq!(view.island, None);
-        assert_eq!(view.stand_ins, []);
 
         let alerts_on = settings(
             &SettingsInput {
@@ -1525,36 +1498,6 @@ mod tests {
         assert_eq!(
             tor(onion, None, Some(false)).unwrap().footnote,
             "Orbot isn't running, so Till can't reach the store. Open Orbot."
-        );
-    }
-
-    #[test]
-    fn a_debug_build_has_a_stand_in_for_each_point_of_sale() {
-        let mut base_urls = BTreeMap::new();
-        base_urls.insert("clover", "http://10.0.2.2:8090".to_owned());
-        let view = settings(
-            &SettingsInput {
-                debug: true,
-                base_urls,
-                ..input()
-            },
-            Device::Android,
-            CLOCK,
-        );
-        assert_eq!(
-            view.stand_ins,
-            [
-                StandIn {
-                    point_of_sale: PosMark::Square,
-                    label: "Stand-in Square address".into(),
-                    value: String::new()
-                },
-                StandIn {
-                    point_of_sale: PosMark::Clover,
-                    label: "Stand-in Clover address".into(),
-                    value: "http://10.0.2.2:8090".into()
-                },
-            ]
         );
     }
 

@@ -41,8 +41,19 @@ struct WalletSettings: View {
             if let lookahead = wallet.lookahead {
                 WarningLine(text: lookahead)
             }
+            // Change the wallet, here with what it changes (core.md
+            // decision 261): off while a sale waits for payment.
+            if let change = wallet.change {
+                Button(change.label) { send(.changeWallet) }
+                    .foregroundStyle(change.enabled ? Palette.link : Palette.secondary)
+                    .disabled(!change.enabled)
+            }
         } header: {
             Text(wallet.title)
+        } footer: {
+            if wallet.change != nil {
+                Text(wallet.changeFootnote)
+            }
         }
         if let node = wallet.node {
             Section {
@@ -66,15 +77,22 @@ struct WalletSettings: View {
                 }
             }
             .sheet(isPresented: $changingNode) {
-                NodeSheet(node: node) { url, selfSigned in
-                    changingNode = false
-                    if let selfSigned {
-                        send(.setLightServer(url: url, selfSigned: selfSigned))
-                    } else {
-                        send(.setNode(url: url))
+                // A node's Change is Fob's Node screen; a light wallet
+                // server's, its address and switch.
+                if let chooser = node.chooser {
+                    NodeChooserSheet(chooser: chooser, send: send)
+                        .presentationDetents([.large])
+                } else {
+                    NodeSheet(node: node) { url, selfSigned in
+                        changingNode = false
+                        if let selfSigned {
+                            send(.setLightServer(url: url, selfSigned: selfSigned))
+                        } else {
+                            send(.setNode(url: url))
+                        }
                     }
+                    .presentationDetents([.medium, .large])
                 }
-                .presentationDetents([.medium, .large])
             }
         }
         Section {

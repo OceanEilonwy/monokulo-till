@@ -34,6 +34,9 @@ till-screens.workspace = true
 till-types.workspace = true
 # The device's own wallet (docs/view-key-mode.md §5).
 till-wallet.workspace = true
+# The node's Change as Fob's Node screen: fob-wallet's node checks
+# (`node::check`, `node::check_all`) and Fob's words for them.
+fob-wallet.workspace = true
 tokio.workspace = true
 zeroize.workspace = true
 uniffi = { workspace = true, optional = true }
@@ -43,7 +46,6 @@ uniffi = { workspace = true, optional = true }
 # tests.
 fob-codes.workspace = true
 fob-keys.workspace = true
-fob-wallet.workspace = true
 tempfile = "3.27.0"
 tokio = { workspace = true, features = ["test-util"] }
 wiremock = "0.6.5"

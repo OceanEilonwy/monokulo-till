@@ -49,6 +49,7 @@ mod decimal;
 mod fixtures;
 pub mod keypad;
 pub mod live_activity;
+pub mod node_chooser;
 pub mod notification;
 pub mod onboarding;
 pub mod order_text;

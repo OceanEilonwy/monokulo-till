@@ -55,6 +55,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.LocalTextStyle
@@ -169,7 +170,9 @@ import kotlinx.coroutines.launch
  * row opens its code, any other its page. [place] is where the list was
  * when a row was tapped, kept over the stage (the activity's) so a Back
  * comes back to it. [close] is the swiped row's sheet, drawn here while the
- * shift is the screen the stage goes to.
+ * shift is the screen the stage goes to. On a keypad till the list is home,
+ * with New sale at its foot opening the keypad (core.md decision 257), unless
+ * [newSale] is false: the wide layout's keypad is already beside the list.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -178,7 +181,9 @@ fun ShiftScreen(
     actions: TillActions,
     place: ShiftPlace = rememberShiftPlace(),
     close: CloseSheet? = null,
+    newSale: Boolean = true,
 ) {
+    val newSalePress = view.newSale?.takeIf { newSale }
     // Back from a sale (or a paid one stepping back): the sale the stage is leaving, read once as the change starts
     // and once as it lands, never a frame. Its row must be there for the ground to shrink into, so the engine opens a
     // tray whose fold would hide it before the change starts (decisions 269, 289). Once landed, focus goes to that row.
@@ -318,8 +323,19 @@ fun ShiftScreen(
                         }
                     }
                 }
-                if (items.isNotEmpty()) item(key = "end") { Spacer(Modifier.height(24.dp)) }
+                // Room under the last row for New sale, so it never covers a sale.
+                if (items.isNotEmpty() || newSalePress != null) item(key = "end") { Spacer(Modifier.height(if (newSalePress != null) 96.dp else 24.dp)) }
             }
+            }
+            newSalePress?.let { press ->
+                ExtendedFloatingActionButton(
+                    onClick = { actions.send(Action.NewSale) },
+                    icon = { Icon(MkIcons.Add, contentDescription = null) },
+                    text = { Text(press.label, fontSize = 17.sp, fontWeight = FontWeight.SemiBold) },
+                    containerColor = mk.accent,
+                    contentColor = mk.onAccent,
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                )
             }
         }
     }
@@ -903,7 +919,8 @@ private fun NewShiftHeader(label: String, header: ShiftHeader, actions: TillActi
         }
         OutlineButton(header.newShift.label, { asking = true }, height = 44.dp, enabled = header.newShift.enabled, size = 15, icon = MkIcons.Reset, oneLine = true)
     }
-    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    // A keypad till has no total for the shift (core.md decision 257): since when and New shift only.
+    if (header.showTotal) Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(header.total, style = display(34, -0.8))
         Text("· ${header.paid}", fontSize = 15.sp, color = mk.muted, modifier = Modifier.padding(bottom = 6.dp))
     }

@@ -241,6 +241,8 @@ pub(crate) struct State {
     counter: Option<CounterChoice>,
     /// Step 4 is past choosing the point of sale (O1), on to signing in.
     pos_confirmed: bool,
+    /// The wallet is being changed from Settings (core.md decision 261).
+    changing_wallet: bool,
     /// "Find this device again" waits for a sale that isn't one of these.
     finding: Option<BTreeSet<OrderId>>,
     /// The Clover devices whose names were asked for since the till
@@ -347,6 +349,7 @@ impl State {
             taking: BTreeSet::new(),
             counter: None,
             pos_confirmed: false,
+            changing_wallet: false,
             finding: None,
             devices_asked: BTreeSet::new(),
             refund_sheet: None,
@@ -679,11 +682,8 @@ impl State {
         if model.link().is_none() {
             Screen::Welcome
         } else if model.setup_done {
-            if model.point_of_sale == Some(PointOfSale::Till) {
-                Screen::Keypad
-            } else {
-                Screen::Till
-            }
+            // A keypad till's home is its list too (core.md decision 257).
+            Screen::Till
         } else if model.place_name().is_none() && !model.without_pos {
             // Not yet at a Square location or a Clover merchant.
             Screen::PointOfSale
@@ -903,16 +903,6 @@ impl State {
                     p.live.read(p.side.backend().as_ref());
                 }
             }
-            Action::SetBaseUrl { pos, url } => {
-                if self.config.debug {
-                    let url = Some(url).filter(|u| !u.is_empty());
-                    self.keep(|m| match pos {
-                        crate::Pos::Square => m.square_base_url = url,
-                        crate::Pos::Clover => m.clover_base_url = url,
-                        crate::Pos::Till => {}
-                    });
-                }
-            }
             Action::SetBubble { on } => {
                 self.keep(|m| m.bubble_on = on);
             }
@@ -1035,6 +1025,7 @@ impl State {
             Action::ChooseWalletWay { way } => self.choose_wallet_way(way),
             Action::FobAnswer { text } => self.fob_answer(text),
             Action::UseAnotherWallet => self.use_another_wallet(),
+            Action::ChangeWallet => self.change_to_another_wallet(),
             Action::ScanWalletCode { text } => self.wallet_code(Some(text)),
             Action::PasteWalletCode { text } => self.wallet_code(text),
             Action::EditWalletKeys {
@@ -1048,6 +1039,10 @@ impl State {
             Action::StepPaidAfter { up } => self.step_paid_after(up),
             Action::StepCodeExpiry { up } => self.step_code_expiry(up),
             Action::SetNode { url } => self.set_node(url),
+            Action::CheckNodes => self.check_nodes(),
+            Action::CheckNewNode { url } => self.check_new_node(url),
+            Action::CloseNewNode => self.close_new_node(),
+            Action::RemoveNode { url } => self.remove_node(url),
             Action::EditLightServer { url, self_signed } => {
                 self.edit_light_server(url, self_signed)
             }
@@ -1059,11 +1054,7 @@ impl State {
             Action::KeypadPress { key } => self.keypad_press(key),
             Action::KeypadReference { text } => self.keypad_reference(text),
             Action::Charge => self.charge(),
-            Action::OpenSales => {
-                if self.setup_done() {
-                    self.go(Screen::Till);
-                }
-            }
+            Action::NewSale => self.new_sale(),
             Action::PaidInCash { order_id } => {
                 if let Some(p) = &self.parts {
                     p.runner.paid_in_cash(&order_id);
@@ -1367,7 +1358,8 @@ impl State {
     /// §6), then says so: a new sale's alert while the app is behind; a
     /// payment's paid moment and haptic, with a notice while behind; a
     /// code that ran out unpaid. Notices are posted on Android, on iPad
-    /// and on an iPhone without the Live Activity (the owner's fix 2).
+    /// and on an iPhone without the Live Activity (the owner's fix 2); on a
+    /// keypad till none are, nor alerts (core.md decision 260).
     fn deliver(&mut self, claims: Vec<Claim>) {
         if claims.is_empty() {
             return;
@@ -1378,14 +1370,15 @@ impl State {
         let till = model.point_of_sale;
         let money = Money(self.platform.clone());
         let android = self.config.device == Device::Android;
-        let notices = android || !self.live_activity_on(&model);
+        let keypad = till == Some(PointOfSale::Till);
+        let notices = !keypad && (android || !self.live_activity_on(&model));
         let quiet = self.visible;
         for claim in claims {
             let sale = TillSale::of_view(&claim.view);
             let order_id = sale.order_id.clone();
             match claim.kind {
                 AlertKind::NewSale => {
-                    if !self.visible {
+                    if !self.visible && !keypad {
                         self.alert_for = Some(order_id);
                     }
                 }
@@ -1407,6 +1400,8 @@ impl State {
                     }
                 }
                 // Always a notice, even beside a Live Activity: money is owed.
+                // A keypad till's sale page says so instead.
+                AlertKind::Overpaid if keypad => {}
                 AlertKind::Overpaid => self.effect(Effect::Notify {
                     order_id,
                     notice: notification::overpaid_notice(&sale, &money),
@@ -1472,8 +1467,13 @@ impl State {
             Screen::Alerts => self.go(Screen::PointOfSale),
             Screen::Float => self.go(Screen::Alerts),
             Screen::ShowSales => self.go(Screen::Alerts),
-            // The keypad has no other app to float over or switch from.
-            Screen::Ready if self.on_keypad() => self.go(Screen::Alerts),
+            // The keypad has no other app to float over or switch from, and
+            // shows no notifications, so no alerts step (decision 260).
+            Screen::Ready if self.on_keypad() && self.prices_due() => {
+                self.go(Screen::Prices);
+                self.check_prices();
+            }
+            Screen::Ready if self.on_keypad() => self.go(Screen::PointOfSale),
             Screen::Ready if self.config.device == Device::Android => self.go(Screen::Float),
             Screen::Ready if self.config.device == Device::Ipad => self.go(Screen::ShowSales),
             Screen::Ready => self.go(Screen::Alerts),
@@ -1558,7 +1558,7 @@ impl State {
         if self.keep(|m| m.without_pos = true) {
             self.restart();
             let next = if self.setup_done() {
-                self.shift_screen()
+                Screen::Till
             } else {
                 Screen::Alerts
             };
@@ -1832,7 +1832,7 @@ impl State {
         self.go(if back_to_settings && setup_done {
             Screen::Settings
         } else if setup_done {
-            self.shift_screen()
+            Screen::Till
         } else {
             Screen::PointOfSale
         });
@@ -1968,7 +1968,7 @@ impl State {
         );
         self.left.insert(order_id);
         if on_it {
-            let shift = self.shift_screen();
+            let shift = Screen::Till;
             self.go(shift);
         }
     }
@@ -2146,6 +2146,8 @@ impl State {
             self.problem = Some(format!("Couldn't forget the store: {e}"));
             return;
         }
+        // Nothing posted about the till that was may open a sale (decision 264).
+        self.effect(Effect::ClearNotifications);
         p.live.forget();
         p.side.forget_wallet();
         self.wallet = wallet::WalletForm::new(self.config.debug);
@@ -2288,15 +2290,6 @@ impl State {
             Some(PointOfSale::Clover) => p.side.clover_config(None).tender_label,
             _ => p.side.square_config(None).tender_name,
         };
-        let mut base_urls = std::collections::BTreeMap::new();
-        for (pos, url) in [
-            (PointOfSale::Square, &model.square_base_url),
-            (PointOfSale::Clover, &model.clover_base_url),
-        ] {
-            if let Some(url) = url {
-                base_urls.insert(pos.wire(), url.clone());
-            }
-        }
         SettingsInput {
             connection: model.connection.clone(),
             store: State::store_now(p),
@@ -2316,8 +2309,6 @@ impl State {
             alerts: self.alerts_allowed,
             bubble_wanted: model.bubble_on,
             bubble_allowed: self.bubble_allowed,
-            debug: self.config.debug,
-            base_urls,
             // Orbot's probe stays on the platform (decision 10).
             tor_running: self.tor_running,
             wake_ups: self.wake_ups_input(p),
@@ -2575,8 +2566,10 @@ impl State {
         let Some(p) = &self.parts else { return };
         let device = self.config.device;
         let clock = self.device_clock();
-        // No foreground service for the shop's own wallet (decision 231).
-        let running = p.runner.state().running && !p.side.wallet_mode();
+        // No foreground service for the shop's own wallet (decision 231),
+        // nor on a keypad till, whose ongoing notification it would need
+        // (decision 260).
+        let running = p.runner.state().running && !p.side.wallet_mode() && !self.on_keypad();
         let onboarding = self
             .onboarding_input(p)
             .map(|input| onboarding::onboarding(&input, device, &Money(self.platform.clone())));

@@ -37,15 +37,31 @@ struct TillScreenTests {
         #expect(TillScreen.stackPath(.order(orderId: "o1")) == [.sale(orderId: "o1"), .order(orderId: "o1")])
     }
 
-    @Test func onAKeypadTillTheKeypadIsTheRootAndTheSalesAPageOverIt() {
-        #expect(TillScreen.stackPath(.keypad, keypad: true) == [])
-        #expect(TillScreen.stackPath(.shift, keypad: true) == [.shift])
-        #expect(TillScreen.backs(from: .shift, toDepth: 0, keypad: true) == 1)
-        #expect(TillScreen.stackPath(.sale(orderId: "o1"), keypad: true) == [.sale(orderId: "o1")])
+    @Test func onAKeypadTillTheListIsTheRootAndTheKeypadACoverOverIt() {
+        #expect(TillScreen.stackPath(.keypad) == [])
+        #expect(TillScreen.backs(from: .keypad, toDepth: 0) == 0)
+        #expect(TillScreen.stackPath(.sale(orderId: "o1")) == [.sale(orderId: "o1")])
+        // Side by side only in a landscape window wide enough for both.
+        #expect(TillScreen.sideBySide(CGSize(width: 1366, height: 1000)))
+        #expect(!TillScreen.sideBySide(CGSize(width: 1032, height: 1366)))
+        #expect(!TillScreen.sideBySide(CGSize(width: 852, height: 393)))
         #expect(KeypadScreen.action(.return, characters: "\r") == .charge)
         #expect(KeypadScreen.action(KeyEquivalent("7"), characters: "7") == .keypadPress(key: .digit(digit: 7)))
         #expect(KeypadScreen.action(.escape, characters: "") == .keypadPress(key: .clear))
         #expect(KeypadScreen.action(KeyEquivalent("x"), characters: "x") == nil)
+    }
+
+    @Test func theKeysKeepTheIPhonesShapeAndNeverStretchWide() {
+        // An iPhone: the whole width, keys of the iPhone's shape.
+        let phone = KeypadScreen.layout(width: 393, height: 715)
+        #expect(abs(phone.column - 361) < 0.01)
+        #expect(abs(phone.key - (361 - 20) / 3 * 84 / 113) < 0.01)
+        // Beside the list on an iPad: the tallest key, in a column of three.
+        let pad = KeypadScreen.layout(width: 925, height: 950)
+        #expect(pad.key == 112)
+        #expect(abs(pad.column - 472) < 0.01)
+        // A short window: no shorter than 56.
+        #expect(KeypadScreen.layout(width: 393, height: 400).key == 56)
     }
 
     @Test func aSwipeBackIsAsManyBacksAsItPops() {

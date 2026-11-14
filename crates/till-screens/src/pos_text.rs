@@ -249,7 +249,7 @@ pub fn ready_start(pos: Option<PointOfSale>) -> &'static str {
     match pos {
         Some(PointOfSale::Square) => "Start Till and switch to Square.",
         Some(PointOfSale::Clover) => "Start Till and ring up on your Clover device.",
-        Some(PointOfSale::Till) => "Start Till and type the first sale's amount on its keypad.",
+        Some(PointOfSale::Till) => "Start Till and tap New sale to charge your first customer.",
         None => "Start Till.",
     }
 }
@@ -315,12 +315,6 @@ pub fn bubble_footnote(pos: Option<PointOfSale>) -> String {
         "A faded bubble floats over {} and lights up when a sale comes in. Drag it to either side.",
         float_over(pos)
     )
-}
-
-/// The debug build's field for a stand-in on the developer's machine
-/// (acceptance T6.5).
-pub fn stand_in(pos: PointOfSale) -> String {
-    format!("Stand-in {} address", pos.display_name())
 }
 
 /// The Wake-ups status card's pace row.
@@ -553,10 +547,6 @@ mod tests {
         );
         assert_eq!(each(sign_out), ["Sign out of Square", "Sign out of Clover"]);
         assert_eq!(each(|p| place_row(Some(p))), ["Location", "Merchant"]);
-        assert_eq!(
-            each(stand_in),
-            ["Stand-in Square address", "Stand-in Clover address"]
-        );
         assert_eq!(
             signed_in_footnote(CLOVER),
             "Sales paid with this payment type at this merchant show up in Till."

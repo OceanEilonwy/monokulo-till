@@ -1,17 +1,15 @@
 //! "Till", the keypad point of sale (docs/view-key-mode.md §7), modelled on
-//! Monokulo's web POS (`apps/pos` in mokulo): keys 1–9, C, 0 and ⌫, the
-//! amount over them, an optional reference, and Charge. In the shop's
-//! currency the digits fill from the right in its minor units (1, 2, 5 is
-//! 1.25); with no fiat currency (XMR only) there's a decimal point key and
-//! up to 12 decimals. The sales put aside for the next customer stay live
-//! and show over the keys, each opening its code.
+//! Monokulo's web POS (`apps/pos` in mokulo): an optional reference, the
+//! amount, keys 1–9, C, 0 and ⌫, and Charge. In the shop's currency the
+//! digits fill from the right in its minor units (1, 2, 5 is 1.25); with no
+//! fiat currency (XMR only) there's a decimal point key and up to 12
+//! decimals. The keypad opens from the sales' New sale (core.md decision
+//! 257): the live sales wait in the list, under Waiting for payment.
 
-use monokulo_client::{MoneyFormat, OrderId};
-use till_sales::TillSale;
+use monokulo_client::MoneyFormat;
 use till_types::{CurrencyCode, Money};
 
 use crate::view::{Device, Press};
-use crate::{sale_text, time::DeviceClock};
 
 /// The most whole digits an amount has, as the web POS allows.
 pub const WHOLE_DIGITS: usize = 9;
@@ -128,24 +126,6 @@ pub struct KeypadInput {
     /// Charge's request is under way.
     pub busy: bool,
     pub problem: Option<String>,
-    /// The till's sales, newest first: the live ones are shown as put aside.
-    pub sales: Vec<TillSale>,
-    pub clock: DeviceClock,
-}
-
-/// A sale put aside for the next customer, over the keys: tap to open its
-/// code.
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-pub struct AsideSale {
-    pub order_id: OrderId,
-    /// Its reference, else "Sale #a1b2".
-    pub label: String,
-    pub amount: String,
-    /// "Waiting", "Seen", "Confirming · 4 of 10".
-    pub status: String,
-    /// What a screen reader says: "Open Sam, $8.40, waiting".
-    pub said: String,
 }
 
 /// A key as drawn: its label, and what a screen reader says.
@@ -158,10 +138,17 @@ pub struct KeypadButton {
     pub said: String,
 }
 
-/// The keypad, ready to draw.
+/// The keypad, ready to draw: from the top, the reference, the amount, the
+/// keys and Charge, so the keys sit between the field and Charge and a tap
+/// meant for the field can't charge (core.md decision 258).
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct KeypadView {
+    /// "New sale", the keypad's title.
+    pub title: String,
+    /// "Close": back to the sales the keypad opened from. Beside the sales
+    /// on a wide screen there's nothing to close.
+    pub close: String,
     /// "$1.25", "1,25 €", "0.5 XMR"; zero as the currency writes it.
     pub amount: String,
     /// What a screen reader says of it: "Amount, $1.25".
@@ -180,13 +167,6 @@ pub struct KeypadView {
     /// "Charge $1.25", off at zero; "Making the code…" while it's asked.
     pub charge: Press,
     pub problem: Option<String>,
-    /// "Put aside · 2" over the sales put aside; `None` with none.
-    pub aside_title: Option<String>,
-    pub aside: Vec<AsideSale>,
-    /// "Sales": the shift's list.
-    pub sales: Press,
-    /// "Settings".
-    pub settings: String,
 }
 
 /// The keypad's keys for `currency`.
@@ -251,24 +231,9 @@ pub fn keypad(input: &KeypadInput, _device: Device, money: &dyn MoneyFormat) -> 
             None => Press::new("Charge").enabled(false),
         }
     };
-    let aside: Vec<AsideSale> = input
-        .sales
-        .iter()
-        .filter(|sale| sale.live())
-        .map(|sale| {
-            let label = sale_text::heading(sale);
-            let amount = sale_text::amount(sale, money);
-            let status = sale_text::status(sale, Some(monokulo_client::PointOfSale::Till));
-            AsideSale {
-                order_id: sale.order_id.clone(),
-                said: format!("Open {label}, {amount}, {}", status.to_lowercase()),
-                label,
-                amount,
-                status,
-            }
-        })
-        .collect();
     KeypadView {
+        title: "New sale".into(),
+        close: "Close".into(),
         amount_said: format!("Amount, {amount}"),
         amount,
         keys,
@@ -279,10 +244,6 @@ pub fn keypad(input: &KeypadInput, _device: Device, money: &dyn MoneyFormat) -> 
         reference_max: till_pos::keypad::REFERENCE_MAX as u32,
         charge,
         problem: input.problem.clone(),
-        aside_title: (!aside.is_empty()).then(|| format!("Put aside · {}", aside.len())),
-        aside,
-        sales: Press::new("Sales"),
-        settings: "Settings".into(),
     }
 }
 

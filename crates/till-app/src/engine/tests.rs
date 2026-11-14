@@ -7,6 +7,7 @@ use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
 use monokulo_client::FixedClock;
+use till_screens::node_chooser::{NodeMark, NodeUse};
 use till_screens::onboarding::OnboardingPage;
 use till_screens::shift::ShiftFilter;
 use till_screens::wallet_setup::{CheckMark, PaymentsMode};
@@ -2630,7 +2631,7 @@ fn wallet_settings_show_the_wallet_and_change_its_link() {
         section.till_number.unwrap().detail.as_deref(),
         Some("In your wallet: account 2")
     );
-    assert_eq!(section.disconnect.label, "Disconnect this wallet");
+    assert_eq!(section.disconnect.label, "Erase this till");
     engine.send(Action::StepTillNumber { up: true });
     wait_for(&rx, |_| {
         (kept_wallet(&platform).till_number == 3).then_some(())
@@ -2709,6 +2710,204 @@ fn light_server_settings_show_and_change_the_server() {
     let kept = kept_wallet(&platform);
     assert_eq!(kept.node, link.node, "the node for proofs stays");
     assert_eq!(kept.file_key, link.file_key, "the same wallet");
+    // A server's row has no node list: setup's address and switch.
+    let row = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view.wallet.clone().and_then(|w| w.node),
+        _ => None,
+    });
+    assert!(row.chooser.is_none());
+    // Fob's node actions do nothing on a server.
+    engine.send(Action::CheckNodes);
+    engine.send(Action::RemoveNode {
+        url: second.clone(),
+    });
+    assert_eq!(
+        kept_wallet(&platform).light_server.as_deref(),
+        Some(second.as_str())
+    );
+}
+
+/// A local address nothing listens on.
+fn dead_node() -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port())
+}
+
+/// The owner, 2026-11-13: the node's Change is Fob's Node screen. Settings
+/// lists the network's other nodes and the till's own, checked at once;
+/// one of the till's own can be removed; one added by hand is checked, and
+/// kept on closing only if it passed.
+#[test]
+fn settings_change_node_lists_checks_adds_and_removes_nodes_as_fob_does() {
+    let config = config(None);
+    let (platform, link) = wallet_till(&config.data_dir);
+    let mine = dead_node();
+    platform.set("wallet.nodes", &serde_json::to_string(&[&mine]).unwrap());
+    let (engine, rx, _) = start(config, platform.clone());
+    screen(&rx, Screen::Till);
+    engine.send(Action::OpenSettings);
+    let chooser = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view
+            .wallet
+            .clone()
+            .and_then(|w| w.node)
+            .and_then(|n| n.chooser),
+        _ => None,
+    });
+    assert_eq!(
+        (chooser.title.as_str(), chooser.section.as_str()),
+        ("Node", "Change node")
+    );
+    assert_eq!(chooser.add.label, "Add your own node");
+
+    engine.send(Action::CheckNodes);
+    let listed = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view
+            .wallet
+            .clone()
+            .and_then(|w| w.node)
+            .and_then(|n| n.chooser)
+            .filter(|c| !c.choices.is_empty()),
+        _ => None,
+    });
+    let current = link.node.clone().unwrap();
+    assert!(
+        listed.choices.iter().all(|c| c.url != current),
+        "not the one in use"
+    );
+    let own = listed
+        .choices
+        .iter()
+        .find(|c| c.url == mine)
+        .expect("the till's own");
+    assert!(own.remove);
+    assert_eq!(
+        own.remove_said,
+        format!("Remove {}", &mine["http://".len()..])
+    );
+    assert!(
+        listed
+            .choices
+            .iter()
+            .filter(|c| c.url != mine)
+            .all(|c| !c.remove),
+        "the network's own stay"
+    );
+    // The till's own doesn't answer: its line says so, without Use.
+    let dead = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view
+            .wallet
+            .clone()
+            .and_then(|w| w.node)
+            .and_then(|n| n.chooser)
+            .and_then(|c| c.choices.into_iter().find(|c| c.url == mine))
+            .filter(|c| c.mark == NodeMark::Fail),
+        _ => None,
+    });
+    assert!(dead.use_node.is_none());
+    assert_ne!(dead.line, "Checking…");
+
+    engine.send(Action::RemoveNode { url: mine.clone() });
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view
+            .wallet
+            .clone()
+            .and_then(|w| w.node)
+            .and_then(|n| n.chooser)
+            .filter(|c| c.choices.iter().all(|c| c.url != mine))
+            .map(|_| ()),
+        _ => None,
+    });
+    assert_eq!(platform.get("wallet.nodes"), None);
+
+    // One added by hand that doesn't answer: Use stays off, and closing
+    // doesn't keep it.
+    let typed = dead_node();
+    engine.send(Action::CheckNewNode {
+        url: format!(" {typed} "),
+    });
+    let sheet = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view
+            .wallet
+            .clone()
+            .and_then(|w| w.node)
+            .and_then(|n| n.chooser)
+            .map(|c| c.new_node)
+            .filter(|s| s.report.as_ref().is_some_and(|r| !r.checking)),
+        _ => None,
+    });
+    assert_eq!(sheet.checked, typed, "as typed, trimmed");
+    let report = sheet.report.unwrap();
+    assert_eq!(report.verdict, "Doesn't answer");
+    assert_eq!(report.usable, NodeUse::No);
+    assert!(!sheet.use_node.enabled);
+    assert_eq!(sheet.check_again.label, "Check again");
+    engine.send(Action::CloseNewNode);
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view
+            .wallet
+            .clone()
+            .and_then(|w| w.node)
+            .and_then(|n| n.chooser)
+            .filter(|c| c.new_node.report.is_none())
+            .map(|_| ()),
+        _ => None,
+    });
+    assert_eq!(
+        platform.get("wallet.nodes"),
+        None,
+        "a node that failed isn't kept"
+    );
+    assert_eq!(
+        kept_wallet(&platform).node,
+        link.node,
+        "the node in use stays"
+    );
+}
+
+/// Fob keeps the node left and the one chosen on its list; the network's
+/// own aren't kept, as they're always there. A change the wallet refuses
+/// leaves the node as it was and says why.
+#[test]
+fn settings_use_of_a_node_that_refuses_keeps_the_node_in_use() {
+    let config = config(None);
+    let (platform, link) = wallet_till(&config.data_dir);
+    let (engine, rx, _) = start(config, platform.clone());
+    screen(&rx, Screen::Till);
+    engine.send(Action::OpenSettings);
+    wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view.wallet.clone(),
+        _ => None,
+    });
+    let dead = dead_node();
+    engine.send(Action::SetNode { url: dead.clone() });
+    // "Changing node" while the wallet tries it.
+    let changing = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view
+            .wallet
+            .clone()
+            .and_then(|w| w.node)
+            .and_then(|n| n.chooser)
+            .and_then(|c| c.changing),
+        _ => None,
+    });
+    assert_eq!(changing, &dead["http://".len()..]);
+    let section = wait_for(&rx, |heard| match heard {
+        Heard::Update(Update::Settings { view }) => view.wallet.clone().filter(|w| {
+            w.problem.is_some()
+                && w.node
+                    .as_ref()
+                    .is_some_and(|n| n.chooser.as_ref().is_some_and(|c| c.changing.is_none()))
+        }),
+        _ => None,
+    });
+    assert!(section.problem.unwrap().starts_with("Couldn't change that"));
+    assert_eq!(kept_wallet(&platform).node, link.node);
+    assert_eq!(
+        platform.get("wallet.nodes"),
+        None,
+        "nothing kept when refused"
+    );
 }
 
 /// Decision 253: Settings' "Accept its own certificate" switch changes the
@@ -2807,6 +3006,10 @@ fn disconnecting_a_wallet_deletes_its_file() {
     screen(&rx, Screen::Till);
     engine.send(Action::OpenSettings);
     engine.send(Action::Disconnect);
+    // Erased: nothing posted about the till that was opens a sale (decision 264).
+    wait_for(&rx, |heard| {
+        matches!(heard, Heard::Effect(Effect::ClearNotifications)).then_some(())
+    });
     screen(&rx, Screen::Welcome);
     assert!(platform.get("connection").is_none());
     assert!(!file.exists(), "the wallet file is gone");
@@ -3108,18 +3311,29 @@ fn a_wallet_till_picks_its_price_provider_between_the_point_of_sale_and_alerts()
     screen(&rx, Screen::PointOfSale);
 }
 
-/// Till's keypad (docs/view-key-mode.md §7): on a till whose point of sale
-/// is its own keypad, the keypad is home; XMR only takes a decimal point;
-/// Charge makes the sale and opens its code, and leaving the code comes
-/// back to the keypad with the sale put aside, live.
+/// Till's keypad (docs/view-key-mode.md §7, core.md decision 257): on a
+/// till whose point of sale is its own keypad, the list is home and New
+/// sale opens the keypad, whose Back returns to it; XMR only takes a
+/// decimal point; Charge makes the sale and opens its code, and leaving the
+/// code comes back to the list, the sale live in it.
 #[test]
-fn a_keypad_till_charges_from_its_keypad_and_puts_the_sale_aside() {
+fn a_keypad_till_opens_its_keypad_from_the_list_and_charges() {
     use till_screens::keypad::KeypadKey;
     let config = config(None);
     let (platform, _) = wallet_till(&config.data_dir);
     platform.set("pos.kind", "till");
     platform.set("keypad.currency", "XMR");
     let (engine, rx, _) = start(config, platform.clone());
+    screen(&rx, Screen::Till);
+    let list = engine.peek(|s| s.shift_view(s.parts.as_ref().unwrap()));
+    assert_eq!(list.new_sale.map(|p| p.label).as_deref(), Some("New sale"));
+    assert!(!engine.peek(|s| s.back_enabled()), "the list is home");
+    engine.send(Action::NewSale);
+    screen(&rx, Screen::Keypad);
+    assert_eq!(engine.peek(|s| s.back_target()), Some(Screen::Till));
+    engine.send(Action::Back);
+    screen(&rx, Screen::Till);
+    engine.send(Action::NewSale);
     screen(&rx, Screen::Keypad);
     let keypad = |rx: &Receiver<Heard>,
                   want: &dyn Fn(&till_screens::keypad::KeypadView) -> bool| {
@@ -3128,7 +3342,13 @@ fn a_keypad_till_charges_from_its_keypad_and_puts_the_sale_aside() {
             _ => None,
         })
     };
-    let empty = keypad(&rx, &|v| v.amount == "0 XMR");
+    // Sent with the list as the till started: the same view since.
+    let empty = engine.peek(|s| s.keypad_view(s.parts.as_ref().unwrap()));
+    assert_eq!(empty.amount, "0 XMR");
+    assert_eq!(
+        (empty.title.as_str(), empty.close.as_str()),
+        ("New sale", "Close")
+    );
     assert!(!empty.charge.enabled, "nothing to charge at zero");
     assert!(empty.keys.iter().any(|k| k.key == KeypadKey::Point));
     for key in [
@@ -3149,20 +3369,26 @@ fn a_keypad_till_charges_from_its_keypad_and_puts_the_sale_aside() {
         _ => None,
     });
     engine.send(Action::Back);
-    screen(&rx, Screen::Keypad);
-    // Published as the sale was made, while its code was up.
-    let aside = engine.peek(|s| s.keypad_view(s.parts.as_ref().unwrap()));
-    assert_eq!(aside.aside.len(), 1, "{aside:?}");
-    assert_eq!(aside.aside[0].order_id, order_id);
-    assert_eq!(aside.aside[0].label, "Sam");
+    screen(&rx, Screen::Till);
+    let live = engine.peek(|s| {
+        s.parts
+            .as_ref()
+            .unwrap()
+            .runner
+            .state()
+            .till
+            .sales
+            .into_iter()
+            .filter(|sale| sale.live())
+            .map(|sale| sale.order_id)
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(live, [order_id], "waiting for payment in the list");
+    let keypad = engine.peek(|s| s.keypad_view(s.parts.as_ref().unwrap()));
     assert_eq!(
-        aside.amount, "0 XMR",
+        keypad.amount, "0 XMR",
         "the keypad is cleared for the next one"
     );
-    engine.send(Action::OpenSales);
-    screen(&rx, Screen::Till);
-    engine.send(Action::Back);
-    screen(&rx, Screen::Keypad);
 }
 
 /// A keypad charge that failed survives a restart (core.md decision 256):
@@ -3190,7 +3416,7 @@ fn a_failed_keypad_charge_comes_back_after_a_restart_with_its_key() {
     };
     platform.set("keypad.charge", &serde_json::to_string(&kept).unwrap());
     let (engine, rx, _) = start(config.clone(), platform.clone());
-    screen(&rx, Screen::Keypad);
+    screen(&rx, Screen::Till);
     let restored = wait_for(&rx, |heard| match heard {
         Heard::Update(Update::Keypad { view: Some(view) }) if view.amount == "1.5 XMR" => {
             Some(view.clone())
@@ -3227,7 +3453,7 @@ fn a_failed_keypad_charge_comes_back_after_a_restart_with_its_key() {
     // Cleared on the keypad: forgotten, and not typed again on a restart.
     platform.set("keypad.charge", &serde_json::to_string(&kept).unwrap());
     let (engine, rx, _) = start(config.clone(), platform.clone());
-    screen(&rx, Screen::Keypad);
+    screen(&rx, Screen::Till);
     wait_for(&rx, |heard| match heard {
         Heard::Update(Update::Keypad { view: Some(view) }) if view.amount == "1.5 XMR" => Some(()),
         _ => None,
@@ -3331,7 +3557,47 @@ fn choosing_the_keypad_on_a_wallet_asks_for_its_currency_then_prices() {
         (platform.get("keypad.currency").as_deref() == Some("XMR")).then_some(())
     });
     engine.send(Action::Next);
-    screen(&rx, Screen::Alerts);
+    // No alerts step on a keypad till (core.md decision 260): setup ends,
+    // and Back goes to the point of sale, with no prices for XMR only.
+    screen(&rx, Screen::Ready);
+    let ready = engine.peek(|s| {
+        let p = s.parts.as_ref().unwrap();
+        let input = s.onboarding_input(p).unwrap();
+        till_screens::onboarding::onboarding(
+            &input,
+            s.config.device,
+            &crate::phases::Money(s.platform.clone()),
+        )
+    });
+    assert!(
+        !format!("{ready:?}").contains("\"Alerts\""),
+        "no Alerts check or step: {ready:?}"
+    );
+    engine.send(Action::Back);
+    screen(&rx, Screen::PointOfSale);
+}
+
+/// A keypad till shows no notifications (core.md decision 260): no Live
+/// Activity, no notification view, no bubble and no foreground service.
+#[test]
+fn a_keypad_till_shows_no_notifications() {
+    let config = config(None);
+    let (platform, _) = wallet_till(&config.data_dir);
+    platform.set("pos.kind", "till");
+    platform.set("keypad.currency", "XMR");
+    let (engine, rx, _) = start(config, platform.clone());
+    screen(&rx, Screen::Till);
+    let (notification, live, bubble) = engine.peek(|s| {
+        let p = s.parts.as_ref().unwrap();
+        (
+            s.notification_view(p),
+            s.live_activity_state(p),
+            s.has_bubble(),
+        )
+    });
+    assert_eq!((notification.ongoing, notification.alert), (None, None));
+    assert_eq!(live, None);
+    assert!(!bubble);
 }
 
 /// Prices runs on a till through the shop's light wallet server too: it's
@@ -3353,4 +3619,75 @@ fn a_light_server_till_is_asked_where_prices_come_from_too() {
     screen(&rx, Screen::Alerts);
     engine.send(Action::Back);
     screen(&rx, Screen::Prices);
+}
+
+/// Settings' "Change the wallet" (core.md decision 261): setup's V2 filled
+/// in from the wallet in use, Back to Settings; linking another wallet
+/// keeps the point of sale and setup and comes back to Settings.
+#[test]
+fn the_wallet_changes_from_settings_keeping_the_point_of_sale() {
+    let config = config(None);
+    let (platform, old) = wallet_till_with(
+        &config.data_dir,
+        till_wallet::WalletSetup {
+            settled_confirmations: 15,
+            ..till_wallet::WalletSetup::new(2)
+        },
+    );
+    platform.set("pos.kind", "till");
+    platform.set("keypad.currency", "XMR");
+    let (engine, rx, _) = start(config, platform.clone());
+    screen(&rx, Screen::Till);
+    engine.send(Action::OpenSettings);
+    screen(&rx, Screen::Settings);
+    let section = engine.peek(|s| {
+        let p = s.parts.as_ref().unwrap();
+        s.wallet_settings(p, &p.side.model())
+            .map(|w| till_screens::wallet_settings::wallet_section(&w))
+    });
+    let change = section.and_then(|w| w.change).expect("Change the wallet");
+    assert_eq!(change.label, "Change the wallet");
+    assert!(change.enabled, "no sale waits for payment");
+
+    engine.send(Action::ChangeWallet);
+    screen(&rx, Screen::WalletEntry);
+    engine.send(Action::Back);
+    screen(&rx, Screen::Settings);
+
+    engine.send(Action::ChangeWallet);
+    screen(&rx, Screen::WalletEntry);
+    engine.send(Action::ChooseWalletWay {
+        way: till_screens::wallet_setup::WalletWay::Keys,
+    });
+    screen(&rx, Screen::WalletKeys);
+    let keys = fob_keys::Keys::generate(till_wallet::Network::Stagenet).keys;
+    engine.send(Action::EditWalletKeys {
+        network: till_screens::wallet_setup::WalletNetwork::Stagenet,
+        address: keys.primary_address(),
+        view_key: keys.view_key_hex().to_string(),
+    });
+    page_where(&rx, |page| match page {
+        OnboardingPage::WalletKeys { view } if view.next.enabled => Some(()),
+        _ => None,
+    });
+    engine.send(Action::Next);
+    screen(&rx, Screen::ThisTill);
+    // Filled in from the wallet in use.
+    page_where(&rx, |page| match page {
+        OnboardingPage::ThisTill { view }
+            if view.number.as_ref().is_some_and(|n| n.value == "2")
+                && view.paid_after.value == "15 confirmations" =>
+        {
+            Some(())
+        }
+        _ => None,
+    });
+    engine.poke(|s| s.finish_wallet());
+    screen(&rx, Screen::Settings);
+    let new = kept_wallet(&platform);
+    assert_ne!(new.file_key, old.file_key, "another wallet");
+    assert_eq!((new.till_number, new.settled_confirmations), (2, 15));
+    assert_eq!(platform.get("setup.done").as_deref(), Some("true"));
+    assert_eq!(platform.get("pos.kind").as_deref(), Some("till"));
+    assert_eq!(platform.get("keypad.currency").as_deref(), Some("XMR"));
 }

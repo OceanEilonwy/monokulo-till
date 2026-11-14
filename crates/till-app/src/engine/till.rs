@@ -158,7 +158,7 @@ impl State {
             &self.live_before,
             false,
         );
-        screen(next, &self.shift_screen()).unwrap_or_else(|| from.clone())
+        screen(next, &Screen::Till).unwrap_or_else(|| from.clone())
     }
 
     /// The sales that never rise out of the shift on their own: those the
@@ -194,7 +194,7 @@ impl State {
             let left = self.left_or_quiet();
             let next = till_nav::follow(&here, &sales, &left, &self.live_before, resting);
             if next != here
-                && let Some(next) = screen(next.clone(), &self.shift_screen())
+                && let Some(next) = screen(next.clone(), &Screen::Till)
             {
                 // Put there by the sales, not the cashier (M7).
                 self.by_itself = true;
@@ -293,9 +293,9 @@ impl State {
     /// goes back to Settings.
     pub(super) fn back_enabled(&self) -> bool {
         match self.screen {
-            Screen::Welcome | Screen::Keypad => false,
-            // On a keypad till the list goes back to the keypad.
-            Screen::Till => self.keypad_mode(),
+            // The keypad goes back to the list it opened from (core.md
+            // decision 257).
+            Screen::Welcome | Screen::Till => false,
             // O2 goes back to the choice (decision 121).
             Screen::PointOfSale => self.setup_done() || self.pos_confirmed,
             _ => true,
@@ -306,8 +306,7 @@ impl State {
     /// gesture previews. `None` where Back shows no preview.
     pub(super) fn back_target(&self) -> Option<Screen> {
         match &self.screen {
-            Screen::Sale { .. } => Some(self.shift_screen()),
-            Screen::Till if self.keypad_mode() => Some(Screen::Keypad),
+            Screen::Sale { .. } | Screen::Keypad => Some(Screen::Till),
             Screen::Code { order_id } | Screen::Order { order_id } => Some(Screen::Sale {
                 order_id: order_id.clone(),
             }),
@@ -535,6 +534,13 @@ impl State {
     /// at the place that sale was rung up; iOS's alert for the sale that
     /// just arrived, if one did.
     pub(super) fn notification_view(&self, p: &Parts) -> NotificationView {
+        // None on a keypad till (core.md decision 260).
+        if self.on_keypad() {
+            return NotificationView {
+                ongoing: None,
+                alert: None,
+            };
+        }
         let model = p.side.model();
         let sales = self.loud_sales(&p.runner.state().till.sales);
         let (till, place) = (model.point_of_sale, model.place_name());
@@ -566,10 +572,13 @@ impl State {
     }
 
     /// iPhone's Live Activity: while the switch is on, setup is done and a
-    /// shift is on (one activity a shift, design.md §6).
+    /// shift is on (one activity a shift, design.md §6); never on a keypad
+    /// till (core.md decision 260).
     pub(super) fn live_activity_state(&self, p: &Parts) -> Option<LiveActivityState> {
         let model = p.side.model();
-        if !(self.live_activity_on(&model) && model.setup_done && model.shift_on) {
+        if self.on_keypad()
+            || !(self.live_activity_on(&model) && model.setup_done && model.shift_on)
+        {
             return None;
         }
         live_activity::live_activity(
@@ -586,8 +595,9 @@ impl State {
         )
     }
 
-    /// The bubble is Android's alone.
+    /// The bubble is Android's alone, and a keypad till has none: there's
+    /// no other app to float over (decision 248).
     pub(super) fn has_bubble(&self) -> bool {
-        self.config.device == Device::Android
+        self.config.device == Device::Android && !self.on_keypad()
     }
 }

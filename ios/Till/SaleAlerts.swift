@@ -56,6 +56,14 @@ enum SaleAlerts {
 
     /// The sale left the shift: its alert goes (`Effect.clearNotification`),
     /// the extension's too.
+    /// The till was erased or disconnected: every alert and notice goes, so
+    /// none opens a sale of the till that was (core.md decision 264).
+    static func clearAll() {
+        let center = UNUserNotificationCenter.current()
+        center.removeAllDeliveredNotifications()
+        center.removeAllPendingNotificationRequests()
+    }
+
     static func clear(_ id: String) {
         let center = UNUserNotificationCenter.current()
         center.removeDeliveredNotifications(withIdentifiers: [id])

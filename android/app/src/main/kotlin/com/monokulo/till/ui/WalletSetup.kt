@@ -79,6 +79,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.monokulo.till.R
+import uniffi.till_app.Action
 import uniffi.till_screens.CheckMark
 import uniffi.till_screens.Choice
 import uniffi.till_screens.FobConnectedStep
@@ -366,7 +367,9 @@ internal fun StepperRow(s: SetupStepper, onStep: (up: Boolean) -> Unit) = Row(
         if (inside) {
             Text(
                 s.value, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, style = tabular, textAlign = TextAlign.Center,
-                maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 28.dp).clearAndSetSemantics {},
+                maxLines = 1, softWrap = false,
+                // Said in full where the value is shortened ("10 conf.": "10 confirmations").
+                modifier = Modifier.widthIn(min = 28.dp).clearAndSetSemantics { contentDescription = s.valueSaid.ifEmpty { s.value } },
             )
         }
         StepButton(s.plus, "${s.label}: more") { onStep(true) }
@@ -682,8 +685,15 @@ fun LightServerScreen(
     }
 }
 
-/** What D4 can do besides B4's and C4's steppers. */
-class ThisTillActions(val steps: StepperActions, val onNumber: (Boolean) -> Unit, val onNode: (String) -> Unit, val onNext: () -> Unit, val onBack: () -> Unit)
+/** What D4 can do besides B4's and C4's steppers; [send] for the node's Change, Fob's Node screen. */
+class ThisTillActions(
+    val steps: StepperActions,
+    val onNumber: (Boolean) -> Unit,
+    val onNode: (String) -> Unit,
+    val onNext: () -> Unit,
+    val onBack: () -> Unit,
+    val send: (Action) -> Unit = {},
+)
 
 /** D4, This till: its number (its account), the node with Fob's checks and Change, Paid after and the code's time. */
 @Composable
@@ -699,7 +709,12 @@ fun ThisTillScreen(view: ThisTillStep, heading: String, lead: String, stepLabel:
         Spacer(Modifier.height(16.dp))
     }
     val node = view.node
-    if (changing && node != null) NodeDialog(node, onDone = { url, _ -> changing = false; url?.let(a.onNode) })
+    val chooser = node?.chooser
+    if (changing && chooser != null) {
+        NodeChooserDialog(chooser, a.send, onDismiss = { changing = false })
+    } else if (changing && node != null) {
+        NodeDialog(node, onDone = { url, _ -> changing = false; url?.let(a.onNode) })
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)

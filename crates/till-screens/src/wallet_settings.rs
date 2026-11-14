@@ -56,6 +56,12 @@ pub struct WalletSettingsInput {
     pub warnings: Vec<String>,
     pub busy: bool,
     pub problem: Option<String>,
+    /// A sale is waiting for payment: another wallet would never see it
+    /// paid, so the wallet can't change yet.
+    pub live_sales: bool,
+    /// The node's Change, as Fob's Node screen; left out on a light
+    /// wallet server, whose row is the server's.
+    pub chooser: crate::node_chooser::NodeChooserInput,
 }
 
 /// The price source: whose prices convert the sale's currency.
@@ -107,19 +113,33 @@ pub struct WalletSection {
     /// "Till hears payments while it's open on screen."
     pub footnote: String,
     pub problem: Option<String>,
-    /// "Disconnect this wallet", and the question before it.
+    /// "Erase this till", and the question before it (owner, 2026-11-13).
     pub disconnect: Press,
     pub disconnect_footnote: String,
     pub disconnect_ask: String,
     pub disconnect_ask_detail: String,
     pub disconnect_confirm: String,
+    /// "Change the wallet", as "Change the point of sale" is (core.md
+    /// decision 261): setup's wallet step, back to Settings after. Off
+    /// while a sale waits for payment.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub change: Option<Press>,
+    /// Under it: what's kept, or why it's off.
+    #[cfg_attr(feature = "uniffi", uniffi(default = ""))]
+    pub change_footnote: String,
 }
+
+/// Under "Change the wallet": what changes and what's kept.
+pub const CHANGE_FOOTNOTE: &str =
+    "Connect another wallet. The point of sale, its sales and these settings stay.";
+/// Under "Change the wallet" while a sale waits for payment.
+pub const CHANGE_WAITING: &str = "A sale is waiting for payment. Another wallet wouldn't see it paid, so finish or close it first.";
 
 /// The row of a till on the shop's light wallet server.
 pub const LIGHT_SERVER_LABEL: &str = "Light wallet server";
 
 /// Under the wallet's Disconnect.
-pub const DISCONNECT_FOOTNOTE: &str = "Till forgets the wallet's keys and deletes its copy of the wallet from this device. Your money stays in your wallet.";
+pub const DISCONNECT_FOOTNOTE: &str = "Till deletes its copy of the wallet and its keys, the point of sale's sign-in and this shift's sales from this device, and setup starts again. Your money stays in your wallet.";
 /// The question's detail: a view key can't be taken back.
 pub const DISCONNECT_DETAIL: &str = "Payments already made aren't affected. Anyone who has the view key can still see payments: to stop that, move the money to a new wallet.";
 
@@ -186,6 +206,7 @@ pub fn wallet_section(w: &WalletSettingsInput) -> WalletSection {
             detail: Some(format!("In your wallet: account {}", w.till_number)),
             minus: Press::new("−").enabled(w.till_number > 1 && !w.busy),
             plus: Press::new("+").enabled(!w.busy),
+            value_said: String::new(),
         }),
         account: (!numbered)
             .then(|| Fact::new("In your wallet", format!("Account {}", w.till_number))),
@@ -210,12 +231,15 @@ pub fn wallet_section(w: &WalletSettingsInput) -> WalletSection {
                 .collect(),
             choices,
             self_signed: light.then(|| self_signed_choice(w.light_self_signed, !w.busy)),
+            chooser: (!light).then(|| crate::node_chooser::node_chooser(&w.chooser)),
         }),
+        // Shortened to fit beside its stepper (owner, 2026-11-13).
         paid_after: SetupStepper {
             detail: Some(confirmations_time(w.confirmations)),
+            value_said: format!("{} confirmations", w.confirmations),
             ..step_stepper(
                 "Paid after",
-                format!("{} confirmations", w.confirmations),
+                format!("{} conf.", w.confirmations),
                 w.confirmations,
                 &crate::wallet_setup::CONFIRMATION_STEPS,
             )
@@ -250,11 +274,18 @@ pub fn wallet_section(w: &WalletSettingsInput) -> WalletSection {
         }
         .into(),
         problem: w.problem.clone(),
-        disconnect: Press::new("Disconnect this wallet").enabled(!w.busy),
+        disconnect: Press::new("Erase this till").enabled(!w.busy),
         disconnect_footnote: DISCONNECT_FOOTNOTE.into(),
-        disconnect_ask: "Disconnect this wallet?".into(),
+        disconnect_ask: "Erase this till?".into(),
         disconnect_ask_detail: DISCONNECT_DETAIL.into(),
-        disconnect_confirm: "Disconnect".into(),
+        disconnect_confirm: "Erase".into(),
+        change: Some(Press::new("Change the wallet").enabled(!w.busy && !w.live_sales)),
+        change_footnote: if w.live_sales {
+            CHANGE_WAITING
+        } else {
+            CHANGE_FOOTNOTE
+        }
+        .into(),
     }
 }
 
@@ -283,6 +314,8 @@ mod tests {
             warnings: vec![],
             busy: false,
             problem: None,
+            live_sales: false,
+            chooser: Default::default(),
         }
     }
 
@@ -293,12 +326,16 @@ mod tests {
         let number = view.till_number.unwrap();
         assert_eq!(number.detail.as_deref(), Some("In your wallet: account 2"));
         assert!(view.account.is_none() && view.fob.is_none() && view.lookahead.is_none());
-        assert_eq!(view.paid_after.value, "10 confirmations");
+        assert_eq!(view.paid_after.value, "10 conf.");
+        assert_eq!(view.paid_after.value_said, "10 confirmations");
         assert!(!view.paid_after.minus.enabled);
         assert_eq!(view.prices.value, "Kraken · AUD");
         assert!(view.prices.providers[0].selected);
         assert_eq!(view.prices.asking.as_deref(), Some("Asking each provider…"));
-        assert_eq!(view.node.unwrap().value, "node.example.com:18089");
+        let node = view.node.unwrap();
+        assert_eq!(node.value, "node.example.com:18089");
+        let chooser = node.chooser.expect("Fob's Node screen");
+        assert_eq!(chooser.section, "Change node");
     }
 
     #[test]
@@ -315,6 +352,7 @@ mod tests {
             ("Light wallet server", "lws.example.com:8443")
         );
         assert!(row.choices.is_empty(), "no default servers");
+        assert!(row.chooser.is_none(), "a server has no node list");
         let switch = row.self_signed.unwrap();
         assert_eq!(switch.label, "Accept its own certificate", "setup's words");
         assert!(!switch.selected && switch.enabled);

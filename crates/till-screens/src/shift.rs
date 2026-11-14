@@ -357,6 +357,10 @@ pub struct ShiftHeader {
     pub new_shift: Press,
     /// What the confirmation asks and says.
     pub confirm: NewShiftConfirm,
+    /// Whether the takings and paid count show: not on a keypad till,
+    /// which has no total for the shift (core.md decision 257).
+    #[cfg_attr(feature = "uniffi", uniffi(default = true))]
+    pub show_total: bool,
 }
 
 /// The alert that asks before a new shift starts.
@@ -369,14 +373,21 @@ pub struct NewShiftConfirm {
     pub start: String,
 }
 
-/// The shift's header, from the same sales [`summary`] reads.
+/// The shift's header, from the same sales [`summary`] reads. A keypad
+/// till's has no total (core.md decision 257).
 pub fn header(
     sales: &[TillSale],
     started_at: Option<UnixSeconds>,
+    keypad: bool,
     clock: DeviceClock,
     money: &dyn MoneyFormat,
 ) -> ShiftHeader {
     let (count, totals) = paid_since(sales, started_at, money);
+    let message = if keypad {
+        "Sales that still need you, and ones waiting for payment, stay in the list; the rest leave it."
+    } else {
+        "The total starts again at zero. Sales that still need you, and ones waiting for payment, stay in the list; the rest leave it."
+    };
     ShiftHeader {
         since: started_at.map(|start| format!("Since {}", time(start, clock))),
         total: if totals.is_empty() {
@@ -392,10 +403,11 @@ pub fn header(
         new_shift: Press::new("New shift"),
         confirm: NewShiftConfirm {
             title: "Start a new shift?".into(),
-            message: "The total starts again at zero. Sales that still need you, and ones waiting for payment, stay in the list; the rest leave it.".into(),
+            message: message.into(),
             cancel: "Cancel".into(),
             start: "New shift".into(),
         },
+        show_total: !keypad,
     }
 }
 
@@ -739,7 +751,11 @@ pub fn status_chips(input: &ShiftInput) -> Vec<StatusChip> {
     } else {
         chip(StatusChipKind::NotWatching, "Not watching", Tone::Muted)
     }];
-    match input.alerts {
+    // A keypad till shows no notifications (core.md decision 260).
+    let alerts = input
+        .alerts
+        .filter(|_| input.till != Some(PointOfSale::Till));
+    match alerts {
         Some(true) => chips.push(chip(StatusChipKind::AlertsOn, "Alerts on", Tone::Plain)),
         Some(false) => chips.push(chip(StatusChipKind::AlertsOff, "Alerts off", Tone::Warn)),
         None => {}
@@ -928,6 +944,10 @@ pub struct ShiftView {
     /// The shift's header with its New shift button, while a shift is on.
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub header: Option<ShiftHeader>,
+    /// "New sale", on a keypad till: opens the keypad, which on a wide
+    /// screen already sits beside the list (core.md decision 257).
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub new_sale: Option<Press>,
 }
 
 /// "2 cash sales paid in Monero · $32.90", summed per currency; `None`
@@ -1003,8 +1023,10 @@ pub fn shift(
             status: Vec::new(),
             ready: None,
             header: None,
+            new_sale: None,
         };
     }
+    let keypad = input.till == Some(PointOfSale::Till);
     let all = &input.sales;
     let chosen = input
         .counter
@@ -1110,7 +1132,13 @@ pub fn shift(
         sign_in_again: input
             .sign_in_again
             .then(|| Press::new(pos_text::sign_in_again(input.till))),
-        summary: if input.running {
+        summary: if input.running && keypad {
+            // No total for the shift on a keypad till: only since when.
+            input
+                .started_at
+                .map(|start| format!("Since {}", time(start, clock)))
+                .unwrap_or_default()
+        } else if input.running {
             summary(sales, input.started_at, clock, money)
         } else {
             "Not watching".into()
@@ -1127,7 +1155,8 @@ pub fn shift(
         ready,
         header: input
             .running
-            .then(|| header(sales, input.started_at, clock, money)),
+            .then(|| header(sales, input.started_at, keypad, clock, money)),
+        new_sale: keypad.then(|| Press::new("New sale")),
     }
 }
 
@@ -1342,17 +1371,52 @@ pub(crate) mod tests {
         let shift = fixture_shift();
         let started = instant("2026-10-22T16:02:00Z");
         let clock = la(at());
-        let h = header(&shift, Some(UnixSeconds(started)), clock, &money);
+        let h = header(&shift, Some(UnixSeconds(started)), false, clock, &money);
         assert_eq!(h.since.as_deref(), Some("Since 9:02 AM"));
         assert_eq!((h.total.as_str(), h.paid.as_str()), ("$41.50", "3 paid"));
+        assert!(h.show_total);
         assert_eq!(h.new_shift.label, "New shift");
         assert_eq!(h.confirm.title, "Start a new shift?");
-        let none = header(&[], None, clock, &money);
+        let none = header(&[], None, false, clock, &money);
         assert_eq!(none.since, None);
         assert_eq!(
             (none.total.as_str(), none.paid.as_str()),
             ("$0.00", "Nothing paid yet")
         );
+    }
+
+    #[test]
+    fn a_keypad_till_has_no_total_for_the_shift_and_a_new_sale() {
+        let started = instant("2026-10-22T16:02:00Z");
+        let clock = la(at());
+        let h = header(
+            &fixture_shift(),
+            Some(UnixSeconds(started)),
+            true,
+            clock,
+            &money,
+        );
+        assert!(!h.show_total);
+        assert!(
+            !h.confirm.message.contains("total"),
+            "{}",
+            h.confirm.message
+        );
+        let view = shift(
+            &ShiftInput {
+                till: Some(PointOfSale::Till),
+                started_at: Some(UnixSeconds(started)),
+                ..input(fixture_shift())
+            },
+            Device::Android,
+            clock,
+            &money,
+        );
+        assert_eq!(view.summary, "Since 9:02 AM");
+        assert_eq!(view.new_sale.map(|p| p.label).as_deref(), Some("New sale"));
+        assert!(view.header.is_some_and(|h| !h.show_total));
+        let square = shift(&input(fixture_shift()), Device::Android, clock, &money);
+        assert_eq!(square.new_sale, None);
     }
 
     #[test]

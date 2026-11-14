@@ -755,10 +755,18 @@ A new choice on the step where the shop picks its point of sale:
 shop with no point of sale. It works with every backend: with Monokulo it
 does what Monokulo's web POS does, without a browser.
 
-**The keypad**, modelled on Monokulo's web POS (`apps/pos` in mokulo):
+**Where it is** (core.md decision 257): the shift's list is home, as on
+every till. Its **New sale** opens the keypad, and Close goes back. On a
+wide screen (iPad landscape, an Android tablet) the list and the keypad
+sit side by side.
+
+**The keypad**, modelled on Monokulo's web POS (`apps/pos` in mokulo),
+from the top: the reference, the amount, the keys, then Charge (core.md
+decision 258):
 
 - Keys 1–9, C, 0 and ⌫, plus typing on a hardware keyboard: digits,
-  Backspace, Escape to clear, Return to charge.
+  Backspace, Escape to clear, Return to charge. The on-screen keyboard's
+  Done, in the reference, only closes the keyboard.
 - **In fiat** (the shop's currency): digits fill from the right in the
   currency's minor units. Typing 1, 2, 5 shows 1.25 €. Zero-decimal
   currencies such as yen get whole units.
@@ -773,7 +781,9 @@ does what Monokulo's web POS does, without a browser.
   payment. The failed charge is kept through a restart (core.md decision
   256): the keypad shows it again, ready to retry with the same key.
 - Big keys, sized for a counter iPad and a phone held in one hand, following
-  `docs/design.md`'s controls.
+  `docs/design.md`'s controls. They keep the iPhone's shape (113 × 84 pt)
+  on every screen: a larger screen narrows the keypad rather than
+  stretching its keys.
 
 **The sale**:
 
@@ -787,8 +797,14 @@ does what Monokulo's web POS does, without a browser.
   note), appended to the payment URI as now.
 - **Refunds**: there's no POS to refund in. An overpaid or expired sale
   shows the amount to return by hand, as Monokulo's web POS does.
-- **Background order**: the code can be put aside to serve the next
-  customer, and stays on the sale list as a live sale.
+- **Background order**: closing the code to serve the next customer leaves
+  the sale live on the list, under Waiting for payment, where it opens
+  again with a tap.
+- **No total for the shift**: a keypad till's list shows since when, not
+  the takings.
+- **No notifications** (core.md decision 260): no alerts, notices, Live
+  Activity, bubble or ongoing notification, and setup has no Alerts step.
+  The cashier makes each sale on the till, so nothing needs announcing.
 
 **The currency**:
 

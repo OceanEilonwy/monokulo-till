@@ -423,7 +423,12 @@ async fn look_kept(
         };
         notification::notification(&input, device, &money)
     };
-    let (alerts, ongoing) = if device == Device::Android {
+    // A keypad till shows nothing: the cashier made each sale on it
+    // (core.md decision 260).
+    let keypad = model.point_of_sale == Some(monokulo_client::PointOfSale::Till);
+    let (alerts, ongoing) = if keypad {
+        (Vec::new(), None)
+    } else if device == Device::Android {
         let ongoing = new.first().and_then(|sale| arriving(sale).ongoing);
         (Vec::new(), ongoing)
     } else {

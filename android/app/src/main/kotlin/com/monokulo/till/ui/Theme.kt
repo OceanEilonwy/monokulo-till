@@ -20,7 +20,7 @@ import com.monokulo.till.R
 
 /**
  * The design's colours (the mockups' inline styles), by role. Light is the
- * design; dark keeps the same roles on a warm dark ground, each text pair
+ * design; dark keeps the same roles on an OLED black ground, each text pair
  * at least 4.5:1.
  */
 @Immutable
@@ -113,27 +113,31 @@ val LightTokens = Tokens(
     dark = false,
 )
 
+/**
+ * Dark is OLED black, matching Fob's OledColors: a black ground, near-black cards, one warm line for dividers and
+ * edges, and the grounds behind warn, danger and paid kept near black too.
+ */
 val DarkTokens = Tokens(
-    ground = Color(0xFF1C1B19),
-    ink = Color(0xFFECE8DF),
-    muted = Color(0xFFA8A29A),
-    card = Color(0xFF2A2825),
-    divider = Color(0xFF3A3733),
-    edge = Color(0xFF4A4743),
-    chip = Color(0xFF3A3733),
-    inset = Color(0xFF2A2825),
+    ground = Color(0xFF000000),
+    ink = Color(0xFFF2EEE6),
+    muted = Color(0xFFB0A999),
+    card = Color(0xFF0C0B0A),
+    divider = Color(0xFF2A2723),
+    edge = Color(0xFF2A2723),
+    chip = Color(0xFF181613),
+    inset = Color(0xFF181613),
     outline = Fixed.Outline,
-    link = Color(0xFFFF8A3D),
+    link = Color(0xFFFF8F45),
     accent = Fixed.Accent,
     onAccent = Fixed.OnAccent,
-    paid = Color(0xFF4CC27A),
+    paid = Color(0xFF5CC88A),
     warn = Color(0xFFE8C267),
-    warnGround = Color(0xFF3D3320),
+    warnGround = Color(0xFF3A2814),
     danger = Color(0xFFFF6B6B),
-    dangerGround = Color(0xFF3D2422),
+    dangerGround = Color(0xFF331614),
     onDangerGround = Color(0xFFFFD2CE),
-    paidGround = Color(0xFF1E3A28),
-    switchOff = Color(0xFF5A564C),
+    paidGround = Color(0xFF10291A),
+    switchOff = Color(0xFF2A2723),
     dark = true,
 )
 
@@ -175,7 +179,12 @@ fun TillTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> 
         background = t.ground, onBackground = t.ink,
         surface = t.ground, onSurface = t.ink,
         surfaceVariant = t.card, onSurfaceVariant = t.muted,
+        // Every container role on the theme's own grounds, so a dialog, a sheet or a menu is black in dark too.
         surfaceContainer = t.card, surfaceContainerHigh = t.card, surfaceContainerLow = t.card,
+        surfaceContainerHighest = t.card, surfaceContainerLowest = t.ground,
+        surfaceDim = t.ground, surfaceBright = t.card, surfaceTint = t.ground,
+        inverseSurface = t.ink, inverseOnSurface = t.ground,
+        scrim = Fixed.Scrim,
         outline = t.outline, outlineVariant = t.edge,
         error = t.danger,
     )
