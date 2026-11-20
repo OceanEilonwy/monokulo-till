@@ -102,6 +102,14 @@ struct WalletSettings: View {
         } footer: {
             Text(wallet.prices.footnote + "\n\n" + wallet.footnote)
         }
+        // Through a node only: a light wallet server's till has none to share.
+        if let share = wallet.shareNode {
+            Section {
+                SwitchRow(label: share.label, on: share.on) { send(.setShareNode(on: $0)) }
+            } footer: {
+                Text(share.footnote)
+            }
+        }
     }
 
     /// The address, short and monospaced, and Copy.

@@ -596,6 +596,7 @@ pub fn preview_settings_of(look: PreviewSettings, device: Device, now: i64) -> S
                 .then(|| ("Corner Café".into(), "Till (Corner Café)".into())),
             confirmations: 10,
             expiry_minutes: 30,
+            share_node: false,
             checks: if light {
                 vec![
                     ("Answers in 0.2 s".into(), CheckMark::Passed),

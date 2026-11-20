@@ -509,6 +509,7 @@ impl Inner {
                             s.live = true;
                             s.stream_problem = None;
                         });
+                        till.note_code_node().await;
                         self.resync(till).await;
                     }
                     Ok(BackendEvent::Changed(payment)) => till.on_change(&payment),
@@ -692,6 +693,29 @@ mod tests {
         assert!(!runner.state().running);
         assert!(runner.till().is_none());
         assert_eq!(side.reads.load(Ordering::SeqCst), 0);
+    }
+
+    /// The node a backend says codes name goes into each code as it's
+    /// shown, never into the ledger: gone again as soon as it's `None`.
+    #[tokio::test]
+    async fn codes_name_the_node_the_backend_gives_while_it_gives_one() {
+        let (_runner, side) = runner(None);
+        let code = || side.books.state().sales[0].code.uri.clone();
+        assert_eq!(code(), "monero:8Cy?tx_amount=0.03");
+        side.books
+            .set_code_node(Some("node.example.org:18089".into()));
+        assert_eq!(
+            code(),
+            "monero:8Cy?tx_amount=0.03&fob_node=node.example.org%3A18089"
+        );
+        side.books.refresh();
+        assert_eq!(
+            code(),
+            "monero:8Cy?tx_amount=0.03&fob_node=node.example.org%3A18089",
+            "read again, still once"
+        );
+        side.books.set_code_node(None);
+        assert_eq!(code(), "monero:8Cy?tx_amount=0.03");
     }
 
     #[tokio::test]

@@ -37,6 +37,8 @@ pub struct WalletSettingsInput {
     pub fob: Option<(String, String)>,
     pub confirmations: u32,
     pub expiry_minutes: u32,
+    /// Share node: codes name the node (`fob_node`).
+    pub share_node: bool,
     /// The node's checks, while there are any to show.
     pub checks: Vec<(String, CheckMark)>,
     pub node_choices: Vec<String>,
@@ -82,6 +84,18 @@ pub struct PricesRow {
     pub footnote: String,
 }
 
+/// The switch "Share node in payment codes", with what it does under it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct ShareNodeRow {
+    pub on: bool,
+    pub label: String,
+    pub footnote: String,
+}
+
+/// Under "Share node in payment codes".
+pub const SHARE_NODE_FOOTNOTE: &str = "A customer paying with Fob also sends the payment straight to your node, so the sale shows as paid at once. Only a public node without a login is shared.";
+
 /// Settings › Your wallet.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
@@ -107,6 +121,10 @@ pub struct WalletSection {
     pub node: Option<NodeRow>,
     pub paid_after: SetupStepper,
     pub expiry: SetupStepper,
+    /// "Share node in payment codes": only while payments come through
+    /// the node, not a light wallet server.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub share_node: Option<ShareNodeRow>,
     pub prices: PricesRow,
     /// What the wallet warns of, each its own line in the warning colour.
     pub warnings: Vec<String>,
@@ -250,6 +268,11 @@ pub fn wallet_section(w: &WalletSettingsInput) -> WalletSection {
             w.expiry_minutes,
             &crate::wallet_setup::EXPIRY_STEPS,
         ),
+        share_node: (!light).then(|| ShareNodeRow {
+            on: w.share_node,
+            label: "Share node in payment codes".into(),
+            footnote: SHARE_NODE_FOOTNOTE.into(),
+        }),
         prices: PricesRow {
             label: "Prices from".into(),
             value: match &w.currency {
@@ -304,6 +327,7 @@ mod tests {
             fob: None,
             confirmations: 10,
             expiry_minutes: 30,
+            share_node: false,
             checks: vec![],
             node_choices: vec![],
             currency: Some("AUD".into()),
@@ -363,6 +387,29 @@ mod tests {
             .unwrap();
         assert_eq!(proofs.value, "node.example.com:18089");
         assert!(view.footnote.contains("sees every payment"));
+    }
+
+    #[test]
+    fn share_node_is_a_switch_through_a_node_and_off_unless_turned_on() {
+        let row = wallet_section(&input()).share_node.unwrap();
+        assert_eq!(row.label, "Share node in payment codes");
+        assert!(!row.on);
+        assert!(row.footnote.contains("public node"));
+        let on = WalletSettingsInput {
+            share_node: true,
+            ..input()
+        };
+        assert!(wallet_section(&on).share_node.unwrap().on);
+        let light = WalletSettingsInput {
+            light_server: Some("https://lws.example.com:8443".into()),
+            share_node: true,
+            ..input()
+        };
+        assert_eq!(
+            wallet_section(&light).share_node,
+            None,
+            "a server's till has no node to share"
+        );
     }
 
     #[test]

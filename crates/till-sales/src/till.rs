@@ -862,10 +862,18 @@ impl Till {
         }
     }
 
+    /// Asks the backend which node a code made now names (`fob_node`), for
+    /// the books to add to the codes they show: before each new code, as
+    /// the node may have stopped answering, or Share node been turned off.
+    pub async fn note_code_node(&self) {
+        self.books.set_code_node(self.backend.code_node().await);
+    }
+
     /// The order for `sale`, made by the backend: its amount, currency and
     /// receipt number, and the idempotency key, never whom it's for (names
     /// stay on the device). What went wrong, in the till's words.
     async fn create_order(&self, sale: &FoundSale) -> Result<Payment, String> {
+        self.note_code_node().await;
         let started = std::time::Instant::now();
         let made = self
             .backend
@@ -971,6 +979,7 @@ impl Till {
         let Some(amount) = sale.found.as_ref().map(|f| f.amount) else {
             return Err("That sale can't have a new code.".into());
         };
+        self.note_code_node().await;
         let renewing = async {
             self.backend
                 .renew(&renew, expires_at, &amount)

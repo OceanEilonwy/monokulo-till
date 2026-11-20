@@ -63,6 +63,11 @@ pub struct Books {
     /// The first look in this process has been made: learning without
     /// alerting (docs/ledger.md §6) ends with it.
     looked: AtomicBool,
+    /// The node the sales' codes name (`fob_node`), as the backend last
+    /// said ([`PaymentBackend::code_node`](till_payments::PaymentBackend::code_node)):
+    /// added as each code is shown, never kept in the ledger, so a node
+    /// that stops answering leaves the codes shown from then on.
+    code_node: Mutex<Option<String>>,
 }
 
 impl Books {
@@ -80,7 +85,21 @@ impl Books {
             state: watch::Sender::new(TillState::default()),
             claims,
             looked: AtomicBool::new(false),
+            code_node: Mutex::new(None),
         }
+    }
+
+    /// The node the sales' codes name from now on, or `None`: when it
+    /// changes, the sales are read again with it.
+    pub fn set_code_node(&self, node: Option<String>) {
+        {
+            let mut kept = self.code_node.lock().unwrap_or_else(|e| e.into_inner());
+            if *kept == node {
+                return;
+            }
+            *kept = node;
+        }
+        self.refresh();
     }
 
     /// The ledger reads `clock` from now on, as the till does.
@@ -161,6 +180,11 @@ impl Books {
     fn publish(&self, ledger: &Ledger) -> Result<(), LedgerError> {
         let window = ledger.shift_window()?;
         let views = ledger.sales()?;
+        let node = self
+            .code_node
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         let mut sales = Vec::new();
         let mut shown = Vec::new();
         for view in views {
@@ -168,7 +192,10 @@ impl Books {
             if view.waiting_for_order {
                 continue;
             }
-            let sale = TillSale::of_view(&view);
+            let mut sale = TillSale::of_view(&view);
+            if let Some(node) = node.as_deref().filter(|_| !sale.code.uri.is_empty()) {
+                sale.code.uri = fob_codes::uri::with_node(&sale.code.uri, node);
+            }
             let in_window = window.contains(view.created_at.to_millis());
             // Another counter's cash sale waits for its own till's order,
             // which this till never hears of: it's listed with the shift it

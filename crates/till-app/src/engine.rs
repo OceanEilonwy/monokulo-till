@@ -1038,6 +1038,7 @@ impl State {
             Action::StepTillNumber { up } => self.step_till_number(up),
             Action::StepPaidAfter { up } => self.step_paid_after(up),
             Action::StepCodeExpiry { up } => self.step_code_expiry(up),
+            Action::SetShareNode { on } => self.set_share_node(on),
             Action::SetNode { url } => self.set_node(url),
             Action::CheckNodes => self.check_nodes(),
             Action::CheckNewNode { url } => self.check_new_node(url),

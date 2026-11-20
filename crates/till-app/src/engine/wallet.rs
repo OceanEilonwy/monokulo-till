@@ -551,6 +551,14 @@ impl State {
         form.confirmations = step(&CONFIRMATION_STEPS, form.confirmations, up);
     }
 
+    /// Settings' "Share node in payment codes": only a wallet that's set
+    /// up has codes to name its node in.
+    pub(super) fn set_share_node(&mut self, on: bool) {
+        if self.in_wallet_settings() {
+            self.change_wallet(|link| link.share_node = on);
+        }
+    }
+
     pub(super) fn step_code_expiry(&mut self, up: bool) {
         if self.in_wallet_settings() {
             return self.change_wallet(|link| {
@@ -1040,6 +1048,7 @@ impl State {
                 .map(|f| (f.wallet_name.clone(), f.label.clone())),
             confirmations: link.settled_confirmations,
             expiry_minutes: link.expiry_minutes,
+            share_node: link.share_node,
             checks: self.wallet.checks.clone(),
             node_choices: setup::default_nodes(network),
             providers: till_wallet::prices::provider_names(currency.as_deref()),

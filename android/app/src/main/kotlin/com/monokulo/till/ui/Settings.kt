@@ -265,6 +265,11 @@ private fun WalletSettings(w: WalletSection, a: SettingsActions) {
     )
     w.warnings.forEach { WarningLine(it) }
     Footnote(w.footnote)
+    // Through a node only: a light wallet server's till has none to share.
+    w.shareNode?.let { s ->
+        Group(rows = listOf({ SwitchRow(s.label, s.on, { a.send(Action.SetShareNode(it)) }) }))
+        Footnote(s.footnote)
+    }
 
     SectionLabel(w.prices.label)
     ProviderGroup(w.prices.providers, w.prices.asking, "") { a.send(Action.ChoosePriceProvider(it)) }

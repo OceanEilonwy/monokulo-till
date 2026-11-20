@@ -310,6 +310,9 @@ pub(crate) async fn apply(wallet: &Wallet, link: &WalletLink) -> Result<(), Back
             .await
             .map_err(fob)?;
     }
+    if wallet.share_node().await != link.share_node {
+        wallet.set_share_node(link.share_node).await.map_err(fob)?;
+    }
     match (&link.light_server, &link.node) {
         (Some(server), node) => {
             // The node a light server's proofs are checked with: the link's,
@@ -776,6 +779,12 @@ impl PaymentBackend for WalletBackend {
     async fn disconnect(&self) -> Result<(), BackendError> {
         self.inner.wallet.remove_file().map_err(fob)
     }
+
+    /// The wallet's node, while Share node is on ([`WalletLink::share_node`])
+    /// and a payer could use it: Fob says when (`shared_node`).
+    async fn code_node(&self) -> Option<String> {
+        self.inner.wallet.shared_node().await
+    }
 }
 
 /// "node.example.com" from "https://node.example.com:18089".
@@ -911,6 +920,33 @@ mod tests {
             .await
             .unwrap();
         (backend, clock, source)
+    }
+
+    /// Share node is Till's setting, handed to the wallet with the rest of
+    /// the link; the wallet names its node only once it knows a payer could
+    /// use it, which a wallet that hasn't reached its node yet doesn't.
+    #[tokio::test]
+    async fn share_node_goes_from_the_link_to_the_wallet() {
+        let dir = tempfile::tempdir().unwrap();
+        let (backend, _, _) = backend(dir.path()).await;
+        assert!(
+            !backend.inner.wallet.share_node().await,
+            "off unless turned on"
+        );
+        assert_eq!(backend.code_node().await, None);
+        let mut link = backend.link();
+        link.share_node = true;
+        backend.update(link).await.unwrap();
+        assert!(backend.inner.wallet.share_node().await);
+        assert_eq!(
+            backend.code_node().await,
+            None,
+            "the node hasn't answered yet"
+        );
+        let mut link = backend.link();
+        link.share_node = false;
+        backend.update(link).await.unwrap();
+        assert!(!backend.inner.wallet.share_node().await);
     }
 
     #[tokio::test]

@@ -66,6 +66,13 @@ pub struct WalletLink {
     /// through Fob (docs/view-key-mode.md §5.9).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fob: Option<FobWallet>,
+    /// Share node (Settings): payment codes name the node (`fob_node`), so
+    /// a Fob paying one hands the payment straight to it and the sale shows
+    /// as paid at once. Only while the node is one a payer could use (no
+    /// login, onion or private address, and it answers). Till's own
+    /// setting, never Fob's; off unless turned on.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub share_node: bool,
 }
 
 /// The wallet in Fob a till was connected to: what Till says of it
@@ -117,6 +124,7 @@ impl WalletLink {
             price_provider: None,
             price_currency: None,
             fob: None,
+            share_node: false,
         }
     }
 }

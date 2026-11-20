@@ -782,6 +782,11 @@ pub enum Action {
     StepPaidAfter {
         up: bool,
     },
+    /// Settings' "Share node in payment codes": the wallet's codes name
+    /// its node (`fob_node`) while it's one a payer could use.
+    SetShareNode {
+        on: bool,
+    },
     /// D4's, B4's and C4's "A code runs out after", − or +.
     StepCodeExpiry {
         up: bool,
@@ -950,6 +955,7 @@ impl Action {
             Action::StepTillNumber { .. } => "StepTillNumber",
             Action::StepPaidAfter { .. } => "StepPaidAfter",
             Action::StepCodeExpiry { .. } => "StepCodeExpiry",
+            Action::SetShareNode { .. } => "SetShareNode",
             Action::SetNode { .. } => "SetNode",
             Action::CheckNodes => "CheckNodes",
             Action::CheckNewNode { .. } => "CheckNewNode",

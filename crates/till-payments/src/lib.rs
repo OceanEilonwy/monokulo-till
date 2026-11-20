@@ -95,6 +95,15 @@ pub trait PaymentBackend: Send + Sync {
     /// more often. It never waits. Monokulo ignores it.
     fn focus(&self, payment: Option<&PaymentRef>);
 
+    /// The node to name in a payment code made now (`fob_node`), so a Fob
+    /// paying it also hands the payment straight to that node and the till
+    /// sees it at once; `None` when there's none to share. Only the till's
+    /// own wallet has one, when Share node is on and its node is one a
+    /// payer could use. Monokulo's node isn't the till's to give.
+    async fn code_node(&self) -> Option<String> {
+        None
+    }
+
     /// Ends this till's link: its key stops working at once.
     async fn disconnect(&self) -> Result<(), BackendError>;
 }

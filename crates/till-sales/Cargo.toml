@@ -24,6 +24,8 @@ till-pos.workspace = true
 till-ledger.workspace = true
 # Makes the orders and says where each stands (core.md decision 228).
 till-payments.workspace = true
+# Names the till's node in its codes (`fob_node`), as Fob writes it.
+fob-codes.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
